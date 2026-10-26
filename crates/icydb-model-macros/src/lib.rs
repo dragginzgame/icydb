@@ -35,6 +35,18 @@ use syn::{ItemStruct, Visibility, parse_macro_input};
 ///
 /// Place this outside the framework export attribute so IC-CDK, Canic,
 /// lifecycle, and timer handlers all use the same boundary implementation.
+///
+/// Async functions bind their request root when first polled, not when the
+/// future is constructed. Nested calls reuse the active root. Keep a started
+/// future within that request; do not share it across independent request roots
+/// through a singleflight or shared-future cache. Share completed application
+/// data instead, leaving each request responsible for its own database work.
+///
+/// # Panics
+///
+/// An async function panics when its started future is polled beneath a
+/// different active request root. This refuses to charge one request's work
+/// to another request's counters. See `icydb::db::with_request_execution_async`.
 #[proc_macro_attribute]
 pub fn request_execution(
     args: proc_macro::TokenStream,

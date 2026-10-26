@@ -5,7 +5,7 @@
 
 mod render;
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 
 use crate::{
     cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},

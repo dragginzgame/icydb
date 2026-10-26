@@ -3,7 +3,7 @@
 //! Does not own: SQL routing, response decoding, or final shell rendering.
 //! Boundary: exposes shell-call wire helpers to the shell runner.
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 
 use crate::icp::{call_query_hex, call_update_hex};
 
@@ -15,7 +15,7 @@ pub(super) fn icp_query(
 ) -> Result<Vec<u8>, String> {
     let method = endpoint.name();
     let wire_arg = endpoint
-        .encode_request(sql)
+        .encode_request(sql, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
         .map_err(|error| error.to_string())?;
     call_query_hex(environment, canister, method, &wire_arg, |stderr| {
         sql_call_error("query", environment, canister, method, stderr)
@@ -30,7 +30,7 @@ pub(super) fn icp_update(
 ) -> Result<Vec<u8>, String> {
     let method = endpoint.name();
     let wire_arg = endpoint
-        .encode_request(sql)
+        .encode_request(sql, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
         .map_err(|error| error.to_string())?;
     call_update_hex(environment, canister, method, &wire_arg, |stderr| {
         sql_call_error("DDL", environment, canister, method, stderr)

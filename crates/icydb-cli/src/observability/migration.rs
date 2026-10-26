@@ -1,11 +1,9 @@
 //! Deployed-only source-migration command execution and rendering.
 
-use icydb::{
-    db::{
-        SchemaMigrationCommand as RuntimeMigrationCommand, SchemaMigrationPhase,
-        SchemaMigrationStatusPage, SchemaMigrationStatusRequest, encode_hex_lower,
-    },
-    wire::Endpoint,
+use canic_icydb::wire::Endpoint;
+use icydb::db::{
+    SchemaMigrationCommand as RuntimeMigrationCommand, SchemaMigrationPhase,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest, encode_hex_lower,
 };
 
 use crate::{
@@ -282,10 +280,8 @@ fn print_status(status: &SchemaMigrationStatusPage) {
 
 #[cfg(test)]
 mod tests {
-    use icydb::{
-        db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity},
-        wire::Endpoint,
-    };
+    use canic_icydb::wire::Endpoint;
+    use icydb::db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity};
     use icydb_schema::{ExpectedSchemaFingerprint, SchemaMigrationPlanDigest};
 
     #[test]
@@ -324,10 +320,18 @@ mod tests {
                     },
                 ] {
                     // The argument carries its own types, without service metadata.
-                    let bytes = Endpoint::SchemaMigrate.encode_request(&command).unwrap();
+                    let bytes = Endpoint::SchemaMigrate
+                        .encode_request(
+                            &command,
+                            icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+                        )
+                        .unwrap();
                     assert_eq!(
-                        icydb::wire::Endpoint::SchemaMigrate
-                            .decode_request::<SchemaMigrationCommand>(&bytes)
+                        canic_icydb::wire::Endpoint::SchemaMigrate
+                            .decode_request::<SchemaMigrationCommand>(
+                                &bytes,
+                                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)
+                            )
                             .unwrap(),
                         command
                     );

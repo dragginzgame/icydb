@@ -682,6 +682,11 @@ serving another operation.
 
 ## Public SQL Mutation Execution
 
+Authored CHECK constraint and index names must not start with the exact,
+case-sensitive `__icydb_` prefix. That namespace belongs to engine-generated
+constraints. Existing accepted engine names remain valid; dropping or inspecting
+constraints continues to use their accepted identities.
+
 Supported public mutation shapes are:
 
 - `INSERT`
@@ -698,6 +703,13 @@ nested expressions fails closed. Insert omission and explicit insert
 request-specific diagnostics. Update omission preserves the current value;
 `SET field = DEFAULT` applies the current accepted ordinary default or nullable
 `NULL`, and rejects required, generated, or managed fields.
+
+Without an explicit target column list, `INSERT ... VALUES` and `INSERT ... SELECT`
+map positions to all accepted fields in accepted field order, excluding managed
+fields. Nullable and defaulted fields still occupy positions; row width never
+selects a different subset. Supply `DEFAULT` in a VALUES position or name target
+columns explicitly to omit a field. A width mismatch rejects the whole batch.
+`DEFAULT VALUES` remains a separate all-default insertion form.
 
 Single-call UPDATE also accepts bounded scalar RHS expressions, including field
 copies and arithmetic: `SET name = description` and `SET qty = qty + 1`.

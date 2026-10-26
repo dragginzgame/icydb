@@ -101,7 +101,7 @@ integer adapter in IcyDB.
 Generated endpoints use IC Wire method/direction envelopes and bounded native
 Postcard projections. Strings and collections are admitted by complete message
 bytes, allocation, node count and depth. Native callers share the public Rust
-payloads and `icydb::wire::Endpoint`; opaque native projections currently have no
+payloads and `canic_icydb::wire::Endpoint`; opaque native projections currently have no
 automatically generated TypeScript schema. Changing a payload layout requires a
 coordinated method-identity change and matching caller updates.
 

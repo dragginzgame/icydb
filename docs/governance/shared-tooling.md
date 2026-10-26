@@ -7,11 +7,10 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.26.19 at revision
-`c830c33447f0a84e015bda7fa14b6c096a58368e`. The canonical `VERSION` and
-snapshot receipt agree; the upstream commit subject says 0.27.19 and is not the
-version authority. The exporter owns the 126 selected payloads and their
-hashes/modes. Refresh them canonically; a sibling checkout cannot change them.
+IcyDB selects Shared Tooling 0.26.20 at published revision
+`a7f85d45d4212d4c39225f58597580560a333550`. The canonical exporter owns the
+129 selected payloads and their hashes/modes. Refresh them canonically; a
+sibling checkout's uncommitted changes are not part of this snapshot.
 
 The complete pre-cleanup record remains in Git at commit
 `b1dd1a5ba9a425bff9fbde06d639f714a3ec420d`, at this document's path.
@@ -89,11 +88,27 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Shared Tooling 0.26.19 passes Linux snapshot integrity, shared-adapter,
-standard-release routing, release-runner simulation and fixture-retention checks.
-Normal release entry
-starts from current metadata; saved recovery uses explicit `release-resume`.
-These substitute fixtures perform no release or delivery effects.
+Current minimums and lock selections are IC Build/Host/Testkit 0.68.8,
+Platform 0.6.19, Wire 0.7.17, Memory/Storage 0.51.4, Metrics 0.16.3 and Timers
+0.31.5. Registry availability was verified before locked cache preparation.
+The browser Platform package remains at its latest published 0.1.0. Canic stays
+at the explicit adapter revision in Cargo.toml: upstream main does not contain
+that package and is not a substitutable dependency.
+
+Shared Tooling 0.26.20 changes the selected governance payloads; selected
+executable helpers and IC tool catalogs are unchanged, except for adoption of
+the shared SDK boundary checker. The browser harness delegates source and
+generated-binding declaration/import checks to that canonical checker. Consumer qualification
+uses snapshot integrity, dependency boundaries, shared-adapter and release
+routing fixtures plus focused Rust consumers. These fixtures perform no release
+or delivery effects. Native macOS, installed IC and the full release gate remain
+separate qualification obligations.
+Current focused checks pass strict facade/CLI/build Clippy, Testkit consumer
+compilation, facade Wire tests, and Rust 1.91 facade Wasm compilation. Native
+TypeScript qualification passes 90 exact frames across 12 methods plus 3,108
+truncations and malformed/value/limit controls; it is not installed Chromium or
+IC qualification. Deployment artifact dependency exclusion enforcement remains
+tracked separately in #378.
 
 The new [RPC-budget rule](../../rules/rpc-budgets.md) applies to browser contracts.
 IcyDB already projects schema-owned policy through Wire generation and checks
@@ -102,7 +117,12 @@ below/exact/above cases for every request/reply resource and an exercised
 intentional asymmetry remain unqualified by the current browser harness.
 Native allocation budgets are not browser heap guarantees.
 
-IC Memory/Storage 0.51.0 are selected together from published archives at
+### Earlier runtime qualification (0.51.0 / 0.31.0)
+
+The following evidence belongs to the older selections stated below; it does
+not qualify the current patch releases.
+
+IC Memory/Storage 0.51.0 were selected together from published archives at
 `e3939cd1b33a4c6839ff3a793b42c61a977f8f16`. Their library Rust sources match
 0.50.17; collection formats, allocation leases and retained data are unchanged.
 The public facade now exposes Memory 0.51 declaration/authority/pool identities,

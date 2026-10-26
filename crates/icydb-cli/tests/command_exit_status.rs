@@ -165,15 +165,21 @@ esac
         let terminated = self.directory.join("success-argument-terminated.bin");
         fs::write(
             &success,
-            icydb::wire::Endpoint::Query
-                .encode_request("SELECT id FROM Character")
+            canic_icydb::wire::Endpoint::Query
+                .encode_request(
+                    "SELECT id FROM Character",
+                    icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+                )
                 .unwrap(),
         )
         .unwrap();
         fs::write(
             &terminated,
-            icydb::wire::Endpoint::Query
-                .encode_request("SELECT id FROM Character;")
+            canic_icydb::wire::Endpoint::Query
+                .encode_request(
+                    "SELECT id FROM Character;",
+                    icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+                )
                 .unwrap(),
         )
         .unwrap();
@@ -192,19 +198,25 @@ esac
             .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE");
 
         for (name, endpoint) in [
-            ("QUERY", icydb::wire::Endpoint::Query),
-            ("DDL", icydb::wire::Endpoint::Ddl),
-            ("UPDATE", icydb::wire::Endpoint::Update),
-            ("METRICS", icydb::wire::Endpoint::Metrics),
-            ("METRICS_RESET", icydb::wire::Endpoint::MetricsReset),
-            ("SNAPSHOT", icydb::wire::Endpoint::Snapshot),
-            ("SCHEMA", icydb::wire::Endpoint::Schema),
-            ("SCHEMA_MIGRATION", icydb::wire::Endpoint::SchemaMigration),
-            ("SCHEMA_MIGRATE", icydb::wire::Endpoint::SchemaMigrate),
-            ("FIXTURES_LOAD", icydb::wire::Endpoint::FixturesLoad),
+            ("QUERY", canic_icydb::wire::Endpoint::Query),
+            ("DDL", canic_icydb::wire::Endpoint::Ddl),
+            ("UPDATE", canic_icydb::wire::Endpoint::Update),
+            ("METRICS", canic_icydb::wire::Endpoint::Metrics),
+            ("METRICS_RESET", canic_icydb::wire::Endpoint::MetricsReset),
+            ("SNAPSHOT", canic_icydb::wire::Endpoint::Snapshot),
+            ("SCHEMA", canic_icydb::wire::Endpoint::Schema),
+            (
+                "SCHEMA_MIGRATION",
+                canic_icydb::wire::Endpoint::SchemaMigration,
+            ),
+            ("SCHEMA_MIGRATE", canic_icydb::wire::Endpoint::SchemaMigrate),
+            ("FIXTURES_LOAD", canic_icydb::wire::Endpoint::FixturesLoad),
         ] {
             let mut prefix = String::new();
-            for byte in endpoint.encode_response(()).unwrap() {
+            for byte in endpoint
+                .encode_response((), icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+                .unwrap()
+            {
                 write!(&mut prefix, "{byte:02x}").unwrap();
             }
             command.env(format!("ICP_WIRE_{name}"), prefix);
@@ -287,15 +299,21 @@ esac
             }
         }
         for bytes in self.call_arguments("icydb_schema_migration") {
-            let request = icydb::wire::Endpoint::SchemaMigration
-                .decode_request::<icydb::db::SchemaMigrationStatusRequest>(&bytes)
+            let request = canic_icydb::wire::Endpoint::SchemaMigration
+                .decode_request::<icydb::db::SchemaMigrationStatusRequest>(
+                    &bytes,
+                    icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+                )
                 .expect("CLI status arguments must carry the maintained request type");
             assert_eq!(request.cursor(), None);
         }
         let commands = self.call_arguments("icydb_schema_migrate");
         for bytes in &commands {
-            icydb::wire::Endpoint::SchemaMigrate
-                .decode_request::<icydb::db::SchemaMigrationCommand>(bytes)
+            canic_icydb::wire::Endpoint::SchemaMigrate
+                .decode_request::<icydb::db::SchemaMigrationCommand>(
+                    bytes,
+                    icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+                )
                 .expect("CLI mutation arguments must carry the maintained command type");
         }
         commands.len()
@@ -366,8 +384,11 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
         let arguments = fixture.call_arguments("icydb_query");
         assert_eq!(arguments.len(), 1);
         assert_eq!(
-            icydb::wire::Endpoint::Query
-                .decode_request::<String>(&arguments[0])
+            canic_icydb::wire::Endpoint::Query
+                .decode_request::<String>(
+                    &arguments[0],
+                    icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)
+                )
                 .unwrap(),
             sql
         );
@@ -385,7 +406,7 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
 
 #[test]
 fn report_commands_preserve_endpoint_frames_and_query_update_selection() {
-    use icydb::wire::Endpoint;
+    use canic_icydb::wire::Endpoint;
 
     for (arguments, endpoint, query, response) in [
         (
@@ -424,7 +445,12 @@ fn report_commands_preserve_endpoint_frames_and_query_update_selection() {
         assert!(output.stderr.is_empty());
         assert!(!output.stdout.is_empty());
         let requests = fixture.call_arguments(endpoint.name());
-        assert_eq!(requests, [endpoint.encode_request(()).unwrap()]);
+        assert_eq!(
+            requests,
+            [endpoint
+                .encode_request((), icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
+                .unwrap()]
+        );
         let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
         assert_eq!(calls.lines().any(|argument| argument == "--query"), query);
     }

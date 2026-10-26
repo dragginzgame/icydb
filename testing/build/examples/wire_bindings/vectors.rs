@@ -1,6 +1,7 @@
 //! Actual native encoders are the byte oracle for generated browser codecs.
 
 use crate::{Generator, samples};
+use canic_icydb::wire::Endpoint;
 use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::Path};
 
 use icydb::{
@@ -11,7 +12,6 @@ use icydb::{
     },
     types::{Float32, Float64},
     value::{OutputValue, PublicValue},
-    wire::Endpoint,
 };
 use serde_json::Value;
 use serde_reflection::Value as Sample;

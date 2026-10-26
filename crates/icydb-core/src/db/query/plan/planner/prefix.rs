@@ -19,6 +19,7 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
             OrderDirection, OrderSpec,
+            access_choice::AccessChoiceRejectedReason,
             key_item_match::{
                 copy_lookup_value_for_key_item, key_item_matches_field_and_coercion,
                 key_item_supports_lookup_value, lower_lookup_value_for_key_item,
@@ -26,8 +27,8 @@ use crate::{
             order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
-                access_candidate_score_outranks, index_field_literal_matcher,
-                index_literal_matches_schema,
+                access_candidate_score_outranks, coercion_supports_index_lookup,
+                index_field_literal_matcher, index_literal_matches_schema,
             },
         },
         resource::construction::ConstructionBudget,
@@ -206,32 +207,8 @@ pub(super) fn index_prefix_from_and(
     grouped: bool,
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<AccessPlan<Value>>, InternalError> {
-    // Cache literal/schema compatibility once per equality literal so index
-    // candidate selection does not repeat schema checks on every index iteration.
-    let mut field_values = Vec::new();
     budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
-
-    for child in children {
-        let Predicate::Compare(cmp) = child else {
-            continue;
-        };
-        if cmp.op != CompareOp::Eq {
-            continue;
-        }
-        if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::TextCasefold
-        ) {
-            continue;
-        }
-        budget.reserve_vec(&mut field_values, 1)?;
-        field_values.push(CachedEqLiteral {
-            field: cmp.field.as_str(),
-            value: &cmp.value,
-            coercion: cmp.coercion.id,
-            compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
-        });
-    }
+    let field_values = collect_prefix_eq_constraints(schema, children, Vec::new(), budget)?;
 
     let mut best: Option<(
         AccessCandidateScore,
@@ -499,7 +476,7 @@ fn collect_branch_set_literals<'a>(
 /// Equality literal plus its precomputed planner-side schema compatibility.
 ///
 
-struct CachedEqLiteral<'a> {
+pub(in crate::db::query::plan) struct CachedEqLiteral<'a> {
     field: &'a str,
     value: &'a Value,
     coercion: CoercionId,
@@ -517,6 +494,74 @@ struct CachedInValue<'a> {
     compatible: bool,
 }
 
+// Both planning and diagnostic scoring consume the same admitted equality
+// operands. Callers admit child visits and supply their already admitted backing;
+// diagnostic projection reserves exact slots, while planning grows only for matches.
+pub(in crate::db::query::plan) fn collect_prefix_eq_constraints<'a>(
+    schema: &SchemaInfo,
+    children: &'a [Predicate],
+    mut values: Vec<CachedEqLiteral<'a>>,
+    budget: &dyn ConstructionBudget,
+) -> Result<Vec<CachedEqLiteral<'a>>, InternalError> {
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            continue;
+        };
+        if cmp.op != CompareOp::Eq || !coercion_supports_index_lookup(cmp.coercion.id) {
+            continue;
+        }
+        budget.reserve_vec(&mut values, 1)?;
+        values.push(CachedEqLiteral {
+            field: cmp.field.as_str(),
+            value: cmp.value(),
+            coercion: cmp.coercion.id,
+            compatible: index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()),
+        });
+    }
+    Ok(values)
+}
+
+// One key-slot owner decides matching/coercion, incompatible literals and
+// conflicting equalities. Consumers separately project diagnostics or retain keys.
+pub(in crate::db::query::plan) fn resolve_index_eq_slot<'a>(
+    key_item: SemanticIndexKeyItemRef<'_>,
+    field_values: &[CachedEqLiteral<'a>],
+    budget: &dyn ConstructionBudget,
+) -> Result<Result<Option<Cow<'a, Value>>, AccessChoiceRejectedReason>, InternalError> {
+    let mut matched: Option<Cow<'a, Value>> = None;
+    let mut saw_incompatible = false;
+    for cached in field_values {
+        if key_item.field() != cached.field {
+            continue;
+        }
+        if !cached.compatible {
+            saw_incompatible = true;
+            continue;
+        }
+        let Some(candidate) = lower_lookup_value_for_key_item(
+            key_item,
+            cached.field,
+            cached.value,
+            cached.coercion,
+            true,
+            budget,
+        )?
+        else {
+            continue;
+        };
+        if let Some(existing) = &matched
+            && !budget.values_equal(existing, &candidate)?
+        {
+            return Ok(Err(AccessChoiceRejectedReason::ConflictingEqConstraints));
+        }
+        matched = Some(candidate);
+    }
+    if matched.is_none() && saw_incompatible {
+        return Ok(Err(AccessChoiceRejectedReason::LiteralIncompatible));
+    }
+    Ok(Ok(matched))
+}
+
 fn build_index_eq_prefix(
     key_items: &[crate::db::access::SemanticIndexKeyItem],
     field_values: &[CachedEqLiteral<'_>],
@@ -530,28 +575,13 @@ fn build_index_eq_prefix(
     )?;
     let mut prefix = Vec::new();
     for key_item in key_items {
-        let key_item = key_item.as_ref();
-        let mut matched: Option<Cow<'_, Value>> = None;
-        for cached in field_values {
-            let Some(candidate) = lower_lookup_value_for_key_item(
-                key_item,
-                cached.field,
-                cached.value,
-                cached.coercion,
-                cached.compatible,
-                budget,
-            )?
-            else {
-                continue;
-            };
-
-            if let Some(existing) = &matched
-                && !budget.values_equal(existing, &candidate)?
-            {
-                return Ok(None);
-            }
-            matched = Some(candidate);
-        }
+        let matched = match resolve_index_eq_slot(key_item.as_ref(), field_values, budget)? {
+            Ok(matched) => matched,
+            // A nonmatching slot ends the usable prefix. Diagnostics retain
+            // the reason, while planning can still use an earlier prefix.
+            Err(AccessChoiceRejectedReason::LiteralIncompatible) => break,
+            Err(_) => return Ok(None),
+        };
 
         let Some(value) = matched else {
             break;

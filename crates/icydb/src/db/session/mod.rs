@@ -296,7 +296,15 @@ impl<C: CanisterKind> DbSession<C> {
             .acknowledge_resumable_job(job_id, expected_sequence)
     }
 
-    /// Execute and atomically retain one proof-checked application page.
+    /// Execute one proof-checked application page and atomically replace its
+    /// progress record, without making the closure's writes transactional.
+    ///
+    /// Errors and successful receipts with invalidated status do not undo
+    /// closure side effects. Prefer read-only work or independently idempotent
+    /// effects. Exact replay skips the closure only after retaining a receipt.
+    /// An IC caller relying on message rollback must trap on both errors and
+    /// invalidated receipts; earlier-message effects and native writes are not
+    /// rolled back by this API.
     pub fn compare_proof_and_advance<E>(
         &self,
         request: &crate::db::ResumableJobAdvanceRequest,

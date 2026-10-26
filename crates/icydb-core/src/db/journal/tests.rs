@@ -393,6 +393,8 @@ fn journal_batch_codec_round_trips_accepted_schema_publication() {
     let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
     let decoded = decode_journal_batch(&encoded).expect("journal batch should decode");
 
+    assert_eq!(batch.published_entity_tags(), Some([].as_slice()));
+    assert_eq!(decoded.published_entity_tags(), Some([].as_slice()));
     assert_eq!(decoded, batch);
 }
 

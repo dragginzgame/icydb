@@ -68,7 +68,10 @@ fn compile_normalized_bool_expr_to_predicate_impl(
         return Err(PredicateCompileError::Unsupported);
     }
     let when_true = compile_bool_truth_predicate(expr, BoolTruth::True, work)?;
-    Ok(crate::db::predicate::normalize(when_true))
+    Ok(
+        crate::db::predicate::normalize_with_budget(when_true, work)
+            .map_err(QueryError::execute)?,
+    )
 }
 
 /// Derive a runtime predicate without copying the canonical expression tree.

@@ -124,53 +124,45 @@ fn generate_normalizers(
     let model = &paths.model;
     normalizers
         .iter()
-        .map(|normalizer| {
-            let ctor = normalizer.quote_constructor();
-            let callback_type = &normalizer.path;
-            match &seg {
-                None => quote! {{
-                    let mut __callback_ctx = #model::visitor::CallbackContext::new(
-                        ctx,
-                        #model::visitor::CallbackIdentity::new(
-                            #model::visitor::CallbackKind::Normalizer,
-                            ::core::any::type_name::<#callback_type>(),
-                        ),
-                    );
-                    if let ::core::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
-                        &(#ctor),
-                        &mut #target,
-                        &mut __callback_ctx,
-                    ) {
-                        #model::visitor::VisitorContext::add_issue(
-                            &mut __callback_ctx,
-                            #model::visitor::Issue::from(msg),
-                        );
-                    }
-                }},
-                Some(seg) => quote! {{
-                    let mut __field_ctx =
-                        #model::visitor::ScopedContext::new(ctx, #seg);
-                    let mut __callback_ctx = #model::visitor::CallbackContext::new(
-                        &mut __field_ctx,
-                        #model::visitor::CallbackIdentity::new(
-                            #model::visitor::CallbackKind::Normalizer,
-                            ::core::any::type_name::<#callback_type>(),
-                        ),
-                    );
-                    if let ::core::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
-                        &(#ctor),
-                        &mut #target,
-                        &mut __callback_ctx,
-                    ) {
-                        #model::visitor::VisitorContext::add_issue(
-                            &mut __callback_ctx,
-                            #model::visitor::Issue::from(msg),
-                        );
-                    }
-                }},
+        .map(|normalizer| match &seg {
+            None => normalizer_call(normalizer, &target, quote!(ctx), paths),
+            Some(seg) => {
+                let call = normalizer_call(normalizer, &target, quote!(&mut __field_ctx), paths);
+                quote! {{
+                    let mut __field_ctx = #model::visitor::ScopedContext::new(ctx, #seg);
+                    #call
+                }}
             }
         })
         .collect()
+}
+
+// Context selection does not change callback identity, invocation or issues.
+fn normalizer_call(
+    normalizer: &TypeNormalizer,
+    target: &TokenStream,
+    context: TokenStream,
+    paths: &CratePaths,
+) -> TokenStream {
+    let model = &paths.model;
+    let ctor = normalizer.quote_constructor();
+    let callback_type = &normalizer.path;
+    quote! {{
+        let mut __callback_ctx = #model::visitor::CallbackContext::new(
+            #context,
+            #model::visitor::CallbackIdentity::new(
+                #model::visitor::CallbackKind::Normalizer,
+                ::core::any::type_name::<#callback_type>(),
+            ),
+        );
+        if let ::core::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
+            &(#ctor), &mut #target, &mut __callback_ctx,
+        ) {
+            #model::visitor::VisitorContext::add_issue(
+                &mut __callback_ctx, #model::visitor::Issue::from(msg),
+            );
+        }
+    }}
 }
 
 /// Normalizers attached to the container itself (not items).

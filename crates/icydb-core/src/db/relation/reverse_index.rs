@@ -444,6 +444,28 @@ impl AcceptedRelationInfo {
         }
     }
 
+    // Both transition readers use the same accepted relation authority. Exact
+    // physical equality proves identical targets, but absent historical slots
+    // do not: leave those to ordinary effective-value projection.
+    fn source_bytes_unchanged(
+        &self,
+        old: &StructuralSlotReader<'_>,
+        new: &StructuralSlotReader<'_>,
+    ) -> bool {
+        let unchanged = |slot| {
+            old.get_bytes(slot)
+                .zip(new.get_bytes(slot))
+                .is_some_and(|(old, new)| old == new)
+        };
+        match &self.source {
+            AcceptedRelationSource::Direct(components) => components
+                .components()
+                .iter()
+                .all(|component| unchanged(component.field_index())),
+            AcceptedRelationSource::Nested(nested) => unchanged(nested.root_slot),
+        }
+    }
+
     pub(in crate::db::relation) fn write_violation(
         &self,
         accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
@@ -714,7 +736,11 @@ impl RelationConstraintProjection {
         new_budget: &mut RelationProjectionBudget,
         commit_budget: &mut RelationCommitBudget,
     ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
+        let unchanged = old_row
+            .zip(new_row)
+            .is_some_and(|(old, new)| self.relation.source_bytes_unchanged(old, new));
         let old_entries = old_row
+            .filter(|_| !unchanged)
             .map(|row| {
                 self.project_row_with_target_reader(
                     source_primary_key,
@@ -750,6 +776,11 @@ impl RelationConstraintProjection {
                 self.source.entity_tag(),
                 mutation,
             ));
+        }
+        // Identical source bytes need no reverse delta, but the new projection
+        // above must still validate targets against the batch's final row view.
+        if unchanged {
+            return Ok(Vec::new());
         }
         let new_entries = new_projection
             .map(RelationConstraintRowProjection::into_entries)

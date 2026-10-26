@@ -12,6 +12,43 @@ fn retained_job(job_id: MutationJobId) -> MutationJobRecord {
         .expect("retained job should remain readable")
 }
 
+#[test]
+fn application_page_error_keeps_committed_writes_without_advancing_progress() {
+    let (session, _root) = initialize_journaled_with_root();
+    let proof = session
+        .capture_read_set_revision_proof(&[ENTITY_NAME])
+        .unwrap();
+    let job_id = ResumableJobId::try_from_bytes([91; 32]).unwrap();
+    session.start_resumable_job(job_id, proof, vec![7]).unwrap();
+    let before = session.resumable_job_state(job_id).unwrap();
+    let request = ResumableJobAdvanceRequest::new(
+        job_id,
+        0,
+        ResumableJobIdempotencyKey::new("application-error").unwrap(),
+    );
+
+    let result = session.compare_proof_and_advance(&request, |_| {
+        assert_eq!(insert_exact_key_fixture(&session, 41), 1);
+        Err::<ResumableJobAdvance, _>(())
+    });
+    assert!(matches!(
+        result,
+        Err(CompareProofAndAdvanceError::Operation(()))
+    ));
+    assert_eq!(session.resumable_job_state(job_id).unwrap(), before);
+    assert_dynamic_payload(&session, 1, 41);
+
+    // No successful advance was retained. The source write invalidates the
+    // next attempt before its closure, rather than rolling the write back.
+    let receipt = session
+        .compare_proof_and_advance::<()>(&request, |_| {
+            panic!("changed source must reject before retrying application work")
+        })
+        .unwrap();
+    assert_eq!(receipt.status, ResumableJobAdvanceStatus::Invalidated);
+    assert_dynamic_payload(&session, 1, 41);
+}
+
 // Both phases consume the same catalog authority; Verify starts from a nonmatching page.
 fn pending_jobs(
     session: &DbSession<JournaledTestCanister>,

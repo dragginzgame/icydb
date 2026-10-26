@@ -5,7 +5,7 @@
 
 use crate::db::{
     QueryError,
-    predicate::{Predicate, normalize, normalize_enum_literals},
+    predicate::{Predicate, normalize_enum_literals, normalize_with_budget},
     query::{
         plan::{OrderSpec, canonicalize_order_spec_for_grouping},
         preparation::PreparationWork,
@@ -79,7 +79,7 @@ pub(in crate::db::query) fn normalize_query_predicate(
         .map(|predicate| {
             let predicate = normalize_enum_literals(schema_info, predicate, work)?;
 
-            Ok::<Predicate, QueryError>(normalize(predicate))
+            normalize_with_budget(predicate, work).map_err(QueryError::execute)
         })
         .transpose()
 }

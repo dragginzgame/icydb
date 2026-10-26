@@ -155,7 +155,7 @@ pub(in crate::db) use composite_catalog::{CompositeFieldId, CompositeTypeId};
 #[cfg(feature = "sql")]
 pub(in crate::db) use constraint::AcceptedConstraintCatalogError;
 #[cfg(feature = "sql")]
-pub(in crate::db) use constraint::validate_constraint_name;
+pub(in crate::db) use constraint::validate_authored_constraint_name;
 #[doc(hidden)]
 pub use constraint::validate_generated_constraint_name;
 pub(in crate::db) use constraint::{

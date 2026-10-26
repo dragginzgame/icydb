@@ -31,7 +31,7 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   Neither root nor detailed notes should inventory moved, renamed or edited
   functions and types. Summarize refactoring by its outcome. Mention specific
   symbols only when needed to explain a meaningful API change or consumer action.
-  The maintainer-only [symbol report](change-reporting.md#symbol-changes) lists
+  The opt-in maintainer [symbol report](change-reporting.md#symbol-changes) lists
   genuinely created and deleted declarations; keep that inventory out of release
   notes rather than relocating it into a detail file.
   Include a small representative example when it makes a newly supported

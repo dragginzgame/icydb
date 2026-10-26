@@ -243,25 +243,6 @@ impl JournalRecord {
         })
     }
 
-    /// Return the exact accepted entity set published by this record.
-    pub(in crate::db::journal) fn published_entity_tags(
-        &self,
-    ) -> Result<Option<Vec<EntityTag>>, InternalError> {
-        let Self::AcceptedSchemaPublish {
-            schema_bundle_bytes,
-            schema_root_bytes,
-            ..
-        } = self
-        else {
-            return Ok(None);
-        };
-        let (bundle, _) =
-            CandidateSchemaRevision::decode_contents(schema_bundle_bytes, schema_root_bytes)
-                .map_err(|_| journal_batch_corruption())?;
-
-        Ok(Some(bundle.entity_snapshots().keys().copied().collect()))
-    }
-
     pub(in crate::db) fn row_put(
         entity_path: impl Into<String>,
         primary_key: RawDataStoreKey,
@@ -437,6 +418,8 @@ pub(in crate::db) struct JournalBatch {
     journal_sequence: JournalSequence,
     database_commit_sequence: DatabaseCommitSequence,
     records: Vec<JournalRecord>,
+    // Derived only during admission, never encoded or supplied by a caller.
+    published_entity_tags: Option<Vec<EntityTag>>,
 }
 
 impl JournalBatch {
@@ -454,8 +437,11 @@ impl JournalBatch {
         if records.len() > MAX_JOURNAL_BATCH_RECORDS {
             return Err(journal_batch_corruption());
         }
+        let mut published_entity_tags = None;
         for record in &records {
-            validate_journal_record(record)?;
+            if let Some(tags) = admit_journal_record(record)? {
+                published_entity_tags = Some(tags);
+            }
         }
         Self::from_validated_records(
             batch_id,
@@ -463,17 +449,20 @@ impl JournalBatch {
             journal_sequence,
             database_commit_sequence,
             records,
+            published_entity_tags,
         )
     }
 
     // Only the checked constructor above and the record-by-record decoder may
-    // enter here. Keep batch-level checks shared without revalidating payloads.
+    // enter here. Shape admission proves publication uniqueness before its facts
+    // become visible. Keep batch checks shared without revalidating payloads.
     fn from_validated_records(
         batch_id: JournalBatchId,
         commit_marker_id: JournalCommitMarkerId,
         journal_sequence: JournalSequence,
         database_commit_sequence: DatabaseCommitSequence,
         records: Vec<JournalRecord>,
+        published_entity_tags: Option<Vec<EntityTag>>,
     ) -> Result<Self, InternalError> {
         let _ = journal_sequence
             .next()
@@ -484,6 +473,7 @@ impl JournalBatch {
             journal_sequence,
             database_commit_sequence,
             records,
+            published_entity_tags,
         };
         validate_journal_batch_shape(&batch)?;
 
@@ -525,6 +515,13 @@ impl JournalBatch {
     #[must_use]
     pub(in crate::db) const fn database_commit_sequence(&self) -> DatabaseCommitSequence {
         self.database_commit_sequence
+    }
+
+    /// Entity publication facts retained by the same immutable batch that
+    /// admitted the schema bytes. Consumers must not decode them again.
+    #[must_use]
+    pub(in crate::db::journal) fn published_entity_tags(&self) -> Option<&[EntityTag]> {
+        self.published_entity_tags.as_deref()
     }
 
     #[must_use]
@@ -597,8 +594,13 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
     let record_count = fixed_header.record_count() as usize;
 
     let mut records = Vec::with_capacity(record_count);
+    let mut published_entity_tags = None;
     for _ in 0..record_count {
-        records.push(read_journal_record(&mut reader)?);
+        let (record, tags) = read_journal_record(&mut reader)?;
+        if let Some(tags) = tags {
+            published_entity_tags = Some(tags);
+        }
+        records.push(record);
     }
 
     reader.finish().map_err(primitive_decode_error)?;
@@ -609,6 +611,7 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
         fixed_header.journal_sequence(),
         fixed_header.database_commit_sequence(),
         records,
+        published_entity_tags,
     )
 }
 
@@ -1011,10 +1014,12 @@ fn write_index_key_chunk(
     clippy::too_many_lines,
     reason = "one exhaustive decoder keeps every current journal record tag on the same bounded cursor authority"
 )]
-fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, InternalError> {
+fn read_journal_record(
+    reader: &mut ByteReader<'_>,
+) -> Result<(JournalRecord, Option<Vec<EntityTag>>), InternalError> {
     let tag = reader.read_u8().map_err(primitive_decode_error)?;
 
-    match tag {
+    let record = match tag {
         JOURNAL_RECORD_ROW_PUT => {
             let entity_path = read_utf8_path(reader)?;
             let primary_key = read_primary_key(reader)?;
@@ -1026,7 +1031,12 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 .read_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>()
                 .map_err(primitive_decode_error)?;
 
-            JournalRecord::row_put(entity_path, primary_key, row_bytes, schema_fingerprint)
+            JournalRecord::RowPut {
+                entity_path,
+                primary_key,
+                row_bytes,
+                schema_fingerprint,
+            }
         }
         JOURNAL_RECORD_ROW_DELETE => {
             let entity_path = read_utf8_path(reader)?;
@@ -1035,7 +1045,11 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 .read_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>()
                 .map_err(primitive_decode_error)?;
 
-            JournalRecord::row_delete(entity_path, primary_key, schema_fingerprint)
+            JournalRecord::RowDelete {
+                entity_path,
+                primary_key,
+                schema_fingerprint,
+            }
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH => {
             let store_path = read_utf8_path(reader)?;
@@ -1049,32 +1063,32 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 .read_len_prefixed_bytes_le()
                 .map_err(primitive_decode_error)?
                 .to_vec();
-            JournalRecord::accepted_schema_publish(
+            JournalRecord::AcceptedSchemaPublish {
                 store_path,
                 expected_revision,
                 schema_bundle_bytes,
                 schema_root_bytes,
-            )
+            }
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_DELETE => {
             let (store_path, entity_tag, accepted_after_fingerprint, keys) =
                 read_accepted_schema_index_chunk(reader)?;
-            JournalRecord::accepted_schema_index_delete(
+            JournalRecord::AcceptedSchemaIndexDelete {
                 store_path,
                 entity_tag,
                 accepted_after_fingerprint,
                 keys,
-            )
+            }
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_PUT => {
             let (store_path, entity_tag, accepted_after_fingerprint, keys) =
                 read_accepted_schema_index_chunk(reader)?;
-            JournalRecord::accepted_schema_index_put(
+            JournalRecord::AcceptedSchemaIndexPut {
                 store_path,
                 entity_tag,
                 accepted_after_fingerprint,
                 keys,
-            )
+            }
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT => {
             let store_path = read_utf8_path(reader)?;
@@ -1086,12 +1100,12 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 .read_len_prefixed_bytes_le()
                 .map_err(primitive_decode_error)?
                 .to_vec();
-            let job = decode_constraint_validation_job(&job_bytes)
-                .map_err(|_| journal_batch_corruption())?;
-            if job.entity_tag() != entity_tag || job.constraint_id() != constraint_id {
-                return Err(journal_batch_corruption());
+            JournalRecord::ConstraintValidationJobPut {
+                store_path,
+                entity_tag,
+                constraint_id,
+                job_bytes,
             }
-            JournalRecord::constraint_validation_job_put(store_path, &job)
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE => {
             let store_path = read_utf8_path(reader)?;
@@ -1099,7 +1113,11 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
             let constraint_id =
                 ConstraintId::new(reader.read_u32_le().map_err(primitive_decode_error)?)
                     .ok_or_else(journal_batch_corruption)?;
-            JournalRecord::constraint_validation_job_delete(store_path, entity_tag, constraint_id)
+            JournalRecord::ConstraintValidationJobDelete {
+                store_path,
+                entity_tag,
+                constraint_id,
+            }
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT => {
             let store_path = read_utf8_path(reader)?;
@@ -1114,12 +1132,12 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 return Err(journal_batch_corruption());
             }
             let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes));
-            JournalRecord::constraint_validation_index_put(
+            JournalRecord::ConstraintValidationIndexPut {
                 store_path,
                 entity_tag,
                 constraint_id,
                 key,
-            )
+            }
         }
         JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE => {
             let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(
@@ -1140,7 +1158,7 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 allocation_count,
             )
             .map_err(|_| journal_batch_corruption())?;
-            JournalRecord::identity_range_advance(range)
+            JournalRecord::IdentityRangeAdvance { range }
         }
         #[cfg(any(test, feature = "migration"))]
         JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT => {
@@ -1156,13 +1174,13 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
             let plan_digest = SchemaMigrationPlanDigest::from_bytes(
                 reader.read_array::<32>().map_err(primitive_decode_error)?,
             );
-            JournalRecord::schema_migration_row_put(
+            JournalRecord::SchemaMigrationRowPut {
                 store_path,
                 primary_key,
                 row_bytes,
                 schema_fingerprint,
                 plan_digest,
-            )
+            }
         }
         #[cfg(any(test, feature = "migration"))]
         JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT => {
@@ -1177,10 +1195,16 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
             let plan_digest = SchemaMigrationPlanDigest::from_bytes(
                 reader.read_array::<32>().map_err(primitive_decode_error)?,
             );
-            JournalRecord::schema_migration_index_put(store_path, key, plan_digest)
+            JournalRecord::SchemaMigrationIndexPut {
+                store_path,
+                key,
+                plan_digest,
+            }
         }
-        _ => Err(journal_batch_corruption()),
-    }
+        _ => return Err(journal_batch_corruption()),
+    };
+    let tags = admit_journal_record(&record)?;
+    Ok((record, tags))
 }
 
 fn read_accepted_schema_index_chunk(
@@ -1698,11 +1722,17 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
     Ok(())
 }
 
+fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> {
+    admit_journal_record(record).map(drop)
+}
+
+// Admission is the sole source of publication facts for raw records and decoded
+// recovery bytes. The batch carries only the projection its consumers need.
 #[expect(
     clippy::too_many_lines,
     reason = "the current persisted journal format is validated by one exhaustive record-kind match"
 )]
-fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> {
+fn admit_journal_record(record: &JournalRecord) -> Result<Option<Vec<EntityTag>>, InternalError> {
     match record {
         JournalRecord::RowPut {
             entity_path,
@@ -1737,6 +1767,7 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
             {
                 return Err(journal_batch_corruption());
             }
+            return Ok(Some(bundle.entity_snapshots().keys().copied().collect()));
         }
         JournalRecord::AcceptedSchemaIndexDelete {
             store_path,
@@ -1838,7 +1869,7 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
         }
     }
 
-    Ok(())
+    Ok(None)
 }
 
 fn validate_path(path: &str) -> Result<(), InternalError> {

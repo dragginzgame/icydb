@@ -1735,3 +1735,53 @@ fn shared_member_renames_use_mapped_types_and_exact_declarations() {
         Err(SchemaContractError::InvalidMigrationReference),
     );
 }
+
+#[test]
+fn authored_constraint_and_index_names_reserve_engine_namespace() {
+    for name in [
+        "__icydb_primary_key",
+        "__icydb_not_null_9",
+        "__icydb_custom",
+        "__icydb",
+        "__ICYDB_user",
+    ] {
+        let reserved = crate::is_engine_reserved_schema_name(name);
+        let field = FieldFragment::new(
+            SchemaName::try_new("id").unwrap(),
+            FieldType::Scalar(ScalarType::Nat64),
+            false,
+            FieldInsertPolicy::Required,
+            None,
+        );
+        let key = field.source_key().clone();
+        let expression = SourceCheckExpr::try_new(vec![SourceCheckInstruction::Literal(
+            ScalarLiteral::Bool(true),
+        )])
+        .unwrap();
+        let entity = EntityFragment::try_new(
+            SchemaName::try_new("Example").unwrap(),
+            version_one(),
+            vec![field],
+            vec![key.clone()],
+            vec![],
+            vec![],
+            vec![ConstraintFragment::check(
+                SchemaName::try_new(name).unwrap(),
+                expression,
+            )],
+        );
+        let index = crate::IndexFragment::try_new(
+            SchemaName::try_new(name).unwrap(),
+            vec![crate::IndexKeyFragment::Field(key)],
+            true,
+            None,
+        );
+        if reserved {
+            assert_eq!(entity.unwrap_err(), SchemaContractError::InvalidSourceKey);
+            assert_eq!(index.unwrap_err(), SchemaContractError::InvalidSourceKey);
+        } else {
+            entity.unwrap();
+            index.unwrap();
+        }
+    }
+}

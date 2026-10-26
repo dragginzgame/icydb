@@ -63,6 +63,11 @@ impl HasSchemaPart for Constraint {
 }
 
 fn validate_constraint_name(name: &str) -> Result<(), DarlingError> {
+    if icydb_schema::is_engine_reserved_schema_name(name) {
+        return Err(DarlingError::custom(
+            "generated constraint name uses the engine-reserved __icydb_ prefix",
+        ));
+    }
     if name.is_empty() {
         return Err(DarlingError::custom(
             "generated constraint name must not be empty",
@@ -143,6 +148,20 @@ mod tests {
     fn parse(tokens: proc_macro2::TokenStream) -> Result<Constraint, darling::Error> {
         let args = NestedMeta::parse_meta_list(tokens)?;
         Constraint::from_list(args.as_slice())
+    }
+
+    #[test]
+    fn authored_constraint_namespace_is_reserved_exactly() {
+        for name in [
+            "__icydb_primary_key",
+            "__icydb_not_null_2",
+            "__icydb_custom",
+        ] {
+            assert!(super::validate_constraint_name(name).is_err());
+        }
+        for name in ["__icydb", "_icydb_user", "__ICYDB_user", "user__icydb_name"] {
+            super::validate_constraint_name(name).unwrap();
+        }
     }
 
     #[test]

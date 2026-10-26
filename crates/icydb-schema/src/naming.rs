@@ -1,8 +1,17 @@
 //! Module: naming
-//! Responsibility: canonical schema identifier component normalization.
-//! Does not own: accepted identifier allocation, validation, or persistence.
+//! Responsibility: canonical schema naming and engine-reserved authoring namespace.
+//! Does not own: accepted identifier allocation or persisted catalog validation.
 //! Boundary: gives proposal generation and accepted-runtime identity one exact
 //! index-name slug contract.
+
+/// Whether a name belongs to the engine-owned constraint/index namespace.
+///
+/// Authoring admission rejects this exact, case-sensitive prefix. Persisted
+/// catalog decoding must still accept engine-generated names in this namespace.
+#[must_use]
+pub fn is_engine_reserved_schema_name(name: &str) -> bool {
+    name.starts_with("__icydb_")
+}
 
 /// Normalize one entity or index-key label into its canonical index-name slug.
 ///

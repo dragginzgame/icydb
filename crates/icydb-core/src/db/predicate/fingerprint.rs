@@ -14,7 +14,7 @@ use crate::{
                 normalized_predicate_key_capacity, raw_predicate_key_capacity,
                 write_normalized_predicate_sort_key, write_predicate_sort_key,
             },
-            normalize,
+            normalize_with_budget,
         },
         resource::construction::ConstructionBudget,
     },
@@ -29,9 +29,8 @@ pub(in crate::db) fn hash_predicate(
     predicate: &Predicate,
     budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
-    // Copy and final encoding use the caller's authority. Boolean normalization
-    // still has separate construction/comparison work to qualify.
-    let normalized = normalize(budget.copy_predicate(predicate)?);
+    // Copy, pair simplification and final encoding share the caller's authority.
+    let normalized = normalize_with_budget(budget.copy_predicate(predicate)?, budget)?;
     hash_predicate_structural(hasher, &normalized, budget)
 }
 

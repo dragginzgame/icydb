@@ -501,3 +501,105 @@ fn sql_insert_select_bounds_source_output_before_staging_and_preserves_authored_
             .unwrap();
     }
 }
+
+#[test]
+fn positional_insert_uses_all_unmanaged_fields_without_width_inference() {
+    use crate::db::{sql::parser::SqlParseError, sql_shared::SqlSyntaxErrorKind};
+    use icydb_diagnostic_code::SqlWriteBoundaryCode;
+
+    let session = sql_not_null::initialize_nullable_rows();
+    let read = "SELECT id, status, peer, qty, other, flag, marked FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    let tuple_error = QueryError::from_sql_parse_error(SqlParseError::invalid_syntax(
+        SqlSyntaxErrorKind::InsertValuesTupleLengthMismatch,
+    ));
+    for sql in [
+        "INSERT INTO PlannerRow VALUES (7, TRUE)",
+        "INSERT INTO PlannerRow VALUES (7, 'a', 'b', 1, 2, NULL, TRUE), (8, FALSE)",
+    ] {
+        let error = session.execute_trusted_sql_mutation(sql).unwrap_err();
+        assert_eq!(error.diagnostic_code(), tuple_error.diagnostic_code());
+        assert_eq!(error.diagnostic(), tuple_error.diagnostic());
+        assert_eq!(projection_rows(&session, read), before);
+    }
+    let error = session
+        .execute_trusted_sql_mutation(
+            "INSERT INTO PlannerRow SELECT id + 10, marked FROM PlannerRow",
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.diagnostic_code(),
+        QueryError::sql_write_boundary(SqlWriteBoundaryCode::InsertSelectWidthMismatch,)
+            .diagnostic_code()
+    );
+    assert_eq!(projection_rows(&session, read), before);
+
+    session
+        .execute_trusted_sql_mutation(
+            "INSERT INTO PlannerRow VALUES (7, 'first', 'second', 8, 12, NULL, TRUE)",
+        )
+        .unwrap();
+    session.execute_trusted_sql_mutation(
+        "INSERT INTO PlannerRow SELECT qty, status, peer, qty, other, flag, marked FROM PlannerRow WHERE id = 7",
+    ).unwrap();
+    session
+        .execute_trusted_sql_mutation("INSERT INTO PlannerRow (id, marked) VALUES (9, FALSE)")
+        .unwrap();
+    let rows = projection_rows(&session, read);
+    assert_eq!(&rows[..before.len()], before);
+    for (row, id) in rows[before.len()..before.len() + 2].iter().zip([7, 8]) {
+        assert_eq!(
+            row,
+            &vec![
+                OutputValue::nat64(id),
+                OutputValue::text("first".into()),
+                OutputValue::text("second".into()),
+                OutputValue::nat64(8),
+                OutputValue::nat64(12),
+                OutputValue::null(),
+                OutputValue::boolean(true)
+            ]
+        );
+    }
+    assert_eq!(
+        rows.last().unwrap(),
+        &vec![
+            OutputValue::nat64(9),
+            OutputValue::null(),
+            OutputValue::null(),
+            OutputValue::null(),
+            OutputValue::null(),
+            OutputValue::null(),
+            OutputValue::boolean(false)
+        ]
+    );
+}
+
+#[test]
+fn reserved_constraint_rejection_preserves_later_not_null_publication() {
+    use icydb_diagnostic_code::ErrorCode;
+
+    let session = sql_not_null::initialize_nullable_rows();
+    let read = "SELECT id FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    for sql in [
+        "ALTER TABLE PlannerRow ADD CONSTRAINT __icydb_not_null_8 CHECK (TRUE) NOT VALID EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
+        "CREATE UNIQUE INDEX __icydb_not_null_8 ON PlannerRow (id)",
+        "CREATE INDEX __icydb_not_null_8 ON PlannerRow (id)",
+    ] {
+        let error = session.execute_admin_sql_ddl(sql).unwrap_err();
+        assert_eq!(
+            error.diagnostic().error_code(),
+            ErrorCode::SCHEMA_DDL_VALIDATION_FAILED
+        );
+        assert_eq!(projection_rows(&session, read), before);
+    }
+    // Expected version 1 proves each rejected authoring route left the head alone.
+    session.execute_admin_sql_ddl(
+        "ALTER TABLE PlannerRow ADD COLUMN score nat64 NOT NULL DEFAULT 7 EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2"
+    ).unwrap();
+    assert_eq!(
+        projection_rows(&session, "SELECT score FROM PlannerRow ORDER BY id"),
+        vec![vec![OutputValue::nat64(7)]; before.len()]
+    );
+}

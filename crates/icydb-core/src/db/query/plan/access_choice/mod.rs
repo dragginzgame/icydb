@@ -10,6 +10,8 @@ mod model;
 #[cfg(test)]
 mod tests;
 
+pub(in crate::db::query::plan) use self::model::AccessChoiceRejectedReason;
+
 pub(in crate::db) use self::model::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
     AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,

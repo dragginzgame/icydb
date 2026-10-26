@@ -487,7 +487,7 @@ impl StructuralGroupedRowRuntime {
             match (consistency, row.as_row()) {
                 (MissingRowPolicy::Ignore, None) => Ok(None),
                 (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => {
-                    charge_materialized_data_row!(row)?;
+                    charge_materialized_data_row(row.len())?;
                     decode(row).map(Some)
                 }
                 (MissingRowPolicy::Error, None) => Err(InternalError::store_corruption()),

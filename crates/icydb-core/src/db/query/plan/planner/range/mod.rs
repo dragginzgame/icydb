@@ -8,7 +8,15 @@ mod extract;
 #[cfg(test)]
 mod tests;
 
-use crate::{db::predicate::ComparePredicate, value::Value};
+use crate::{
+    db::{
+        predicate::{CompareOp, ComparePredicate, Predicate},
+        query::plan::{
+            access_choice::AccessChoiceRejectedReason, planner::coercion_supports_index_lookup,
+        },
+    },
+    value::Value,
+};
 use std::ops::Bound;
 
 pub(in crate::db::query::plan::planner) use extract::{
@@ -56,4 +64,35 @@ enum IndexFieldConstraint {
 struct CachedCompare<'a> {
     cmp: &'a ComparePredicate,
     literal_compatible: bool,
+}
+
+// Validate the complete family before slot inspection to retain diagnostic precedence.
+pub(in crate::db::query::plan) fn validate_range_and_compares(
+    children: &[Predicate],
+) -> Result<(), AccessChoiceRejectedReason> {
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            return Err(AccessChoiceRejectedReason::PredicateShapeNotRangeEligible);
+        };
+        if !matches!(
+            cmp.op,
+            CompareOp::Eq
+                | CompareOp::Gt
+                | CompareOp::Gte
+                | CompareOp::Lt
+                | CompareOp::Lte
+                | CompareOp::StartsWith
+        ) {
+            return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+        }
+        if !coercion_supports_index_lookup(cmp.coercion.id) {
+            return Err(AccessChoiceRejectedReason::NonStrictCoercion);
+        }
+    }
+
+    if children.is_empty() {
+        return Err(AccessChoiceRejectedReason::PredicateShapeNotRangeEligible);
+    }
+
+    Ok(())
 }

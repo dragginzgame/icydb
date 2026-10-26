@@ -7,7 +7,7 @@ mod vectors;
 
 use std::{env, error::Error, fs, path::PathBuf};
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use serde_reflection::{Samples, Tracer, TracerConfig};
@@ -51,11 +51,11 @@ impl Generator {
             Tracer::new(TracerConfig::default()).trace_value(&mut Samples::new(), value)?;
         let bytes = if response {
             endpoint
-                .encode_response(value)
+                .encode_response(value, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
                 .map_err(|error| format!("{error:?}"))?
         } else {
             endpoint
-                .encode_request(value)
+                .encode_request(value, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
                 .map_err(|error| format!("{error:?}"))?
         };
         self.vectors.push((endpoint, response, bytes, sample));

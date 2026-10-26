@@ -964,46 +964,42 @@ fn accepted_kind_matches_catalog(
     kind: &AcceptedFieldKind,
     depth: usize,
 ) -> bool {
+    accepted_kind_references_are_resolved(kind, depth, &|kind| match kind {
+        AcceptedFieldKind::Enum { type_id } => catalog.enum_type(*type_id).is_some(),
+        _ => true,
+    })
+}
+
+// Catalog checks share container edges and depth admission, but each supplied
+// leaf policy still validates against its own catalog authority.
+fn accepted_kind_references_are_resolved(
+    kind: &AcceptedFieldKind,
+    depth: usize,
+    reference_is_resolved: &impl Fn(&AcceptedFieldKind) -> bool,
+) -> bool {
     if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
         return false;
     }
     match kind {
-        AcceptedFieldKind::Enum { type_id } => catalog.enum_type(*type_id).is_some(),
         AcceptedFieldKind::Relation { key_kind, .. }
         | AcceptedFieldKind::List(key_kind)
-        | AcceptedFieldKind::Set(key_kind) => {
-            accepted_kind_matches_catalog(catalog, key_kind, depth.saturating_add(1))
-        }
+        | AcceptedFieldKind::Set(key_kind) => accepted_kind_references_are_resolved(
+            key_kind,
+            depth.saturating_add(1),
+            reference_is_resolved,
+        ),
         AcceptedFieldKind::Map { key, value } => {
-            accepted_kind_matches_catalog(catalog, key, depth.saturating_add(1))
-                && accepted_kind_matches_catalog(catalog, value, depth.saturating_add(1))
+            accepted_kind_references_are_resolved(
+                key,
+                depth.saturating_add(1),
+                reference_is_resolved,
+            ) && accepted_kind_references_are_resolved(
+                value,
+                depth.saturating_add(1),
+                reference_is_resolved,
+            )
         }
-        AcceptedFieldKind::Account
-        | AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Bool
-        | AcceptedFieldKind::Date
-        | AcceptedFieldKind::Decimal { .. }
-        | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Float32
-        | AcceptedFieldKind::Float64
-        | AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64
-        | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Text { .. }
-        | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Composite { .. }
-        | AcceptedFieldKind::U256 => true,
+        _ => reference_is_resolved(kind),
     }
 }
 
@@ -1039,55 +1035,12 @@ fn accepted_kind_composites_are_resolved(
     composite_catalog: &AcceptedCompositeCatalog,
     depth: usize,
 ) -> bool {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return false;
-    }
-    match kind {
+    accepted_kind_references_are_resolved(kind, depth, &|kind| match kind {
         AcceptedFieldKind::Composite { type_id } => {
             composite_catalog.composite_type(*type_id).is_some()
         }
-        AcceptedFieldKind::Relation { key_kind, .. }
-        | AcceptedFieldKind::List(key_kind)
-        | AcceptedFieldKind::Set(key_kind) => accepted_kind_composites_are_resolved(
-            key_kind,
-            composite_catalog,
-            depth.saturating_add(1),
-        ),
-        AcceptedFieldKind::Map { key, value } => {
-            accepted_kind_composites_are_resolved(key, composite_catalog, depth.saturating_add(1))
-                && accepted_kind_composites_are_resolved(
-                    value,
-                    composite_catalog,
-                    depth.saturating_add(1),
-                )
-        }
-        AcceptedFieldKind::Account
-        | AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Bool
-        | AcceptedFieldKind::Date
-        | AcceptedFieldKind::Decimal { .. }
-        | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Float32
-        | AcceptedFieldKind::Float64
-        | AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64
-        | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Text { .. }
-        | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Enum { .. }
-        | AcceptedFieldKind::U256 => true,
-    }
+        _ => true,
+    })
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.

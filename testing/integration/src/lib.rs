@@ -156,8 +156,11 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
         start_fixture_pocket_ic(),
         InstallSpec {
             wasm,
-            init_bytes: icydb::wire::encode_init_arguments(())
-                .expect("unit init arguments should encode"),
+            init_bytes: canic_icydb::wire::encode_init_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit init arguments should encode"),
             cycles: FIXTURE_INSTALL_CYCLES,
             install_sender: None,
             label: Some(canister_name.to_string()),
@@ -222,8 +225,11 @@ fn install_fixture_canister_with_options_and_optional_progress(
         start_fixture_pocket_ic(),
         InstallSpec {
             wasm,
-            init_bytes: icydb::wire::encode_init_arguments(())
-                .expect("unit init arguments should encode"),
+            init_bytes: canic_icydb::wire::encode_init_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit init arguments should encode"),
             cycles: FIXTURE_INSTALL_CYCLES,
             install_sender: None,
             label: Some(canister_name.to_string()),
@@ -295,8 +301,11 @@ pub fn reset_icydb_fixtures(pic: &PocketIc, canister_id: Principal) {
 /// lifecycle arguments cannot be encoded, or PocketIC rejects the upgrade.
 pub fn upgrade_fixture_canister(pic: &PocketIc, canister_id: Principal, canister_name: &str) {
     let wasm = local_fixture_wasm_bytes(canister_name);
-    let args = icydb::wire::encode_post_upgrade_arguments(())
-        .expect("unit post-upgrade arguments should encode");
+    let args = canic_icydb::wire::encode_post_upgrade_arguments(
+        (),
+        icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+    )
+    .expect("unit post-upgrade arguments should encode");
 
     pic.upgrade_canister(canister_id, wasm, args, None)
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));

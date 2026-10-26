@@ -160,7 +160,9 @@ pub(super) fn plan_compare(
 
 // Planner compare access only supports exact schema semantics or case-folded
 // text semantics. Other coercions still require residual filter evaluation.
-const fn coercion_supports_index_lookup(coercion: CoercionId) -> bool {
+pub(in crate::db::query::plan) const fn coercion_supports_index_lookup(
+    coercion: CoercionId,
+) -> bool {
     matches!(coercion, CoercionId::Strict | CoercionId::TextCasefold)
 }
 

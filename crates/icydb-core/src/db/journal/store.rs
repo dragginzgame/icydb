@@ -579,6 +579,7 @@ impl JournalTailStore {
     }
 
     /// Return whether current-format exact tail authority is present.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn has_current_tail_control(&self) -> bool {
         self.map
@@ -1336,15 +1337,7 @@ impl JournalTailStore {
         affected_entity_tags: &BTreeSet<EntityTag>,
     ) -> Result<PreparedEntityMutationRevisionUpdate, InternalError> {
         let current = self.entity_mutation_revision_authority()?;
-        let mut published_tags = None;
-        for record in batch.records() {
-            let Some(tags) = record.published_entity_tags()? else {
-                continue;
-            };
-            if published_tags.replace(tags).is_some() {
-                return Err(journal_tail_corruption());
-            }
-        }
+        let published_tags = batch.published_entity_tags();
 
         let resulting_revision = batch
             .journal_sequence()
@@ -1352,8 +1345,7 @@ impl JournalTailStore {
             .map(JournalSequence::get)
             .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
         let replacement = if let Some(tags) = published_tags {
-            let mut entries =
-                self.prepare_accepted_entity_mutation_revision_replacement(tags.as_slice())?;
+            let mut entries = self.prepare_accepted_entity_mutation_revision_replacement(tags)?;
             for entity_tag in affected_entity_tags {
                 let index = entries
                     .binary_search_by_key(entity_tag, |entry| entry.entity_tag)
@@ -2244,17 +2236,8 @@ fn batch_row_mutation_entity_tags(
 fn current_entity_tags_for_test_batch(
     batch: &JournalBatch,
 ) -> Result<Vec<EntityTag>, InternalError> {
-    let mut published = None;
-    for record in batch.records() {
-        let Some(tags) = record.published_entity_tags()? else {
-            continue;
-        };
-        if published.replace(tags).is_some() {
-            return Err(journal_tail_corruption());
-        }
-    }
-    if let Some(tags) = published {
-        return Ok(tags);
+    if let Some(tags) = batch.published_entity_tags() {
+        return Ok(tags.to_vec());
     }
     Ok(batch_row_mutation_entity_tags(batch)?.into_iter().collect())
 }

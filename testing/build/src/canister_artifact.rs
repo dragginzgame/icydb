@@ -5,13 +5,13 @@
 
 use std::{collections::BTreeSet, fs, path::Path};
 
+use canic_icydb::wire::Endpoint;
 use ic_host_artifacts::{
     artifact::ArtifactError,
     wasm::{InspectionLimits, inspect},
 };
 use ic_host_fs::read::read_opened_file;
 use ic_host_tools::interface;
-use icydb::wire::Endpoint;
 use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
 pub use ic_host_tools::interface::MethodMode;
@@ -50,6 +50,9 @@ pub struct MaintainedCanisterPolicy {
     pub local_test_features: &'static [&'static str],
     /// IcyDB-prefixed methods exported by the maintained production build.
     pub production_icydb_methods: &'static [ExpectedCanisterMethod],
+    /// Explicit non-IcyDB update probes retained in the production audit actor.
+    /// All other application update exports are refused by artifact qualification.
+    pub production_fixture_updates: &'static [&'static str],
     /// IcyDB-prefixed methods exported by the maintained local/test build.
     pub local_test_icydb_methods: &'static [ExpectedCanisterMethod],
 }
@@ -136,6 +139,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["sql"],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -144,6 +148,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["sql"],
         production_icydb_methods: METRICS_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: METRICS_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -152,6 +157,11 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["sql"],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[
+            "ddl_group_path",
+            "load_group_path_fixture",
+            "mutate_group_path",
+        ],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -160,6 +170,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &["exercise_relation_flow", "measure_relation_calibration"],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -168,6 +179,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &["exercise_relation_flow", "measure_relation_calibration"],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -176,6 +188,11 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[
+            "exercise_relation_flow",
+            "exercise_shallow_relation_flow",
+            "measure_relation_calibration",
+        ],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -184,6 +201,12 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[
+            "commit_repeated_relation_boundary",
+            "exercise_relation_flow",
+            "exercise_repeated_relation_flow",
+            "measure_relation_calibration",
+        ],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -192,6 +215,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -200,6 +224,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &["exercise_reachable_entity_write"],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -208,6 +233,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["sql"],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -216,6 +242,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["u256-audit"],
         local_test_features: &["lifecycle-audit", "u256-audit"],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -224,6 +251,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -232,6 +260,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["sql", "test-admin-api"],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: SQL_PERF_LOCAL_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -240,6 +269,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -248,6 +278,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &["exercise_reachable_entity_write"],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -256,6 +287,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["local-sql-query", "test-admin-api"],
         production_icydb_methods: TEST_SQL_PRODUCTION_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: TEST_SQL_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -264,6 +296,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["local-sql-query", "test-admin-api"],
         production_icydb_methods: TEST_SQL_BOUNDED_PRODUCTION_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: TEST_SQL_BOUNDED_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -272,6 +305,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &["population-seed"],
         production_icydb_methods: NO_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -280,6 +314,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["guarded-reads", "sql"],
         production_icydb_methods: TEST_READ_AUTHORITY_METHODS,
+        production_fixture_updates: &["set_schema_reader_enabled", "set_sql_reader_enabled"],
         local_test_icydb_methods: TEST_READ_AUTHORITY_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -288,6 +323,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &["guarded-schema"],
         production_icydb_methods: TEST_SCHEMA_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: TEST_SCHEMA_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -296,6 +332,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &[],
         local_test_features: &[],
         production_icydb_methods: TEST_SCHEMA_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: TEST_SCHEMA_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -304,6 +341,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["guarded-sql-query", "sql"],
         production_icydb_methods: TEST_SQL_GUARD_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: TEST_SQL_GUARD_METHODS,
     },
     MaintainedCanisterPolicy {
@@ -312,6 +350,7 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         production_features: &["sql"],
         local_test_features: &["local-sql-query", "test-admin-api"],
         production_icydb_methods: RPG_PRODUCTION_METHODS,
+        production_fixture_updates: &[],
         local_test_icydb_methods: RPG_LOCAL_METHODS,
     },
 ];
@@ -573,8 +612,8 @@ mod tests {
             ("canister_update icydb_metrics_reset", 0),
         ]);
         let identities = [
-            icydb::wire::Endpoint::Metrics.id().to_le_bytes(),
-            icydb::wire::Endpoint::MetricsReset.id().to_le_bytes(),
+            canic_icydb::wire::Endpoint::Metrics.id().to_le_bytes(),
+            canic_icydb::wire::Endpoint::MetricsReset.id().to_le_bytes(),
         ]
         .concat();
         wasm.extend(
@@ -761,6 +800,18 @@ mod tests {
             assert!(policy.local_test_features.is_sorted());
             assert!(policy.local_test_icydb_methods.is_sorted());
             assert!(policy.production_icydb_methods.is_sorted());
+            assert!(
+                policy
+                    .production_fixture_updates
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+            );
+            assert!(
+                policy
+                    .production_fixture_updates
+                    .iter()
+                    .all(|name| !name.starts_with("icydb_"))
+            );
         }
     }
 

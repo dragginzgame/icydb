@@ -249,8 +249,11 @@ fn __application_post_upgrade_export() {
     let bytes = canic_icydb::read_arguments(icydb::wire::MAX_REQUEST_BYTES)
         .unwrap_or_else(|| ic_platform::ic0::trap(b"lifecycle argument admission failed"));
     let (trap_after_participant,): (Option<bool>,) =
-        icydb::wire::decode_post_upgrade_arguments(&bytes)
-            .unwrap_or_else(|_| ic_platform::ic0::trap(b"invalid lifecycle Wire arguments"));
+        canic_icydb::wire::decode_post_upgrade_arguments(
+            &bytes,
+            icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+        )
+        .unwrap_or_else(|_| ic_platform::ic0::trap(b"invalid lifecycle Wire arguments"));
     application_post_upgrade(trap_after_participant);
 }
 

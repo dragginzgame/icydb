@@ -31,9 +31,19 @@ fn exact_numeric_order_matches_decimal_coercion_at_boundaries() {
         cases.push(Value::Nat64(value));
         cases.push(Value::Duration(Duration::from_millis(value)));
     }
+    for value in [
+        0,
+        1,
+        u128::from(u64::MAX),
+        u128::from(u64::MAX) + 1,
+        i128::MAX.cast_unsigned() - 1,
+        i128::MAX.cast_unsigned(),
+        i128::MAX.cast_unsigned() + 1,
+        u128::MAX,
+    ] {
+        cases.push(Value::Nat128(value));
+    }
     cases.extend([
-        Value::Nat128(u128::MAX),
-        Value::Nat128(i128::MAX.cast_unsigned()),
         Value::Float64(F64::try_new(1.0e-30).unwrap()),
         Value::Float64(F64::try_new(f64::MAX).unwrap()),
         Value::Text("1".to_string()),

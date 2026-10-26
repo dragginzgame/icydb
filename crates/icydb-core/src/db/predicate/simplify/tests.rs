@@ -1,8 +1,6 @@
 //! Conservative pair eligibility, retained operands and conjunction reductions.
 
-use super::{
-    ComparePairSimplification, simplify_and_compare_constraints, simplify_compare_pair_for_and,
-};
+use super::{ComparePairSimplification, simplify_compare_pair_for_and};
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
     types::Decimal,
@@ -517,4 +515,12 @@ fn replacements_preserve_large_settled_prefixes() {
         }
         assert_eq!(simplify_and_compare_constraints(input), Some(expected));
     }
+}
+
+// Semantic fixtures use the same fallible traversal without a request ceiling.
+fn simplify_and_compare_constraints(predicates: Vec<Predicate>) -> Option<Vec<Predicate>> {
+    super::simplify_and_compare_constraints(predicates, &mut || {
+        Ok::<_, std::convert::Infallible>(())
+    })
+    .unwrap()
 }

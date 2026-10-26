@@ -18,8 +18,9 @@ use crate::{
                 lower_lookup_value_for_key_item,
             },
             planner::{
-                MAX_INDEX_BRANCH_SET_VALUES, index_field_literal_matcher,
-                index_literal_matches_schema,
+                MAX_INDEX_BRANCH_SET_VALUES, coercion_supports_index_lookup,
+                collect_prefix_eq_constraints, index_field_literal_matcher,
+                index_literal_matches_schema, resolve_index_eq_slot,
             },
         },
         resource::construction::ConstructionBudget,
@@ -88,7 +89,9 @@ fn evaluate_prefix_and_candidate(
     children: &[Predicate],
     budget: &dyn ConstructionBudget,
 ) -> Result<CandidateEvaluation, InternalError> {
-    let eq_constraints = collect_prefix_eq_constraints(schema, children, budget)?;
+    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
+    let values = budget.vec_with_capacity(children.len())?;
+    let eq_constraints = collect_prefix_eq_constraints(schema, children, values, budget)?;
     if eq_constraints.is_empty() {
         return Ok(CandidateEvaluation::Rejected(
             AccessChoiceRejectedReason::NoEqConstraints,
@@ -105,41 +108,13 @@ fn evaluate_prefix_and_candidate(
     )?;
     let mut prefix_len = 0usize;
     for item in index_contract.key_items() {
-        let key_item = item.as_ref();
-        let mut matched: Option<Cow<'_, Value>> = None;
-        let mut saw_incompatible = false;
-        for (field, value, coercion, compatible) in &eq_constraints {
-            if key_item.field() != *field {
-                continue;
-            }
-            if !compatible {
-                saw_incompatible = true;
-                continue;
-            }
-            let Some(candidate) =
-                lower_lookup_value_for_key_item(key_item, field, value, *coercion, true, budget)?
-            else {
-                continue;
-            };
-            if let Some(existing) = &matched
-                && !budget.values_equal(existing, &candidate)?
-            {
-                return Ok(CandidateEvaluation::Rejected(
-                    AccessChoiceRejectedReason::ConflictingEqConstraints,
-                ));
-            }
-            matched = Some(candidate);
-        }
-        if matched.is_some() {
-            prefix_len = prefix_len.saturating_add(1);
-        } else if saw_incompatible {
-            return Ok(CandidateEvaluation::Rejected(
-                AccessChoiceRejectedReason::LiteralIncompatible,
-            ));
-        } else {
-            break;
+        match resolve_index_eq_slot(item.as_ref(), &eq_constraints, budget)? {
+            Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
+            Ok(None) => break,
+            Err(reason) => return Ok(CandidateEvaluation::Rejected(reason)),
         }
     }
+
     if prefix_len == 0 {
         return Ok(CandidateEvaluation::Rejected(
             AccessChoiceRejectedReason::LeadingFieldUnconstrained,
@@ -153,39 +128,6 @@ fn evaluate_prefix_and_candidate(
         range_bound_count: 0,
         order_compatible: false,
     }))
-}
-
-fn collect_prefix_eq_constraints<'a>(
-    schema: &SchemaInfo,
-    children: &'a [Predicate],
-    budget: &dyn ConstructionBudget,
-) -> Result<Vec<(&'a str, &'a Value, CoercionId, bool)>, InternalError> {
-    // Every child can supply an equality. Reserve backing and the child walk
-    // before inspection; schema compatibility remains cached once per literal.
-    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
-    let mut out = budget.vec_with_capacity(children.len())?;
-    for child in children {
-        let Predicate::Compare(cmp) = child else {
-            continue;
-        };
-        if cmp.op != CompareOp::Eq {
-            continue;
-        }
-        if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::TextCasefold
-        ) {
-            continue;
-        }
-        out.push((
-            cmp.field.as_str(),
-            cmp.value(),
-            cmp.coercion.id,
-            index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()),
-        ));
-    }
-
-    Ok(out)
 }
 
 pub(super) fn evaluate_multi_lookup_candidate_from_contract(
@@ -272,7 +214,7 @@ pub(super) fn evaluate_branch_set_candidate_from_contract(
 const fn ensure_lookup_coercion_supported(
     coercion: CoercionId,
 ) -> Result<(), AccessChoiceRejectedReason> {
-    if matches!(coercion, CoercionId::Strict | CoercionId::TextCasefold) {
+    if coercion_supports_index_lookup(coercion) {
         return Ok(());
     }
 

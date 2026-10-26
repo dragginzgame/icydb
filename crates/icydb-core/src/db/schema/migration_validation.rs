@@ -19,14 +19,15 @@ use crate::{
         Db,
         data::{RawDataStoreKey, StoreVisit, StructuralSlotReader, decode_data_store_key},
         index::{IndexEntryValue, IndexKey, IndexKeyKind, RawIndexStoreKey},
-        key_taxonomy::RawDataStoreKeyRange,
         registry::{StoreHandle, StoreRecoveryCapability},
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
             AcceptedCatalogSnapshotSelection, PersistedSchemaMigrationFinding,
             PersistedSchemaMigrationFindingKind, PersistedSchemaMigrationProgress,
             PersistedSchemaMigrationRowCursor, UniqueConstraintProjection,
-            migration_execution::{prepare_candidate_entity, prepare_candidate_row_rewrite},
+            migration_execution::{
+                migration_row_bounds, prepare_candidate_entity, prepare_candidate_row_rewrite,
+            },
             migration_planner::PlannedSchemaMigration,
             migration_transform::CompiledMigrationEntityProgram,
         },
@@ -298,17 +299,7 @@ fn validate_entity_page<C: CanisterKind>(
         ));
     }
 
-    let range = RawDataStoreKeyRange::entity_prefix(program.entity());
-    let lower = match checkpoint {
-        None => Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Some(cursor) => Bound::Excluded(RawDataStoreKey::from_persisted_bytes(
-            cursor.primary_key().to_vec(),
-        )),
-    };
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
+    let (lower, upper) = migration_row_bounds(program.entity(), checkpoint);
     let mut page = EntityValidationPage {
         cursor: checkpoint.cloned(),
         rows: 0,

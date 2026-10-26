@@ -117,9 +117,9 @@ fn initialize_controls(
                 .ok_or_else(InternalError::store_invariant)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    for tail in &tails {
-        tail.with_borrow(JournalTailStore::preflight_current_tail_control_initialization)?;
-    }
+    // Fresh proposal admission proved every journal allocation is physically
+    // virgin. Do not open its lazy store here: initialization writes a tree
+    // header, which would make a later preparation error non-retryable.
     let replacement = prepare_commit_control_replacement(
         control_memory.clone(),
         incarnation,
@@ -309,19 +309,9 @@ fn require_proposal_roots_fresh(proposal: &GeneratedStoreProposal) -> Result<(),
             return Err(InternalError::store_unsupported());
         }
     }
-    require_absent_current_tail(proposal.handle)
-}
-
-fn require_absent_current_tail(handle: StoreHandle) -> Result<(), InternalError> {
-    handle
-        .journal_tail_store()
-        .ok_or_else(InternalError::store_invariant)?
-        .with_borrow(|tail| {
-            if tail.has_stored_batch() || tail.has_current_tail_control() {
-                return Err(InternalError::store_unsupported());
-            }
-            Ok(())
-        })
+    // Zero-sized physical roots cannot contain a tail. Borrowing its lazy
+    // store to check absence would itself allocate the header we must avoid.
+    Ok(())
 }
 
 fn require_active_current_tail(handle: StoreHandle) -> Result<(), InternalError> {
@@ -443,6 +433,7 @@ mod tests {
         traits::Path,
         types::EntityTag,
     };
+    use ic_memory::Memory;
     use std::cell::RefCell;
 
     const FRESH_PATH: &str = "convergence_tests::Fresh";
@@ -717,6 +708,54 @@ mod tests {
         assert!(
             validate_persisted_allocation_set::<ConvergenceCanister>(&control_collision).is_err()
         );
+    }
+
+    #[test]
+    fn fresh_root_admission_does_not_initialize_journal_memory() {
+        let (_root, fresh) = database(&FRESH_REGISTRY);
+        let proposals = generated_store_proposals::<ConvergenceCanister>(&fresh).unwrap();
+        for _ in 0..2 {
+            require_fresh_proposal_roots(&proposals).unwrap();
+            for proposal in &proposals {
+                for allocation in required_allocations(proposal.allocations).unwrap() {
+                    assert_eq!(allocation_pages(allocation).unwrap(), 0);
+                }
+            }
+        }
+        // A physical journal header is not virgin, even with no batches.
+        FRESH_JOURNAL.with_borrow(|tail| assert!(!tail.has_stored_batch()));
+        assert!(require_fresh_proposal_roots(&proposals).is_err());
+    }
+
+    #[test]
+    fn rejected_fresh_control_preparation_preserves_retryable_roots() {
+        let control = std::rc::Rc::new(test_memory(123));
+        let (_root, fresh) = database(&FRESH_REGISTRY);
+        let proposals = generated_store_proposals::<ConvergenceCanister>(&fresh).unwrap();
+        require_fresh_proposal_roots(&proposals).unwrap();
+        // The existing control encoder rejects a zero cursor key after tail
+        // handles are collected. Rejection must not initialize those handles.
+        let result = initialize_controls(
+            &control,
+            generate_database_incarnation_id().unwrap(),
+            [0; 32],
+            0,
+            proposals
+                .iter()
+                .map(|proposal| proposal.persisted.clone())
+                .collect(),
+            proposals.iter().map(|proposal| proposal.handle),
+        );
+        assert!(result.is_err());
+        assert_eq!(control.size(), 0);
+        require_fresh_proposal_roots(&proposals).unwrap();
+        ensure_current_convergence_format(&fresh, &control, true, [0x17; 32]).unwrap();
+        super::super::validate_current_boot_record(control.as_ref()).unwrap();
+        FRESH_JOURNAL.with_borrow(|tail| {
+            assert!(tail.validate_current_tail_authority().unwrap().is_empty());
+            tail.validate_current_entity_mutation_revisions(&[])
+                .unwrap();
+        });
     }
 
     #[test]

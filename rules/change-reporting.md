@@ -2,9 +2,17 @@
 
 This rule is part of the [engineering baseline](../DRAGGINZGAME.md). It governs
 completed maintainer reports: delivery handoffs, audit/inspection findings and
-issue-only outcomes. Progress messages need not repeat the metric block.
-Keep the report proportional; these fields require neither a saved report nor
-a new template, workflow, installer or persistent change ledger.
+issue-only outcomes. Default to the practical outcome, relevant verification and
+actionable blockers, with file or evidence links where useful. Report material
+compatibility and consumer actions. Keep routine reports brief.
+
+Line metrics and symbol inventories are **opt-in** when the maintainer requests
+them or an explicitly selected audit requires that measurement. A cleanup task,
+inspection or completed batch alone does not activate them. Do not calculate
+metrics, enumerate private symbols or print zero blocks just to finish a task.
+No saved report, template or persistent change ledger is required.
+
+The sections below define requested accounting, not mandatory handoff fields.
 
 ## Symbol changes
 
@@ -27,14 +35,14 @@ When neither group has entries, use one short line: "Symbol changes: created 0;
 deleted 0." The created/deleted inventory belongs **only in the final response to the maintainer in the
 Codex app**, never in repository files, audit reports, changelogs, commit messages,
 PRs or issues. Those surfaces still document meaningful public API removals and
-required consumer actions. The fictional example below demonstrates the rule;
-it is not a repository's removal inventory.
+required consumer actions.
 
-## Required metric block
+## Requested metric block
 
-Every completed maintainer report includes these measures, even when all are zero:
+When detailed change accounting is requested, use the requested measures below.
+Include explicit zeroes within that selected scope, not unrelated categories:
 
-| Measure | Required values |
+| Measure | Values |
 | --- | --- |
 | Rust physical lines | added / removed / net |
 | Type declarations | created / deleted only |
@@ -99,87 +107,3 @@ task-owned untracked files separately, or compare temporary before/after trees
 with `git diff --no-index --no-renames`; its status 1 means differences were found.
 Name the selection and commands so another reviewer can reproduce the totals.
 Do not stage files just to count them or use stock LOC differences as churn counts.
-
-## Worked example
-
-These are complete fictional files. Every displayed content line ends with LF;
-there are no other files. Compare the `before` and `after` trees with
-`git diff --no-index --no-renames --numstat before/ after/`. An absent file is empty
-for the comparison. No source is generated or vendored; blanks are included.
-
-Before `src/model.rs`:
-
-```rust
-pub struct Removed;
-pub struct Moved;
-pub struct OldName;
-pub struct Edited {
-    pub value: u8,
-}
-```
-
-After `src/model.rs`:
-
-```rust
-pub struct NewName;
-pub struct Edited {
-    pub value: u16,
-}
-```
-
-After `src/moved.rs` (absent before):
-
-```rust
-pub struct Moved;
-```
-
-Before `src/lib.rs`:
-
-```rust
-mod model;
-```
-
-After `src/lib.rs`:
-
-```rust
-mod model;
-mod moved;
-```
-
-Before `README.md`:
-
-```markdown
-# Example
-```
-
-After `README.md`:
-
-```markdown
-# Example
-
-Changed the model layout.
-```
-
-Example final handoff:
-
-> Scope: the complete fictional before/after trees above, not a release total.
-> Symbol changes: created **0**; deleted **1** (`model::Removed`, formerly
-> `src/model.rs`, obsolete placeholder, no replacement).
-> Rust lines **+4 / -4 / 0**; types **+0 / -1**;
-> type lines **+3 / -4 / -1**; docs **+2 / -0 / +2**.
-> Physical lines include blanks/comments; type lines overlap Rust. No Rustdoc
-> changes, generated files or vendored files occur in this example.
-
-The per-file Git counts are `src/model.rs +2/-4`, `src/moved.rs +1/-0`,
-`src/lib.rs +1/-0`, and `README.md +2/-0`. The module declaration addition is
-Rust churn but not a type declaration or type line. No new semantic type was
-introduced by the move or rename.
-
-Example issue-only final report:
-
-> Reviewed issues against commit ABC; source was unchanged during this task.
-> Scope: task-attributed working-tree changes relative to its starting state.
-> Symbol changes: created **0**; deleted **0**.
-> Rust lines **+0 / -0 / 0**; types **+0 / -0**;
-> type lines **+0 / -0 / 0**; docs **+0 / -0 / 0**.
-> GitHub issue text is outside repository source/documentation counts.

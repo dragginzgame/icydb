@@ -99,13 +99,23 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    /// Execute at most one application page and atomically retain its next
-    /// state after rechecking the complete source proof.
+    /// Execute at most one application page, then atomically replace its progress
+    /// record after rechecking the complete source proof.
     ///
     /// Replaying the same sequence and idempotency key returns the persisted
     /// receipt without invoking `operation` again. The closure is synchronous;
     /// no `.await`, timer, or external call can split proof comparison from the
     /// final progress write.
+    ///
+    /// The closure's side effects are not part of that atomic replacement. An
+    /// operation error, invalid advance, failed progress write, or post-page
+    /// invalidation does not undo writes already performed by the closure.
+    /// Invalidation can be returned in an `Ok` receipt. Exact replay suppresses
+    /// the closure only after a receipt has been retained successfully.
+    /// Prefer read-only page work or independently idempotent effects. If an IC
+    /// update relies on message rollback, its caller must trap on every error
+    /// and invalidated receipt before returning; this cannot undo effects from
+    /// earlier messages or external calls and provides no native rollback.
     pub fn compare_proof_and_advance<E>(
         &self,
         request: &ResumableJobAdvanceRequest,

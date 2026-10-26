@@ -36,6 +36,7 @@ pub(in crate::db) use normalize::normalize;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use normalize::normalize_accepted_compare_fields_coercion;
 pub(in crate::db) use normalize::normalize_enum_literals;
+pub(in crate::db) use normalize::normalize_with_budget;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use parser::parse_sql_predicate;
 pub(in crate::db) use render::render_sql_predicate;

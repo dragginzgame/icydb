@@ -3,7 +3,7 @@
 //! Does not own: generic canister lifecycle commands or project discovery.
 //! Boundary: exposes fixture command construction and cycle parsing to the ICP command owner.
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 
 use std::process::{Command, Stdio};
 
@@ -74,8 +74,8 @@ fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128
 }
 
 fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String> {
-    let arguments = icydb::wire::Endpoint::FixturesLoad
-        .encode_request(())
+    let arguments = canic_icydb::wire::Endpoint::FixturesLoad
+        .encode_request((), icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
         .map_err(|error| error.to_string())?;
     let response = crate::icp::call::call_hex(
         &arguments,
@@ -87,8 +87,8 @@ fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String
 
 fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, String> {
     let bytes = response.map_err(fixture_load_error)?;
-    let result: Result<(), icydb::Error> = icydb::wire::Endpoint::FixturesLoad
-        .decode_response(&bytes)
+    let result: Result<(), icydb::Error> = canic_icydb::wire::Endpoint::FixturesLoad
+        .decode_response(&bytes, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .map_err(|error| {
             fixture_load_error(crate::diagnostic::render_wire_decode_error(
                 Endpoint::FixturesLoad,

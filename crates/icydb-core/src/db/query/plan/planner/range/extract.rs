@@ -20,7 +20,7 @@ use crate::{
                     CachedCompare, IndexFieldConstraint, RangeConstraint,
                     bounds::{merge_range_constraint, merge_range_constraint_bounds},
                 },
-                range_bound_count,
+                range_bound_count, validate_range_and_compares,
             },
         },
         resource::construction::ConstructionBudget,
@@ -120,35 +120,13 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 ) -> Result<Option<SemanticIndexRangeSpec>, InternalError> {
     let mut compares = Vec::new();
     budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
+    if validate_range_and_compares(children).is_err() {
+        return Ok(None);
+    }
     for child in children {
         let Predicate::Compare(cmp) = child else {
             return Ok(None);
         };
-        if !matches!(
-            cmp.op,
-            CompareOp::Eq
-                | CompareOp::Gt
-                | CompareOp::Gte
-                | CompareOp::Lt
-                | CompareOp::Lte
-                | CompareOp::StartsWith
-        ) {
-            return Ok(None);
-        }
-        if !matches!(
-            (cmp.op, cmp.coercion.id),
-            (
-                CompareOp::Eq
-                    | CompareOp::StartsWith
-                    | CompareOp::Gt
-                    | CompareOp::Gte
-                    | CompareOp::Lt
-                    | CompareOp::Lte,
-                CoercionId::Strict | CoercionId::TextCasefold
-            )
-        ) {
-            return Ok(None);
-        }
         budget.reserve_vec(&mut compares, 1)?;
         compares.push(CachedCompare {
             cmp,

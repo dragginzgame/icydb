@@ -9,7 +9,7 @@ use icydb::db::{
 };
 
 use crate::{
-    observability::render::{render_field_list, yes_no},
+    observability::render::{render_field_list, schema_field_cells, yes_no},
     table::{ColumnAlign, append_report_section},
 };
 
@@ -88,32 +88,12 @@ fn schema_entity_row(entity: &EntitySchemaDescription) -> SchemaEntityRow {
 }
 
 fn schema_field_row(entity_name: &str, field: &EntityFieldDescription) -> SchemaFieldRow {
-    [
-        entity_name.to_string(),
-        field.name().to_string(),
-        field
-            .slot()
-            .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
-        field.kind().to_string(),
-        yes_no(field.nullable()).to_string(),
-        yes_no(field.primary_key()).to_string(),
-        yes_no(field.queryable()).to_string(),
-        field.origin().to_string(),
-        field.insert_omission().unwrap_or("-").to_string(),
-        field.insert_default().unwrap_or("-").to_string(),
-        field
-            .insert_default_bytes()
-            .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
-        field.insert_default_hash().unwrap_or("-").to_string(),
-        field
-            .introduced_in_layout()
-            .map_or_else(|| "-".to_string(), |layout| layout.to_string()),
-        field.historical_fill().unwrap_or("-").to_string(),
-        field
-            .historical_fill_bytes()
-            .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
-        field.historical_fill_hash().unwrap_or("-").to_string(),
-    ]
+    let mut row = std::array::from_fn(|_| String::new());
+    row[0] = entity_name.to_string();
+    for (cell, value) in row[1..].iter_mut().zip(schema_field_cells(field)) {
+        *cell = value;
+    }
+    row
 }
 
 fn schema_index_row(entity_name: &str, index: &EntityIndexDescription) -> SchemaIndexRow {

@@ -3,8 +3,9 @@
 //! The table is shared by raw fixture exports, artifact admission and native
 //! callers. IcyDB's generated endpoints retain their product-owned contracts.
 
+use canic_icydb::wire::Endpoint;
 use ic_wire::Error;
-use icydb::wire::{Endpoint, MAX_REPLY_BYTES, MAX_REQUEST_BYTES};
+use icydb::wire::{MAX_REPLY_BYTES, MAX_REQUEST_BYTES};
 use icydb_schema::wire::limits;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -47,7 +48,7 @@ macro_rules! contracts {
         )*
         /// Encode fixture or generated arguments through their current contract.
         pub fn encode_request<Q: Serialize>(name: &str, request: Q) -> Result<Vec<u8>, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.encode_request(request); }
+            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.encode_request(request, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)); }
             let id = match name {
                 $($name => $marker::ID,)*
                 _ => return Err(Error::Identity),
@@ -56,7 +57,7 @@ macro_rules! contracts {
         }
         /// Decode one fixture or generated request after resource admission.
         pub fn decode_request<Q: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<Q, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_request(bytes); }
+            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_request(bytes, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)); }
             match name {
                 $($name => ic_wire::native::decode_request($marker::ID, bytes, limits(MAX_REQUEST_BYTES)),)*
                 _ => Err(Error::Identity),
@@ -64,7 +65,7 @@ macro_rules! contracts {
         }
         /// Encode a fixture or generated response, including application errors.
         pub fn encode_response<R: Serialize>(name: &str, response: R) -> Result<Vec<u8>, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.encode_response(response); }
+            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.encode_response(response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES)); }
             let id = match name {
                 $($name => $marker::ID,)*
                 _ => return Err(Error::Identity),
@@ -73,7 +74,7 @@ macro_rules! contracts {
         }
         /// Decode a fixture or generated response after resource admission.
         pub fn decode_response<R: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<R, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_response(bytes); }
+            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_response(bytes, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES)); }
             match name {
                 $($name => ic_wire::native::decode_response($marker::ID, bytes, limits(MAX_REPLY_BYTES)),)*
                 _ => Err(Error::Identity),

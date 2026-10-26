@@ -180,8 +180,8 @@ rather than prohibiting retired names.
 
 ## Final Response
 
-Follow the shared [change-reporting rules](rules/change-reporting.md), including
-the required metrics and symbol changes. Keep reports brief and include:
+Follow the shared [change-reporting rules](rules/change-reporting.md). Detailed
+line metrics and symbol inventories are opt-in. Keep reports brief and include:
 
 - summary
 - files changed, using absolute paths

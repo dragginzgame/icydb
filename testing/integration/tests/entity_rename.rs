@@ -248,8 +248,11 @@ fn rehearse(restart_before: bool) {
     eprintln!(
         "entity-rename advance: input_blake3={}",
         blake3::hash(
-            &icydb::wire::Endpoint::SchemaMigrate
-                .encode_request((&command,))
+            &canic_icydb::wire::Endpoint::SchemaMigrate
+                .encode_request(
+                    (&command,),
+                    icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)
+                )
                 .unwrap()
         )
     );

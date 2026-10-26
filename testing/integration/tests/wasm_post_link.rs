@@ -156,8 +156,11 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
         .upgrade_canister(
             fixture.canister_id(),
             final_deployable,
-            icydb::wire::encode_post_upgrade_arguments(())
-                .expect("unit post-upgrade arguments should encode"),
+            canic_icydb::wire::encode_post_upgrade_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit post-upgrade arguments should encode"),
             None,
         )
         .expect("compiler-to-post-link upgrade should succeed");

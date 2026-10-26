@@ -9,6 +9,67 @@ use crate::db::{
     schema::PersistedRelationPathStepSnapshot,
 };
 
+#[test]
+fn unchanged_high_fanout_relations_remain_updatable_and_validate_final_targets() {
+    let session = initialize_nested();
+    session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+            entity: ENTITY_NAME.into(),
+            patch: dynamic_payload_patch(1),
+        })
+        .unwrap();
+    // List and map duplicates plus one set member fit one image's allowance,
+    // but projecting both unchanged images would exceed the batch allowance.
+    session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+            entity: SECOND_ENTITY_NAME.into(),
+            patch: nested_patch(&vec![1; 1600]),
+        })
+        .unwrap();
+    drive_journaled_recovery_to_completion(&session);
+    let edges = reverse_entries();
+    assert_eq!(edges.len(), 3);
+    for payload in [101, 102] {
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                entity: SECOND_ENTITY_NAME.into(),
+                key: InputValue::nat64(1),
+                patch: dynamic_payload_patch(payload),
+            })
+            .unwrap();
+        assert_eq!(source_rows(&session)[0][1], OutputValue::nat64(payload));
+        assert_eq!(reverse_entries(), edges);
+        drive_journaled_recovery_to_completion(&session);
+        assert_eq!(reverse_entries(), edges);
+    }
+    let rows = source_rows(&session);
+    for reverse in [false, true] {
+        let mut batch = vec![
+            DynamicMutation::Update {
+                entity: SECOND_ENTITY_NAME.into(),
+                key: InputValue::nat64(1),
+                patch: dynamic_payload_patch(103),
+            },
+            DynamicMutation::Delete {
+                entity: ENTITY_NAME.into(),
+                key: InputValue::nat64(1),
+            },
+        ];
+        if reverse {
+            batch.reverse();
+        }
+        let error = session
+            .execute_trusted_dynamic_mutation_batch(batch)
+            .unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            icydb_diagnostic_code::DiagnosticFactTag::ConstraintKind,
+            icydb_diagnostic_code::DiagnosticConstraintKind::Relation.raw(),
+        )));
+        assert_eq!(source_rows(&session), rows);
+        assert_eq!(reverse_entries(), edges);
+    }
+}
+
 fn nested_source_snapshot() -> PersistedSchemaSnapshot {
     use PersistedRelationPathStepSnapshot::{ListItems, MapValues, SetItems};
 

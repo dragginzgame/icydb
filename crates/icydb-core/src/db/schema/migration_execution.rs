@@ -253,6 +253,26 @@ struct EntityRewritePage {
     exhausted: bool,
 }
 
+// Every row phase resumes strictly after the last committed key and stays
+// inside the same entity prefix. Phase-specific admission remains at callers.
+pub(in crate::db::schema) fn migration_row_bounds(
+    entity: crate::types::EntityTag,
+    checkpoint: Option<&PersistedSchemaMigrationRowCursor>,
+) -> (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>) {
+    let range = RawDataStoreKeyRange::entity_prefix(entity);
+    let lower = match checkpoint {
+        None => Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
+        Some(cursor) => Bound::Excluded(RawDataStoreKey::from_persisted_bytes(
+            cursor.primary_key().to_vec(),
+        )),
+    };
+    let upper = range
+        .upper_exclusive()
+        .map(RawDataStoreKey::from_store_range_bound)
+        .map_or(Bound::Unbounded, Bound::Excluded);
+    (lower, upper)
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the bounded rewrite loop keeps all engine-owned budgets explicit"
@@ -284,17 +304,7 @@ fn rewrite_entity_page(
         &before_selection,
     )?
     .into_row_contract();
-    let range = RawDataStoreKeyRange::entity_prefix(program.entity());
-    let lower = match checkpoint {
-        None => Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Some(cursor) => Bound::Excluded(RawDataStoreKey::from_persisted_bytes(
-            cursor.primary_key().to_vec(),
-        )),
-    };
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
+    let (lower, upper) = migration_row_bounds(program.entity(), checkpoint);
     let mut page = EntityRewritePage {
         cursor: checkpoint.cloned(),
         rows: 0,
@@ -788,17 +798,7 @@ fn final_validate_entity_page(
     byte_budget: usize,
     work: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<FinalEntityPage, InternalError> {
-    let range = RawDataStoreKeyRange::entity_prefix(program.entity());
-    let lower = match checkpoint {
-        None => Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Some(cursor) => Bound::Excluded(RawDataStoreKey::from_persisted_bytes(
-            cursor.primary_key().to_vec(),
-        )),
-    };
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
+    let (lower, upper) = migration_row_bounds(program.entity(), checkpoint);
     let mut page = FinalEntityPage {
         cursor: checkpoint.cloned(),
         rows: 0,

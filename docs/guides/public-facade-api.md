@@ -108,6 +108,14 @@ usage covers charged database spans and may be sampled at charging boundaries;
 it excludes application work outside those spans and does not report the IC's
 remaining endpoint allowance. Native tests do not measure IC instructions.
 
+Ordinary structural writes, typed write batches and ordinary SQL save/delete
+batches do not open a mutation execution budget. Their per-call bounds do not
+bound a loop of calls, and request-budget snapshots do not account for all of
+that write work. Bound both batch size and batches per message; otherwise the
+replica may trap before a typed exhaustion error. Resumable mutation-job
+advancement explicitly installs its own mutation budget. See the
+[resource contract](../contracts/RESOURCE_MODEL.md) for the accounting boundary.
+
 For typed, non-SQL workflows, the existing `start_resumable_job` and
 `compare_proof_and_advance` APIs retain bounded application state and receipts
 under a read-set proof. Stop at a completed page boundary and retain its next
@@ -118,6 +126,12 @@ arbitrary writes inside the closure one transaction. Use the maintained atomic
 write-batch surface for a unit that requires atomic writes, and respect proof
 invalidation when source stores change. Catching exhaustion does not roll back
 already completed writes or make an incomplete item valid progress.
+An `Ok` receipt may itself report invalidation. Prefer read-only closure work
+or independently idempotent effects; exact replay protects only retained
+receipts. An IC caller relying on message rollback must trap on errors and
+invalidated receipts before returning. This does not undo earlier-message
+effects or provide rollback in native execution. See the
+[durability contract](../contracts/DURABILITY.md#revision-bound-application-progress).
 
 ## Read Surfaces
 

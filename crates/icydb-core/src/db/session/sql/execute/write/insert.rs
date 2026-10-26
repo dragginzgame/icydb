@@ -24,7 +24,7 @@ use crate::{
                 SqlWriteExecutionBounds, SqlWriteReturningBounds,
             },
         },
-        sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection, SqlWriteValue},
+        sql::parser::{SqlInsertSource, SqlInsertStatement, SqlWriteValue},
         sql_shared::SqlSyntaxErrorKind,
         write_context::{AcceptedWriteContext, MutationMode},
     },
@@ -99,52 +99,6 @@ fn ensure_sql_insert_required_fields(
     ))
 }
 
-fn sql_insert_source_width_hint(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    source: &SqlInsertSource,
-) -> Option<usize> {
-    match source {
-        SqlInsertSource::Values(values) => values.first().map(Vec::len),
-        SqlInsertSource::DefaultValues => None,
-        SqlInsertSource::Select(select) => match &select.projection {
-            SqlProjection::All => {
-                let mut count = 0usize;
-                for field in descriptor.fields() {
-                    let policy = write_policy_for_accepted_field(field);
-                    if policy.write_management().is_none() {
-                        count = count.saturating_add(1);
-                    }
-                }
-                Some(count)
-            }
-            SqlProjection::Items(items) => Some(items.len()),
-        },
-    }
-}
-
-fn accepted_insert_columns(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    include_omittable_fields: bool,
-) -> Vec<String> {
-    let mut columns = Vec::new();
-    for field in descriptor.fields() {
-        if !include_omittable_fields && sql_insert_accepted_field_is_omittable(field) {
-            continue;
-        }
-        if include_omittable_fields
-            && write_policy_for_accepted_field(field)
-                .write_management()
-                .is_some()
-        {
-            continue;
-        }
-
-        columns.push(field.name().to_string());
-    }
-
-    columns
-}
-
 fn sql_insert_columns(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     statement: &SqlInsertStatement,
@@ -156,15 +110,18 @@ fn sql_insert_columns(
         return Vec::new();
     }
 
-    let columns = accepted_insert_columns(descriptor, false);
-    let full_columns = accepted_insert_columns(descriptor, true);
-    let first_width = sql_insert_source_width_hint(descriptor, &statement.source);
-
-    if first_width == Some(columns.len()) {
-        return columns;
-    }
-
-    full_columns
+    // Positional meaning follows accepted field order, never tuple width or
+    // omission policy. Defaults and nullability must not retarget supplied values.
+    descriptor
+        .fields()
+        .iter()
+        .filter(|field| {
+            write_policy_for_accepted_field(field)
+                .write_management()
+                .is_none()
+        })
+        .map(|field| field.name().to_string())
+        .collect()
 }
 
 impl<C: CanisterKind> DbSession<C> {

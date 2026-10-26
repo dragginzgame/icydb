@@ -86,15 +86,15 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.68.6", default-features = false }
-ic-host-fs = { version = "0.68.6", default-features = false }
-ic-host-text = "0.68.6"
-ic-host-tools = "0.68.6"
-ic-memory = "0.51"
-ic-metrics = "0.16"
-ic-platform = { version = "0.6.18", default-features = false }
-ic-storage = "0.51"
-ic-wire = "0.7.15"
+ic-host-artifacts = { version = "0.68.8", default-features = false }
+ic-host-fs = { version = "0.68.8", default-features = false }
+ic-host-text = "0.68.8"
+ic-host-tools = "0.68.8"
+ic-memory = "0.51.4"
+ic-metrics = "0.16.3"
+ic-platform = { version = "0.6.19", default-features = false }
+ic-storage = "0.51.4"
+ic-wire = "0.7.17"
 icydb = { path = "crates/icydb", version = "=0.284.3", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.284.3" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.284.3" }
@@ -123,11 +123,11 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 ] }
 
 # Tests and tooling only
-canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "06fd517254cc31531f165c63216b5a02c24ceebd" }
-ic-build = "0.68.6"
-ic-host-process = "0.68.6"
-ic-testkit = "0.68.6"
-ic-timers = "0.31"
+canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "45db926a326712f402fa639e0ca2888031988973" }
+ic-build = "0.68.8"
+ic-host-process = "0.68.8"
+ic-testkit = "0.68.8"
+ic-timers = "0.31.5"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }

@@ -295,6 +295,22 @@ pub trait HasTraits: HasType {
     }
 }
 
+// Application records, entities and enums share custom strategies; their
+// trait baselines and validation remain with each node.
+macro_rules! application_value_trait_strategy {
+    ($node:expr, $trait_kind:expr) => {
+        match $trait_kind {
+            TraitKind::Default => DefaultTrait::strategy($node),
+            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy($node),
+            TraitKind::ValidateAuto => ValidateAutoTrait::strategy($node),
+            TraitKind::Visitable => VisitableTrait::strategy($node),
+            _ => None,
+        }
+    };
+}
+
+pub(crate) use application_value_trait_strategy;
+
 // Keep the identical generated collection baseline and strategy dispatch in
 // the trait owner. Each collection node supplies only its node kind; concrete
 // strategy implementations remain specialized through `Imp<Node>`.

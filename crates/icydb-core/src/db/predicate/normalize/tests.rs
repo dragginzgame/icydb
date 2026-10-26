@@ -690,3 +690,78 @@ fn accepted_field_comparison_coercion_uses_accepted_semantics() {
         CoercionId::Strict,
     );
 }
+
+#[test]
+fn normalization_pair_budget_is_exact_cumulative_and_typed() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        predicate::normalize_with_budget,
+        query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+        DiagnosticFactTag,
+    };
+    let predicate = Predicate::And(
+        ["a", "b", "c"]
+            .into_iter()
+            .map(|field| Predicate::Compare(ComparePredicate::eq(field.into(), Value::Nat64(1))))
+            .collect(),
+    );
+    let expected = normalize(predicate.clone());
+    for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+        for limit in [0, 2, 3, 6] {
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    32_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(Resource::PredicateExpressionSteps, limit),
+            );
+            for attempt in 1..=3 {
+                let result = PreparationWork::run(&root.scope(), lane, |work| {
+                    normalize_with_budget(predicate.clone(), work).map_err(QueryError::execute)
+                });
+                if attempt * 3 <= limit {
+                    assert_eq!(result.unwrap(), expected);
+                } else {
+                    let error = result.unwrap_err();
+                    assert!(error.diagnostic_facts().contains(&(
+                        DiagnosticFactTag::BudgetResource,
+                        Resource::PredicateExpressionSteps.raw(),
+                    )));
+                    assert!(
+                        error
+                            .diagnostic_facts()
+                            .contains(&(DiagnosticFactTag::ExecutionLane, lane.raw(),))
+                    );
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn normalization_pair_failure_stops_nested_traversal_without_a_partial_predicate() {
+    let pair = || {
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq("a".into(), Value::Nat64(1))),
+            Predicate::Compare(ComparePredicate::eq("b".into(), Value::Nat64(2))),
+        ])
+    };
+    let predicate = Predicate::Or(vec![Predicate::Not(Box::new(pair())), pair(), pair()]);
+    let mut visited = 0;
+    let result = super::normalize_with_pair_charge(predicate, &mut || {
+        visited += 1;
+        if visited == 2 { Err(17) } else { Ok(()) }
+    });
+    assert_eq!(result, Err(17));
+    assert_eq!(visited, 2);
+    let absorbed = Predicate::And(vec![Predicate::False, pair()]);
+    assert_eq!(
+        super::normalize_with_pair_charge(absorbed, &mut || Err(17)),
+        Ok(Predicate::False),
+    );
+}

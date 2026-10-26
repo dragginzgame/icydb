@@ -10,7 +10,7 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::{AcceptedFieldWriteProvenance, decode_validated_check_literal_payload},
-        predicate::normalize,
+        predicate::normalize_with_budget,
         resource::construction::ConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
@@ -1138,7 +1138,7 @@ fn unique_index_dependency_slots(
             .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
         // Project the accepted tree for the existing normalization owner so
         // discarded branches do not gain independent write barriers.
-        normalize(predicate).try_for_each_field(&mut |name| {
+        normalize_with_budget(predicate, work)?.try_for_each_field(&mut |name| {
             work.charge(Resource::PredicateExpressionSteps, 1)?;
             let slot = snapshot
                 .fields()

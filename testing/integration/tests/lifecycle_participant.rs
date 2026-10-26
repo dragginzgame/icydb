@@ -158,8 +158,11 @@ fn upgrade_with_retry(
 }
 
 fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
-    let args = icydb::wire::encode_post_upgrade_arguments((Some(false),))
-        .expect("non-trapping lifecycle upgrade args should encode");
+    let args = canic_icydb::wire::encode_post_upgrade_arguments(
+        (Some(false),),
+        icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+    )
+    .expect("non-trapping lifecycle upgrade args should encode");
     upgrade_with_retry(fixture, &wasm, &args)
         .expect("lifecycle participant upgrade should succeed");
 }
@@ -323,8 +326,11 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
     let probe_row_id = insert_probe_row(&fixture).expect("bounded probe-row insert should succeed");
     let stable_bytes_before = stable_memory_bytes(&fixture);
 
-    let trap_args = icydb::wire::encode_post_upgrade_arguments((Some(true),))
-        .expect("trapping lifecycle upgrade args should encode");
+    let trap_args = canic_icydb::wire::encode_post_upgrade_arguments(
+        (Some(true),),
+        icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+    )
+    .expect("trapping lifecycle upgrade args should encode");
     let failed_upgrade = upgrade_with_retry(&fixture, &production_wasm, &trap_args)
         .expect_err("post-upgrade must propagate a trap after participant execution");
     assert_eq!(

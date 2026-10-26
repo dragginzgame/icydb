@@ -348,9 +348,11 @@ fn returning_selected_cells_wasm_cost_matrix() {
                         value.to_string()
                     }]])
                 );
-                let response = icydb::wire::Endpoint::Query
-                    .encode_response(&sample.result)
-                    .unwrap();
+                let response = icydb_testing_wasm_helpers::fixture_wire::encode_response(
+                    "icydb_query",
+                    &sample.result,
+                )
+                .unwrap();
                 println!(
                     "returning_cost wide={wide} shape={shape} repeat={repeat} instructions={} cycles={cycles} response_sha256={}",
                     sample.local_instructions,
@@ -5150,8 +5152,8 @@ fn generated_sql_query_endpoint_uses_the_replicated_reply_bound() {
                GROUP BY group_name ORDER BY group_name LIMIT 50";
     let ordinary = query_sql(pic, canister_id, sql).unwrap();
     let response: Result<&SqlQueryResult, Error> = Ok(&ordinary);
-    let bytes = icydb::wire::Endpoint::Query
-        .encode_response(response)
+    let bytes = canic_icydb::wire::Endpoint::Query
+        .encode_response(response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .unwrap()
         .len();
     assert!(bytes > 2 * 1024 * 1024 && bytes < 3 * 1024 * 1024);

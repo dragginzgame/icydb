@@ -285,45 +285,7 @@ fn render_describe_constraint_section(
 fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldDescription]) {
     let field_rows = fields
         .iter()
-        .map(|field| {
-            vec![
-                field.name().to_string(),
-                field
-                    .slot()
-                    .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
-                field.kind().to_string(),
-                if field.nullable() {
-                    "yes".to_string()
-                } else {
-                    "no".to_string()
-                },
-                if field.primary_key() {
-                    "yes".to_string()
-                } else {
-                    "no".to_string()
-                },
-                if field.queryable() {
-                    "yes".to_string()
-                } else {
-                    "no".to_string()
-                },
-                field.origin().to_string(),
-                field.insert_omission().unwrap_or("-").to_string(),
-                field.insert_default().unwrap_or("-").to_string(),
-                field
-                    .insert_default_bytes()
-                    .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
-                field.insert_default_hash().unwrap_or("-").to_string(),
-                field
-                    .introduced_in_layout()
-                    .map_or_else(|| "-".to_string(), |layout| layout.to_string()),
-                field.historical_fill().unwrap_or("-").to_string(),
-                field
-                    .historical_fill_bytes()
-                    .map_or_else(|| "-".to_string(), |bytes| bytes.to_string()),
-                field.historical_fill_hash().unwrap_or("-").to_string(),
-            ]
-        })
+        .map(|field| crate::observability::render::schema_field_cells(field).to_vec())
         .collect::<Vec<_>>();
     render_table_section(
         lines,

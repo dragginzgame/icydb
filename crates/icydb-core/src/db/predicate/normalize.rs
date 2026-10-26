@@ -17,12 +17,14 @@ use crate::{
             simplify::simplify_and_compare_constraints,
         },
         query::preparation::PreparationWork,
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, SchemaInfo,
             SchemaLiteralValidationReason, ValidateError, classify_accepted_field_kind,
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
     },
+    error::InternalError,
     types::NumericValue,
     value::{InputValue, Value, canonicalize_value_set},
 };
@@ -46,14 +48,35 @@ use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 /// - predictable test behavior
 #[must_use]
 pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
+    match normalize_with_pair_charge(predicate, &mut || Ok::<_, std::convert::Infallible>(())) {
+        Ok(predicate) => predicate,
+        Err(never) => match never {},
+    }
+}
+
+/// Normalize under the caller's existing construction authority. Each visited
+/// conjunction pair is charged before classification, including non-reducing pairs.
+pub(in crate::db) fn normalize_with_budget(
+    predicate: Predicate,
+    work: &dyn ConstructionBudget,
+) -> Result<Predicate, InternalError> {
+    normalize_with_pair_charge(predicate, &mut || {
+        work.charge(Resource::PredicateExpressionSteps, 1)
+    })
+}
+
+fn normalize_with_pair_charge<E>(
+    predicate: Predicate,
+    charge_pair: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Predicate, E> {
     // Normalize recursively while preserving logical equivalence.
-    match predicate {
+    Ok(match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
 
-        Predicate::And(children) => normalize_and(children),
-        Predicate::Or(children) => normalize_or(children),
-        Predicate::Not(inner) => normalize_not(inner),
+        Predicate::And(children) => normalize_and(children, charge_pair)?,
+        Predicate::Or(children) => normalize_or(children, charge_pair)?,
+        Predicate::Not(inner) => normalize_not(inner, charge_pair)?,
 
         Predicate::Compare(cmp) => Predicate::Compare(cmp),
         Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
@@ -65,7 +88,7 @@ pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
         Predicate::IsNotEmpty { field } => Predicate::IsNotEmpty { field },
         Predicate::TextContains { field, value } => Predicate::TextContains { field, value },
         Predicate::TextContainsCi { field, value } => Predicate::TextContainsCi { field, value },
-    }
+    })
 }
 
 /// Materialize schema-normalized operands under current request admission.
@@ -588,16 +611,19 @@ fn normalize_numeric_value_for_target(
 /// Eliminates double negation:
 ///     NOT (NOT x)  →  x
 ///
-fn normalize_not(mut inner: Box<Predicate>) -> Predicate {
+fn normalize_not<E>(
+    mut inner: Box<Predicate>,
+    charge_pair: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Predicate, E> {
     // Keep the owned shell when NOT survives. Moving its child through the
     // normalizer must not require allocating a replacement box.
-    *inner = normalize(*inner);
+    *inner = normalize_with_pair_charge(*inner, charge_pair)?;
     if let Predicate::Not(double) = *inner {
         // The inner subtree is already canonical; removing both NOT nodes
         // must not traverse, sort or rebuild it a second time.
-        return *double;
+        return Ok(*double);
     }
-    Predicate::Not(inner)
+    Ok(Predicate::Not(inner))
 }
 
 ///
@@ -611,19 +637,22 @@ fn normalize_not(mut inner: Box<Predicate>) -> Predicate {
 ///
 /// Children are sorted deterministically.
 ///
-fn normalize_and(children: Vec<Predicate>) -> Predicate {
-    let Some(out) = normalize_boolean_children(children, true) else {
-        return Predicate::False;
+fn normalize_and<E>(
+    children: Vec<Predicate>,
+    charge_pair: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Predicate, E> {
+    let Some(out) = normalize_boolean_children(children, true, charge_pair)? else {
+        return Ok(Predicate::False);
     };
 
     if out.is_empty() {
-        return Predicate::True;
+        return Ok(Predicate::True);
     }
 
     // Compare-pair simplification scans all conjunction children directly, so
     // it does not require a pre-sorted shape to preserve semantics.
-    let Some(mut out) = simplify_and_compare_constraints(out) else {
-        return Predicate::False;
+    let Some(mut out) = simplify_and_compare_constraints(out, charge_pair)? else {
+        return Ok(Predicate::False);
     };
 
     // Canonicalize after simplification because compare folding can replace or
@@ -631,10 +660,10 @@ fn normalize_and(children: Vec<Predicate>) -> Predicate {
     canonicalize_predicate_children_for_eval(&mut out);
 
     if out.len() == 1 {
-        return out.remove(0);
+        return Ok(out.remove(0));
     }
 
-    Predicate::And(out)
+    Ok(Predicate::And(out))
 }
 
 ///
@@ -648,44 +677,55 @@ fn normalize_and(children: Vec<Predicate>) -> Predicate {
 ///
 /// Children are sorted deterministically.
 ///
-fn normalize_or(children: Vec<Predicate>) -> Predicate {
-    let Some(mut out) = normalize_boolean_children(children, false) else {
-        return Predicate::True;
+fn normalize_or<E>(
+    children: Vec<Predicate>,
+    charge_pair: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Predicate, E> {
+    let Some(mut out) = normalize_boolean_children(children, false, charge_pair)? else {
+        return Ok(Predicate::True);
     };
 
     if out.is_empty() {
-        return Predicate::False;
+        return Ok(Predicate::False);
     }
 
     // Eligible equalities only need the membership owner's value ordering, not
     // a preceding sort of complete predicate keys. Other OR shapes still sort.
     if let Some(collapsed) = collapse_same_field_or_equalities(&mut out) {
-        return collapsed;
+        return Ok(collapsed);
     }
 
     canonicalize_predicate_children_for_eval(&mut out);
 
     if out.len() == 1 {
-        return out.remove(0);
+        return Ok(out.remove(0));
     }
 
-    Predicate::Or(out)
+    Ok(Predicate::Or(out))
 }
 
 // Reuse the owned child backing when normalization does not expose a matching
 // nested junction. None means an absorbing child; later children must not be
 // normalized. The flag selects the two existing boolean operators, not a policy.
-fn normalize_boolean_children(
+fn normalize_boolean_children<E>(
     mut children: Vec<Predicate>,
     conjunction: bool,
-) -> Option<Vec<Predicate>> {
+    charge_pair: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Option<Vec<Predicate>>, E> {
+    let mut failure = None;
     let mut absorbed = false;
     let mut flattened_len = 0usize;
     children.retain_mut(|child| {
-        if absorbed {
+        if absorbed || failure.is_some() {
             return false;
         }
-        *child = normalize(std::mem::replace(child, Predicate::True));
+        match normalize_with_pair_charge(std::mem::replace(child, Predicate::True), charge_pair) {
+            Ok(normalized) => *child = normalized,
+            Err(error) => {
+                failure = Some(error);
+                return false;
+            }
+        }
         match child {
             Predicate::True => {
                 absorbed = !conjunction;
@@ -709,13 +749,16 @@ fn normalize_boolean_children(
             }
         }
     });
+    if let Some(error) = failure {
+        return Err(error);
+    }
     if absorbed {
-        return None;
+        return Ok(None);
     }
     // A normalized junction has at least two children: empty/singleton forms
     // have already collapsed. Equal lengths therefore mean no flattening.
     if flattened_len == children.len() {
-        return Some(children);
+        return Ok(Some(children));
     }
 
     // Size the destination during normalization, not in a separate prepass.
@@ -728,7 +771,7 @@ fn normalize_boolean_children(
             other => out.push(other),
         }
     }
-    Some(out)
+    Ok(Some(out))
 }
 
 // Collapse `field = a OR field = b ...` into `field IN [a, b, ...]` when:

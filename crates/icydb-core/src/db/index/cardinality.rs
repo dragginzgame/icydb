@@ -99,6 +99,10 @@ struct IndexPrefixCardinalityKey {
 
 impl IndexPrefixCardinality {
     const FIRST_COMPONENT_BATCH_INTERSECTION_MIN: usize = 32;
+    // This optional projection must not grow with the lifetime row population.
+    // Encoded keys already have a hard size bound; cap both maps together and
+    // discard all evidence on overflow so consumers use authoritative reads.
+    const MAX_RETAINED_PREFIXES: usize = 4_096;
 
     #[must_use]
     pub(super) const fn synchronized_empty() -> Self {
@@ -541,6 +545,10 @@ impl IndexPrefixCardinality {
                 }
                 Err(prefix) => apply_count_delta(&mut self.counts, prefix, delta),
             }
+            if self.first_component_counts.len() + self.counts.len() > Self::MAX_RETAINED_PREFIXES {
+                self.invalidate_decoding();
+                return;
+            }
         }
     }
 
@@ -849,6 +857,82 @@ mod tests {
         value::Value,
     };
     use std::{collections::BTreeMap, ops::Bound};
+
+    #[test]
+    fn retained_prefix_limit_releases_optional_counts_without_rejecting_writes() {
+        let id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let present = IndexEntryValue::presence();
+        for width in [1, 2] {
+            let key = |value: usize| {
+                let components = vec![
+                    EncodedValue::try_new(&Value::Nat64(value as u64))
+                        .unwrap()
+                        .into_bytes();
+                    width
+                ];
+                let raw = IndexKey::new_from_components_with_primary_key_value(
+                    &id,
+                    IndexKeyKind::User,
+                    &components,
+                    &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(value as u64)),
+                )
+                .unwrap()
+                .to_raw()
+                .unwrap();
+                (raw, components)
+            };
+            let mut counts = IndexPrefixCardinality::synchronized_empty();
+            let rows = IndexPrefixCardinality::MAX_RETAINED_PREFIXES / width;
+            for value in 0..rows {
+                counts.apply_insert(&key(value).0, None, &present);
+            }
+            counts.mark_synchronized(7);
+            let (first, components) = key(0);
+            assert_eq!(
+                counts.first_component_counts.len() + counts.counts.len(),
+                IndexPrefixCardinality::MAX_RETAINED_PREFIXES
+            );
+            assert_eq!(
+                counts.exact_count(7, IndexKeyKind::User, id, &components),
+                Some(1)
+            );
+
+            // Multiplicity changes at the cap retain exact evidence; the limit
+            // applies to distinct prefixes across both maps, not row count.
+            counts.apply_insert(&first, None, &present);
+            counts.mark_synchronized(8);
+            assert_eq!(
+                counts.exact_count(8, IndexKeyKind::User, id, &components),
+                Some(2)
+            );
+            counts.apply_remove(&first, Some(&present));
+            counts.mark_synchronized(9);
+            assert_eq!(
+                counts.exact_count(9, IndexKeyKind::User, id, &components),
+                Some(1)
+            );
+
+            counts.apply_insert(&key(rows).0, None, &present);
+            counts.mark_synchronized(10);
+            assert!(counts.first_component_counts.is_empty());
+            assert!(counts.counts.is_empty());
+            assert_eq!(
+                counts.exact_count(10, IndexKeyKind::User, id, &components),
+                None
+            );
+
+            // A later commit/fold stamp cannot resurrect a partial projection.
+            counts.apply_remove(&first, Some(&present));
+            counts.apply_insert(&first, None, &present);
+            counts.mark_synchronized(11);
+            assert_eq!(
+                counts.exact_count(11, IndexKeyKind::User, id, &components),
+                None
+            );
+            assert!(counts.first_component_counts.is_empty());
+            assert!(counts.counts.is_empty());
+        }
+    }
 
     #[test]
     fn prefix_transitions_preserve_counts_sync_and_overlay_contributions() {

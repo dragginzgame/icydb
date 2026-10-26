@@ -24,8 +24,11 @@ fn install() -> StandaloneCanisterFixture {
         icydb_testing_integration::start_fixture_pocket_ic(),
         InstallSpec {
             wasm,
-            init_bytes: icydb::wire::encode_init_arguments(())
-                .expect("unit init arguments should encode"),
+            init_bytes: canic_icydb::wire::encode_init_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit init arguments should encode"),
             cycles: 10_000_000_000_000,
             install_sender: None,
             label: Some("logical_memory".to_string()),
@@ -75,8 +78,11 @@ fn upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8]) {
         .upgrade_canister(
             fixture.canister_id(),
             wasm.to_vec(),
-            icydb::wire::encode_post_upgrade_arguments(())
-                .expect("unit post-upgrade arguments should encode"),
+            canic_icydb::wire::encode_post_upgrade_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit post-upgrade arguments should encode"),
             None,
         )
         .unwrap();

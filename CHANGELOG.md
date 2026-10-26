@@ -5,6 +5,74 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.285.0]
+
+### ⚠️ Breaking
+
+- Reserve `__icydb_` constraint/index names at authoring admission while retaining
+  engine-owned catalog names ([#209](https://github.com/dragginzgame/icydb/issues/209)).
+- Map column-less INSERT positions to all accepted non-managed fields; require
+  explicit target columns to omit nullable/defaulted fields instead of inferring
+  targets from tuple width ([#223](https://github.com/dragginzgame/icydb/issues/223)).
+- Use the Canic adapter for endpoint identities and lifecycle envelopes;
+  envelope operations carry the database's existing resource limits.
+- Remove unused public model name-limit constants; accepted schema and storage
+  bounds retain their existing authorities
+  ([#469](https://github.com/dragginzgame/icydb/issues/469)).
+
+### 🧹 Cleanup
+
+- Share planner eligibility, validated journal publication facts, fixed budget
+  profiles, catalog traversal, migration bounds, CLI field projection and macro
+  emission through their existing owners.
+
+### 🩹 Fixed
+
+- Charge conjunction simplification pairs to existing preparation budgets and
+  propagate exhaustion without partial predicates
+  ([#76](https://github.com/dragginzgame/icydb/issues/76), partial).
+- Avoid double projection of byte-identical relation fields on updates while
+  retaining final-target validation
+  ([#61](https://github.com/dragginzgame/icydb/issues/61), partial).
+- Keep fresh database roots untouched until control preparation succeeds,
+  allowing rejected startup preparation to retry
+  ([#146](https://github.com/dragginzgame/icydb/issues/146)).
+- Bound optional in-memory index-prefix counts and release them when full,
+  preserving authoritative index rows
+  ([#58 — Unbounded prefix metadata](https://github.com/dragginzgame/icydb/issues/58)).
+- Exclude fixture-only SQL seeding and measurement endpoints from production
+  profiles while retaining local test access, and enforce explicit production
+  update allowlists across maintained actors
+  ([#120 — Fixture endpoints escaping production policy](https://github.com/dragginzgame/icydb/issues/120)).
+
+### 🔧 Changed
+
+- Align upstream minimums with published Build/Host/Testkit 0.68.8, Platform
+  0.6.19, Wire 0.7.17, Memory/Storage 0.51.4, Metrics 0.16.3 and Timers 0.31.5;
+  refresh Shared Tooling to 0.26.20.
+- Compare admitted same-type `Nat128` values directly while preserving numeric
+  coercion limits ([#112](https://github.com/dragginzgame/icydb/issues/112), partial).
+- Batch consecutive row/result budget charges while preserving failure order
+  and attempted-work accounting
+  ([#293 — Repeated per-row budget accounting](https://github.com/dragginzgame/icydb/issues/293), partial).
+
+### 📚 Documentation
+
+- Document the async request attribute's cross-request polling restriction and
+  panic condition ([#161](https://github.com/dragginzgame/icydb/issues/161), partial).
+- Clarify that resumable callbacks do not transactionally couple application
+  writes to progress ([#272 — Application side effects and progress atomicity](https://github.com/dragginzgame/icydb/issues/272)).
+- Explain the per-call rather than aggregate execution bounds for ordinary
+  writes ([#284 — Ordinary structural-write budget limits](https://github.com/dragginzgame/icydb/issues/284)).
+
+### 📊 Audit
+
+- The complexity batch spans 81 files across IcyDB and its Canic adapter:
+  Rust physical lines +1,088/-941 (net +147), including tests and caller adoption.
+  IcyDB alone contracts by 105 physical Rust lines.
+
+Details: [0.285 notes](docs/changelog/0.285.md).
+
 ## [0.284.3] - 2026-10-26
 
 ### 🩹 Fixed

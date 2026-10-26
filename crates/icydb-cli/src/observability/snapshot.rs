@@ -5,7 +5,7 @@
 
 mod render;
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 
 use crate::{cli::CanisterTarget, icp::require_created_canister, observability::call_query};
 

@@ -291,8 +291,11 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
         .upgrade_canister(
             fixture.canister_id(),
             wasm,
-            icydb::wire::encode_post_upgrade_arguments(())
-                .expect("unit post-upgrade arguments should encode"),
+            canic_icydb::wire::encode_post_upgrade_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit post-upgrade arguments should encode"),
             None,
         )
         .expect("current sql-perf Wasm should upgrade");
@@ -1322,7 +1325,11 @@ fn explicit_reinstall_recreates_clean_current_state() {
         .reinstall_canister(
             fixture.canister_id(),
             wasm,
-            icydb::wire::encode_init_arguments(()).expect("unit init arguments should encode"),
+            canic_icydb::wire::encode_init_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit init arguments should encode"),
             None,
         )
         .expect("explicit reinstall should recreate the current database");

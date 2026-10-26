@@ -1,3 +1,4 @@
+use canic_icydb::wire::Endpoint;
 use ic_platform::{pocket_ic::RejectCode, principal::ExternalPrincipal as Principal};
 use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
 use ic_wire::native;
@@ -281,7 +282,7 @@ fn generated_metrics_endpoint_uses_only_wire_and_survives_invalid_requests_and_u
     assert_eq!(manifest.wire_methods.len(), 2);
     let wasm = fs::read(artifact.as_ref()).unwrap();
     let fixture = install_prebuilt_fixture_canister("default_empty_metrics", wasm.clone());
-    let endpoint = icydb::wire::Endpoint::Metrics;
+    let endpoint = canic_icydb::wire::Endpoint::Metrics;
     let query = |phase| {
         let report: Result<icydb::metrics::MetricsReport, icydb::Error> = fixture
             .pocket_ic()
@@ -290,7 +291,9 @@ fn generated_metrics_endpoint_uses_only_wire_and_survives_invalid_requests_and_u
         assert!(report.is_ok(), "{phase} metrics reply: {report:?}");
     };
     query("installed");
-    let request = endpoint.encode_request(()).unwrap();
+    let request = endpoint
+        .encode_request((), icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
+        .unwrap();
     let mut trailing = request.clone();
     trailing.push(0);
     let mut wrong_id = request.clone();
@@ -300,7 +303,9 @@ fn generated_metrics_endpoint_uses_only_wire_and_survives_invalid_requests_and_u
         request[..10].to_vec(),
         trailing,
         wrong_id,
-        endpoint.encode_response(()).unwrap(),
+        endpoint
+            .encode_response((), icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+            .unwrap(),
         vec![0; icydb::wire::MAX_REQUEST_BYTES + 1],
     ];
     for bytes in invalid {
@@ -467,28 +472,46 @@ fn native_wire_browser_qualifies_the_installed_endpoint_roster() {
     let frames = report["frames"].as_array().unwrap();
     assert!(frames.len() >= 12);
     for frame in frames {
-        let endpoint = icydb::wire::Endpoint::from_name(frame["method"].as_str().unwrap()).unwrap();
+        let endpoint =
+            canic_icydb::wire::Endpoint::from_name(frame["method"].as_str().unwrap()).unwrap();
         let request: Vec<u8> = serde_json::from_value(frame["request"].clone()).unwrap();
         let response: Vec<u8> = serde_json::from_value(frame["response"].clone()).unwrap();
         qualify_native_browser_frame(endpoint, &request, &response);
     }
 }
 
-fn qualify_native_browser_frame(endpoint: icydb::wire::Endpoint, request: &[u8], response: &[u8]) {
+fn qualify_native_browser_frame(
+    endpoint: canic_icydb::wire::Endpoint,
+    request: &[u8],
+    response: &[u8],
+) {
     use icydb::{
         Error,
         db::{self, sql::SqlQueryResult},
-        wire::Endpoint,
     };
 
     // Decode actual cross-language frames with the native request/reply types,
     // not a second frozen DTO definition or the generator's metadata interpreter.
     macro_rules! qualify {
         ($request:ty, $response:ty) => {{
-            let decoded: $request = endpoint.decode_request(request).unwrap();
-            assert_eq!(endpoint.encode_request(decoded).unwrap(), request);
-            let decoded: $response = endpoint.decode_response(response).unwrap();
-            assert_eq!(endpoint.encode_response(decoded).unwrap(), response);
+            let decoded: $request = endpoint
+                .decode_request(request, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
+                .unwrap();
+            assert_eq!(
+                endpoint
+                    .encode_request(decoded, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
+                    .unwrap(),
+                request
+            );
+            let decoded: $response = endpoint
+                .decode_response(response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+                .unwrap();
+            assert_eq!(
+                endpoint
+                    .encode_response(decoded, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+                    .unwrap(),
+                response
+            );
         }};
     }
     match endpoint {

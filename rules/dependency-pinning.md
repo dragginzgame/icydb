@@ -115,6 +115,57 @@ still own lock resolution and runtime qualification; a checker PASS is not
 npm qualification. See [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/)
 and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 
+## IC JavaScript and TypeScript dependencies
+
+- **Use `@tokostudios/ic-platform` for first-party SDK Core integration**, through
+  its explicit exports. The npm package lives in IC Platform's `packages/browser`;
+  it is separate from the Rust `ic-platform` crate. Rust-only repositories and
+  SDK-free JavaScript do not need it. Follow the supplying package's
+  [browser contract](https://github.com/dragginzgame/ic-platform/blob/98a2a8aa9b015c730ef222941b387674a729b0ab/packages/browser/README.md)
+  and qualify the selected published artifact, rather than inferring availability
+  from a Rust release or a sibling source tree.
+- Declare Platform directly in the npm package that imports it: `dependencies`
+  for shipped clients and `devDependencies` for test-only roots. Do not require
+  consumers to supply SDK Core as a peer instead.
+  Replace exhausted direct `@icp-sdk/core` declarations and imports, including
+  SDK subpaths, aliases and legacy `@dfinity/*` equivalents. Apply this to owned
+  product, test, example, build and tooling code. Fix generators rather than only
+  generated clients; type-only imports and re-exports follow the same boundary.
+  Do not depend on a hoisted transitive SDK or expose a local replacement facade.
+- Use `/principal`, `/identity`, `/identity/secp256k1`, `/agent` and
+  `/certification` for the corresponding supported capabilities. `/candid` is
+  only for independently defined external protocols; owned application payloads
+  still use IC Wire. The export map is authoritative, not the upstream SDK's
+  entire namespace. A missing symbol requires an owning Platform capability issue
+  and qualification before adoption; preserve incomplete migrations and any
+  approved scoped exceptions until their replacement is available and tested.
+- Keep provider dependencies such as Caffeine and Internet Identity/Auth when
+  the application needs them. Platform's current SDK Core boundary does not own
+  login/session flows or every package under an SDK scope. Permit the provider's
+  necessary transitive SDK edge, while qualifying one compatible SDK runtime and
+  unchanged Principal, identity, Agent and certificate class/type identities.
+  This is not a requirement to remove transitive SDK code or a bundle-size claim.
+- Preserve consumer-owned trust roots, budgets, authorization, retries, signed
+  bytes, request IDs, durable intents and uncertain-effect recovery. Qualify SDK
+  major/provider compatibility rather than forcing incompatible peers or using
+  bundler aliases. Any required application override stays explicitly selected
+  and qualified there; Platform's development overrides do not propagate.
+- Update the manifest, lock, imports and affected build inputs together. Consumer
+  checks must reject first-party direct SDK declarations/imports after adoption,
+  including aliases and generated entrypoints, while permitting the qualified
+  transitive provider graph. The opt-in [SDK boundary checker](../docs/node-tools.md#ic-sdk-boundary-check)
+  covers direct declarations and plain literal imports in explicitly selected
+  roots; the Cargo boundary and npm declaration checkers do not inspect imports.
+  Retain actual product, refusal,
+  browser/worker and provider acceptance where applicable; an import-only build
+  or producer fixture does not establish consumer runtime acceptance.
+- npm and Rust package versions, publication and adoption are independent.
+  Keep npm selection and integrity in its consumer manifest/lock under the
+  [frontend input rules](#frontend-and-npm-inputs); do not create a shared SDK
+  version catalog or require JavaScript consumers to follow Rust release numbers.
+  Installing external command-line tools is not an SDK library import and retains
+  its existing tool-selection and installation owner.
+
 ## Sibling paths and moving inputs
 
 - Paths inside the repository use that checkout's source identity. An explicit

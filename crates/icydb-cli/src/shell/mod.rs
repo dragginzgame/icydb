@@ -11,7 +11,8 @@ mod route;
 
 use std::path::PathBuf;
 
-use icydb::{db::sql::SqlQueryResult, wire::Endpoint};
+use canic_icydb::wire::Endpoint;
+use icydb::db::sql::SqlQueryResult;
 
 use crate::{
     cli::{SqlArgs, SqlShellFields},
@@ -101,7 +102,10 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
 // the CLI composes a terminal report from SQL display cells.
 fn render_sql_response(endpoint: Endpoint, wire_bytes: &[u8]) -> Result<String, String> {
     let response = endpoint
-        .decode_response::<Result<SqlQueryResult, icydb::Error>>(wire_bytes)
+        .decode_response::<Result<SqlQueryResult, icydb::Error>>(
+            wire_bytes,
+            icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES),
+        )
         .map_err(|error| crate::diagnostic::render_wire_decode_error(endpoint, error))?;
 
     match response {

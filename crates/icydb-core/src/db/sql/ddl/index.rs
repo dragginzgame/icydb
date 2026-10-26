@@ -169,6 +169,11 @@ pub(super) fn bind_create_index_statement(
     index_store_path: &'static str,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
+    crate::db::schema::validate_authored_constraint_name(&statement.name).map_err(|_| {
+        SqlDdlBindError::InvalidConstraintName {
+            constraint_name: statement.name.clone(),
+        }
+    })?;
 
     let key_items = statement
         .key_items
@@ -730,6 +735,45 @@ mod tests {
             .expect("exact guarded candidate should admit");
 
         (active, schema_view(pending_snapshot))
+    }
+
+    #[test]
+    fn authored_names_cannot_claim_engine_constraint_namespace() {
+        let (accepted, schema) = nullable_email_schema();
+        for name in [
+            "__icydb_primary_key",
+            "__icydb_not_null_2",
+            "__icydb_custom",
+        ] {
+            for unique in ["", "UNIQUE "] {
+                let statement = create_index_statement(&format!(
+                    "CREATE {unique}INDEX {name} ON Account (email) WHERE email IS NOT NULL"
+                ));
+                assert!(matches!(
+                    bind_create_index_statement(&statement, &accepted, &schema, "index-store"),
+                    Err(SqlDdlBindError::InvalidConstraintName { constraint_name }) if constraint_name == name
+                ));
+            }
+            let SqlStatement::Ddl(SqlDdlStatement::AlterTableAddCheckConstraint(statement)) =
+                parse_sql(&format!(
+                    "ALTER TABLE Account ADD CONSTRAINT {name} CHECK (email IS NOT NULL) NOT VALID"
+                ))
+                .unwrap()
+            else {
+                panic!("expected check statement")
+            };
+            assert!(matches!(
+                crate::db::sql::ddl::constraint::bind_alter_table_add_check_constraint_statement(
+                    &statement, &accepted, &schema,
+                ),
+                Err(SqlDdlBindError::InvalidConstraintName { constraint_name }) if constraint_name == name
+            ));
+        }
+        for name in ["__icydb", "_icydb_user", "__ICYDB_user", "user__icydb_name"] {
+            let statement =
+                create_index_statement(&format!("CREATE INDEX {name} ON Account (email)"));
+            bind_create_index_statement(&statement, &accepted, &schema, "index-store").unwrap();
+        }
     }
 
     #[test]

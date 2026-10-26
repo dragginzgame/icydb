@@ -15,12 +15,14 @@ mod entity_rename;
 
 // IC counter 1 preserves the call-context sample boundary through Platform.
 // Native system calls provide no IC measurement evidence.
+#[cfg(feature = "test-admin-api")]
 use ic_platform::ic0::performance_counter;
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 use icydb::db::query::asc;
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 use icydb::types::{Decimal, Float32, Float64};
+#[cfg(feature = "test-admin-api")]
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
     db::{
@@ -31,8 +33,11 @@ use icydb::{
     types::{Id, Ulid},
     value::InputValue,
 };
+#[cfg(feature = "test-admin-api")]
 use icydb_model::base::types::web::MimeType;
+#[cfg(feature = "test-admin-api")]
 use icydb_model::{Inner as _, NormalizeAndValidate as _, normalize, validate};
+#[cfg(feature = "test-admin-api")]
 use icydb_testing_test_sql_fixtures::sql::{
     SqlTestEnrollmentRobotInsert, SqlTestEnrollmentUser, SqlTestEnrollmentUserInsert,
     SqlTestEnrollmentUserPrincipalInsert,
@@ -77,9 +82,11 @@ canic_icydb::endpoints! {
     icydb_fixtures_load(handler = icydb_fixtures_load);
 }
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
+#[cfg(feature = "test-admin-api")]
 const IDENTITY_MAX_BATCH_ROWS: u32 = (4 * 1024) - 1;
+#[cfg(feature = "test-admin-api")]
 const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 
 #[cfg(feature = "test-admin-api")]
@@ -234,6 +241,7 @@ fn audit_metrics_query_trap() -> Result<(), icydb::Error> {
 icydb_testing_wasm_helpers::export_wire!(query, "audit_metrics_query_trap", AuditMetricsQueryTrap, audit_metrics_query_trap, (), Result<(), icydb::Error>);
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg(feature = "test-admin-api")]
 struct IdentityCloseoutPerfResult {
     caller_nat64_instructions: u64,
     generated_nat64_instructions: u64,
@@ -250,6 +258,7 @@ struct IdentityCloseoutPerfResult {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg(feature = "test-admin-api")]
 struct ApplicationBehaviorPerfResult {
     normalize_instructions: u64,
     validate_instructions: u64,
@@ -263,6 +272,7 @@ struct ApplicationBehaviorPerfResult {
 /// Measure the three explicit application-behavior surfaces without database
 /// access or generated write adapters.
 
+#[cfg(feature = "test-admin-api")]
 fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, String> {
     let mut normalized_bytes = 0_u64;
     let start = performance_counter(1);
@@ -302,6 +312,7 @@ fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, 
         iterations: APPLICATION_BEHAVIOR_PERF_ITERATIONS,
     })
 }
+#[cfg(feature = "test-admin-api")]
 icydb_testing_wasm_helpers::export_wire!(query, "measure_application_behavior_perf", MeasureApplicationBehaviorPerf, measure_application_behavior_perf, (), Result<ApplicationBehaviorPerfResult, String>);
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
@@ -345,7 +356,7 @@ fn sql_user_patch(name: &str, age: u16, rank: i32) -> StructuralPatch {
 
 /// Seed runtime-built oversized unindexed payloads for mutation and complete
 /// generated-query response-budget tests without embedding literals in Wasm.
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| {
         let session = icydb::db!()?;
@@ -374,10 +385,10 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 icydb_testing_wasm_helpers::export_wire!(update, "seed_oversized_sql_group_name", SeedOversizedSqlGroupName, seed_oversized_sql_group_name, (), Result<(), icydb::Error>);
 
-#[cfg(feature = "sql")]
+#[cfg(feature = "test-admin-api")]
 fn set_sql_numeric_group_name<C: icydb::traits::CanisterKind>(
     session: &icydb::db::DbSession<C>,
     label: &str,
@@ -457,6 +468,7 @@ fn sql_numeric_type_patches() -> Vec<StructuralPatch> {
     clippy::too_many_arguments,
     reason = "one fixture helper mirrors the maintained scalar SQL type matrix"
 )]
+#[cfg(feature = "test-admin-api")]
 fn sql_numeric_type_patch(
     label: &str,
     group_name: &str,
@@ -521,16 +533,19 @@ fn sql_numeric_type_patch(
         )
 }
 
+#[cfg(feature = "test-admin-api")]
 fn identity_payload_patch(payload: u64) -> StructuralPatch {
     StructuralPatch::new().field("payload", WriteCell::Value(InputValue::nat64(payload)))
 }
 
+#[cfg(feature = "test-admin-api")]
 fn caller_nat64_patch(id: u64, payload: u64) -> StructuralPatch {
     identity_payload_patch(payload).field("id", WriteCell::Value(InputValue::nat64(id)))
 }
 
 /// Leave a full retained backlog so recovery survives upgrade-management rounds.
 
+#[cfg(feature = "test-admin-api")]
 fn seed_convergence_metrics_backlog() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let session = icydb::db!()?;
@@ -543,8 +558,10 @@ fn seed_convergence_metrics_backlog() -> Result<u32, icydb::Error> {
         Ok(64)
     })
 }
+#[cfg(feature = "test-admin-api")]
 icydb_testing_wasm_helpers::export_wire!(update, "seed_convergence_metrics_backlog", SeedConvergenceMetricsBacklog, seed_convergence_metrics_backlog, (), Result<u32, icydb::Error>);
 
+#[cfg(feature = "test-admin-api")]
 const fn typed_fixture_invariant_error() -> icydb::Error {
     icydb::Error::from_kind(
         ErrorKind::Query(QueryErrorKind::Validate),
@@ -552,6 +569,7 @@ const fn typed_fixture_invariant_error() -> icydb::Error {
     )
 }
 
+#[cfg(feature = "test-admin-api")]
 fn typed_operation_fixture_error(error: TypedOperationError) -> icydb::Error {
     match error {
         TypedOperationError::Adapter(_) => typed_fixture_invariant_error(),
@@ -559,10 +577,12 @@ fn typed_operation_fixture_error(error: TypedOperationError) -> icydb::Error {
     }
 }
 
+#[cfg(feature = "test-admin-api")]
 const fn typed_adapter_fixture_error(_error: TypedAdapterError) -> icydb::Error {
     typed_fixture_invariant_error()
 }
 
+#[cfg(feature = "test-admin-api")]
 fn enrollment_user_input(id: Id<SqlTestEnrollmentUser>, name: &str) -> SqlTestEnrollmentUserInsert {
     SqlTestEnrollmentUserInsert {
         id: WriteCell::Value(id),
@@ -570,6 +590,7 @@ fn enrollment_user_input(id: Id<SqlTestEnrollmentUser>, name: &str) -> SqlTestEn
     }
 }
 
+#[cfg(feature = "test-admin-api")]
 const fn enrollment_membership_input(
     principal: icydb::types::Principal,
     user_id: Id<SqlTestEnrollmentUser>,
@@ -580,6 +601,7 @@ const fn enrollment_membership_input(
     }
 }
 
+#[cfg(feature = "test-admin-api")]
 fn enrollment_robot_input(
     user_id: Id<SqlTestEnrollmentUser>,
     label: &str,
@@ -590,6 +612,7 @@ fn enrollment_robot_input(
     }
 }
 
+#[cfg(feature = "test-admin-api")]
 fn execute_one_typed<C, W>(session: &icydb::db::DbSession<C>, input: W) -> Result<(), icydb::Error>
 where
     C: icydb::traits::CanisterKind,
@@ -608,6 +631,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "test-admin-api")]
 fn verify_typed_enrollment_failure_controls<C: icydb::traits::CanisterKind>(
     session: &icydb::db::DbSession<C>,
     existing_user_id: Id<SqlTestEnrollmentUser>,
@@ -686,6 +710,7 @@ fn verify_typed_enrollment_failure_controls<C: icydb::traits::CanisterKind>(
     Ok(())
 }
 
+#[cfg(feature = "test-admin-api")]
 fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
     session: &icydb::db::DbSession<C>,
 ) -> Result<(u64, u64), icydb::Error> {
@@ -753,6 +778,7 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
     Ok((sequential, atomic))
 }
 
+#[cfg(feature = "test-admin-api")]
 fn measure_three_entity_write_costs<C: icydb::traits::CanisterKind>(
     session: &icydb::db::DbSession<C>,
 ) -> Result<(u64, u64), icydb::Error> {
@@ -799,6 +825,7 @@ fn measure_three_entity_write_costs<C: icydb::traits::CanisterKind>(
     Ok((sequential, atomic_instructions))
 }
 
+#[cfg(feature = "test-admin-api")]
 fn measure_maximum_entity_context_cost<C: icydb::traits::CanisterKind>(
     session: &icydb::db::DbSession<C>,
 ) -> Result<(u64, u32), icydb::Error> {
@@ -824,6 +851,7 @@ fn measure_maximum_entity_context_cost<C: icydb::traits::CanisterKind>(
 
 /// Measure the final Identity write matrix on one fresh test canister.
 
+#[cfg(feature = "test-admin-api")]
 fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let session = icydb::db!()?;
@@ -917,4 +945,5 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
 icydb_testing_wasm_helpers::export_wire!(update, "measure_identity_closeout_perf", MeasureIdentityCloseoutPerf, measure_identity_closeout_perf, (), Result<IdentityCloseoutPerfResult, icydb::Error>);

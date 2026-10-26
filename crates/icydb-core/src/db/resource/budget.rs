@@ -26,7 +26,7 @@ pub(in crate::db) const MUTATION_EXECUTION_INSTRUCTION_LIMIT: u64 = 30_000_000_0
 pub(in crate::db) const MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE: u64 = 5_000_000_000;
 const MUTATION_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
     HardExecutionFailureHeadroom::new(MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE, 64 * 1_024);
-static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
+pub(in crate::db::resource) const READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
     [
         1,                   // query executions
         2_000_000,           // planning steps
@@ -51,31 +51,12 @@ static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
     ],
     READ_FAILURE_HEADROOM,
 );
-static MUTATION_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
-    [
-        1,                                    // query executions
-        2_000_000,                            // planning steps
-        64,                                   // plan compilations
-        250_000,                              // key/index entries visited
-        250_000,                              // rows visited
-        128 * 1_024 * 1_024,                  // stored bytes read
-        16_000_000,                           // predicate/expression steps
-        16_000_000,                           // nested value steps
-        128 * 1_024 * 1_024,                  // decoded bytes
-        128 * 1_024 * 1_024,                  // materialized bytes
-        250_000,                              // sort entries
-        32_000_000,                           // sort comparisons
-        128 * 1_024 * 1_024,                  // sort temporary bytes
-        100_000,                              // group/distinct entries
-        128 * 1_024 * 1_024,                  // group/distinct state bytes
-        1_000_000,                            // cursor steps
-        128 * 1_024 * 1_024,                  // temporary bytes
-        100_000,                              // result rows
-        64 * 1_024 * 1_024,                   // result bytes
-        MUTATION_EXECUTION_INSTRUCTION_LIMIT, // instruction units
-    ],
-    MUTATION_FAILURE_HEADROOM,
-);
+static MUTATION_HARD_BUDGET: HardExecutionBudget = READ_HARD_BUDGET
+    .with_limit(
+        DiagnosticExecutionBudgetResource::InstructionUnits,
+        MUTATION_EXECUTION_INSTRUCTION_LIMIT,
+    )
+    .with_failure_headroom(MUTATION_FAILURE_HEADROOM);
 pub(in crate::db) const MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY: u32 =
     hard_execution_budget_policy_identity(&MUTATION_HARD_BUDGET);
 
@@ -167,6 +148,22 @@ impl HardExecutionBudget {
             limits,
             failure_headroom,
         }
+    }
+
+    /// Derive a fixed profile by changing one resource ceiling.
+    #[must_use]
+    pub(in crate::db::resource) const fn with_limit(
+        mut self,
+        resource: DiagnosticExecutionBudgetResource,
+        limit: u64,
+    ) -> Self {
+        self.limits[resource_index(resource)] = limit;
+        self
+    }
+
+    const fn with_failure_headroom(mut self, headroom: HardExecutionFailureHeadroom) -> Self {
+        self.failure_headroom = headroom;
+        self
     }
 
     /// Return the absolute ceiling for one maintained resource.
@@ -878,21 +875,19 @@ pub(in crate::db) fn charge_decoded_row(
 }
 
 /// Charge the stored and materialized bytes for one owned data-row payload.
-macro_rules! charge_materialized_data_row {
-    ($row:expr) => {{
-        let row_bytes = u64::try_from($row.len()).unwrap_or(u64::MAX);
-        charge_current_execution_budget(
+pub(in crate::db) fn charge_materialized_data_row(row_bytes: usize) -> Result<(), InternalError> {
+    let row_bytes = usize_as_u64(row_bytes);
+    charge_current_execution_budget_pair(
+        (
             DiagnosticExecutionBudgetResource::StoredBytesRead,
             row_bytes,
-        )?;
-        charge_current_execution_budget(
+        ),
+        (
             DiagnosticExecutionBudgetResource::MaterializedBytes,
             row_bytes,
-        )
-    }};
+        ),
+    )
 }
-
-pub(in crate::db) use charge_materialized_data_row;
 
 /// Build one typed budget failure from a stricter operator-local hard limit.
 ///
@@ -1039,16 +1034,20 @@ pub(in crate::db) fn charge_runtime_result_work(
     bytes: u64,
     nested_steps: u64,
 ) -> Result<(), InternalError> {
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::ResultRows,
-        usize_as_u64(row_count),
+    charge_current_execution_budget_pair(
+        (
+            DiagnosticExecutionBudgetResource::ResultRows,
+            usize_as_u64(row_count),
+        ),
+        (
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            nested_steps,
+        ),
     )?;
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        nested_steps,
-    )?;
-    charge_current_execution_budget(DiagnosticExecutionBudgetResource::MaterializedBytes, bytes)?;
-    charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, bytes)
+    charge_current_execution_budget_pair(
+        (DiagnosticExecutionBudgetResource::MaterializedBytes, bytes),
+        (DiagnosticExecutionBudgetResource::ResultBytes, bytes),
+    )
 }
 
 pub(in crate::db) const RUNTIME_VALUE_NODE_OVERHEAD_BYTES: u64 = 32;
@@ -1227,7 +1226,7 @@ pub(in crate::db) const fn resource_index(resource: DiagnosticExecutionBudgetRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{RequestExecutionRoot, data::RawRow};
+    use crate::db::RequestExecutionRoot;
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
 
     const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
@@ -1622,29 +1621,54 @@ mod tests {
 
     #[test]
     fn materialized_data_row_charge_owns_byte_resources() {
-        let row = RawRow::try_new(vec![0; 7]).expect("bounded test row");
-        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
+        use DiagnosticExecutionBudgetResource::{MaterializedBytes, StoredBytesRead};
 
-        with_execution_budget(
-            HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT),
-            || {
-                charge_materialized_data_row!(&row)?;
-
-                let usage = current_execution_budget_usage()?;
-                assert_eq!(
-                    usage.observed(DiagnosticExecutionBudgetResource::StoredBytesRead),
-                    7,
+        const ROW_BUDGET: HardExecutionBudget =
+            HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                .with_limit_for_tests(StoredBytesRead, 7)
+                .with_limit_for_tests(MaterializedBytes, 7);
+        static BUDGETS: [HardExecutionBudget; 3] = [
+            ROW_BUDGET,
+            ROW_BUDGET.with_limit_for_tests(StoredBytesRead, 6),
+            ROW_BUDGET.with_limit_for_tests(MaterializedBytes, 6),
+        ];
+        for (case, budget) in BUDGETS.iter().enumerate() {
+            let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                TEST_HEADROOM,
+            ));
+            let result = with_execution_budget(
+                HardExecutionBudgetTracker::new_with_request_scope(
+                    budget,
+                    TEST_CONTEXT,
+                    &root.scope(),
+                ),
+                || charge_materialized_data_row(7),
+                std::convert::identity,
+                ExecutionBudgetFinish::Automatic,
+            );
+            assert_eq!(root.observed(StoredBytesRead), 7);
+            assert_eq!(
+                root.observed(MaterializedBytes),
+                if case == 1 { 0 } else { 7 }
+            );
+            if case == 0 {
+                result.expect("exact row byte ceilings should admit");
+            } else {
+                let resource = if case == 1 {
+                    StoredBytesRead
+                } else {
+                    MaterializedBytes
+                };
+                assert!(
+                    result
+                        .unwrap_err()
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
                 );
-                assert_eq!(
-                    usage.observed(DiagnosticExecutionBudgetResource::MaterializedBytes),
-                    7,
-                );
-                Ok::<_, InternalError>(())
-            },
-            std::convert::identity,
-            ExecutionBudgetFinish::Automatic,
-        )
-        .expect("materialized row accounting should complete");
+            }
+        }
+        charge_materialized_data_row(7).expect("inactive accounting remains a no-op");
     }
 
     #[test]

@@ -9,38 +9,17 @@ use std::{
 };
 
 use crate::db::resource::budget::{
-    ExecutionBudgetExceeded, HardExecutionBudget, HardExecutionContext,
-    HardExecutionFailureHeadroom, resource_index,
+    ExecutionBudgetExceeded, HardExecutionBudget, HardExecutionContext, READ_HARD_BUDGET,
+    resource_index,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope};
 
-const REQUEST_FAILURE_HEADROOM: HardExecutionFailureHeadroom =
-    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1_024);
-const REQUEST_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
-    [
-        256,                 // query executions
-        1_024,               // planning operations
-        256,                 // plan compilations
-        250_000,             // key/index entries visited
-        250_000,             // rows visited
-        128 * 1_024 * 1_024, // stored bytes read
-        16_000_000,          // predicate/expression steps
-        16_000_000,          // nested value steps
-        128 * 1_024 * 1_024, // decoded bytes
-        128 * 1_024 * 1_024, // materialized bytes
-        250_000,             // sort entries
-        32_000_000,          // sort comparisons
-        128 * 1_024 * 1_024, // sort temporary bytes
-        100_000,             // group/distinct entries
-        128 * 1_024 * 1_024, // group/distinct state bytes
-        1_000_000,           // cursor steps
-        128 * 1_024 * 1_024, // temporary bytes
-        100_000,             // result rows
-        64 * 1_024 * 1_024,  // result bytes
-        4_500_000_000,       // instruction units
-    ],
-    REQUEST_FAILURE_HEADROOM,
-);
+// Request aggregation shares physical ceilings with reads; only request-level
+// execution and compilation admission differ. Each profile retains its counters.
+const REQUEST_HARD_BUDGET: HardExecutionBudget = READ_HARD_BUDGET
+    .with_limit(DiagnosticExecutionBudgetResource::QueryExecutions, 256)
+    .with_limit(DiagnosticExecutionBudgetResource::PlanningSteps, 1_024)
+    .with_limit(DiagnosticExecutionBudgetResource::PlanCompilations, 256);
 
 thread_local! {
     static CURRENT_REQUEST_SCOPE: RefCell<Option<RequestExecutionScope>> =
@@ -474,7 +453,7 @@ mod tests {
         for resource in DiagnosticExecutionBudgetResource::ALL {
             let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
                 10,
-                REQUEST_FAILURE_HEADROOM,
+                READ_HARD_BUDGET.failure_headroom(),
             ));
             let scope = root.scope();
             scope.charge(context, resource, 2).unwrap();

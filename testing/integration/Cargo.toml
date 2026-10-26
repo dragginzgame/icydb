@@ -11,6 +11,7 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
+canic-icydb = { workspace = true }
 ic-platform = { workspace = true, features = ["blake3", "pocket-ic"] }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }

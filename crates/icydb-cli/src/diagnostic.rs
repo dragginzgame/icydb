@@ -29,7 +29,7 @@ use ic_host_artifacts::artifact::{ArtifactError, read_reader};
 // Decode failures cannot prove version skew: corruption and a wrong endpoint
 // can fail identically. Preserve the original diagnostic and offer lockstep advice.
 pub(crate) fn render_wire_decode_error(
-    endpoint: icydb::wire::Endpoint,
+    endpoint: canic_icydb::wire::Endpoint,
     error: icydb::wire::Error,
 ) -> String {
     format!(

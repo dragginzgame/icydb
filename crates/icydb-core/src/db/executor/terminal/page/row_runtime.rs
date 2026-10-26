@@ -56,7 +56,7 @@ impl ScalarRowRuntimeState {
 
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         if let Some(row) = row.as_ref() {
-            charge_materialized_data_row!(row)?;
+            charge_materialized_data_row(row.len())?;
         }
 
         match consistency {
@@ -80,14 +80,11 @@ impl ScalarRowRuntimeState {
         let result = self.store.with_data(|store| {
             let row = store.read(raw_key);
 
-            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
             let Some(row) = row.as_row() else {
+                charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
                 return Ok(None);
             };
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::StoredBytesRead,
-                u64::try_from(row.len()).unwrap_or(u64::MAX),
-            )?;
+            charge_borrowed_traversal_row(row)?;
 
             evaluate(row).map(Some)
         })?;

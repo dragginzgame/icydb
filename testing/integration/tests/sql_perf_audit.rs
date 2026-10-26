@@ -245,8 +245,11 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
                 .upgrade_canister(
                     fixture.canister_id(),
                     module.clone(),
-                    icydb::wire::encode_post_upgrade_arguments(())
-                        .expect("unit post-upgrade arguments should encode"),
+                    canic_icydb::wire::encode_post_upgrade_arguments(
+                        (),
+                        icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+                    )
+                    .expect("unit post-upgrade arguments should encode"),
                     None,
                 )
                 .expect("same-artifact recovery should succeed");

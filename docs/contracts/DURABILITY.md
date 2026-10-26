@@ -445,6 +445,21 @@ completed state. Sequence-checked terminal acknowledgement is idempotent and
 removes completed/invalidated records so the bounded progress allocation does
 not leak capacity.
 
+Atomic replacement applies only to the progress record. Application writes in
+the synchronous closure are separate commits. An operation error, an invalid
+advance, a failed progress replacement, or a post-page invalidation does not
+undo those writes. Invalidation may arrive as a successful receipt whose status
+is `Invalidated`, so checking only `Result::Err` is insufficient. Exact replay
+prevents repeated closure execution only once a receipt has been retained.
+
+Prefer read-only page work or independently idempotent output writes. An IC
+update caller that relies on message rollback must trap on every error and
+invalidated receipt before returning. This is the platform's message boundary,
+not an IcyDB transaction spanning the closure: it cannot undo earlier-message
+or external effects and does not apply to native execution. An atomic mutation
+batch alone does not atomically couple its writes to this separate progress
+record.
+
 ## Stable Memory Partitioning
 
 Stable-memory memory IDs are part of the durable store allocation contract.

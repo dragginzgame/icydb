@@ -7,7 +7,7 @@ use crate::db::{
     schema::{
         AcceptedConstraintKind, AcceptedSchemaSnapshot, ConstraintActivationKind, ConstraintId,
         ConstraintOrigin, SchemaAddCheckRequest, SchemaDropConstraintRequest, SchemaInfo,
-        validate_constraint_name,
+        validate_authored_constraint_name,
     },
     sql::parser::{
         SqlAlterTableAddCheckConstraintStatement, SqlAlterTableDropConstraintStatement,
@@ -78,7 +78,7 @@ pub(super) fn bind_alter_table_add_check_constraint_statement(
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
-    validate_constraint_name(statement.constraint_name.as_str()).map_err(|_| {
+    validate_authored_constraint_name(statement.constraint_name.as_str()).map_err(|_| {
         SqlDdlBindError::InvalidConstraintName {
             constraint_name: statement.constraint_name.clone(),
         }

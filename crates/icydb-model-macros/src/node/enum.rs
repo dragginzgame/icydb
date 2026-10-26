@@ -138,14 +138,7 @@ impl HasTraits for Enum {
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        match t {
-            TraitKind::Default => DefaultTrait::strategy(self),
-            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
-            TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
-            TraitKind::Visitable => VisitableTrait::strategy(self),
-
-            _ => None,
-        }
+        crate::node::traits::application_value_trait_strategy!(self, t)
     }
 }
 

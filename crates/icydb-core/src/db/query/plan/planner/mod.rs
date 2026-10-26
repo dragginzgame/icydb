@@ -28,6 +28,7 @@ use crate::{
 };
 
 pub(in crate::db::query::plan) use crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
+pub(in crate::db::query::plan) use compare::coercion_supports_index_lookup;
 #[cfg(test)]
 pub(in crate::db::query::plan) use compare::prefix_tests::schema as prefix_test_schema;
 pub(in crate::db::query::plan) use index_select::index_stream_is_complete_for_query;
@@ -39,6 +40,8 @@ pub(in crate::db) use index_select::{
     residual_query_predicate_after_filtered_access_contract,
 };
 pub(in crate::db::query) use prefix::count_cardinality_index_branch_set_from_and;
+pub(in crate::db::query::plan) use prefix::{collect_prefix_eq_constraints, resolve_index_eq_slot};
+pub(in crate::db::query::plan) use range::validate_range_and_compares;
 pub(in crate::db::query::plan) use ranking::{
     AccessCandidateScore, AndFamilyCandidateScore, AndFamilyPriorityClass,
     access_candidate_score_from_index_contract, access_candidate_score_outranks,

@@ -38,7 +38,7 @@ unrelated behavior.
 
 At handoff, report:
 
-- files touched and scoped metrics under the [change-reporting rules](../../rules/change-reporting.md);
+- relevant files and evidence under the [change-reporting rules](../../rules/change-reporting.md);
 - primary delivery areas crossed;
 - whether width came from semantics or mechanical propagation; and
 - whether the implementation became simpler, stayed neutral, or became more
@@ -51,18 +51,16 @@ change.
 
 ## Cleanup reporting
 
-Apply the [canonical reporting contract](../../rules/change-reporting.md): separate
-genuinely created and deleted functions, methods and types under **symbol changes**,
-with counts and compactly grouped identities. Omit inventories and counts for
-moves, renames and edits; summarize structural cleanup by outcome. Keep the
-created/deleted inventory only in the final Codex app handoff. Physical line churn and semantic deletion
-counts answer different questions; neither substitutes for the other. The same
-rule owns the required Rust/type/documentation metrics and their counting units.
+Summarize structural cleanup by outcome. Detailed line metrics and symbol
+inventories are opt-in under the [reporting contract](../../rules/change-reporting.md).
+When requested, distinguish physical line churn from semantic creations/deletions;
+keep the symbol inventory in the maintainer handoff rather than repository files.
 
 ## Validation
 
-Run the narrowest evidence that matches the changed risk automatically while
-developing and before handoff, following the
+Finish the coherent edit batch, then run the narrowest checks that match the
+changed risk once. Run checks during development to answer a specific question,
+following the
 [canonical validation policy](../../DRAGGINZGAME.md#validation-and-evidence).
 Full local gates need release or explicit-check authority. Ordinary PR delivery
 and authorized merges use asynchronous hosted integration/native CI unless

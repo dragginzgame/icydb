@@ -2027,6 +2027,7 @@ fn journaled_job_advance_is_idempotent_and_revision_checked_on_both_sides() {
         .expect("post-page invalidation should remain inspectable");
     assert_eq!(post_state.status, ResumableJobStatus::Invalidated);
     assert_eq!(post_state.application_state, vec![7]);
+    assert_dynamic_payload(&session, 2, 52);
     session
         .acknowledge_resumable_job(post_job_id, post_state.sequence)
         .expect("terminal job acknowledgement should remove retained progress");

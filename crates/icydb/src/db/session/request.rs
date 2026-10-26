@@ -61,6 +61,12 @@ impl RequestExecutionRoot {
 /// cannot observe or charge each other's request. The already-boxed child is
 /// type-erased so this poll state machine is shared across endpoint future
 /// types; that retains one allocation and adds one indirect child poll.
+///
+/// # Panics
+///
+/// Polling panics if a started future is moved beneath a different active
+/// request root. Do not share pending request futures across independent
+/// requests; ambient scope restoration does not transfer budget ownership.
 #[must_use = "futures do nothing unless awaited or polled"]
 pub struct RequestExecutionFuture<'a, T> {
     root: Option<RequestExecutionRoot>,
@@ -264,12 +270,19 @@ mod tests {
 
     #[test]
     fn started_future_cannot_move_beneath_a_different_request_root() {
+        #[crate::request_execution]
+        async fn suspended_request(resumed: Rc<std::cell::Cell<bool>>) {
+            YieldOnce { yielded: false }.await;
+            resumed.set(true);
+        }
+
         let first_root = RequestExecutionRoot::new();
         let first_expected = Rc::clone(&first_root.inner);
-        let mut first = Box::pin(RequestExecutionFuture::with_root(first_root, async move {
-            YieldOnce { yielded: false }.await;
-        }));
-        assert_eq!(poll_once(first.as_mut()), Poll::Pending);
+        let resumed = Rc::new(std::cell::Cell::new(false));
+        let mut first = Box::pin(suspended_request(Rc::clone(&resumed)));
+        first_root.inner.__with_current_scope(|| {
+            assert_eq!(poll_once(first.as_mut()), Poll::Pending);
+        });
 
         let second = RequestExecutionRoot::new();
         let second_expected = Rc::clone(&second.inner);
@@ -282,6 +295,9 @@ mod tests {
         assert!(panic.is_err());
         assert!(!first_expected.__is_current());
         assert!(!second_expected.__is_current());
+        // Rejection occurs before the child's post-await work can run under
+        // the wrong request. The panicked async function is not polled again.
+        assert!(!resumed.get());
     }
 
     #[test]

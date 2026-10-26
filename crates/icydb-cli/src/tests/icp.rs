@@ -3,7 +3,7 @@
 //! Does not own: CLI argument parsing or observability payload decoding.
 //! Boundary: test-only assertions over process command arguments and parser helpers.
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 
 use std::path::Path;
 

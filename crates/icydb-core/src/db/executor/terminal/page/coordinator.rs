@@ -9,8 +9,8 @@ use crate::{
         index::IndexKey,
         resource::budget::{
             ExecutionBudgetUsage, RUNTIME_VALUE_NODE_OVERHEAD_BYTES,
-            charge_current_execution_budget, current_execution_budget_usage, resource_index,
-            runtime_value_work,
+            charge_current_execution_budget, charge_current_execution_budget_pair,
+            current_execution_budget_usage, resource_index, runtime_value_work,
         },
     },
     error::InternalError,
@@ -420,13 +420,15 @@ fn scalar_output_row_work(row: &[Value]) -> PageWork {
 // known. If that row cannot enter this page, retain its completed transient
 // materialization cost in the hard request budget without claiming output.
 fn charge_discarded_output_materialization(work: PageWork) -> Result<(), InternalError> {
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        work.amount(DiagnosticExecutionBudgetResource::NestedValueSteps),
-    )?;
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::MaterializedBytes,
-        work.amount(DiagnosticExecutionBudgetResource::MaterializedBytes),
+    charge_current_execution_budget_pair(
+        (
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            work.amount(DiagnosticExecutionBudgetResource::NestedValueSteps),
+        ),
+        (
+            DiagnosticExecutionBudgetResource::MaterializedBytes,
+            work.amount(DiagnosticExecutionBudgetResource::MaterializedBytes),
+        ),
     )
 }
 

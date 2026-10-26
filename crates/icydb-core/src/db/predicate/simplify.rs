@@ -27,10 +27,10 @@ enum ComparePairSimplification {
 /// - unsupported or incomparable pairs are preserved
 /// - contradictions are detected and returned as `None`
 /// - tighter/equivalent constraints are folded to one canonical compare shape
-#[must_use]
-pub(in crate::db::predicate) fn simplify_and_compare_constraints(
+pub(in crate::db::predicate) fn simplify_and_compare_constraints<E>(
     mut predicates: Vec<Predicate>,
-) -> Option<Vec<Predicate>> {
+    charge_pair: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Option<Vec<Predicate>>, E> {
     // Earlier pairs are settled while their surviving operands are unchanged.
     // Deletion cannot make those pairs reducible. After replacement, revisit
     // only pairs involving the changed operand within the settled prefix, then
@@ -50,6 +50,7 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
         }
         let mut j = revisit.map_or_else(|| i.saturating_add(1), |(_, changed)| changed);
         while j < predicates.len() {
+            charge_pair()?;
             let simplification = match (&predicates[i], &predicates[j]) {
                 (Predicate::Compare(left), Predicate::Compare(right))
                     if left.field == right.field && left.coercion == right.coercion =>
@@ -65,7 +66,7 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
                     }
                     j += 1;
                 }
-                ComparePairSimplification::Contradiction => return None,
+                ComparePairSimplification::Contradiction => return Ok(None),
                 ComparePairSimplification::KeepFirst => {
                     // The next right operand shifts into this same position.
                     predicates.remove(j);
@@ -107,7 +108,7 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
         i += 1;
     }
 
-    Some(predicates)
+    Ok(Some(predicates))
 }
 
 // Simplify one pair of compare predicates in an AND clause.

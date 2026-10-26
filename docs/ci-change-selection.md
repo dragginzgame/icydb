@@ -27,7 +27,10 @@ fails as a job, dependent checks must fail or run full qualification, never repo
 unverified success. Full code/tooling checks keep all required native hosts;
 release gates remain complete and independent of this selection.
 
-Shared Tooling's initial allowlist covers governance prose only. Each existing
+Shared Tooling's allowlist covers reviewed root, governance and developer-guide
+prose. The guide expansion excludes documents with snapshot-companion declarations
+because those headers control exported payloads. New paths still require explicit
+review; embedded/build inputs remain outside the list. Each existing
 portable matrix check retains its name, runs on Linux for docs-only changes and
 checks local documentation links and whitespace. Normal changes retain native
 Linux and both macOS jobs. The lint/security job still runs, including the

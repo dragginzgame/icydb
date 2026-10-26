@@ -173,6 +173,22 @@ work. Periodic samples and the final sample charge that interval to both the
 execution and its request, including reads that finish before the first
 periodic sample. Failed attempts retain their charged work.
 
+Ordinary trusted structural writes (including typed batches and ordinary SQL
+save/delete batches) do not install a mutation execution tracker. Their
+per-call mutation limits still apply, but a request root alone does not turn
+repeated writes into an aggregate instruction-bounded operation. Preparation
+or nested read work may charge the root; its remaining instruction allowance
+is not a measurement or admission guarantee for the ordinary writes themselves.
+The pre-publication instruction check samples only an already active tracker.
+Resumable mutation-job advancement installs that tracker explicitly.
+
+Applications must bound ordinary write batches and the number of batches in
+one message, allowing headroom for final progress and reply work. Repeating
+individually valid writes can reach the replica limit and trap rather than
+returning typed request-budget exhaustion. Use bounded mutation-job advances
+when their maintained contract fits the workload; do not infer aggregate write
+admission from a request-budget snapshot.
+
 The internal resource owner also supplies bounded container/value construction
 and retained cache-weight accounting. Query expression copying and executor
 plan/row attribution adapt those primitives without owning another budget.

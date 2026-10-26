@@ -41,16 +41,6 @@ pub mod validate;
 mod visit;
 pub mod visitor;
 
-// Maximum length for entity schema identifiers.
-pub const MAX_ENTITY_NAME_LEN: usize = 64;
-
-// Maximum length for field schema identifiers.
-pub const MAX_FIELD_NAME_LEN: usize = 64;
-
-// Maximum length for derived index identifiers.
-pub const MAX_INDEX_NAME_LEN: usize =
-    MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (1 + MAX_FIELD_NAME_LEN));
-
 use crate::{build::BuildError, node::NodeError};
 use thiserror::Error as ThisError;
 

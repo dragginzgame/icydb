@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use canic_icydb::wire::Endpoint;
 use clap::Parser;
 use ic_build::artifacts::CargoBuildFacts;
 use ic_host_artifacts::{
@@ -25,7 +26,6 @@ use ic_host_process::tool::{
 };
 use ic_host_tools::interface::exported_methods;
 use ic_metrics::checked_scaled_ratio;
-use icydb::wire::Endpoint;
 use icydb_testing_build::{
     BuiltCanisterArtifacts, CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration, build_canister_with_options,

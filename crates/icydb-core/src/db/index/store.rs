@@ -985,6 +985,30 @@ mod tests {
     }
 
     #[test]
+    fn index_rows_survive_optional_prefix_metadata_eviction() {
+        let id = IndexId::new(EntityTag::new(42), 7);
+        for mut store in [
+            IndexStore::init_heap(),
+            IndexStore::init_journaled(test_memory(94)),
+        ] {
+            for value in 0_u64..5_000 {
+                let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
+                store.insert(key, IndexEntryValue::presence());
+            }
+            store.mark_prefix_cardinality_data_generation(7);
+            let components = vec![0_u64.to_be_bytes().to_vec()];
+            assert_eq!(
+                store.exact_prefix_cardinality(7, IndexKeyKind::User, id, &components),
+                None
+            );
+            for value in [0_u64, 4_095, 4_096, 4_999] {
+                let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
+                assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
+            }
+        }
+    }
+
+    #[test]
     fn index_insert_paths_preserve_previous_values_and_prefix_counts() {
         let id = IndexId::new(EntityTag::new(42), 7);
         let components = vec![b"collection".to_vec(), b"draft".to_vec()];

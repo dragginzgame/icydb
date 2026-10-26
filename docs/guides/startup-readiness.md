@@ -83,9 +83,11 @@ that the first in-crate call came from the correct lifecycle phase, so the
 application-owned root remains responsible for exact phase placement.
 
 Composed lifecycle hooks use bounded Wire requests. Encode each hook's argument
-tuple, including `()`, with `icydb::wire::encode_init_arguments` or
-`icydb::wire::encode_post_upgrade_arguments` and supply the resulting raw install
-or upgrade bytes. The plain `start!()` lifecycle roots perform no decoding.
+tuple, including `()`, with `canic_icydb::wire::encode_init_arguments` or
+`canic_icydb::wire::encode_post_upgrade_arguments`, passing
+`icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)` as the second argument.
+Supply the resulting raw install or upgrade bytes. The plain `start!()` lifecycle
+roots perform no decoding.
 
 Do not use participant mode merely to attach ordinary application callbacks;
 the composed form above is smaller for that case. Do not claim framework

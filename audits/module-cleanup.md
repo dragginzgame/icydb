@@ -25,9 +25,9 @@ Apply the [common authority and evidence contract](README.md).
    release or an explicit request under the baseline. Preserve failed artifacts
    and report remaining limits.
 6. Report changed behavior, validation, state-space/ownership effect, intentional
-   retention and unresolved work. Apply the [change-reporting rules](../rules/change-reporting.md)
-   for separate deletion/move/rename counts, exact identities and scoped metrics.
-   Keep the full symbol inventory only in the final Codex app response.
+   retention and unresolved work. Detailed metrics and symbol inventories are
+   opt-in under the [change-reporting rules](../rules/change-reporting.md).
+   Keep a requested symbol inventory only in the maintainer handoff.
 
 The original finding remains evidence. Record implementation and new checks with
 their own source identity, and update the owning GitHub issue under the baseline's

@@ -74,6 +74,12 @@ The IC Platform repository is the sole direct dependency owner for these upstrea
 packages. Other repositories must not declare or import them directly, including
 through renamed dependencies, generated code or proc-macro expansions.
 
+This section and its automated inventory govern Cargo packages. JavaScript and
+TypeScript SDK integration uses the separate `@tokostudios/ic-platform` npm
+package under the [npm IC boundary](dependency-pinning.md#ic-javascript-and-typescript-dependencies).
+Selecting the Rust crate does not supply or qualify the npm package, and the
+Cargo boundary checker does not inspect npm manifests or JavaScript imports.
+
 - This covers Candid and its parser/derives, CDK/runtime/system APIs, principals,
   Agent/PocketIC clients, certification/signature and ledger/management types,
   stable-structures and any other external package specific to the Internet

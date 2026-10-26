@@ -1539,10 +1539,24 @@ pub(in crate::db::schema) fn accepted_constraint_name_is_valid(name: &str) -> bo
 
 /// Validate one generated constraint name at macro expansion.
 ///
-/// Accepted catalog admission repeats this check and remains authoritative.
+/// Proposal admission repeats the authoring policy; accepted catalog decoding
+/// separately permits engine-owned names.
 #[doc(hidden)]
 pub fn validate_generated_constraint_name(name: &str) -> Result<(), String> {
-    validate_constraint_name(name).map_err(|error| format!("invalid constraint name: {error:?}"))
+    validate_authored_constraint_name(name)
+        .map_err(|error| format!("invalid constraint name: {error:?}"))
+}
+
+// Authoring policy is separate from retained validation: engine-created names
+// remain legal in accepted catalogs and during recovery.
+pub(in crate::db) fn validate_authored_constraint_name(
+    name: &str,
+) -> Result<(), AcceptedConstraintCatalogError> {
+    validate_constraint_name(name)?;
+    if icydb_schema::is_engine_reserved_schema_name(name) {
+        return Err(AcceptedConstraintCatalogError::InvalidName);
+    }
+    Ok(())
 }
 
 pub(in crate::db) fn validate_constraint_name(
@@ -1579,6 +1593,40 @@ mod tests {
         },
     };
     use sha2::Digest;
+
+    #[test]
+    fn reserved_names_reject_authoring_but_preserve_accepted_engine_constraints() {
+        for name in [
+            "__icydb_primary_key",
+            "__icydb_not_null_2",
+            "__icydb_custom",
+        ] {
+            assert_eq!(
+                super::validate_authored_constraint_name(name),
+                Err(AcceptedConstraintCatalogError::InvalidName)
+            );
+            assert!(super::validate_generated_constraint_name(name).is_err());
+            assert!(super::accepted_constraint_name_is_valid(name));
+        }
+        let mut catalog = AcceptedConstraintCatalog::default();
+        catalog
+            .push(
+                super::primary_key_constraint_name().into(),
+                ConstraintOrigin::Generated,
+                AcceptedConstraintKind::PrimaryKey,
+            )
+            .unwrap();
+        catalog
+            .push(
+                not_null_constraint_name(FieldId::new(2)),
+                ConstraintOrigin::SqlDdl,
+                AcceptedConstraintKind::NotNull {
+                    field_id: FieldId::new(2),
+                },
+            )
+            .unwrap();
+        assert_eq!(catalog.constraints().len(), 2);
+    }
 
     #[test]
     fn dense_field_remapping_preserves_constraint_identity_and_allows_new_not_null_owners() {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { globSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -11,38 +11,11 @@ function run(command, args) {
   if (result.error) throw result.error;
   assert.equal(result.status, 0, `${command} failed`);
 }
-// First-party browser code consumes SDK identities through Platform. Transitive
-// packages remain their owner's responsibility and are intentionally not scanned.
-function checkPlatformBoundary(manifest, sources) {
-  const sdk = /^@(icp-sdk|dfinity)\//;
-  for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
-    for (const [name, version] of Object.entries(manifest[section] ?? {})) {
-      assert(!sdk.test(name) && !sdk.test(version.replace(/^npm:/, '')),
-        `direct SDK dependency must use Platform: ${section}.${name}`);
-    }
-  }
-  for (const [file, source] of sources) {
-    assert(!/["'`]@(?:icp-sdk|dfinity)\//.test(source),
-      `direct SDK module reference must use Platform: ${file}`);
-  }
-}
-const sdkName = ['@icp-sdk', 'core'].join('/');
-for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
-  for (const dependency of [{ [sdkName]: '6.1.1' }, { renamed: `npm:${sdkName}@6.1.1` }]) {
-    assert.throws(() => checkPlatformBoundary({ [section]: dependency }, []), assert.AssertionError);
-  }
-}
-for (const source of [
-  `import type { HttpAgent } from '${sdkName}/agent';`,
-  `export { HttpAgent } from '${sdkName}/agent';`,
-  `await import('${sdkName}/agent');`,
-  `require('${sdkName}/agent');`,
-]) assert.throws(() => checkPlatformBoundary({}, [['fixture.ts', source]]), assert.AssertionError);
-checkPlatformBoundary(JSON.parse(readFileSync(resolve(here, 'package.json'), 'utf8')),
-  globSync('**/*.{ts,tsx,mts,cts,js,mjs,cjs}', { cwd: here, exclude: ['node_modules/**'] })
-    .map(file => [file, readFileSync(resolve(here, file), 'utf8')]));
+// Shared Tooling owns declaration/import policy; this harness owns wire qualification.
+run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', here]);
 assert.equal(process.version, 'v24.21.0', 'select the declared Node runtime');
 run('cargo', ['run', '--locked', '--offline', '-p', 'icydb-testing-build', '--example', 'wire_bindings', '--', out]);
+run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', out]);
 mkdirSync(resolve(out, 'compiled'), { recursive: true });
 writeFileSync(resolve(out, 'compiled/package.json'), '{"type":"module"}\n');
 run(resolve(here, 'node_modules/.bin/tsc'), ['--ignoreConfig', '--strict', '--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'Bundler', '--skipLibCheck', '--outDir', resolve(out, 'compiled'), resolve(out, 'icydb.ts'), resolve(out, 'native-runtime.ts'), resolve(out, 'wire-runtime.ts')]);

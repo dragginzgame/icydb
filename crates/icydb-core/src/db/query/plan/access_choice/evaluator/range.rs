@@ -15,7 +15,7 @@ use crate::{
                 key_item_matches_field_and_coercion, key_item_supports_lookup_value,
                 key_item_supports_starts_with_value,
             },
-            planner::index_literal_matches_schema,
+            planner::{index_literal_matches_schema, validate_range_and_compares},
         },
         resource::construction::ConstructionBudget,
         schema::SchemaInfo,
@@ -84,37 +84,6 @@ fn evaluate_range_and_candidate(
     }
 
     range_candidate_score_from_compares(index_contract, schema, children, budget)
-}
-
-fn validate_range_and_compares(children: &[Predicate]) -> Result<(), AccessChoiceRejectedReason> {
-    for child in children {
-        let Predicate::Compare(cmp) = child else {
-            return Err(AccessChoiceRejectedReason::PredicateShapeNotRangeEligible);
-        };
-        if !matches!(
-            cmp.op,
-            CompareOp::Eq
-                | CompareOp::Gt
-                | CompareOp::Gte
-                | CompareOp::Lt
-                | CompareOp::Lte
-                | CompareOp::StartsWith
-        ) {
-            return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
-        }
-        if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::TextCasefold
-        ) {
-            return Err(AccessChoiceRejectedReason::NonStrictCoercion);
-        }
-    }
-
-    if children.is_empty() {
-        return Err(AccessChoiceRejectedReason::PredicateShapeNotRangeEligible);
-    }
-
-    Ok(())
 }
 
 fn range_candidate_score_from_compares(

@@ -5,7 +5,7 @@
 
 mod metrics;
 mod migration;
-mod render;
+pub(crate) mod render;
 mod schema;
 mod snapshot;
 
@@ -15,7 +15,7 @@ use crate::cli::{
 };
 use crate::icp::{call_query_hex, call_update_hex};
 
-use icydb::wire::Endpoint;
+use canic_icydb::wire::Endpoint;
 use serde::de::DeserializeOwned;
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -60,7 +60,10 @@ fn call_query<T: serde::Serialize + DeserializeOwned>(
 ) -> Result<T, String> {
     let method = endpoint.name();
     let arguments = endpoint
-        .encode_request(arguments)
+        .encode_request(
+            arguments,
+            icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+        )
         .map_err(|error| error.to_string())?;
     let response = call_query_hex(environment, canister, method, &arguments, |stderr| {
         method_error("query", environment, canister, method, stderr)
@@ -77,7 +80,10 @@ fn call_update<T: serde::Serialize + DeserializeOwned>(
 ) -> Result<T, String> {
     let method = endpoint.name();
     let arguments = endpoint
-        .encode_request(arguments)
+        .encode_request(
+            arguments,
+            icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+        )
         .map_err(|error| error.to_string())?;
     let response = call_update_hex(environment, canister, method, &arguments, |stderr| {
         method_error("update", environment, canister, method, stderr)
@@ -95,7 +101,10 @@ pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
     endpoint: Endpoint,
 ) -> Result<T, String> {
     let response = endpoint
-        .decode_response::<Result<T, icydb::Error>>(bytes)
+        .decode_response::<Result<T, icydb::Error>>(
+            bytes,
+            icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES),
+        )
         .map_err(|error| crate::diagnostic::render_wire_decode_error(endpoint, error))?;
     response.map_err(|error| {
         method_error(

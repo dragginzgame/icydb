@@ -191,15 +191,31 @@ fn native_wire_browser_qualifies_rejected_migration_findings() {
     let frames = report["frames"].as_array().unwrap();
     assert_eq!(frames.len(), 2);
     for frame in frames {
-        let endpoint = icydb::wire::Endpoint::SchemaMigration;
+        let endpoint = canic_icydb::wire::Endpoint::SchemaMigration;
         assert_eq!(frame["method"], "icydb_schema_migration");
         let request: Vec<u8> = serde_json::from_value(frame["request"].clone()).unwrap();
         let response: Vec<u8> = serde_json::from_value(frame["response"].clone()).unwrap();
-        let decoded: SchemaMigrationStatusRequest = endpoint.decode_request(&request).unwrap();
-        assert_eq!(endpoint.encode_request(decoded).unwrap(), request);
-        let decoded: Result<SchemaMigrationStatusPage, Error> =
-            endpoint.decode_response(&response).unwrap();
-        assert_eq!(endpoint.encode_response(&decoded).unwrap(), response);
+        let decoded: SchemaMigrationStatusRequest = endpoint
+            .decode_request(
+                &request,
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .unwrap();
+        assert_eq!(
+            endpoint
+                .encode_request(decoded, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
+                .unwrap(),
+            request
+        );
+        let decoded: Result<SchemaMigrationStatusPage, Error> = endpoint
+            .decode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+            .unwrap();
+        assert_eq!(
+            endpoint
+                .encode_response(&decoded, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+                .unwrap(),
+            response
+        );
         assert_eq!(decoded.unwrap(), expected);
     }
 }

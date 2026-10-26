@@ -365,13 +365,16 @@ impl IndexFragment {
     ///
     /// # Errors
     ///
-    /// Returns a typed reference-list error when no key component is present.
+    /// Returns a typed contract error for an engine-reserved name or an empty key.
     pub fn try_new(
         name: SchemaName,
         key: Vec<IndexKeyFragment>,
         unique: bool,
         predicate: Option<SourceCheckExpr>,
     ) -> Result<Self, SchemaContractError> {
+        if crate::is_engine_reserved_schema_name(name.as_str()) {
+            return Err(SchemaContractError::InvalidSourceKey);
+        }
         if key.is_empty() {
             return Err(SchemaContractError::InvalidReferenceList);
         }
@@ -737,6 +740,9 @@ impl ConstraintFragment {
         self.kind.validate()?;
         let rebuilt = match &self.kind {
             ConstraintFragmentKind::Check(expression) => {
+                if crate::is_engine_reserved_schema_name(self.name.as_str()) {
+                    return Err(SchemaContractError::InvalidSourceKey);
+                }
                 Self::check(self.name.clone(), expression.clone())
             }
             ConstraintFragmentKind::TargetedRule(rule) => Self::targeted_rule(rule.clone()),
