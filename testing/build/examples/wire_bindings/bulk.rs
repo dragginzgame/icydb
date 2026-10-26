@@ -30,13 +30,14 @@ mod tests {
     ) -> Result<ic_wire::typescript::BulkLintReport, GenerationError> {
         let limits = icydb_schema::wire::limits(1024);
         let mut methods = methods.to_vec();
-        for method in &mut methods {
+        for (index, method) in methods.iter_mut().enumerate() {
             let budget = ic_wire::typescript::method_limits(limits, limits)?;
             method
                 .as_object_mut()
                 .unwrap()
                 .extend(budget.as_object().unwrap().clone());
-            method["id"] = json!("1");
+            // Distinct fixture endpoints need distinct numeric wire identities.
+            method["id"] = json!((index + 1).to_string());
             method["mode"] = json!("query");
         }
         let mut report = None;

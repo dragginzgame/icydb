@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🔧 Changed
 
 - Adopt Shared Tooling 0.26.19, IC Tooling 0.68.6 and IC Wire 0.7.15,
-  including explicit saved-release recovery and stricter upstream build admission.
+  including explicit saved-release recovery, stricter upstream build admission
+  and valid distinct endpoint identities in bulk-review fixtures.
 
 ### 🩹 Fixed
 
