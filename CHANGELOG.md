@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🩹 Fixed
 
+- Refresh malformed lifecycle-participant and SQL guard compile-fail diagnostics
+  for the selected Canic adapter revision; preserve the expected macro rejections.
 - Charge conjunction simplification pairs to existing preparation budgets and
   propagate exhaustion without partial predicates
   ([#76](https://github.com/dragginzgame/icydb/issues/76), partial).
