@@ -512,7 +512,7 @@ fn inspect_row_atom<C: CanisterKind>(
             let Some(Ok(reader)) = reader.as_mut() else {
                 return Ok(RowAtomOutcome::Blocked(IntegrityVerifierFamily::FieldValue));
             };
-            match reader.get_value(slot) {
+            match reader.required_cached_value(slot) {
                 Ok(_) => Ok(RowAtomOutcome::Clean),
                 Err(error) => {
                     *decoded_values = DecodedRowValues::Invalid;

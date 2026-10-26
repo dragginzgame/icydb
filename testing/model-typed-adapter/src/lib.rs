@@ -211,8 +211,20 @@ mod tests {
     }
 
     #[test]
-    fn generated_conversions_ignore_shadowed_into_name() {
+    fn generated_conversions_ignore_shadowed_trait_names() {
         assert_eq!(X::from(7_u16).0, 7);
+
+        let key = super::schema::TypedCompositeTargetKey {
+            tenant_id: u64::MAX,
+            local_id: u32::MAX,
+        };
+        assert_eq!(
+            runtime_api::value::InputValue::from(key),
+            runtime_api::value::InputValue::list(vec![
+                runtime_api::value::InputValue::from(u64::MAX),
+                runtime_api::value::InputValue::from(u32::MAX),
+            ])
+        );
 
         let list = AdapterList::from(vec![
             AdapterRecord {

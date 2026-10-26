@@ -370,31 +370,28 @@ fn unordered_distinct_default_cursor_order_preserves_live_and_exhaustive_results
                 expected[offset..]
             );
         }
-        let mut cursor = None;
-        let mut proof = None;
-        let mut rows = vec![];
-        let mut continued = false;
-        for _ in 0..16 {
-            let root = RequestExecutionRoot::__new_runtime_root();
-            let session = new_request_session(&root);
-            let page = if public {
-                session.execute_public_exhaustive_page(&query, cursor.as_deref(), proof.as_ref())
-            } else {
-                session.execute_trusted_exhaustive_page(&query, cursor.as_deref(), proof.as_ref())
-            }
-            .unwrap();
-            rows.extend(page.rows);
-            proof = Some(page.proof);
-            let Some(next) = page.continuation else {
-                cursor = None;
-                break;
-            };
-            assert_ne!(cursor.as_ref(), Some(&next));
-            cursor = Some(next);
-            continued = true;
+        let root = RequestExecutionRoot::__new_runtime_root();
+        let session = new_request_session(&root);
+        let full = if public {
+            session.execute_public_exhaustive_page(&query, None, None)
+        } else {
+            session.execute_trusted_exhaustive_page(&query, None, None)
+        };
+        assert!(matches!(
+            full,
+            Err(crate::db::ExhaustiveReadError::Revision(
+                crate::db::ReadSetRevisionError::DurableStoreRequired { .. }
+            ))
+        ));
+        let bounded = query.clone().limit(1);
+        let page = if public {
+            session.execute_public_exhaustive_page(&bounded, None, None)
+        } else {
+            session.execute_trusted_exhaustive_page(&bounded, None, None)
         }
-        assert!(cursor.is_none() && continued);
-        assert_eq!(rows, expected);
+        .unwrap();
+        assert!(page.continuation.is_none());
+        assert_eq!(page.rows, expected[..1]);
     }
 }
 

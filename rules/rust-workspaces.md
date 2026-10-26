@@ -72,6 +72,31 @@ apps/
   upstream sources and frozen historical evidence are not maintained package
   locations; do not move them or rewrite history to satisfy this layout.
 
+## Coordinated versions and workspace boundaries
+
+Keep established workspace groupings and their coordinated versions by default.
+One release identity reduces internal version combinations and lets related
+packages qualify changes together. It does not merge package responsibilities,
+enable optional features or update downstream lockfiles automatically.
+
+- Judge a proposed merge or split by actual shared types, dependency direction,
+  consumer upgrades and release obligations. Similar names or occasional
+  unchanged members in a release are insufficient reasons to reorganize.
+- Before proposing independent versions or another workspace migration, show a
+  recurring maintenance problem, why a local fix or release batching is
+  insufficient, and the total migration and qualification cost for consumers.
+  Preserve approved independent graphs and require explicit maintainer agreement
+  for a boundary or versioning-policy change.
+- Prefer batching related, already-planned breaking changes into one coordinated
+  release before downstream adoption. Avoid repeated consumer migrations for
+  adjacent changes, but do not hold urgent fixes for unrelated work or enlarge a
+  release with speculative changes. Classify the combined release and downstream
+  adoption using the [package-impact rules](changelogs.md#classify-the-released-packages-own-impact).
+- Keep unrelated repositories independently versioned. Shared Tooling snapshot
+  adoption, a common dependency or a common owner does not require fleet-wide
+  version synchronization. Verify adoption through the consumer's
+  [selected dependency graphs](../docs/cargo-graph-checks.md#coordinated-release-adoption).
+
 ## Workspace member roles
 
 The root `[workspace]` table's `members` array may group packages with comment

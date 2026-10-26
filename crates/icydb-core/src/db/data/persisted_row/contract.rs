@@ -3,7 +3,7 @@
 //! Production writes and test fixtures enter through accepted field contracts.
 
 use crate::{
-    db::schema::{FieldStorageDecode, LeafCodec},
+    db::schema::{AcceptedFieldKind, FieldStorageDecode, LeafCodec},
     db::{
         codec::serialize_row_payload,
         data::{
@@ -19,7 +19,9 @@ use crate::{
 };
 use std::borrow::Cow;
 
-use crate::db::data::persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value};
+use crate::db::data::persisted_row::codec::{
+    ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value,
+};
 
 /// Decode one slot payload through an accepted-schema field contract.
 ///
@@ -30,7 +32,10 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
     match field.leaf_codec() {
-        LeafCodec::Scalar(codec) => Ok(decode_scalar_slot_value(raw_value, codec)?.into_value()),
+        LeafCodec::Scalar(_) => Ok(decode_scalar_slot_value_from_accepted_field_contract(
+            field, raw_value,
+        )?
+        .into_value()),
         LeafCodec::Structural => decode_non_scalar_accepted_slot_value(raw_value, field),
     }
 }
@@ -67,11 +72,37 @@ pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
 ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
     let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
-    let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
+    decode_scalar_slot_value_from_accepted_field_contract(accepted_field, raw_value)
+}
+
+/// Admit a borrowed scalar against its accepted field without materializing it.
+pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value_from_accepted_field_contract<
+    'raw,
+>(
+    field: AcceptedFieldDecodeContract<'_>,
+    raw_value: &'raw [u8],
+) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
+    let LeafCodec::Scalar(codec) = field.leaf_codec() else {
         return Err(InternalError::persisted_row_decode_corruption());
     };
 
-    decode_scalar_slot_value(raw_value, codec)
+    let value = decode_scalar_slot_value(raw_value, codec)?;
+    let admitted = match (field.kind(), value) {
+        (_, ScalarSlotValueRef::Null) => field.nullable(),
+        (
+            AcceptedFieldKind::Blob { max_len },
+            ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)),
+        ) => max_len.is_none_or(|limit| bytes.len() <= limit as usize),
+        (
+            AcceptedFieldKind::Text { max_len },
+            ScalarSlotValueRef::Value(ScalarValueRef::Text(text)),
+        ) => max_len.is_none_or(|limit| text.chars().count() <= limit as usize),
+        _ => true,
+    };
+    if !admitted {
+        return Err(InternalError::persisted_row_decode_corruption());
+    }
+    Ok(value)
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
@@ -177,7 +208,7 @@ fn decode_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<Value, InternalError> {
-    if nullable_accepted_slot_payload_is_structural_null(raw_value, field) {
+    if nullable_accepted_slot_payload_is_structural_null(raw_value, field)? {
         return Ok(Value::Null);
     }
 
@@ -198,7 +229,7 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<(), InternalError> {
-    if nullable_accepted_slot_payload_is_structural_null(raw_value, field) {
+    if nullable_accepted_slot_payload_is_structural_null(raw_value, field)? {
         return Ok(());
     }
 
@@ -238,10 +269,13 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
 fn nullable_accepted_slot_payload_is_structural_null(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
-) -> bool {
-    field.nullable()
-        && matches!(field.storage_decode(), FieldStorageDecode::ByKind)
-        && value_storage_bytes_are_null(raw_value)
+) -> Result<bool, InternalError> {
+    let is_null = matches!(field.storage_decode(), FieldStorageDecode::ByKind)
+        && value_storage_bytes_are_null(raw_value);
+    if is_null && !field.nullable() {
+        return Err(InternalError::persisted_row_decode_corruption());
+    }
+    Ok(is_null)
 }
 
 #[cfg(test)]
@@ -328,6 +362,43 @@ mod tests {
                             .unwrap_err();
                     let validated =
                         validate_non_scalar_accepted_slot_value(malformed, field).unwrap_err();
+                    assert_eq!(decoded.class(), crate::error::ErrorClass::Corruption);
+                    assert_eq!(decoded.diagnostic_code(), validated.diagnostic_code());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn structural_null_requires_nullable_accepted_field() {
+        for kind in [
+            AcceptedFieldKind::Int128,
+            AcceptedFieldKind::Nat128,
+            AcceptedFieldKind::Text { max_len: None },
+            AcceptedFieldKind::Blob { max_len: None },
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64)),
+            AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Nat64)),
+            AcceptedFieldKind::Map {
+                key: Box::new(AcceptedFieldKind::Nat64),
+                value: Box::new(AcceptedFieldKind::Bool),
+            },
+        ] {
+            for nullable in [false, true] {
+                let field = AcceptedFieldDecodeContract::new(
+                    "value",
+                    &kind,
+                    nullable,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Structural,
+                );
+                let decoded = decode_runtime_value_from_accepted_field_contract(field, &[0]);
+                let validated = validate_non_scalar_accepted_slot_value(&[0], field);
+                if nullable {
+                    assert_eq!(decoded.unwrap(), Value::Null);
+                    validated.unwrap();
+                } else {
+                    let decoded = decoded.unwrap_err();
+                    let validated = validated.unwrap_err();
                     assert_eq!(decoded.class(), crate::error::ErrorClass::Corruption);
                     assert_eq!(decoded.diagnostic_code(), validated.diagnostic_code());
                 }

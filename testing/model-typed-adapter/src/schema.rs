@@ -4,15 +4,18 @@ use model_api::prelude::*;
 use std::{
     cmp::Ordering::{Equal as None, Less as Ok},
     collections::VecDeque as Vec,
+    fmt::Debug as Clone,
     io::Result,
     marker::{PhantomData as Option, Send as PartialEq, Sync as PartialOrd},
     ops::{
         ControlFlow::{Break as Err, Continue as Some},
-        Range as Into,
+        Range as Into, RangeFrom as From,
     },
     rc::Rc as Box,
 };
 const _: Into<u8> = 0..0;
+const _: ::core::option::Option<&dyn Clone> = ::core::option::Option::None;
+const _: From<u8> = 0..;
 const _: Result<()> = ::core::result::Result::Ok(());
 const _: ::core::option::Option<&(dyn PartialEq + PartialOrd)> = ::core::option::Option::None;
 const _: Option<()> = std::marker::PhantomData;

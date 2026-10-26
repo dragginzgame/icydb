@@ -871,13 +871,13 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
         let row_op = physical_changed.then(|| {
             CommitRowOp::new(
                 entity_path,
-                raw_key.clone(),
-                canonical_before,
-                Some(after.clone()),
+                raw_key,
+                canonical_before.as_ref(),
+                Some(&after),
                 catalog.fingerprint(),
             )
         });
-        scheduler.schedule_save_after_image(
+        let admitted_mutation = scheduler.admit_save_after_image(
             AcceptedMutationConstraintContext {
                 entity_tag: identity.entity_tag(),
                 row_contract,
@@ -889,7 +889,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             &data_key,
             &reader,
             provenance.as_slice(),
-            row_op,
+            row_op.as_ref(),
             batch_input_ordinal,
         )?;
         let values = if capture_output_values {
@@ -900,6 +900,26 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
         } else {
             Vec::new()
         };
+        // Admission borrowed these exact images. Release those borrows before
+        // moving their ownership into the scheduler; no second reader is opened.
+        if let Some(row_op) = row_op {
+            let CommitRowOp {
+                entity_path,
+                key,
+                schema_fingerprint,
+                ..
+            } = row_op;
+            scheduler.stage_admitted_save(
+                CommitRowOp::new(
+                    entity_path,
+                    key,
+                    canonical_before,
+                    Some(after),
+                    schema_fingerprint,
+                ),
+                admitted_mutation,
+            );
+        }
         output.push(AcceptedStructuralMutationRow {
             values,
             logical_changed,

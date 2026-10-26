@@ -300,10 +300,10 @@ impl TraitKind {
             Self::AddAssign => Some(quote!(
                 #model::__reexports::icydb_model_macros::AddAssign
             )),
-            Self::Clone => Some(quote!(Clone)),
-            Self::Copy => Some(quote!(Copy)),
-            Self::Debug => Some(quote!(Debug)),
-            Self::Default => Some(quote!(Default)),
+            Self::Clone => Some(quote!(::core::clone::Clone)),
+            Self::Copy => Some(quote!(::core::marker::Copy)),
+            Self::Debug => Some(quote!(::core::fmt::Debug)),
+            Self::Default => Some(quote!(::core::default::Default)),
             Self::Deref => Some(quote!(
                 #model::__reexports::icydb_model_macros::Deref
             )),
@@ -318,8 +318,8 @@ impl TraitKind {
             Self::DivAssign => Some(quote!(
                 #model::__reexports::icydb_model_macros::DivAssign
             )),
-            Self::Eq => Some(quote!(Eq)),
-            Self::Hash => Some(quote!(Hash)),
+            Self::Eq => Some(quote!(::core::cmp::Eq)),
+            Self::Hash => Some(quote!(::core::hash::Hash)),
             Self::Inner => Some(quote!(
                 #model::__reexports::icydb_model_macros::Inner
             )),
@@ -328,9 +328,9 @@ impl TraitKind {
                 #model::__reexports::icydb_model_macros::MulAssign
             )),
             Self::Neg => Some(quote!(#model::__reexports::icydb_model_macros::Neg)),
-            Self::Ord => Some(quote!(Ord)),
-            Self::PartialEq => Some(quote!(PartialEq)),
-            Self::PartialOrd => Some(quote!(PartialOrd)),
+            Self::Ord => Some(quote!(::core::cmp::Ord)),
+            Self::PartialEq => Some(quote!(::core::cmp::PartialEq)),
+            Self::PartialOrd => Some(quote!(::core::cmp::PartialOrd)),
             Self::Product => Some(quote!(
                 #model::__reexports::icydb_model_macros::Product
             )),

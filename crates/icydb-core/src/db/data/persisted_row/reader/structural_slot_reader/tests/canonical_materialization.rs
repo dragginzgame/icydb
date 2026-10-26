@@ -54,9 +54,19 @@ fn full_and_sparse_reads_reject_malformed_unselected_spans() {
         .unwrap()
         .into_payload();
     let third_entry = row.len() - payload.len() + 2 + 2 * 8;
+    let third_start = u32::from_be_bytes(payload[18..22].try_into().unwrap());
+    let third_len = u32::from_be_bytes(payload[22..26].try_into().unwrap());
     // Corrupt an unselected field while keeping the envelope valid. Both
     // scanners must validate the whole physical table before returning a slot.
-    for (start, len) in [(0_u32, 0_u32), (u32::MAX, 1), (0, u32::MAX)] {
+    for (start, len) in [
+        (0_u32, 0_u32),
+        (u32::MAX, 1),
+        (0, u32::MAX),
+        (0, third_len), // reordered/overlapping span within the data section
+        (third_start - 1, third_len + 1), // overlap, still ending at the payload end
+        (third_start + 1, third_len - 1), // gap, still ending at the payload end
+        (third_start, third_len - 1), // unclaimed trailing byte
+    ] {
         let mut bytes = row.as_bytes().to_vec();
         bytes[third_entry..third_entry + 4].copy_from_slice(&start.to_be_bytes());
         bytes[third_entry + 4..third_entry + 8].copy_from_slice(&len.to_be_bytes());
@@ -74,6 +84,215 @@ fn full_and_sparse_reads_reject_malformed_unselected_spans() {
         assert_eq!(full.class(), ErrorClass::Corruption);
         assert_eq!(sparse.class(), full.class());
         assert_eq!(sparse.diagnostic_code(), full.diagnostic_code());
+    }
+}
+
+#[test]
+fn by_kind_collection_reads_reject_invalid_unselected_items() {
+    use crate::db::data::encode_structural_field_by_accepted_kind_bytes;
+
+    for (kind, value) in [
+        (
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Text { max_len: Some(2) })),
+            Value::List(vec![Value::Text("é🦀x".into())]),
+        ),
+        (
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Blob { max_len: Some(2) })),
+            Value::List(vec![Value::Blob(vec![1, 2, 3])]),
+        ),
+        (
+            AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Nat64)),
+            Value::List(vec![Value::Nat64(2), Value::Nat64(1)]),
+        ),
+        (
+            AcceptedFieldKind::Map {
+                key: Box::new(AcceptedFieldKind::Nat64),
+                value: Box::new(AcceptedFieldKind::Bool),
+            },
+            Value::Map(vec![
+                (Value::Nat64(1), Value::Bool(false)),
+                (Value::Nat64(1), Value::Bool(true)),
+            ]),
+        ),
+    ] {
+        let contract = payload_contract_with_storage(
+            kind.clone(),
+            LeafCodec::Structural,
+            false,
+            FieldStorageDecode::ByKind,
+        );
+        let row = row_with_payload(
+            &contract,
+            encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap(),
+        );
+        let mut reader =
+            StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+        assert_eq!(reader.required_cached_value(0).unwrap(), &Value::Nat64(7));
+        let eager =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+                .err()
+                .expect("eager decoding must reject an invalid unselected item");
+        assert_eq!(eager.class(), ErrorClass::Corruption);
+        for _ in 0..2 {
+            assert_eq!(
+                reader
+                    .required_cached_value(2)
+                    .unwrap_err()
+                    .diagnostic_code(),
+                eager.diagnostic_code()
+            );
+            assert_eq!(
+                reader
+                    .take_direct_projection_value(2)
+                    .unwrap_err()
+                    .diagnostic_code(),
+                eager.diagnostic_code()
+            );
+        }
+    }
+}
+
+#[test]
+fn scalar_row_reads_enforce_nullability_and_text_blob_limits() {
+    use crate::db::data::persisted_row::{
+        canonical::scalar_slot_value_ref_from_accepted_value,
+        codec::{ScalarSlotValueRef, encode_scalar_slot_value},
+        contract::decode_runtime_value_from_accepted_field_contract,
+    };
+
+    for max_len in [None, Some(0), Some(2)] {
+        for nullable in [false, true] {
+            for (kind, codec, values) in [
+                (
+                    AcceptedFieldKind::Text { max_len },
+                    ScalarCodec::Text,
+                    vec![
+                        Value::Null,
+                        Value::Text(String::new()),
+                        Value::Text("é🦀".into()),
+                        Value::Text("é🦀x".into()),
+                    ],
+                ),
+                (
+                    AcceptedFieldKind::Blob { max_len },
+                    ScalarCodec::Blob,
+                    vec![
+                        Value::Null,
+                        Value::Blob(vec![]),
+                        Value::Blob(vec![1, 2]),
+                        Value::Blob(vec![1, 2, 3]),
+                    ],
+                ),
+            ] {
+                let contract = payload_contract(kind, LeafCodec::Scalar(codec), nullable);
+                for value in values {
+                    let admitted = match &value {
+                        Value::Null => nullable,
+                        Value::Text(text) => {
+                            max_len.is_none_or(|limit| text.chars().count() <= limit as usize)
+                        }
+                        Value::Blob(bytes) => {
+                            max_len.is_none_or(|limit| bytes.len() <= limit as usize)
+                        }
+                        _ => unreachable!(),
+                    };
+                    // Bypass write admission to test untrusted persisted bytes.
+                    let scalar = match &value {
+                        Value::Null => ScalarSlotValueRef::Null,
+                        _ => scalar_slot_value_ref_from_accepted_value(&value, codec).unwrap(),
+                    };
+                    let payload = encode_scalar_slot_value(scalar, codec).unwrap();
+                    let owned = decode_runtime_value_from_accepted_field_contract(
+                        contract.required_accepted_field_decode_contract(2).unwrap(),
+                        &payload,
+                    );
+                    let row = row_with_payload(&contract, payload);
+                    let mut reader =
+                        StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
+                            .unwrap();
+                    assert_eq!(reader.required_cached_value(0).unwrap(), &Value::Nat64(7));
+                    let eager = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                        &row, &contract,
+                    );
+                    let sparse = decode_sparse_required_slot_with_contract(
+                        &row,
+                        &contract,
+                        &PrimaryKeyComponent::Nat64(7).into(),
+                        2,
+                    );
+                    assert_eq!(eager.is_ok(), admitted);
+                    assert_eq!(sparse.is_ok(), admitted);
+                    if admitted {
+                        assert_eq!(owned.unwrap(), value);
+                        assert_eq!(reader.required_cached_value(2).unwrap(), &value);
+                        assert_eq!(reader.take_direct_projection_value(2).unwrap(), value);
+                    } else {
+                        let error = owned.unwrap_err();
+                        assert_eq!(error.class(), ErrorClass::Corruption);
+                        for _ in 0..2 {
+                            assert_eq!(
+                                reader
+                                    .required_cached_value(2)
+                                    .unwrap_err()
+                                    .diagnostic_code(),
+                                error.diagnostic_code()
+                            );
+                            assert_eq!(
+                                reader
+                                    .take_direct_projection_value(2)
+                                    .unwrap_err()
+                                    .diagnostic_code(),
+                                error.diagnostic_code()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn decimal_row_reads_reject_wrong_scale_without_normalizing_stored_bytes() {
+    use crate::{db::data::encode_structural_field_by_accepted_kind_bytes, types::Decimal};
+
+    let kind = AcceptedFieldKind::Decimal { scale: 2 };
+    let contract = payload_contract_with_storage(
+        kind.clone(),
+        LeafCodec::Structural,
+        false,
+        FieldStorageDecode::ByKind,
+    );
+    // Equal numeric values at a different scale are still noncanonical storage.
+    for (mantissa, scale, admitted) in [(100, 2, true), (10, 1, false), (1000, 3, false)] {
+        let value = Value::Decimal(Decimal::from_i128_with_scale(mantissa, scale));
+        let row = row_with_payload(
+            &contract,
+            encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap(),
+        );
+        let mut reader =
+            StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+        assert_eq!(reader.required_cached_value(0).unwrap(), &Value::Nat64(7));
+        let eager =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract);
+        if admitted {
+            assert!(eager.is_ok());
+            assert_eq!(reader.required_cached_value(2).unwrap(), &value);
+            assert_eq!(reader.take_direct_projection_value(2).unwrap(), value);
+        } else {
+            let eager = eager
+                .err()
+                .expect("eager reads must reject the invalid scale");
+            assert_eq!(eager.class(), ErrorClass::Corruption);
+            for _ in 0..2 {
+                let error = reader.required_cached_value(2).unwrap_err();
+                assert_eq!(error.diagnostic_code(), eager.diagnostic_code());
+                assert_eq!(
+                    reader.take_direct_projection_value(2).unwrap_err().class(),
+                    ErrorClass::Corruption
+                );
+            }
+        }
     }
 }
 

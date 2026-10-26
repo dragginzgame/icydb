@@ -867,6 +867,14 @@ premature success and completed success/failure using the invoking Bash.
 also renders a boundary for caller-owned contradictory assertion checks. Its
 child requires `RETENTION_SOURCE_ROOT` and `RETENTION_EXIT_PATH` explicitly.
 Only trusted, reviewed fixture sources and caller-owned injection are inputs.
+The supported boundary is one physical line beginning with `trap ` in column
+one and ending with ` EXIT`, without a trailing comment or whitespace. For a
+multiline cleanup action, define a named function before `trap finish EXIT`.
+This is a source convention, not a general Bash parser: keep trap-like text out
+of quoted initialization data. An absent or unsupported boundary returns nonzero
+with a diagnostic naming the source and the required form, leaving the output
+empty. Rendering never executes the source; callers must check its status before
+running a generated probe.
 
 ## Tool evidence collection orchestration
 
@@ -1064,6 +1072,13 @@ The probe requires the supported root anchor and EXIT boundary, evidence
 retention, status 1, and a receipt proving the intended assertion was reached.
 Ignored assertions and earlier setup failures are rejected. The focused owner
 suite is `scripts/ci/test-fixture-assertion-probe.sh`.
+The owner must contain the literal line `root="${root%/.}"` before a column-one,
+single-line `trap ACTION EXIT`, using the same trap convention described under
+[consumer fixture retention probes](#consumer-fixture-retention-probes).
+Missing or ambiguous assertion selections and unsupported owner layouts report
+the source and required form without running a child. A rejected selection clears
+any earlier generated script for that probe name; a rejected layout leaves no
+partial script content.
 
 ## Manifest ordering in selected release sources
 

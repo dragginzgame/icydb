@@ -28,6 +28,238 @@ fn assert_accepted_rejects(kind: &AcceptedFieldKind, raw_bytes: &[u8]) {
 }
 
 #[test]
+fn collection_elements_reject_null_without_changing_root_null_admission() {
+    for inner in [
+        AcceptedFieldKind::Int128,
+        AcceptedFieldKind::Nat128,
+        AcceptedFieldKind::Text { max_len: None },
+        AcceptedFieldKind::Blob { max_len: None },
+    ] {
+        for (kind, value) in [
+            (
+                AcceptedFieldKind::List(Box::new(inner.clone())),
+                Value::List(vec![Value::Null]),
+            ),
+            (
+                AcceptedFieldKind::Set(Box::new(inner.clone())),
+                Value::List(vec![Value::Null]),
+            ),
+            (
+                AcceptedFieldKind::Map {
+                    key: Box::new(inner.clone()),
+                    value: Box::new(AcceptedFieldKind::Bool),
+                },
+                Value::Map(vec![(Value::Null, Value::Bool(true))]),
+            ),
+            (
+                AcceptedFieldKind::Map {
+                    key: Box::new(AcceptedFieldKind::Bool),
+                    value: Box::new(inner.clone()),
+                },
+                Value::Map(vec![(Value::Bool(true), Value::Null)]),
+            ),
+        ] {
+            // Null tokens are framed correctly but violate the element kind.
+            let bytes = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
+            assert_accepted_rejects(&kind, &bytes);
+            let nested = AcceptedFieldKind::List(Box::new(kind));
+            let bytes =
+                encode_structural_field_by_accepted_kind_bytes(&nested, &Value::List(vec![value]))
+                    .unwrap();
+            assert_accepted_rejects(&nested, &bytes);
+        }
+    }
+    let null_item = encode_structural_field_by_accepted_kind_bytes(
+        &AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat128)),
+        &Value::List(vec![Value::Null]),
+    )
+    .unwrap();
+    assert_accepted_rejects(
+        &AcceptedFieldKind::List(Box::new(AcceptedFieldKind::List(Box::new(
+            AcceptedFieldKind::Bool,
+        )))),
+        &null_item,
+    );
+    // Root nullability belongs to the accepted field contract, not its kind.
+    for kind in [AcceptedFieldKind::Int128, AcceptedFieldKind::Nat128] {
+        assert_accepted_roundtrip(&kind, &Value::Null);
+    }
+}
+
+#[test]
+fn ordered_collections_reject_duplicates_and_reversed_persisted_values() {
+    for (leaf, ordered) in [
+        (
+            AcceptedFieldKind::Int64,
+            vec![Value::Int64(-1), Value::Int64(0), Value::Int64(1)],
+        ),
+        (
+            AcceptedFieldKind::Nat64,
+            vec![Value::Nat64(0), Value::Nat64(1), Value::Nat64(u64::MAX)],
+        ),
+        (
+            AcceptedFieldKind::Text { max_len: None },
+            vec![
+                Value::Text(String::new()),
+                Value::Text("a".into()),
+                Value::Text("é".into()),
+            ],
+        ),
+    ] {
+        for is_map in [false, true] {
+            let kind = if is_map {
+                AcceptedFieldKind::Map {
+                    key: Box::new(leaf.clone()),
+                    value: Box::new(AcceptedFieldKind::Bool),
+                }
+            } else {
+                AcceptedFieldKind::Set(Box::new(leaf.clone()))
+            };
+            let value_for = |items: Vec<Value>| {
+                if is_map {
+                    Value::Map(
+                        items
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, key)| (key, Value::Bool(index % 2 == 0)))
+                            .collect(),
+                    )
+                } else {
+                    Value::List(items)
+                }
+            };
+            for items in [vec![], ordered[..1].to_vec(), ordered.clone()] {
+                assert_accepted_roundtrip(&kind, &value_for(items));
+            }
+            let mut reversed = ordered.clone();
+            reversed.reverse();
+            for malformed in [
+                reversed,
+                vec![ordered[0].clone(), ordered[0].clone()],
+                vec![ordered[0].clone(), ordered[1].clone(), ordered[1].clone()],
+            ] {
+                let value = value_for(malformed);
+                // The low-level encoder preserves input order; accepted write
+                // admission normally establishes this invariant before encoding.
+                let bytes = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
+                assert_accepted_rejects(&kind, &bytes);
+                let nested_kind = AcceptedFieldKind::List(Box::new(kind.clone()));
+                let bytes = encode_structural_field_by_accepted_kind_bytes(
+                    &nested_kind,
+                    &Value::List(vec![value]),
+                )
+                .unwrap();
+                assert_accepted_rejects(&nested_kind, &bytes);
+            }
+            // Lists retain their input order and duplicates.
+            let list = AcceptedFieldKind::List(Box::new(leaf.clone()));
+            assert_accepted_roundtrip(
+                &list,
+                &Value::List(vec![
+                    ordered[1].clone(),
+                    ordered[0].clone(),
+                    ordered[0].clone(),
+                ]),
+            );
+        }
+    }
+}
+
+#[test]
+fn nested_text_and_blob_decoding_enforces_accepted_lengths() {
+    for max_len in [None, Some(0), Some(2)] {
+        for (kind, values) in [
+            (
+                AcceptedFieldKind::Text { max_len },
+                vec![
+                    Value::Text(String::new()),
+                    Value::Text("é🦀".into()),
+                    Value::Text("é🦀x".into()),
+                ],
+            ),
+            (
+                AcceptedFieldKind::Blob { max_len },
+                vec![
+                    Value::Blob(vec![]),
+                    Value::Blob(vec![1, 2]),
+                    Value::Blob(vec![1, 2, 3]),
+                ],
+            ),
+        ] {
+            for (index, value) in values.into_iter().enumerate() {
+                let length = [0, 2, 3][index];
+                let admitted = max_len.is_none_or(|limit| length <= limit);
+                for (kind, value) in [
+                    (kind.clone(), value.clone()),
+                    (
+                        AcceptedFieldKind::List(Box::new(kind.clone())),
+                        Value::List(vec![value.clone()]),
+                    ),
+                    (
+                        AcceptedFieldKind::Map {
+                            key: Box::new(kind.clone()),
+                            value: Box::new(AcceptedFieldKind::Bool),
+                        },
+                        Value::Map(vec![(value.clone(), Value::Bool(true))]),
+                    ),
+                    (
+                        AcceptedFieldKind::Map {
+                            key: Box::new(AcceptedFieldKind::Bool),
+                            value: Box::new(kind.clone()),
+                        },
+                        Value::Map(vec![(Value::Bool(true), value)]),
+                    ),
+                ] {
+                    let bytes =
+                        encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
+                    if admitted {
+                        assert_accepted_roundtrip(&kind, &value);
+                    } else {
+                        assert_accepted_rejects(&kind, &bytes);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn decimal_decode_requires_the_declared_scale_in_nested_values() {
+    for scale in 0..=28 {
+        let kind = AcceptedFieldKind::Decimal { scale };
+        for stored_scale in 0..=28 {
+            for mantissa in [i128::MIN, -10, 0, 10, i128::MAX] {
+                let value = Value::Decimal(Decimal::from_i128_with_scale(mantissa, stored_scale));
+                for (kind, value) in [
+                    (kind.clone(), value.clone()),
+                    (
+                        AcceptedFieldKind::List(Box::new(kind.clone())),
+                        Value::List(vec![value.clone()]),
+                    ),
+                    (
+                        AcceptedFieldKind::Map {
+                            key: Box::new(kind.clone()),
+                            value: Box::new(kind.clone()),
+                        },
+                        Value::Map(vec![(value.clone(), value)]),
+                    ),
+                ] {
+                    // The low-level encoder lets this fixture construct bytes
+                    // that ordinary accepted-value admission would reject.
+                    let bytes =
+                        encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
+                    if scale == stored_scale {
+                        assert_accepted_roundtrip(&kind, &value);
+                    } else {
+                        assert_accepted_rejects(&kind, &bytes);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn accepted_kind_codec_roundtrips_nested_collections() {
     let kind = AcceptedFieldKind::Map {
         key: Box::new(AcceptedFieldKind::Text { max_len: None }),

@@ -85,9 +85,7 @@ fn assert_capacity_and_digest(predicate: &Predicate) {
     let snapshot = predicate.clone();
     let mut expected = Vec::new();
     write_normalized_predicate_sort_key(&mut expected, predicate);
-    let mut hasher = new_hash_sha256();
-    hasher.update(&expected);
-    let expected_digest = finalize_hash_sha256(hasher);
+    let expected_digest = *blake3::hash(&expected).as_bytes();
     let root = request(Resource::TemporaryBytes, 32_000_000);
     PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
         let capacity = normalized_predicate_key_capacity(predicate, work).unwrap();

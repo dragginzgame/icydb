@@ -70,7 +70,7 @@ fn decode_primary_key_component_field(
         AcceptedFieldKind::Int8
         | AcceptedFieldKind::Int16
         | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64 => decode_int_primary_key_component(root),
+        | AcceptedFieldKind::Int64 => decode_int_primary_key_component(root, kind),
         AcceptedFieldKind::Int128 => decode_int128_primary_key_component(root),
         AcceptedFieldKind::Principal => decode_principal_primary_key_component(root),
         AcceptedFieldKind::Relation { key_kind, .. } => {
@@ -81,7 +81,7 @@ fn decode_primary_key_component_field(
         AcceptedFieldKind::Nat8
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64 => decode_nat_primary_key_component(root),
+        | AcceptedFieldKind::Nat64 => decode_nat_primary_key_component(root, kind),
         AcceptedFieldKind::Nat128 => decode_nat128_primary_key_component(root),
         AcceptedFieldKind::Ulid => decode_ulid_primary_key_component(root),
         AcceptedFieldKind::Unit => decode_unit_primary_key_component(root),

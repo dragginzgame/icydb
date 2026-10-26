@@ -1,13 +1,40 @@
 //! Module: data::structural_field::primitive
-//! Responsibility: fixed-width primitive payload byte conversion shared by structural codecs.
+//! Responsibility: fixed-width primitive conversion and accepted integer bounds shared by structural codecs.
 //! Does not own: outer Structural Binary framing, runtime `Value` materialization, or row policy.
-//! Boundary: sibling lanes call this for canonical primitive payload bytes only.
+//! Boundary: sibling lanes share canonical primitive payload bytes and declared integer ranges.
 
-use crate::db::data::structural_field::FieldDecodeError;
+use crate::db::{data::structural_field::FieldDecodeError, schema::AcceptedFieldKind};
 
 // Keep fixed-width primitive payload bytes under one owner so structural
 // sibling lanes can share the same raw byte rules while keeping their own
 // outer framing contracts.
+
+// Accepted integer widths are shared by value and relation-key decoding.
+pub(in crate::db::data::structural_field) const fn fixed_int_kind_accepts_value(
+    kind: &AcceptedFieldKind,
+    value: i64,
+) -> bool {
+    match kind {
+        AcceptedFieldKind::Int64 => true,
+        AcceptedFieldKind::Int8 => value >= i8::MIN as i64 && value <= i8::MAX as i64,
+        AcceptedFieldKind::Int16 => value >= i16::MIN as i64 && value <= i16::MAX as i64,
+        AcceptedFieldKind::Int32 => value >= i32::MIN as i64 && value <= i32::MAX as i64,
+        _ => false,
+    }
+}
+
+pub(in crate::db::data::structural_field) const fn fixed_nat_kind_accepts_value(
+    kind: &AcceptedFieldKind,
+    value: u64,
+) -> bool {
+    match kind {
+        AcceptedFieldKind::Nat64 => true,
+        AcceptedFieldKind::Nat8 => value <= u8::MAX as u64,
+        AcceptedFieldKind::Nat16 => value <= u16::MAX as u64,
+        AcceptedFieldKind::Nat32 => value <= u32::MAX as u64,
+        _ => false,
+    }
+}
 
 // Decode one fixed-width primitive payload into its exact byte array.
 fn decode_fixed_width_bytes<const N: usize>(bytes: &[u8]) -> Result<[u8; N], FieldDecodeError> {

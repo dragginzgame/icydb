@@ -24,7 +24,8 @@ use crate::{
         },
         direction::Direction,
         index::{
-            IndexEntryValue, IndexId, IndexKey, PreparedIndexPositionPublication, RawIndexStoreKey,
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, PreparedIndexPositionPublication,
+            RawIndexStoreKey,
         },
         journal::{
             DatabaseCommitSequence, JournalBatch, JournalRecord, MAX_JOURNAL_BATCH_RECORDS,
@@ -1039,8 +1040,8 @@ struct MigrationDerivedDomain {
 
 /// Delete one bounded page of planner-invisible candidate generations.
 ///
-/// Progress advances over every visited raw entry, not only deleted entries,
-/// so an abort cannot hide an unbounded scan behind sparse candidate domains.
+/// Scan only candidate physical domains; the raw-key cursor and page limits
+/// bound progress without walking unrelated accepted generations.
 pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
     db: &Db<C>,
     planned: &PlannedSchemaMigration,
@@ -1082,47 +1083,56 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
             exhausted = false;
             break;
         }
-        let lower = if cursor_path == Some(store_path) {
-            cursor.map_or(Bound::Unbounded, |cursor| {
-                Bound::Excluded(RawIndexStoreKey::from_persisted_bytes(
-                    cursor.key().to_vec(),
-                ))
+        let resume = (cursor_path == Some(store_path))
+            .then(|| {
+                cursor.map(|cursor| RawIndexStoreKey::from_persisted_bytes(cursor.key().to_vec()))
             })
-        } else {
-            Bound::Unbounded
-        };
-        let upper = Bound::Unbounded;
+            .flatten();
         let mut removals = Vec::new();
         let mut store_exhausted = true;
-        store.with_index(|index| {
-            index.visit_raw_entries_in_range(
-                (lower.as_ref(), upper.as_ref()),
-                Direction::Asc,
-                |raw, _| {
-                    if remaining_entries == 0 || remaining_bytes < raw.as_bytes().len() {
-                        store_exhausted = false;
-                        return Ok::<_, InternalError>(true);
-                    }
-                    let decoded = IndexKey::try_from_raw(raw)
-                        .map_err(|_| InternalError::store_corruption())?;
-                    remaining_entries = remaining_entries.saturating_sub(1);
-                    remaining_bytes = remaining_bytes.saturating_sub(raw.as_bytes().len());
-                    let index_id = decoded.index_id();
-                    final_cursor = Some(PersistedSchemaMigrationIndexCursor::try_new(
-                        *store_identities
-                            .get(store_path)
-                            .ok_or_else(InternalError::store_invariant)?,
-                        index_id.entity_tag(),
-                        u64::from(index_id.ordinal()).saturating_add(1),
-                        raw.as_bytes().to_vec(),
-                    )?);
-                    if candidate_ids.contains(index_id) {
-                        removals.push(raw.clone());
-                    }
-                    Ok(false)
-                },
-            )
-        })?;
+        // Raw order is namespace then physical identity. Retain that order so
+        // the existing raw-key cursor resumes across domains without new state.
+        'domains: for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+            for index_id in &candidate_ids {
+                let (start, end) = IndexKey::raw_domain_bounds(*index_id, kind);
+                if resume.as_ref().is_some_and(|key| key >= &end) {
+                    continue;
+                }
+                let lower = match &resume {
+                    Some(key) if key >= &start => Bound::Excluded(key),
+                    _ => Bound::Included(&start),
+                };
+                store.with_index(|index| {
+                    index.visit_raw_entries_in_range(
+                        (lower, Bound::Excluded(&end)),
+                        Direction::Asc,
+                        |raw, _| {
+                            if remaining_entries == 0 || remaining_bytes < raw.as_bytes().len() {
+                                store_exhausted = false;
+                                return Ok::<_, InternalError>(true);
+                            }
+                            IndexKey::try_from_raw(raw)
+                                .map_err(|_| InternalError::store_corruption())?;
+                            remaining_entries = remaining_entries.saturating_sub(1);
+                            remaining_bytes = remaining_bytes.saturating_sub(raw.as_bytes().len());
+                            final_cursor = Some(PersistedSchemaMigrationIndexCursor::try_new(
+                                *store_identities
+                                    .get(store_path)
+                                    .ok_or_else(InternalError::store_invariant)?,
+                                index_id.entity_tag(),
+                                u64::from(index_id.ordinal()).saturating_add(1),
+                                raw.as_bytes().to_vec(),
+                            )?);
+                            removals.push(raw.clone());
+                            Ok(false)
+                        },
+                    )
+                })?;
+                if !store_exhausted {
+                    break 'domains;
+                }
+            }
+        }
         store.with_index_mut(|index| {
             // Abort owns only these planner-invisible candidate generations.
             // Accepted entries, overlays and fold accounting stay untouched.

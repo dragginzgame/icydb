@@ -155,5 +155,37 @@ for root in "${roots[@]}"; do
   check "sql-missing-$cases" 2 bash "$sql_checker"
   mv "$scratch/absent-root" "$scratch/$root"
 done
+# Exercise policy classification independently from the runtime-source fixtures.
+policy_root="$scratch/persisted-policy"
+mkdir -p "$policy_root/scripts/ci" "$policy_root/crates" "$policy_root/testing"
+cp "$ROOT/scripts/ci/check-persisted-format-invariants.sh" "$policy_root/scripts/ci/"
+policy_checker="$policy_root/scripts/ci/check-persisted-format-invariants.sh"
+for suffix in VERSION REVISION EPOCH GENERATION; do
+  printf 'const FIXTURE_%s: u32 = 1;\n' "$suffix" > "$policy_root/crates/fixture.rs"
+  check "policy-current-$suffix" 0 bash "$policy_checker"
+  printf 'const FIXTURE_%s: u32 = 2;\n' "$suffix" > "$policy_root/crates/fixture.rs"
+  check "policy-unclassified-$suffix" 1 bash "$policy_checker"
+done
+printf 'const CURRENT: Self = Self(2);\n' > "$policy_root/crates/fixture.rs"
+check policy-current-wrapper 1 bash "$policy_checker"
+rm "$policy_root/crates/fixture.rs"
+policy_owner=crates/icydb-core/src/db/executor/mutation/job.rs
+mkdir -p "$(dirname "$policy_root/$policy_owner")"
+for component in ENTITY_REVISION MANAGED_WRITE_TIME EXECUTION_FAILURE; do
+  printf 'const RESUMABLE_UPDATE_%s_POLICY_REVISION: u32 = 2;\n' "$component" > "$policy_root/$policy_owner"
+  check "policy-approved-$component" 0 bash "$policy_checker"
+  cp "$policy_root/$policy_owner" "$policy_root/crates/fixture.rs"
+  check "policy-wrong-owner-$component" 1 bash "$policy_checker"
+  rm "$policy_root/crates/fixture.rs"
+  printf 'const RESUMABLE_UPDATE_%s_POLICY_REVISION: u32 = 3;\n' "$component" > "$policy_root/$policy_owner"
+  check "policy-changed-value-$component" 1 bash "$policy_checker"
+done
+printf 'const OTHER_POLICY_REVISION: u32 = 2;\n' > "$policy_root/$policy_owner"
+check policy-unapproved-name 1 bash "$policy_checker"
+printf 'const RESUMABLE_UPDATE_ENTITY_REVISION_POLICY_REVISION: u32 = 2; const OTHER_REVISION: u32 = 2;\n' > "$policy_root/$policy_owner"
+check policy-extra-declaration 1 bash "$policy_checker"
+rm "$policy_root/$policy_owner"
+mv "$policy_root/testing" "$policy_root/missing-testing"
+check policy-missing-input 2 bash "$policy_checker"
 printf '[OK] Invariant scanner fixtures passed (%s cases).\n' "$cases"
 fixture_complete=true

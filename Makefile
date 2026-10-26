@@ -296,6 +296,9 @@ test-wire-browser:
 	+$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
 		--test query_canister native_wire_browser_qualifies_the_installed_endpoint_roster \
 		-- --ignored --exact --nocapture
+	+$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+		--test schema_migration_closeout native_wire_browser_qualifies_rejected_migration_findings \
+		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
 	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture

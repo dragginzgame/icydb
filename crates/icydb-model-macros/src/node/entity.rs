@@ -716,7 +716,7 @@ fn composite_primary_key_struct_tokens(
     });
 
     quote! {
-        #[derive(Clone, Copy, Debug, #model::__reexports::serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, #model::__reexports::serde::Serialize)]
+        #[derive(::core::clone::Clone, ::core::marker::Copy, ::core::fmt::Debug, #model::__reexports::serde::Deserialize, ::core::cmp::Eq, ::core::hash::Hash, ::core::cmp::Ord, ::core::cmp::PartialEq, ::core::cmp::PartialOrd, #model::__reexports::serde::Serialize)]
 
         #[serde(crate = #serde_path)]
         pub struct #key_ident {
@@ -751,7 +751,7 @@ fn composite_primary_key_value_codec_tokens(
     );
 
     quote! {
-        impl From<#key_ident> for #runtime::value::InputValue {
+        impl ::core::convert::From<#key_ident> for #runtime::value::InputValue {
             fn from(value: #key_ident) -> Self {
                 Self::list(::std::vec![
                     #(#input_value_components),*
@@ -1114,7 +1114,7 @@ fn typed_operation_struct_tokens(
             "`."
         )]
         #[doc = "Generated and managed fields are structurally absent."]
-        #[derive(Clone, Debug, #model::__reexports::serde::Deserialize, Eq, PartialEq, #model::__reexports::serde::Serialize)]
+        #[derive(::core::clone::Clone, ::core::fmt::Debug, #model::__reexports::serde::Deserialize, ::core::cmp::Eq, ::core::cmp::PartialEq, #model::__reexports::serde::Serialize)]
 
         #[serde(crate = #serde_path)]
         pub struct #operation_ident {

@@ -434,7 +434,13 @@ impl<C: CanisterKind> DbSession<C> {
                     Ok,
                 )?;
                 Self::ensure_read_set_contains_store(&proof, catalog.identity().store_path())?;
-                self.verify_read_set_revision_proof(&proof)?;
+                // A caller-supplied proof may have crossed an upgrade. Heap
+                // revisions cannot establish continuity across that boundary.
+                if supplied_proof.is_some() {
+                    self.verify_durable_read_set_revision_proof(&proof)?;
+                } else {
+                    self.verify_read_set_revision_proof(&proof)?;
+                }
                 Some(proof)
             }
         };
@@ -681,7 +687,13 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         if let Some(proof) = exhaustive_proof.as_ref() {
-            self.verify_read_set_revision_proof(proof)?;
+            if continuation.is_some() {
+                // Do not return an incomplete heap traversal with a cursor
+                // whose revision proof could match unrelated data after reboot.
+                self.verify_durable_read_set_revision_proof(proof)?;
+            } else {
+                self.verify_read_set_revision_proof(proof)?;
+            }
         }
 
         Ok((

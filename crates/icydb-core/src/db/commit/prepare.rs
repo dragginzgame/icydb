@@ -307,6 +307,13 @@ pub(in crate::db) fn prepare_commit_context_from_catalog_selection<C: CanisterKi
     schema_fingerprint: CommitSchemaFingerprint,
     mode: CommitPrepareMode,
 ) -> Result<CommitPrepareContext, InternalError> {
+    // New writes must bind to independently resolved accepted authority.
+    // Historical replay retains its recorded identity and row-contract checks.
+    if matches!(mode, CommitPrepareMode::NormalWrite)
+        && schema_fingerprint != selection.identity().accepted_schema_fingerprint()
+    {
+        return Err(InternalError::store_unsupported());
+    }
     let authority = CommitPrepareAuthority::from_catalog_selection(selection, schema_fingerprint);
     let constraint_schedule =
         accepted_storage_constraint_schedule(db, &authority, selection, mode)?;

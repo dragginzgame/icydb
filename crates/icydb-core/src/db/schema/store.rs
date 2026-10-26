@@ -58,9 +58,7 @@ use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use sha2::Digest;
 use std::borrow::Cow;
-#[cfg(test)]
-use std::cell::Cell;
-use std::cell::{OnceCell, Ref, RefCell};
+use std::cell::{Cell, OnceCell, Ref, RefCell};
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
 use std::ops::Bound as RangeBound;
 use std::rc::Rc;
@@ -86,6 +84,7 @@ const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE: u8 = 32;
 #[cfg(test)]
 thread_local! {
     static ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
+    static IDENTITY_STATE_INVENTORY_READS: Cell<u64> = const { Cell::new(0) };
     static CANONICAL_SCHEMA_BUNDLE_LOADS: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -646,6 +645,7 @@ pub struct SchemaStore {
 struct AcceptedSchemaBundleCache {
     selection: AcceptedSchemaRootSelection,
     bundle: AcceptedSchemaRevisionBundle,
+    identity_closure_valid: Cell<bool>,
     cardinality_domain: Rc<CardinalityAcceptedDomain>,
     value_catalog: AcceptedValueCatalogHandle,
     entity_selections: RefCell<StdBTreeMap<EntityTag, AcceptedCatalogSnapshotSelection>>,
@@ -1508,6 +1508,8 @@ impl SchemaStore {
         &self,
         view: IdentityStateStorageView,
     ) -> Result<IdentityStateInventory, InternalError> {
+        #[cfg(test)]
+        IDENTITY_STATE_INVENTORY_READS.with(|reads| reads.set(reads.get().saturating_add(1)));
         let bounds = RawSchemaKey::all_identity_state_range_bounds();
         let mut inventory = StdBTreeMap::new();
         let mut collect =
@@ -1606,6 +1608,7 @@ impl SchemaStore {
         key: RawSchemaKey,
         target: IdentityStateWriteTarget,
     ) -> Result<(), InternalError> {
+        self.invalidate_accepted_bundle_cache_for_key(key);
         match (&mut self.backend, target) {
             (
                 SchemaStoreBackend::Heap(map),
@@ -3300,6 +3303,12 @@ impl SchemaStore {
     fn invalidate_accepted_bundle_cache_for_key(&mut self, key: RawSchemaKey) {
         if key.is_accepted_root() {
             self.accepted_bundle_cache.get_mut().take();
+        } else if key.is_identity_state()
+            && let Some(cached) = self.accepted_bundle_cache.get_mut().as_ref()
+        {
+            // Identity changes invalidate the inventory proof, not the immutable
+            // accepted bundle or its derived value/index metadata.
+            cached.identity_closure_valid.set(false);
         }
     }
 
@@ -3637,6 +3646,7 @@ impl SchemaStore {
                 .map_err(|_| InternalError::store_invariant())? = Some(AcceptedSchemaBundleCache {
                 selection,
                 bundle,
+                identity_closure_valid: Cell::new(false),
                 cardinality_domain,
                 value_catalog,
                 entity_selections: RefCell::new(StdBTreeMap::new()),
@@ -3647,6 +3657,14 @@ impl SchemaStore {
             .accepted_bundle_cache
             .try_borrow()
             .map_err(|_| InternalError::store_invariant())?;
+        let cached = cache
+            .as_ref()
+            .filter(|cached| cached.selection == selection)
+            .ok_or_else(InternalError::store_invariant)?;
+        if !cached.identity_closure_valid.get() {
+            self.validate_identity_state_closure(&cached.bundle)?;
+            cached.identity_closure_valid.set(true);
+        }
         let bundle = Ref::filter_map(cache, |cache| {
             cache
                 .as_ref()
@@ -3654,7 +3672,6 @@ impl SchemaStore {
                 .map(|cached| &cached.bundle)
         })
         .map_err(|_| InternalError::store_invariant())?;
-        self.validate_identity_state_closure(&bundle)?;
         Ok(Some((selection, bundle)))
     }
 

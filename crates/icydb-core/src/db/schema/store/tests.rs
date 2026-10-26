@@ -1065,10 +1065,9 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
         .value_catalog
         .authority()
         .clone();
-    let SchemaStoreBackend::Heap(map) = &mut store.backend else {
-        panic!("identity missing-state fixture requires a heap store");
-    };
-    map.remove(&key);
+    store
+        .remove_identity_state_key(key, super::IdentityStateWriteTarget::Materialized)
+        .unwrap();
     let error = store
         .identity_statement_cursor(
             test_database_incarnation(),
@@ -2531,4 +2530,88 @@ fn allocation_metadata_reports_selected_authority_corruption() {
 #[test]
 fn retained_schema_corruption_does_not_initialize_a_replacement() {
     crate::testing::assert_retained_store_header_preserved(SchemaStore::init_journaled);
+}
+
+#[test]
+fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
+    for mut store in [
+        SchemaStore::init_heap(),
+        SchemaStore::init_journaled(test_memory(181)),
+    ] {
+        let entity = EntityTag::new(101);
+        let field = FieldId::new(1);
+        let candidate = identity_candidate_for_test(
+            "test::IdentityProof",
+            AcceptedSchemaRevision::INITIAL,
+            entity,
+            field,
+            AcceptedFieldKind::Nat64,
+        );
+        store
+            .publish_accepted_schema_candidate(
+                test_database_incarnation(),
+                AcceptedSchemaRevision::NONE,
+                &candidate,
+            )
+            .unwrap();
+        let key = RawSchemaKey::from_identity_state(entity, field);
+        let valid = store.get_raw_value(&key).unwrap().into_bytes();
+        store.current_accepted_schema_bundle_ref().unwrap().unwrap();
+        let reads = super::IDENTITY_STATE_INVENTORY_READS.with(std::cell::Cell::get);
+        for _ in 0..3 {
+            store.current_accepted_schema_bundle_ref().unwrap().unwrap();
+        }
+        assert_eq!(
+            super::IDENTITY_STATE_INVENTORY_READS.with(std::cell::Cell::get),
+            reads
+        );
+        let misses = accepted_schema_bundle_cache_miss_count_for_tests();
+        // A malformed replacement must revoke the proof without rebuilding the bundle.
+        store.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(vec![0xff]));
+        for _ in 0..2 {
+            let error = store.current_accepted_schema_bundle_ref().unwrap_err();
+            assert_eq!(error.class(), ErrorClass::Corruption);
+            assert_eq!(error.origin(), ErrorOrigin::Identity);
+        }
+        store.insert_durable_raw_value(key, valid.clone());
+        store.current_accepted_schema_bundle_ref().unwrap().unwrap();
+        assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), misses);
+        store
+            .remove_identity_state_key(key, super::IdentityStateWriteTarget::Materialized)
+            .unwrap();
+        assert_eq!(
+            store
+                .current_accepted_schema_bundle_ref()
+                .unwrap_err()
+                .class(),
+            ErrorClass::Corruption
+        );
+        store.insert_durable_raw_value(key, valid.clone());
+        store.current_accepted_schema_bundle_ref().unwrap().unwrap();
+        if matches!(store.backend, SchemaStoreBackend::Journaled { .. }) {
+            store.insert_canonical_raw_value(key, vec![0xff]).unwrap();
+            // A good live state can hide a corrupt canonical predecessor. Exact
+            // overlay retirement must revoke that good state's cached proof.
+            store
+                .publish_positioned_journal_entry(
+                    key,
+                    Some(RawSchemaValue::from_encoded_control_record(valid)),
+                    overlay_position(1),
+                )
+                .unwrap();
+            store.current_accepted_schema_bundle_ref().unwrap().unwrap();
+            let retirement = store
+                .prepare_positioned_key_retirements([key], overlay_position(1))
+                .unwrap();
+            store.apply_prepared_journal_batch_retirement(retirement);
+
+            assert_eq!(
+                store
+                    .current_accepted_schema_bundle_ref()
+                    .unwrap_err()
+                    .class(),
+                ErrorClass::Corruption
+            );
+        }
+    }
 }

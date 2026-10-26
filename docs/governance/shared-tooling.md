@@ -7,11 +7,10 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.26.14 at revision
-`e14050bcc0c627f9c8a9064051699cac44fd7ab3`. The receipt and source version now
-agree, resolving the previously recorded metadata discrepancy
-([Shared #304 — Reconcile committed VERSION with the delivered snapshot](https://github.com/dragginzgame/shared-tooling/issues/304)).
-The exporter owns the 125 selected payloads and their
+IcyDB selects Shared Tooling 0.26.19 at revision
+`c830c33447f0a84e015bda7fa14b6c096a58368e`. The canonical `VERSION` and
+snapshot receipt agree; the upstream commit subject says 0.27.19 and is not the
+version authority. The exporter owns the 126 selected payloads and their
 hashes/modes. Refresh them canonically; a sibling checkout cannot change them.
 
 The complete pre-cleanup record remains in Git at commit
@@ -90,11 +89,18 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Shared Tooling 0.26.14 passes Linux snapshot integrity, release-runner simulation,
-IcyDB release/validation adapters, workstation orchestration and real formatting
-preservation fixtures. Dependency boundaries and documentation checks also pass.
-Release fixtures use disposable repositories or command substitutes; these checks
-perform no release or delivery effects in the working repository.
+Shared Tooling 0.26.19 passes Linux snapshot integrity, shared-adapter,
+standard-release routing, release-runner simulation and fixture-retention checks.
+Normal release entry
+starts from current metadata; saved recovery uses explicit `release-resume`.
+These substitute fixtures perform no release or delivery effects.
+
+The new [RPC-budget rule](../../rules/rpc-budgets.md) applies to browser contracts.
+IcyDB already projects schema-owned policy through Wire generation and checks
+configuration mutations. This is not full runtime-boundary qualification:
+below/exact/above cases for every request/reply resource and an exercised
+intentional asymmetry remain unqualified by the current browser harness.
+Native allocation budgets are not browser heap guarantees.
 
 IC Memory/Storage 0.51.0 are selected together from published archives at
 `e3939cd1b33a4c6839ff3a793b42c61a977f8f16`. Their library Rust sources match
@@ -132,39 +138,31 @@ of [Canic #581](https://github.com/dragginzgame/canic/issues/581); integration o
 the [isolated adapter contribution](https://github.com/dragginzgame/canic/pull/629)
 and wider Canic publication remain upstream.
 
-IC Tooling 0.68.1 is selected from published archives at
-`c9c5ef7c44e3d0c3b23c8531a5d43c1800656c0a`; its
-[migration guide](https://github.com/dragginzgame/ic-tooling/blob/c9c5ef7c44e3d0c3b23c8531a5d43c1800656c0a/docs/changelog/0.68.md)
-owns API changes. Single and batch fixture builds share caller-selected Cargo
-configuration limits: 1 MiB/file, 16 MiB total, 128 files and depth 32. Build owns
-bounded discovery/refusal; IcyDB adds no alternate traversal or cache route.
+IC Tooling 0.68.6 is selected from published archives at
+`dede95dd1d6ea1cb79367ecd3957233fcf3a2c81`; its
+[migration guide](https://github.com/dragginzgame/ic-tooling/blob/dede95dd1d6ea1cb79367ecd3957233fcf3a2c81/docs/changelog/0.68.md)
+owns API changes. Native executable acquisition now requires Cargo's successful
+`build-finished` event as well as the artifact and process success. Host process
+capture retries interrupted reads and rejects impossible read counts. IcyDB
+retains its existing Build/Testkit interfaces without a local acquisition path.
 
-Host and Build Rust implementation sources are unchanged from 0.67.0. Testkit's
-changed optional `wire` feature is not enabled by IcyDB; native fixture protocols
-use the separately selected workspace Wire dependency.
+IC Wire/derive 0.7.15 is selected from published archives at
+`47f011702edd0fce99d4272fd80b02991ee5f94f`. IcyDB already supplies the mandatory
+registry diagnostic callback and explicit bulk acknowledgements, rejecting
+unclean diagnostics. The generator additionally rejects duplicate numeric method
+identities. Valid frame bytes, endpoint identities and product limits remain
+unchanged; explicit persisted database codecs remain separate. Unpublished
+sibling changes are not consumer dependencies.
 
-IC Wire/derive 0.7.2 is selected from published archives at
-`a4da015251beb8fa3346fb3780c0b3dc85c0ef32`. The decoder admits bounded primitive
-representations in one pass without reserializing decoded values. Collection
-normalization is not canonical-byte proof; applications retain original frames
-for exact retries, hashes or signatures and own semantic ordering/uniqueness.
-The public error no longer has `Noncanonical`; malformed primitives return
-`Malformed`. Encoder bytes, frame identities and IcyDB's configured limits are
-unchanged. Explicit persisted database codecs are separate and unchanged.
-
-Wire 0.7.2 qualification passes 38 focused native tests, strict selected
-consumer Clippy, public Rust 1.91 Wasm compilation and generated TypeScript
-parity for 90 frames across twelve endpoints, 3,111 truncations and malformed,
-value and limit controls. This is local cross-language qualification, not
-installed Chromium or IC execution; Wasm-size/cycle/instruction deltas are
+Current Linux qualification passes 236 CLI/build tests (one expensive artifact
+contract remains explicitly ignored), strict CLI/build Clippy, Rust 1.91 facade
+Wasm compilation with SQL/migration/metrics, dependency pins, declaration and
+graph boundaries, and documentation checks. Generated TypeScript parity passes
+90 native frames across twelve endpoints, 3,108 truncations and malformed/value/
+limit controls. This Node check does not qualify installed Chromium or transport.
+Native macOS, exact Rust 1.96 host-floor, installed-IC/browser execution and broad
+release gates are separate obligations. Wasm-size/cycle/instruction deltas are
 unmeasured.
-
-Recorded 0.68.1 Linux qualification before Metrics 0.16 passed 202 CLI/build/report tests, strict
-CLI/build Clippy, public Rust 1.91 metrics/SQL/migration Wasm compilation,
-declaration/graph boundaries and Testkit CLI-selection
-fixtures. The CLI-selection fixture uses a substitute executable; it does not
-qualify the installed Testkit server. Native macOS, exact Rust 1.96 host-floor,
-installed-IC/browser execution and full release gates were not rerun.
 
 The recorded 2026-10-24 Linux 0.67.0 adoption checks passed 233 CLI/build tests, strict
 selected host/build/integration linting, public Rust 1.91 SQL/migration Wasm,

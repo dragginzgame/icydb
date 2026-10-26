@@ -36,7 +36,14 @@ function emit(i) {
             first = line
             top = heading
         }
-        if (heading == "## [Draft]") reject("unnumbered draft heading", line)
+        split(heading, fields, " ")
+        heading_version = substr(fields[2], 2, length(fields[2])-2)
+        # Old release bodies are preserved evidence, not another pending draft.
+        # Without a canonical previous version, no historical boundary is known.
+        if (heading ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\]( |$)/ &&
+            historical(heading_version)) history_started = 1
+        if (heading == "## [Draft]" && !history_started)
+            reject("unnumbered draft heading", line)
         if (line != first && (heading == "## [" version "]" ||
             index(heading, "## [" version "] - ") == 1))
             reject("duplicate or misplaced selected candidate", line)
@@ -44,8 +51,6 @@ function emit(i) {
         else if (index(heading, "## [" version "] - ") == 1 &&
             heading != "## [" version "] - Unreleased")
             reject("conflicting selected candidate date or suffix", line)
-        split(heading, fields, " ")
-        heading_version = substr(fields[2], 2, length(fields[2])-2)
         if (heading ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\]( - Unreleased)?$/ &&
             !historical(heading_version)) {
             drafts++

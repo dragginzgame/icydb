@@ -1344,3 +1344,70 @@ fn explicit_reinstall_recreates_clean_current_state() {
     assert!(rows.rows.is_empty());
     assert!(group_seek.instructions > 0);
 }
+
+#[test]
+fn heap_schema_publication_rearms_the_installed_watchdog_without_unrelated_updates() {
+    let fixture = install_fixture_canister("sql_perf");
+    icydb_testing_integration::reset_icydb_fixtures(fixture.pocket_ic(), fixture.canister_id());
+    for _ in 0..MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+        if !startup_watchdog_armed(&fixture) {
+            break;
+        }
+        deliver_startup_watchdog_message(fixture.pocket_ic());
+    }
+    assert!(!startup_watchdog_armed(&fixture));
+    assert_eq!(
+        startup_observation(&fixture).state,
+        DatabaseStartupState::Ready
+    );
+    let sql = "SELECT id FROM PerfAuditHeapUser ORDER BY id LIMIT 3";
+    let expected: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
+        .query_wire(fixture.canister_id(), "query_user", (sql.to_string(),))
+        .unwrap();
+    let expected = expected.unwrap();
+    for (version, ddl) in [
+        (1, "ALTER TABLE PerfAuditHeapUser ADD COLUMN note TEXT NULL"),
+        (
+            2,
+            "CREATE INDEX heap_startup_age ON PerfAuditHeapUser (age)",
+        ),
+        (3, "DROP INDEX heap_startup_age ON PerfAuditHeapUser"),
+    ] {
+        let before = startup_watchdog_perf_snapshot(&fixture);
+        let result: Result<SqlQueryResult, Error> = fixture
+            .pocket_ic()
+            .update_wire(
+                fixture.canister_id(),
+                "icydb_ddl",
+                (format!(
+                    "{ddl} EXPECT SCHEMA VERSION {version} SET SCHEMA VERSION {}",
+                    version + 1
+                ),),
+            )
+            .unwrap();
+        result.unwrap();
+        // Observe and deliver only; no update probe may prepare the runtime root
+        // and accidentally stand in for the installed startup watchdog.
+        for _ in 0..MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+            if !startup_watchdog_armed(&fixture) {
+                break;
+            }
+            deliver_startup_watchdog_message(fixture.pocket_ic());
+        }
+        assert!(!startup_watchdog_armed(&fixture));
+        let after = startup_watchdog_perf_snapshot(&fixture);
+        assert!(after.work_completed > before.work_completed);
+        assert_eq!(after.retryable_failures, before.retryable_failures);
+        assert_eq!(after.invariant_failures, before.invariant_failures);
+        assert_eq!(
+            startup_observation(&fixture).state,
+            DatabaseStartupState::Ready
+        );
+        let actual: Result<SqlQueryResult, Error> = fixture
+            .pocket_ic()
+            .query_wire(fixture.canister_id(), "query_user", (sql.to_string(),))
+            .unwrap();
+        assert_eq!(actual.unwrap(), expected);
+    }
+}

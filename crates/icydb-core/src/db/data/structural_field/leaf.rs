@@ -40,7 +40,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
             value
         }
         AcceptedFieldKind::Date => decode_date_value_bytes(raw_bytes)?,
-        AcceptedFieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
+        AcceptedFieldKind::Decimal { scale } => decode_decimal_value_bytes(raw_bytes, *scale)?,
         AcceptedFieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Bool
@@ -123,8 +123,12 @@ fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> 
 }
 
 // Decode one Decimal through its shared fixed payload owner.
-fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_binary_decimal_payload(raw_bytes).map(Value::Decimal)
+fn decode_decimal_value_bytes(raw_bytes: &[u8], scale: u32) -> Result<Value, FieldDecodeError> {
+    let value = decode_binary_decimal_payload(raw_bytes)?;
+    if value.scale() != scale {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(Value::Decimal(value))
 }
 
 // Decode one duration payload from its canonical millis form.

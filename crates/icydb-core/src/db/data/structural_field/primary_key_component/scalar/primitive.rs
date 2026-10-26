@@ -7,13 +7,16 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_UNIT},
-        primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
+        primitive::{
+            decode_i64_payload_bytes, decode_u64_payload_bytes, fixed_int_kind_accepts_value,
+            fixed_nat_kind_accepts_value,
+        },
         typed::{
             decode_int128_payload_bytes, decode_nat128_payload_bytes,
             decode_timestamp_payload_millis,
         },
     },
-    db::key_taxonomy::PrimaryKeyComponent,
+    db::{key_taxonomy::PrimaryKeyComponent, schema::AcceptedFieldKind},
     types::U256,
 };
 
@@ -44,13 +47,16 @@ pub(in crate::db::data::structural_field::primary_key_component) const fn decode
 // Binary v1.
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_int_primary_key_component(
     root: &CompleteBinaryValue<'_>,
+    kind: &AcceptedFieldKind,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     if root.tag() != TAG_INT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
-    Ok(PrimaryKeyComponent::Int64(decode_i64_payload_bytes(
-        root.scalar_payload()?,
-    )?))
+    let value = decode_i64_payload_bytes(root.scalar_payload()?)?;
+    if !fixed_int_kind_accepts_value(kind, value) {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(PrimaryKeyComponent::Int64(value))
 }
 
 // Decode one signed 128-bit primary-key-component integer payload from
@@ -70,13 +76,16 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_int12
 // Binary v1.
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat_primary_key_component(
     root: &CompleteBinaryValue<'_>,
+    kind: &AcceptedFieldKind,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     if root.tag() != TAG_NAT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
-    Ok(PrimaryKeyComponent::Nat64(decode_u64_payload_bytes(
-        root.scalar_payload()?,
-    )?))
+    let value = decode_u64_payload_bytes(root.scalar_payload()?)?;
+    if !fixed_nat_kind_accepts_value(kind, value) {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(PrimaryKeyComponent::Nat64(value))
 }
 
 // Decode one unsigned 128-bit primary-key-component integer payload from

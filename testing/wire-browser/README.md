@@ -61,9 +61,14 @@ byte-buffer migration cursors. The current status API rejects every supplied
 cursor and retains its status; it has no successful cursor pagination path.
 Historical constraint validation supplies real nonempty finding keys and tests
 exact replay of an unacknowledged finding page through Chromium and native decoding.
-Populated physical-integrity and rejected-migration finding pages still need
-installed browser fixture coverage ([#448](https://github.com/dragginzgame/icydb/issues/448));
-generated/native vectors alone do not qualify those installed paths.
+The second installed subject reuses the maintained source/successor checked-cast
+migration fixture. Chromium reads a real rejected migration, verifies its nonempty
+byte-buffer key and identical retry frames, and Rust re-decodes both replies and
+compares their complete status with the native fixture's retained finding.
+`make test-wire-browser` runs both subjects. Populated physical-integrity findings
+still need a disposable corruption fixture
+([#448](https://github.com/dragginzgame/icydb/issues/448)); generated/native vectors
+alone do not qualify that installed path.
 
 ## Synchronous reply failures
 

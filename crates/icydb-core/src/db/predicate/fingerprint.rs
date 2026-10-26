@@ -1,14 +1,13 @@
 //! Module: predicate::fingerprint
 //! Responsibility: deterministic predicate hashing for plan signatures.
 //! Does not own: predicate normalization or runtime execution.
-//! Boundary: used by planner/continuation fingerprinting.
+//! Boundary: separate in-memory cache identity from planner/continuation hashing.
 
 #[cfg(test)]
 mod admission_tests;
 
 use crate::{
     db::{
-        codec::new_hash_sha256,
         predicate::{
             Predicate,
             encoding::{
@@ -35,10 +34,10 @@ pub(in crate::db) fn hash_predicate(
     hash_predicate_structural(hasher, &normalized, budget)
 }
 
-/// Return one canonical SHA-256 predicate digest for cache and plan identity.
+/// Return a canonical SHA-256 predicate digest for structural-signature tests.
 #[cfg(test)]
 pub(in crate::db) fn predicate_fingerprint(predicate: &Predicate) -> [u8; 32] {
-    let mut hasher = new_hash_sha256();
+    let mut hasher = crate::db::codec::new_hash_sha256();
     crate::db::query::preparation::with_preparation_work(|work| {
         hash_predicate(&mut hasher, predicate, work).expect("fixture hash fits");
     });
@@ -46,19 +45,16 @@ pub(in crate::db) fn predicate_fingerprint(predicate: &Predicate) -> [u8; 32] {
     crate::db::codec::finalize_hash_sha256(hasher)
 }
 
-/// Return one canonical SHA-256 digest for a predicate that is already normalized.
+/// Return a BLAKE3 digest of canonical bytes for in-memory cache identity only.
 pub(in crate::db) fn predicate_fingerprint_normalized(
     predicate: &Predicate,
     budget: &dyn ConstructionBudget,
 ) -> Result<[u8; 32], InternalError> {
-    let mut hasher = new_hash_sha256();
     let capacity = normalized_predicate_key_capacity(predicate, budget)?;
     let mut encoded = budget.vec_with_capacity(capacity)?;
     write_normalized_predicate_sort_key(&mut encoded, predicate);
     debug_assert!(encoded.len() <= capacity);
-    hasher.update(encoded);
-
-    Ok(crate::db::codec::finalize_hash_sha256(hasher))
+    Ok(*blake3::hash(&encoded).as_bytes())
 }
 
 // Hash structural predicate bytes without running normalization.

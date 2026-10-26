@@ -350,7 +350,7 @@ pub trait HasSchema: HasSchemaPart + HasDef {
     /// The kind of schema node this represents (Entity, Enum, etc.)
     fn schema_node_kind() -> SchemaNodeKind;
 
-    /// The uppercase snake-case constant name used in the generated schema file.
+    /// The uppercase snake-case constant name scoped inside schema registration.
     fn schema_const(&self) -> Ident {
         let ident_s = self.def().ident().to_string().to_case(Case::UpperSnake);
         format_ident!("{ident_s}_CONST")
@@ -372,19 +372,21 @@ pub trait HasSchema: HasSchemaPart + HasDef {
         let kind = Self::schema_node_kind();
 
         quote! {
-            const #const_var: #model::node::#kind = #schema_expr;
+            const _: () = {
+                const #const_var: #model::node::#kind = #schema_expr;
 
-            #[cfg(not(target_arch = "wasm32"))]
-            #[#model::__reexports::ctor::ctor(
-                unsafe,
-                anonymous,
-                crate_path = #model::__reexports::ctor
-            )]
-            fn #ctor() {
-                #model::build::register_node(
-                    #model::node::SchemaNode::#kind(#const_var)
-                );
-            }
+                #[cfg(not(target_arch = "wasm32"))]
+                #[#model::__reexports::ctor::ctor(
+                    unsafe,
+                    anonymous,
+                    crate_path = #model::__reexports::ctor
+                )]
+                fn #ctor() {
+                    #model::build::register_node(
+                        #model::node::SchemaNode::#kind(#const_var)
+                    );
+                }
+            };
         }
     }
 }

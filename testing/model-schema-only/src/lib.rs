@@ -11,6 +11,7 @@ use model_api::{
 use std::{
     cmp::Ordering::{Equal as None, Less as Ok},
     collections::VecDeque as Vec,
+    fmt::Debug as Clone,
     io::Result,
     marker::{PhantomData as Option, Send as PartialEq, Sync as PartialOrd},
     ops::{
@@ -20,6 +21,7 @@ use std::{
     rc::Rc as Box,
 };
 const _: Into<u8> = 0..0;
+const _: ::core::option::Option<&dyn Clone> = ::core::option::Option::None;
 const _: Result<()> = ::core::result::Result::Ok(());
 const _: ::core::option::Option<&(dyn PartialEq + PartialOrd)> = ::core::option::Option::None;
 const _: Option<()> = std::marker::PhantomData;
@@ -39,6 +41,15 @@ pub struct SchemaOnlyStore {}
 
 #[record(fields(field(name = "website", value(item(is = "Url")))))]
 pub struct SchemaOnlyProfile {}
+
+// Application names must not collide with private schema registration items.
+#[cfg(test)]
+const SCHEMA_ONLY_PROFILE_CONST: u8 = 7;
+
+#[cfg(test)]
+const fn __icydb_register_schema_only_profile_const() -> u8 {
+    SCHEMA_ONLY_PROFILE_CONST
+}
 
 #[enum_(variant(name = "Active"), variant(name = "Disabled"))]
 pub struct SchemaOnlyState {}
@@ -282,6 +293,7 @@ mod tests {
 
     #[test]
     fn renamed_schema_only_dependency_emits_fragment() {
+        assert_eq!(super::__icydb_register_schema_only_profile_const(), 7);
         let canister_path = SchemaOnlyCanister::PATH;
         let schema = get_schema().expect("schema-only fixture graph should validate");
         let fragment = schema

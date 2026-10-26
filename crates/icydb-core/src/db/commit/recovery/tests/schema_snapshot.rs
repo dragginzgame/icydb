@@ -130,6 +130,64 @@ fn batch(records: Vec<JournalRecord>) -> JournalBatch {
 }
 
 #[test]
+fn repeated_index_chunks_recheck_fingerprints_and_keys_against_one_candidate() {
+    use crate::db::{
+        index::IndexId, schema::accepted_schema_cache_fingerprint_for_persisted_snapshot,
+        test_support::index::nat64_index_key,
+    };
+
+    let (db, snapshot) = fixture();
+    let handle = db.with_store_registry(|registry| registry.iter().next().unwrap().1);
+    let key = nat64_index_key(&IndexId::new(TAG, 1), b"key", 1)
+        .to_raw()
+        .unwrap();
+    // Each candidate belongs to a separate batch; a changed schema must not
+    // inherit fingerprint authority from the previous validation pass.
+    for version in [2, 3] {
+        let snapshot = snapshot
+            .clone()
+            .with_schema_version(SchemaVersion::new(version));
+        let fingerprint =
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(&snapshot).unwrap();
+        let candidate = accepted_schema_candidate_for_tests(
+            STORE,
+            AcceptedSchemaRevision::new(u64::from(version)),
+            BTreeMap::from([(TAG, snapshot)]),
+        );
+        let mut fingerprints = BTreeMap::new();
+        let mut wrong_fingerprint = fingerprint;
+        wrong_fingerprint[0] ^= 1;
+        for (recorded, insertion, valid) in [
+            (fingerprint, false, true),
+            (wrong_fingerprint, false, false),
+            // This candidate declares no user index: a matching fingerprint
+            // must never bypass the per-key accepted-index membership check.
+            (fingerprint, true, false),
+            (fingerprint, false, true),
+        ] {
+            let result = super::super::validate_accepted_schema_index_chunk(
+                STORE,
+                handle,
+                Some(&candidate),
+                &mut fingerprints,
+                STORE,
+                TAG,
+                recorded,
+                std::slice::from_ref(&key),
+                insertion,
+                JournalRecordApplyMode::Fold,
+            );
+            if valid {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
+            }
+        }
+    }
+}
+
+#[test]
 fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
     let (db, snapshot) = fixture();
     select_commit_memory_allocation(

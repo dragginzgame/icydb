@@ -7,9 +7,9 @@
 
 use crate::{
     db::{
-        commit::{CanonicalRowCommitOp, CommitSchemaFingerprint},
+        commit::{CanonicalRowCommitOp, CommitRowOp, CommitSchemaFingerprint},
         data::{
-            AcceptedFieldWriteProvenance, DecodedDataStoreKey, RawDataStoreKey,
+            AcceptedFieldWriteProvenance, CanonicalRow, DecodedDataStoreKey, RawDataStoreKey,
             StructuralRowContract, StructuralSlotReader,
         },
         schema::{CompiledAcceptedRowConstraints, accepted_row_constraint_write_error},
@@ -136,22 +136,22 @@ impl AcceptedMutationConstraintScheduler {
         }
     }
 
-    /// Evaluate one logical save after-image and stage its optional physical
-    /// transition for later storage-backed preflight.
+    /// Admit one logical save and its borrowed physical transition before the
+    /// coordinator consumes the reader and transfers ownership into staging.
     #[expect(
         clippy::too_many_arguments,
         reason = "the scheduler keeps accepted authority, mutation intent, final row, provenance, physical transition, and request position explicit"
     )]
-    pub(in crate::db) fn schedule_save_after_image(
+    pub(in crate::db::executor::mutation) fn admit_save_after_image(
         &mut self,
         context: AcceptedMutationConstraintContext<'_>,
         mode: MutationMode,
         data_key: &DecodedDataStoreKey,
         row: &StructuralSlotReader<'_>,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
-        row_op: Option<CanonicalRowCommitOp>,
+        row_op: Option<&CommitRowOp<&CanonicalRow>>,
         batch_position: u32,
-    ) -> Result<(), InternalError> {
+    ) -> Result<MutationDiagnosticContext, InternalError> {
         let raw_key = data_key.to_raw()?;
         self.record_target_key(&raw_key, context.entity_tag, batch_position)?;
         let mutation = MutationDiagnosticContext::new(
@@ -172,22 +172,31 @@ impl AcceptedMutationConstraintScheduler {
             mutation,
         )?;
 
-        if let Some(row_op) = row_op {
-            if row_op.entity_path.as_ref() != context.row_contract.entity_path()
+        if let Some(row_op) = row_op
+            && (row_op.entity_path.as_ref() != context.row_contract.entity_path()
                 || row_op.key != raw_key
                 || row_op.schema_fingerprint != context.schema_fingerprint
                 || row_op
                     .after
                     .as_ref()
-                    .is_none_or(|after| after.as_raw_row().as_bytes() != row.contract_row_bytes())
-            {
-                return Err(InternalError::query_executor_invariant());
-            }
-            self.rows
-                .push(row_op.with_mutation_diagnostic_context(mutation));
+                    .is_none_or(|after| after.as_raw_row().as_bytes() != row.contract_row_bytes()))
+        {
+            return Err(InternalError::query_executor_invariant());
         }
 
-        Ok(())
+        Ok(mutation)
+    }
+
+    /// Retain the exact transition admitted above after its reader has been
+    /// consumed. The structural coordinator moves the admitted key and images;
+    /// it must not substitute another transition between admission and staging.
+    pub(in crate::db::executor::mutation) fn stage_admitted_save(
+        &mut self,
+        row_op: CanonicalRowCommitOp,
+        mutation: MutationDiagnosticContext,
+    ) {
+        self.rows
+            .push(row_op.with_mutation_diagnostic_context(mutation));
     }
 
     /// Stage one delete transition. Relation protection is deferred until the

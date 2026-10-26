@@ -11,7 +11,8 @@ use crate::db::data::structural_field::binary::{
     push_binary_int64, push_binary_nat64, push_binary_null, push_binary_text,
 };
 use crate::db::data::structural_field::primitive::{
-    decode_i64_payload_bytes, decode_u64_payload_bytes,
+    decode_i64_payload_bytes, decode_u64_payload_bytes, fixed_int_kind_accepts_value,
+    fixed_nat_kind_accepts_value,
 };
 use crate::db::data::structural_field::typed::{
     decode_float32_payload_bytes, decode_float64_payload_bytes, decode_int128_payload_bytes,
@@ -180,7 +181,13 @@ fn decode_scalar_fast_path_binary_bytes_kind(
     }
 
     match kind {
-        AcceptedFieldKind::Blob { .. } => Ok(Value::Blob(root.scalar_payload()?.to_vec())),
+        AcceptedFieldKind::Blob { max_len } => {
+            let bytes = root.scalar_payload()?;
+            if max_len.is_some_and(|limit| bytes.len() > limit as usize) {
+                return Err(FieldDecodeError::new());
+            }
+            Ok(Value::Blob(bytes.to_vec()))
+        }
         AcceptedFieldKind::Int128 => Ok(Value::Int128(decode_int128_payload_bytes(
             root.scalar_payload()?,
         )?)),
@@ -191,26 +198,6 @@ fn decode_scalar_fast_path_binary_bytes_kind(
             root.scalar_payload()?,
         )?)),
         _ => Err(FieldDecodeError::new()),
-    }
-}
-
-const fn fixed_int_kind_accepts_value(kind: &AcceptedFieldKind, value: i64) -> bool {
-    match kind {
-        AcceptedFieldKind::Int64 => true,
-        AcceptedFieldKind::Int8 => value >= i8::MIN as i64 && value <= i8::MAX as i64,
-        AcceptedFieldKind::Int16 => value >= i16::MIN as i64 && value <= i16::MAX as i64,
-        AcceptedFieldKind::Int32 => value >= i32::MIN as i64 && value <= i32::MAX as i64,
-        _ => false,
-    }
-}
-
-const fn fixed_nat_kind_accepts_value(kind: &AcceptedFieldKind, value: u64) -> bool {
-    match kind {
-        AcceptedFieldKind::Nat64 => true,
-        AcceptedFieldKind::Nat8 => value <= u8::MAX as u64,
-        AcceptedFieldKind::Nat16 => value <= u16::MAX as u64,
-        AcceptedFieldKind::Nat32 => value <= u32::MAX as u64,
-        _ => false,
     }
 }
 
@@ -225,7 +212,12 @@ fn decode_scalar_fast_path_binary_text_kind(
 
     let text = decode_binary_text_scalar_bytes(root.bytes(), root.len(), root.payload_offset())?;
     match kind {
-        AcceptedFieldKind::Text { .. } => Ok(Value::Text(text.to_string())),
+        AcceptedFieldKind::Text { max_len } => {
+            if max_len.is_some_and(|limit| text.chars().count() > limit as usize) {
+                return Err(FieldDecodeError::new());
+            }
+            Ok(Value::Text(text.to_string()))
+        }
         _ => Err(FieldDecodeError::new()),
     }
 }

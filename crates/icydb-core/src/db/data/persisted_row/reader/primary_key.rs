@@ -6,7 +6,10 @@ use crate::{
     db::{
         data::{
             StructuralRowContract, decode_runtime_value_from_accepted_field_contract,
-            persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value},
+            persisted_row::{
+                codec::ScalarSlotValueRef,
+                contract::decode_scalar_slot_value_from_accepted_field_contract,
+            },
         },
         key_taxonomy::PrimaryKeyComponent,
         schema::AcceptedFieldDecodeContract,
@@ -83,8 +86,8 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
     expected_key: PrimaryKeyComponent,
 ) -> Result<(), InternalError> {
     match field.leaf_codec() {
-        LeafCodec::Scalar(codec) => validate_scalar_primary_key_component(
-            decode_scalar_slot_value(raw_value, codec)?,
+        LeafCodec::Scalar(_) => validate_scalar_primary_key_component(
+            decode_scalar_slot_value_from_accepted_field_contract(field, raw_value)?,
             expected_key,
         ),
         LeafCodec::Structural => {

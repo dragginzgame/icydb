@@ -122,7 +122,7 @@ fn whole_index_admission_rejects_authenticated_live_resume_before_execution() {
 
 #[test]
 fn whole_index_admission_rejects_exhaustive_and_grouped_consumers() {
-    let session = initialize();
+    let session = initialize_journaled();
     seed_rows(&session);
     let query = whole_index_query();
     let first = session
@@ -131,7 +131,7 @@ fn whole_index_admission_rejects_exhaustive_and_grouped_consumers() {
     let cursor = public_cursor(first.continuation.as_deref().unwrap());
     for cursor in [None, Some(cursor.as_str())] {
         let root = RequestExecutionRoot::__new_runtime_root();
-        let public = new_request_session(&root);
+        let public = DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY, &root);
         let error = public
             .execute_public_exhaustive_page(&query, cursor, cursor.map(|_| &first.proof))
             .unwrap_err();

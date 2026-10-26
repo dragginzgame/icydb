@@ -60,6 +60,7 @@ const METRICS_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_metrics_reset", MethodMode::Update),
 ];
 const SQL_PERF_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
+    ("icydb_ddl", MethodMode::Update),
     ("icydb_fixtures_load", MethodMode::Update),
     ("icydb_fixtures_reset", MethodMode::Update),
 ];

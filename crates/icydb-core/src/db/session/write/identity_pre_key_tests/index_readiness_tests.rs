@@ -68,7 +68,13 @@ fn qualify_write_readiness<C: CanisterKind>(session: &DbSession<C>, store_path: 
         "the recovery owner must complete the bounded fixture"
     );
     assert_eq!(store.index_state(), IndexState::Ready);
-    assert!(store.access_state_revision().unwrap() > building_revision);
+    if store.journal_tail_store().is_some() {
+        // The explicit Building transition already invalidated prior proofs.
+        // Reconstructing journaled visibility must retain that durable revision.
+        assert_eq!(store.access_state_revision().unwrap(), building_revision);
+    } else {
+        assert!(store.access_state_revision().unwrap() > building_revision);
+    }
     let query = DynamicQuery::new(ENTITY_NAME);
     let mut cursor = None;
     let mut rows = Vec::new();
@@ -121,7 +127,7 @@ fn retained_marker_recovery_owns_index_readiness_after_an_interrupted_write() {
 
     drive_journaled_recovery_to_completion(&session);
     assert_eq!(store.index_state(), IndexState::Ready);
-    assert!(store.access_state_revision().unwrap() > revision);
+    assert_eq!(store.access_state_revision().unwrap(), revision);
     let page = session
         .execute_trusted_live_page(&DynamicQuery::new(ENTITY_NAME), None)
         .unwrap();
@@ -163,7 +169,7 @@ fn atomic_progress_writes_preserve_readiness_until_recovery_completes() {
     forget_recovered_domain_for_tests(&session.db).unwrap();
     drive_journaled_recovery_to_completion(&session);
     assert_eq!(store.index_state(), IndexState::Ready);
-    assert!(store.access_state_revision().unwrap() > revision);
+    assert_eq!(store.access_state_revision().unwrap(), revision);
     let page = session
         .execute_trusted_live_page(&DynamicQuery::new(ENTITY_NAME), None)
         .unwrap();

@@ -2137,3 +2137,42 @@ fn index_key_cross_index_isolation_keeps_ranges_separate() {
         assert_eq!(decoded.index_id, idx_a);
     }
 }
+
+#[test]
+fn physical_domain_bounds_isolate_identity_and_include_malformed_suffixes() {
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        for id in [
+            index_id(),
+            IndexId::new_with_generation(EntityTag::new(u64::MAX), u16::MAX, u64::MAX),
+        ] {
+            let (lower, upper) = IndexKey::raw_domain_bounds(id, kind);
+            for count in [0, 1, MAX_INDEX_FIELDS] {
+                let raw = key_with(kind, id, vec![vec![1]; count], vec![1])
+                    .to_raw()
+                    .unwrap();
+                assert!(lower <= raw && raw < upper);
+            }
+            let mut malformed = vec![kind as u8];
+            malformed.extend_from_slice(&id.to_bytes());
+            malformed.extend_from_slice(&[255, 255]);
+            let raw = RawIndexStoreKey::from_persisted_bytes(malformed);
+            assert!(IndexKey::try_from_raw(&raw).is_err());
+            assert!(lower <= raw && raw < upper);
+            for other_kind in [IndexKeyKind::User, IndexKeyKind::System] {
+                for other_id in [
+                    index_id(),
+                    other_index_id(),
+                    IndexId::new_with_generation(EntityTag::new(1), 0, 1),
+                ] {
+                    let raw = key_with(other_kind, other_id, vec![vec![1]], vec![1])
+                        .to_raw()
+                        .unwrap();
+                    assert_eq!(
+                        lower <= raw && raw < upper,
+                        kind == other_kind && id == other_id
+                    );
+                }
+            }
+        }
+    }
+}

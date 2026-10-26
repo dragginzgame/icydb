@@ -214,6 +214,16 @@ fn candidate_delete_preparation_tracks_live_and_canonical_schema_ownership() {
     drop(qualification);
 
     drive_journaled_recovery_to_completion(&session);
+    for mode in [
+        CommitPrepareMode::RecoveryReplay,
+        CommitPrepareMode::DerivedRebuild,
+    ] {
+        assert_eq!(
+            prepared_delete_owners(&session, predecessor_fingerprint, mode),
+            live,
+            "historical identity uses the later accepted row contract after folding",
+        );
+    }
     assert_eq!(
         prepared_delete_owners(
             &session,

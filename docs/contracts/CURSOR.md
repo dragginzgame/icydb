@@ -96,6 +96,13 @@ Canonical grouped continuation uses one shared direction across its complete
 group-key prefix. Mixed directions within that prefix reject during planning.
 Aggregate-driven Top-K ordering is non-resumable and retains per-term directions.
 
+Exhaustive reads over heap sources must complete in one call using a freshly
+captured proof. Caller-supplied exhaustive proofs and results requiring a
+continuation require journaled sources; otherwise they return
+`DurableStoreRequired`. This prevents matching volatile revision numbers from
+authenticating an exhaustive traversal across different heap incarnations.
+Live cursors retain their separate, non-snapshot contract.
+
 A non-null continuation means traversal has not been proven exhausted. It
 does not guarantee another matching row exists. Page-envelope exhaustion may
 therefore return an empty page with continuation after consuming only

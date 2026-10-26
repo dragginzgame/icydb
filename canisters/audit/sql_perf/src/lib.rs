@@ -75,6 +75,8 @@ canic_icydb::start! {
 
 canic_icydb::endpoints! {
     #[cfg(feature = "test-admin-api")]
+    icydb_ddl;
+    #[cfg(feature = "test-admin-api")]
     icydb_fixtures_reset;
     #[cfg(feature = "test-admin-api")]
     icydb_fixtures_load(handler = load_perf_fixtures);
@@ -1052,11 +1054,12 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
 /// Measure a conservative isolated form of Patch-6 candidate overhead.
 ///
 /// The measured body performs both publication and retirement for the full
-/// 65,536-key accepted-index shape, while a real fold callback performs only
+/// 131,072-effect replacement shape (65,536 removals plus 65,536 inserts),
+/// while a real fold callback performs only
 /// retirement. It also scans all 16 possible store heads.
 #[cfg(feature = "test-admin-api")]
 fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
-    const EFFECTS: u32 = 65_536;
+    const EFFECTS: u32 = 131_072;
     const STORES: u32 = 16;
 
     let start = performance_counter(0);

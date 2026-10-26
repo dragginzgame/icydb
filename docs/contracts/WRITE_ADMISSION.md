@@ -300,8 +300,21 @@ equivalent accepted-after proof before publishing row or schema effects.
 
 Recovery completes an internally produced commit; it does not accept new user
 values. Replay must fail closed on invalid marker or journal envelopes, store or
-entity mismatches, invalid keys, incompatible schema fingerprints, malformed
+entity mismatches, invalid keys, malformed
 rows, rejected primary-key identity, or inconsistent derived index state.
+
+Normal-write preparation compares the operation's entity-schema fingerprint
+with independently selected accepted authority. Replay and derived rebuild do
+not require that recorded fingerprint to equal the current schema fingerprint:
+historical rows can be interpreted under a later accepted schema and its retained
+layout history. Their operation/context fingerprint check prevents mixing
+records with a differently bound preparation context; it is not an independent
+proof of historical schema compatibility. Accepted catalog selection and bounded
+row/layout/key decoding establish that compatibility. The entity-shape hash does
+not hash the complete named-type catalog; accepted catalog revision and the
+maintained exact named-type admission rules retain those separate obligations.
+Schema-publication index chunks separately require their recorded after-image
+fingerprint to match the independently decoded publication candidate.
 
 Recovery does not run application normalizers or validators. They are explicit
 authoring operations outside write admission, may depend on application

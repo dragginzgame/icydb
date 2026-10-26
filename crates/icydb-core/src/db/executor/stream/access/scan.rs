@@ -1019,22 +1019,20 @@ impl IndexScan {
             );
         }
 
-        // Phase 1: validate the complete raw frame, copy only requested output
-        // components, and evaluate the predicate through borrowed raw slices.
+        // Phase 1: validate the frame and output selection before evaluating the
+        // predicate, preserving refusal order without copying rejected entries.
         let frame =
             decode_index_key_frame(raw_key).map_err(|_| InternalError::index_corruption())?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::DecodedBytes,
             u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
         )?;
-        let mut components = Vec::with_capacity(component_indices.len());
-        for component_index in component_indices {
-            let Some(component) = frame.components().get(*component_index) else {
-                return Err(InternalError::index_invariant());
-            };
-            components.push(component.to_vec());
+        if component_indices
+            .iter()
+            .any(|index| *index >= frame.components().len())
+        {
+            return Err(InternalError::index_invariant());
         }
-        let components: Arc<[Vec<u8>]> = Arc::from(components);
 
         if let Some(execution) = index_predicate_execution {
             charge_current_execution_budget(
@@ -1054,6 +1052,16 @@ impl IndexScan {
         let row_witness = value
             .decode_row_witness_from_primary_key_value(&primary_key_value)
             .map_err(|_| InternalError::index_entry_decode_failed())?;
+        // Only admitted rows retain owned component bytes in their output.
+        let mut components = Vec::with_capacity(component_indices.len());
+        for component_index in component_indices {
+            let component = frame
+                .components()
+                .get(*component_index)
+                .ok_or_else(InternalError::index_invariant)?;
+            components.push(component.to_vec());
+        }
+        let components: Arc<[Vec<u8>]> = Arc::from(components);
         out.push((
             Self::data_key_from_row_witness_with_primary_key_bytes(
                 entity,

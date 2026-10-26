@@ -5079,11 +5079,22 @@ mod tests {
 
     #[cfg(feature = "migration")]
     #[test]
+    fn physical_migration_validation_is_bounded_staged_and_does_not_rewrite_rows() {
+        qualify_migration_abort_domains(0);
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    fn physical_migration_abort_resumes_across_candidate_namespaces() {
+        qualify_migration_abort_domains(513);
+    }
+
+    #[cfg(feature = "migration")]
     #[expect(
         clippy::too_many_lines,
         reason = "the validation replay, staging, and unchanged-row assertions form one scenario"
     )]
-    fn physical_migration_validation_is_bounded_staged_and_does_not_rewrite_rows() {
+    fn qualify_migration_abort_domains(extra_entries: u64) {
         use std::convert::Infallible;
 
         use super::{ensure_generated_schema_application_admitted, migrate_schema};
@@ -5245,7 +5256,37 @@ mod tests {
             2,
             "the isolated candidate unique generation should be durably staged",
         );
+        let candidate_id = store.with_index(|index| {
+            let mut candidate = None;
+            index
+                .visit_raw_entries_in_range(
+                    (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
+                    crate::db::direction::Direction::Asc,
+                    |raw, _| {
+                        candidate = Some(*IndexKey::try_from_raw(raw).unwrap().index_id());
+                        Ok::<_, Infallible>(true)
+                    },
+                )
+                .unwrap();
+            candidate.unwrap()
+        });
         store.with_index_mut(|index| {
+            // Candidate system keys follow user keys in raw order, exercising
+            // resume across namespaces with the unchanged persisted cursor.
+            for ordinal in 0..extra_entries {
+                let key = IndexKey::new_from_components_with_primary_key_value(
+                    &candidate_id,
+                    IndexKeyKind::System,
+                    &[ordinal.to_be_bytes()],
+                    &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(ordinal)),
+                )
+                .unwrap()
+                .to_raw()
+                .unwrap();
+                index
+                    .apply_canonical_entry(key, Some(IndexEntryValue::presence()))
+                    .unwrap();
+            }
             for ordinal in 0..513_u64 {
                 let component = ordinal.to_be_bytes();
                 let key = IndexKey::new_from_components_with_primary_key_value(
@@ -5265,10 +5306,11 @@ mod tests {
             expected_head: target.accepted_head().clone(),
             expected_plan: plan,
         };
-        let cleaning = migrate_schema(&db, &proposal, abort())
-            .expect("the first bounded abort cleanup page should publish");
-        assert_eq!(cleaning.phase(), SchemaMigrationPhase::ReadyToRewrite);
-        assert_eq!(store.with_index(IndexStore::len), 513);
+        if extra_entries != 0 {
+            let cleaning = migrate_schema(&db, &proposal, abort()).unwrap();
+            assert_eq!(cleaning.phase(), SchemaMigrationPhase::ReadyToRewrite);
+            assert_eq!(store.with_index(IndexStore::len), 516);
+        }
         let aborted =
             migrate_schema(&db, &proposal, abort()).expect("pre-rewrite migration should abort");
         assert_eq!(aborted.phase(), SchemaMigrationPhase::Aborted);

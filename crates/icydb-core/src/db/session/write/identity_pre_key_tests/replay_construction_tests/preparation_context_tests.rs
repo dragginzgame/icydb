@@ -4,6 +4,50 @@ use super::*;
 use crate::db::commit::{CommitPrepareContextCache, CommitPrepareMode};
 
 #[test]
+fn normal_write_context_requires_the_selected_catalog_fingerprint() {
+    let session = initialize();
+    let fingerprint = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap()
+        .fingerprint();
+    let mut mismatched = fingerprint;
+    mismatched[0] ^= 1;
+    let entity = session
+        .db
+        .accepted_runtime_entity_for_path(ENTITY_SOURCE)
+        .unwrap();
+
+    for mode in [
+        CommitPrepareMode::NormalWrite,
+        CommitPrepareMode::RecoveryReplay,
+        CommitPrepareMode::DerivedRebuild,
+    ] {
+        let result = entity.prepare_commit_context(&session.db, mismatched, mode);
+        if matches!(mode, CommitPrepareMode::NormalWrite) {
+            let error = result
+                .err()
+                .expect("new writes require accepted catalog identity");
+            let expected = InternalError::store_unsupported();
+            assert_eq!(error.class(), expected.class());
+            assert_eq!(error.origin(), expected.origin());
+            assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+        } else {
+            assert!(
+                result.is_ok(),
+                "historical preparation does not require current hash equality"
+            );
+        }
+        assert_eq!(
+            entity
+                .prepare_commit_context(&session.db, fingerprint, mode)
+                .unwrap()
+                .entity_tag(),
+            ENTITY_TAG
+        );
+    }
+}
+
+#[test]
 fn preparation_context_reuses_success_without_crossing_entity_or_schema_identity() {
     let session = initialize_journaled_multi_entity();
     let catalog = session

@@ -158,7 +158,7 @@ pr_publish() {
         response="$(mktemp "$plan.response.XXXXXX")"
         errors="$(mktemp "$plan.errors.XXXXXX")"
         jq -n --arg head "$pr_branch" --arg base "$branch" --arg title "Release $candidate" \
-            --arg body "Prepared release $candidate. Merge after required review/checks, then rerun the release target to validate the merged commit and publish its tag. Publication and cleanup are separate." \
+            --arg body "Prepared release $candidate. Merge after required review/checks, then run make release-resume VERSION=$candidate with the same PR delivery policy to validate the merged commit and publish its tag. Publication and cleanup are separate." \
             '{head:$head,base:$base,title:$title,body:$body}' > "$request"
         pr_attempted=true
         pr_store
@@ -190,7 +190,7 @@ pr_review() {
         [[ "$(jq -r .state "$pr_details")" == open ]] || fail 'release PR was closed without merging'
         pr_observe_head
         [[ "$pr_remote_head" == "$prepared_commit" ]] || fail 'open release PR branch changed'
-        printf 'Release %s awaits review/merge: https://github.com/%s/pull/%s; rerun the same target afterwards.\n' "$candidate" "$pr_repository" "$pr_number"
+        printf 'Release %s awaits review/merge: https://github.com/%s/pull/%s; continue with make release-resume VERSION=%s and the same PR delivery policy.\n' "$candidate" "$pr_repository" "$pr_number" "$candidate"
         exit 75
     fi
     local observed

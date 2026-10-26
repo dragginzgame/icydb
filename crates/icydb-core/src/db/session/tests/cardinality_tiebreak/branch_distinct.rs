@@ -13,6 +13,11 @@ use icydb_diagnostic_code::{
 
 fn initialize_branches() -> DbSession<TestCanister> {
     let session = initialize();
+    seed_branches(&session);
+    session
+}
+
+fn seed_branches<C: CanisterKind>(session: &DbSession<C>) {
     for (id, common, rare) in [
         (10, "a", "same"),
         (11, "a", "same"),
@@ -22,9 +27,8 @@ fn initialize_branches() -> DbSession<TestCanister> {
         (20, "c", "other"),
         (1, "d", "excluded"),
     ] {
-        insert_row(&session, id, common, rare);
+        insert_row(session, id, common, rare);
     }
-    session
 }
 
 fn expected_groups(descending: bool) -> Vec<Vec<OutputValue>> {
@@ -224,7 +228,8 @@ fn branch_distinct_live_resume_preserves_page_union_and_every_suffix() {
 
 #[test]
 fn branch_distinct_exhaustive_resume_preserves_proof_and_results() {
-    initialize_branches();
+    let setup = initialize_journaled();
+    seed_branches(&setup);
     for descending in [false, true] {
         let query = query(descending);
         for public in [false, true] {
@@ -234,7 +239,8 @@ fn branch_distinct_exhaustive_resume_preserves_proof_and_results() {
             let mut continued = false;
             for _ in 0..16 {
                 let root = RequestExecutionRoot::__new_runtime_root();
-                let session = new_request_session(&root);
+                let session =
+                    DbSession::<JournaledTestCanister>::new(&JOURNALED_STORE_REGISTRY, &root);
                 let page = if public {
                     session.execute_public_exhaustive_page(
                         &query,

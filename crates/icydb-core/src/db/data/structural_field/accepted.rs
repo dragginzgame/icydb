@@ -50,11 +50,17 @@ fn decode_accepted_value_at(
                 let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_LIST)?;
                 let mut items = Vec::new();
                 for _ in 0..len {
+                    if !matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) {
+                        validate_non_null_collection_item(bytes, cursor)?;
+                    }
                     let (item, end) = decode_accepted_value_at(bytes, cursor, inner)?;
                     cursor = end;
                     if !matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. })
                         || !matches!(item, Value::Null)
                     {
+                        if matches!(kind, AcceptedFieldKind::Set(_)) {
+                            validate_collection_order(items.last(), &item)?;
+                        }
                         items.push(item);
                     }
                 }
@@ -64,7 +70,10 @@ fn decode_accepted_value_at(
                 let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_MAP)?;
                 let mut entries = Vec::new();
                 for _ in 0..len {
+                    validate_non_null_collection_item(bytes, cursor)?;
                     let (key, end) = decode_accepted_value_at(bytes, cursor, key)?;
+                    validate_collection_order(entries.last().map(|(key, _)| key), &key)?;
+                    validate_non_null_collection_item(bytes, end)?;
                     let (value, end) = decode_accepted_value_at(bytes, end, value)?;
                     entries.push((key, value));
                     cursor = end;
@@ -120,7 +129,8 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
     Ok(())
 }
 
-// Validation keeps the same cursor discipline without allocating runtime lists.
+// Validation keeps the same cursor discipline; ordered collections retain only
+// the preceding decoded element/key needed to establish canonical ordering.
 fn validate_accepted_value_at(
     bytes: &[u8],
     offset: usize,
@@ -131,17 +141,44 @@ fn validate_accepted_value_at(
     }
     if bytes.get(offset) != Some(&TAG_NULL) {
         match kind {
-            AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+            AcceptedFieldKind::List(inner) => {
                 let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_LIST)?;
                 for _ in 0..len {
+                    if !matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) {
+                        validate_non_null_collection_item(bytes, cursor)?;
+                    }
                     cursor = validate_accepted_value_at(bytes, cursor, inner)?;
+                }
+                return Ok(cursor);
+            }
+            AcceptedFieldKind::Set(inner) => {
+                let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_LIST)?;
+                let mut previous = None;
+                for _ in 0..len {
+                    if !matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) {
+                        validate_non_null_collection_item(bytes, cursor)?;
+                    }
+                    let (item, end) = decode_accepted_value_at(bytes, cursor, inner)?;
+                    cursor = end;
+                    if !matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. })
+                        || !matches!(item, Value::Null)
+                    {
+                        validate_collection_order(previous.as_ref(), &item)?;
+                        previous = Some(item);
+                    }
                 }
                 return Ok(cursor);
             }
             AcceptedFieldKind::Map { key, value } => {
                 let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_MAP)?;
+                let mut previous = None;
                 for _ in 0..len {
-                    cursor = validate_accepted_value_at(bytes, cursor, key)?;
+                    validate_non_null_collection_item(bytes, cursor)?;
+                    let (key, end) = decode_accepted_value_at(bytes, cursor, key)?;
+                    validate_collection_order(previous.as_ref(), &key)?;
+                    previous = Some(key);
+                    cursor = end;
+                    validate_non_null_collection_item(bytes, cursor)?;
                     cursor = validate_accepted_value_at(bytes, cursor, value)?;
                 }
                 return Ok(cursor);
@@ -157,6 +194,27 @@ fn validate_accepted_value_at(
         return Err(FieldDecodeError::new());
     }
     Ok(end)
+}
+
+// Collection kinds do not declare nullable elements. Relation list/set callers
+// retain their explicit null-omission contract before reaching this check.
+fn validate_non_null_collection_item(bytes: &[u8], offset: usize) -> Result<(), FieldDecodeError> {
+    if bytes.get(offset) == Some(&TAG_NULL) {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(())
+}
+
+// Match accepted admission's strict order without normalizing persisted bytes.
+// Validation retains only the previous element/key, not the whole collection.
+fn validate_collection_order(
+    previous: Option<&Value>,
+    current: &Value,
+) -> Result<(), FieldDecodeError> {
+    if previous.is_some_and(|previous| !Value::canonical_cmp(previous, current).is_lt()) {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(())
 }
 
 // Encode one accepted recursive field into Structural Binary v1 bytes.

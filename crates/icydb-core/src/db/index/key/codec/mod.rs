@@ -157,6 +157,27 @@ impl IndexKey {
         self.to_raw_with_primary_key(&self.primary_key)
     }
 
+    /// Bound one complete physical index namespace, including malformed suffixes.
+    #[cfg(any(test, feature = "migration"))]
+    pub(in crate::db) fn raw_domain_bounds(
+        index_id: IndexId,
+        kind: IndexKeyKind,
+    ) -> (RawIndexStoreKey, RawIndexStoreKey) {
+        let mut prefix = vec![kind as u8];
+        prefix.extend_from_slice(&index_id.to_bytes());
+        let lower = RawIndexStoreKey::from_persisted_bytes(prefix.clone());
+        // The namespace tag is below 255, so this fixed prefix always has a
+        // successor, including the maximum entity/ordinal/generation tuple.
+        for offset in (0..prefix.len()).rev() {
+            if prefix[offset] != u8::MAX {
+                prefix[offset] += 1;
+                prefix.truncate(offset + 1);
+                break;
+            }
+        }
+        (lower, RawIndexStoreKey::from_persisted_bytes(prefix))
+    }
+
     pub(in crate::db) fn raw_bounds_for_all_components(
         &self,
     ) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexKeyEncodeError> {

@@ -489,10 +489,12 @@ fn decode_row_field_spans<'payload>(
     let (data_start, physical_count, table, data_section) =
         decode_slot_table_sections(payload, layout_version, contract)?;
     let mut spans: SlotSpans = vec![None; contract.field_count()];
+    let mut next_start = 0;
 
     for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
-        let (start, end) = decode_row_field_span(table, slot, data_section.len())?;
+        let (start, end) = decode_row_field_span(table, slot, data_section.len(), next_start)?;
         *span = Some((start, end));
+        next_start = end;
     }
 
     Ok((&payload[data_start..], spans))
@@ -514,9 +516,11 @@ fn decode_sparse_required_row_field_spans<'payload>(
     let primary_key_slot = contract.primary_key_slot();
     let mut required_span = None;
     let mut primary_key_span = None;
+    let mut next_start = 0;
 
     for slot in 0..physical_count {
-        let (start, end) = decode_row_field_span(table, slot, data_section.len())?;
+        let (start, end) = decode_row_field_span(table, slot, data_section.len(), next_start)?;
+        next_start = end;
         if slot == required_slot {
             required_span = Some((start, end));
         }
@@ -536,6 +540,7 @@ fn decode_row_field_span(
     table: &[u8],
     slot: usize,
     data_len: usize,
+    expected_start: usize,
 ) -> Result<(usize, usize), InternalError> {
     let entry_start = slot
         .checked_mul(8)
@@ -550,13 +555,15 @@ fn decode_row_field_span(
         .map_err(|_| InternalError::persisted_row_decode_corruption())?;
     let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
         .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-    if len == 0 {
+    if len == 0 || start != expected_start {
         return Err(InternalError::persisted_row_decode_corruption());
     }
     let end = start
         .checked_add(len)
         .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-    if end > data_len {
+    // The writer concatenates slot payloads in directory order. The final
+    // entry must consume the remaining bytes, with no gaps or aliases.
+    if end > data_len || (entry_end == table.len() && end != data_len) {
         return Err(InternalError::persisted_row_decode_corruption());
     }
     Ok((start, end))

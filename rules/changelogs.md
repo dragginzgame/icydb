@@ -109,6 +109,10 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   build requirements, product CLI/output, protocols and stored formats still need
   compatibility assessment. For example, changing a dependency used in public
   signatures can break callers even when local source signatures look unchanged.
+  Check the resolved dependency identity when consumers exchange its types:
+  unchanged fields, arithmetic or wire/storage bytes do not by themselves make
+  that upgrade compatible. Conversely, an internal dependency upgrade with no
+  public contract impact does not require a downstream breaking release.
   A contributor toolchain change is distinct from raising the library's supported
   consumer MSRV or adding a required dependency to its published build.
 - For a tooling product such as Shared Tooling, its supported installation paths

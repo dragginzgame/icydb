@@ -51,6 +51,29 @@ Application schema revisions and entity-local row-layout revisions are domain
 history, not wire-format versions. They may advance beyond 1 while the sole
 current schema and row codecs remain version 1.
 
+Semantic execution-policy revisions are also distinct from wire discriminators.
+They bind retained job intents and continuations to the exact execution policy;
+changing one must invalidate incompatible work through the existing identity
+check, never select a legacy decoder or silently resume under different semantics.
+Such changes still require the retained-data classification below. They are not
+release counters, and renaming a format version to a revision does not exempt it.
+
+The static policy check explicitly admits these existing `u32 = 2` inputs owned
+by `db::executor::mutation::job`:
+
+- `RESUMABLE_UPDATE_ENTITY_REVISION_POLICY_REVISION`
+- `RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION`
+- `RESUMABLE_UPDATE_EXECUTION_FAILURE_POLICY_REVISION`
+
+Exceptions bind the source owner, name, type and value. A changed value or new
+counter requires classification and checker review. Fixed test generation and
+measurement-loop counts have separate exact exceptions. The name-based scan
+flags literal constants above 1 containing `VERSION` or ending in `REVISION`,
+`EPOCH` or `GENERATION`, plus `CURRENT: Self` wrappers. It is not Rust dataflow
+analysis: aliases, computed values and differently named identities still need
+code review and codec-owned tests. Numeric field/chunk tags and sizes are not
+classified as revisions merely because their names mention revision storage.
+
 Fresh database control memory must be absent or one entirely zero-filled Wasm
 page, with every registered journaled store role physically empty. Startup
 observation and format admission share this freshness check. A zero boot prefix

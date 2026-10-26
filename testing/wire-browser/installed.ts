@@ -7,7 +7,7 @@ type Frame = { method: string; request: number[]; response: number[] };
 function require(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
-export async function qualify(host: string, canisterId: string) {
+async function installedCaller(host: string, canisterId: string) {
   // Public deterministic identities exist only for this disposable local fixture.
   const agent = await HttpAgent.create({ host, identity: Ed25519KeyIdentity.generate(new Uint8Array(32).fill(7)), shouldFetchRootKey: true });
   const frames: Frame[] = [];
@@ -26,6 +26,11 @@ export async function qualify(host: string, canisterId: string) {
       return response;
     } }, value);
   }
+  return { agent, frames, invoke };
+}
+
+export async function qualify(host: string, canisterId: string) {
+  const { agent, frames, invoke } = await installedCaller(host, canisterId);
   require('ok' in await invoke(contracts.icydb_fixtures_reset, null), 'reset');
   require('ok' in await invoke(contracts.icydb_fixtures_load, null), 'load');
   const sql = 'SELECT COUNT(*) FROM SqlTestUser';
@@ -92,4 +97,22 @@ export async function qualify(host: string, canisterId: string) {
   require(expectedFindings.length === replayFindings.length && expectedFindings.every((b, i) => b === replayFindings[i]), 'unacknowledged finding page replays exactly');
   require(new Set(frames.map(f => f.method)).size === 12, 'complete endpoint roster');
   return { frames, rows: count.toString(), browser: navigator.userAgent };
+}
+
+// The native fixture has already rejected a checked cast before rewriting rows.
+export async function qualifyRejectedMigration(host: string, canisterId: string) {
+  const { frames, invoke } = await installedCaller(host, canisterId);
+  const status = await invoke(contracts.icydb_schema_migration, { cursor: null });
+  require('ok' in status && status.ok.phase.tag === 'Rejected', 'real rejected migration');
+  require(status.ok.findings.length === 1, 'one checked-cast finding');
+  const finding = status.ok.findings[0];
+  require(finding.kind.tag === 'Transform', 'checked-cast finding kind');
+  require(finding.primary_key instanceof Uint8Array && finding.primary_key.length > 0, 'migration key is a nonempty byte buffer');
+  require(status.ok.next_cursor === null, 'bounded status has no next cursor');
+  const retry = await invoke(contracts.icydb_schema_migration, { cursor: null });
+  const expected = contracts.icydb_schema_migration.encodeResponse(status);
+  const actual = contracts.icydb_schema_migration.encodeResponse(retry);
+  require(expected.length === actual.length && expected.every((b, i) => b === actual[i]), 'retained migration status replays exactly');
+  require(frames[0].request.length === frames[1].request.length && frames[0].request.every((b, i) => b === frames[1].request[i]), 'exact migration retry request');
+  return { frames, browser: navigator.userAgent };
 }

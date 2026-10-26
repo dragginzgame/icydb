@@ -63,6 +63,33 @@ fn prepared_restart_waits_without_background_work_and_resumes() {
 #[test]
 fn rejected_checked_cast_preserves_source_rows_and_can_abort() {
     let (fixture, seed) = seeded_fixture();
+    let (source_rows, mut status) = reject_checked_cast(&fixture, &seed);
+    let source_head = status.accepted_head().clone();
+    let plan = status.plan_digest();
+
+    // Rejected validation is before the physical rewrite boundary. Use the
+    // maintained Abort command, never reinstall or decode memory in the test.
+    status = migration_command(
+        &fixture,
+        SchemaMigrationCommand::Abort {
+            expected_database: status.database_identity(),
+            expected_head: status.accepted_head().clone(),
+            expected_plan: plan.expect("rejected migration retains its plan"),
+        },
+    );
+    assert_eq!(status.phase(), SchemaMigrationPhase::Aborted);
+    assert_eq!(status.accepted_head(), &source_head);
+    // Abort preserves source authority, not the successor's generated API.
+    // Restore the exact current-format source actor before reading that API.
+    upgrade(&fixture, artifacts().0.clone());
+    assert_eq!(projection(&fixture, SOURCE_ROWS), source_rows);
+}
+
+// Share the real rejected source/successor recipe with installed browser coverage.
+fn reject_checked_cast(
+    fixture: &StandaloneCanisterFixture,
+    seed: &RowProjectionOutput,
+) -> (RowProjectionOutput, SchemaMigrationStatusPage) {
     let id = &seed.rendered_rows()[0][0];
     let updated: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
@@ -75,18 +102,18 @@ fn rejected_checked_cast_preserves_source_rows_and_can_abort() {
         )
         .expect("source update response should decode");
     updated.expect("out-of-Nat16 value is valid Int32 source data");
-    let source_rows = projection(&fixture, SOURCE_ROWS);
+    let source_rows = projection(fixture, SOURCE_ROWS);
     assert_eq!(source_rows.rows[0][2], OutputValue::int64(65536));
-    let source_status = migration_status(&fixture);
+    let source_status = migration_status(fixture);
 
-    upgrade(&fixture, artifacts().1.clone());
-    let mut status = migration_status(&fixture);
+    upgrade(fixture, artifacts().1.clone());
+    let mut status = migration_status(fixture);
     let plan = status.plan_digest();
     for _ in 0..ADVANCE_LIMIT {
         if status.phase() == SchemaMigrationPhase::Rejected {
             break;
         }
-        status = advance(&fixture, &status);
+        status = advance(fixture, &status);
         assert_eq!(status.accepted_head(), source_status.accepted_head());
         assert_eq!(status.plan_digest(), plan);
         assert_eq!(status.rows_rewritten(), 0);
@@ -106,22 +133,74 @@ fn rejected_checked_cast_preserves_source_rows_and_can_abort() {
     );
     assert!(status.terminal_receipt().is_none());
 
-    // Rejected validation is before the physical rewrite boundary. Use the
-    // maintained Abort command, never reinstall or decode memory in the test.
-    status = migration_command(
-        &fixture,
-        SchemaMigrationCommand::Abort {
-            expected_database: status.database_identity(),
-            expected_head: status.accepted_head().clone(),
-            expected_plan: plan.expect("rejected migration retains its plan"),
-        },
+    (source_rows, status)
+}
+
+#[test]
+#[ignore = "requires prepared pinned Node/browser dependencies and the governed PocketIC server"]
+fn native_wire_browser_qualifies_rejected_migration_findings() {
+    use ic_platform::principal::ExternalPrincipal as Principal;
+    use std::{fs, process::Command};
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let browser = root.join("testing/wire-browser");
+    assert!(
+        Command::new("node")
+            .arg(browser.join("check.mjs"))
+            .status()
+            .unwrap()
+            .success()
     );
-    assert_eq!(status.phase(), SchemaMigrationPhase::Aborted);
-    assert_eq!(status.accepted_head(), source_status.accepted_head());
-    // Abort preserves source authority, not the successor's generated API.
-    // Restore the exact current-format source actor before reading that API.
-    upgrade(&fixture, artifacts().0.clone());
-    assert_eq!(projection(&fixture, SOURCE_ROWS), source_rows);
+    let identity = Command::new("node")
+        .arg(browser.join("installed.mjs"))
+        .arg("--identity")
+        .output()
+        .unwrap();
+    assert!(identity.status.success());
+    let caller = Principal::from_text(String::from_utf8(identity.stdout).unwrap().trim()).unwrap();
+    let (fixture, seed) = seeded_fixture();
+    let (_, expected) = reject_checked_cast(&fixture, &seed);
+    fixture
+        .pocket_ic()
+        .set_controllers(
+            fixture.canister_id(),
+            None,
+            vec![Principal::anonymous(), caller],
+        )
+        .unwrap();
+    let (instance, canister) = fixture.into_parts();
+    let (client, server) = instance.into_parts();
+    // Retain Testkit's server until its client and gateway have been dropped.
+    let _server = server;
+    let mut client = client;
+    let gateway = client.make_live(None);
+    let report = root.join("target/wire-browser/rejected-migration-report.json");
+    assert!(
+        Command::new("node")
+            .arg(browser.join("installed.mjs"))
+            .arg(gateway.as_str())
+            .arg(canister.to_text())
+            .arg(&report)
+            .arg("rejected-migration")
+            .status()
+            .unwrap()
+            .success()
+    );
+    let report: serde_json::Value = serde_json::from_slice(&fs::read(report).unwrap()).unwrap();
+    let frames = report["frames"].as_array().unwrap();
+    assert_eq!(frames.len(), 2);
+    for frame in frames {
+        let endpoint = icydb::wire::Endpoint::SchemaMigration;
+        assert_eq!(frame["method"], "icydb_schema_migration");
+        let request: Vec<u8> = serde_json::from_value(frame["request"].clone()).unwrap();
+        let response: Vec<u8> = serde_json::from_value(frame["response"].clone()).unwrap();
+        let decoded: SchemaMigrationStatusRequest = endpoint.decode_request(&request).unwrap();
+        assert_eq!(endpoint.encode_request(decoded).unwrap(), request);
+        let decoded: Result<SchemaMigrationStatusPage, Error> =
+            endpoint.decode_response(&response).unwrap();
+        assert_eq!(endpoint.encode_response(&decoded).unwrap(), response);
+        assert_eq!(decoded.unwrap(), expected);
+    }
 }
 
 fn artifacts() -> &'static (Vec<u8>, Vec<u8>) {

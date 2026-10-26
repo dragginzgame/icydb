@@ -133,11 +133,16 @@ left unchanged; append does not fill missing chunks or relax sequence and
 commit-order checks. Complete identical replay remains idempotent.
 
 Recovery is replay, not fresh write admission. It verifies the durable marker,
-journal, store, key, schema-fingerprint, and row boundaries needed to complete
+journal, store, key, accepted-schema and row boundaries needed to complete
 an internally produced commit. It does not run application normalizers or
 user validators, reevaluate accepted checks or new-write gates, or turn external
 raw bytes into an admitted mutation. Those admission decisions are resolved
 before the original marker and recovery replays their complete row bytes.
+Historical row fingerprints bind preparation contexts rather than requiring
+equality with a later accepted schema. Row compatibility comes from the selected
+accepted catalog and its retained layout history; schema-publication index
+chunks instead check the publication candidate's exact after-image fingerprint.
+See [replay versus admission](WRITE_ADMISSION.md#recovery-is-replay-not-admission).
 
 Accepted-schema publication owns only catalog snapshots, bundles, roots and
 constraint-job namespaces. Its positioned effects and cleanup range over those

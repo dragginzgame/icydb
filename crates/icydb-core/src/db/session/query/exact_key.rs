@@ -235,23 +235,31 @@ fn charge_stored_row(
     Ok(())
 }
 
-fn load_distinct_raw_rows(
+fn project_distinct_rows(
     store: &StoreHandle,
+    catalog: &crate::db::executor::AcceptedSchemaCatalogContext,
+    slots: &[usize],
     distinct_keys: &[(DecodedDataStoreKey, RawDataStoreKey)],
     budget: &mut HardExecutionBudgetTracker,
-) -> Result<Vec<Option<RawRow>>, InternalError> {
+) -> Result<Vec<Option<Vec<OutputValue>>>, InternalError> {
     let mut stored_bytes = 0_usize;
     distinct_keys
         .iter()
-        .map(|(_, raw_key)| {
+        .map(|(data_key, raw_key)| {
             budget
                 .charge_periodic(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1)
                 .map_err(InternalError::from)?;
-            let row = store.with_data(|data| data.get(raw_key));
-            if let Some(row) = row.as_ref() {
-                charge_stored_row(row, &mut stored_bytes, budget)?;
-            }
-            Ok(row)
+            // Decode under the store borrow: heap/live rows need no owned copy,
+            // while stable rows remain owned by the one physical read.
+            store.with_data(|data| {
+                let row = data.read(raw_key);
+                row.as_row()
+                    .map(|row| {
+                        charge_stored_row(row, &mut stored_bytes, budget)?;
+                        project_distinct_row(catalog, data_key, row, slots, budget)
+                    })
+                    .transpose()
+            })
         })
         .collect()
 }
@@ -371,9 +379,6 @@ impl<C: CanisterKind> DbSession<C> {
             .db
             .recovered_store(identity.store_path())
             .map_err(QueryError::execute)?;
-        let raw_rows =
-            load_distinct_raw_rows(&store, &distinct_keys, budget).map_err(QueryError::execute)?;
-
         let schema = catalog.accepted_schema_info();
         let columns = schema
             .field_names_in_slot_order()
@@ -389,18 +394,7 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(QueryError::execute)?;
-        let distinct_rows = distinct_keys
-            .iter()
-            .zip(raw_rows.iter())
-            .map(|((data_key, _), raw_row)| {
-                raw_row
-                    .as_ref()
-                    .map(|raw_row| {
-                        project_distinct_row(&catalog, data_key, raw_row, &slots, budget)
-                    })
-                    .transpose()
-            })
-            .collect::<Result<Vec<_>, _>>()
+        let distinct_rows = project_distinct_rows(&store, &catalog, &slots, &distinct_keys, budget)
             .map_err(QueryError::execute)?;
         let entity = catalog.snapshot().entity_name().to_string();
         validate_logical_result_bytes(&entity, &columns, &distinct_rows, &positions, budget)

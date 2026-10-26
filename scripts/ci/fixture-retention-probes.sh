@@ -5,18 +5,21 @@
 # Render only the actual initialization/EXIT boundary. Explicit variable names
 # avoid guessing a consumer's directory or repository ownership. The child must
 # receive RETENTION_SOURCE_ROOT and RETENTION_EXIT_PATH from its caller.
+# Sources use a column-one, single-line `trap ACTION EXIT` boundary. Buffer the
+# prefix so an absent/unsupported boundary cannot leave executable partial output.
 fixture_probe_prefix() {
     local source="$1" output="$2" root_variable="$3" directory_variable="$4" injection="$5"
     [[ "$root_variable" =~ ^[A-Za-z_][A-Za-z0-9_]*$ &&
        "$directory_variable" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
-    RETENTION_ROOT_VARIABLE="$root_variable" RETENTION_DIRECTORY_VARIABLE="$directory_variable" \
+    if RETENTION_ROOT_VARIABLE="$root_variable" RETENTION_DIRECTORY_VARIABLE="$directory_variable" \
         RETENTION_INJECTION="$injection" awk '
         $0 ~ "^" ENVIRON["RETENTION_ROOT_VARIABLE"] "=" {
-            print ENVIRON["RETENTION_ROOT_VARIABLE"] "=\"$RETENTION_SOURCE_ROOT\""
+            prefix=prefix ENVIRON["RETENTION_ROOT_VARIABLE"] "=\"$RETENTION_SOURCE_ROOT\"\n"
             next
         }
-        { print }
+        { prefix=prefix $0 "\n" }
         /^trap .* EXIT$/ {
+            printf "%s", prefix
             variable=ENVIRON["RETENTION_DIRECTORY_VARIABLE"]
             print "printf \"%s\\n\" \"$" variable "\" > \"$RETENTION_EXIT_PATH\""
             print "printf \"retained evidence\\n\" > \"$" variable "/exit-evidence\""
@@ -26,7 +29,11 @@ fixture_probe_prefix() {
             exit
         }
         END { if (!injected) exit 1 }
-    ' "$source" > "$output"
+    ' "$source" > "$output"; then
+        return 0
+    fi
+    printf 'fixture_probe_prefix: cannot render %s; expected a column-one, single-line trap ACTION EXIT (for example: trap finish EXIT); move multiline actions into a named function\n' "$source" >&2
+    return 1
 }
 
 # Optional caller selections: FIXTURE_PROBE_ROOT_VARIABLE, DIRECTORY_VARIABLE,
@@ -132,23 +139,30 @@ fixture_probe_assertion() {
     local observation="$probe_root/$name-assertion.path"
     mkdir -p "$directory" || return
     local reached="$probe_root/$name-assertion.reached" assertion='' bindings="$4"
-    rm -f -- "$observation" "$reached" || return
+    rm -f -- "$observation" "$reached" "$directory/$name.sh" || return
     assertion="$(RETENTION_ASSERTION_PREFIX="$3" awk '
         { line=$0; sub(/^[[:space:]]*/, "", line) }
         index(line, ENVIRON["RETENTION_ASSERTION_PREFIX"]) == 1 { print; found++ }
         END { if (found != 1 || ENVIRON["RETENTION_ASSERTION_PREFIX"] == "") exit 1 }
-    ' "$2")" || return
-    [[ "$assertion" == *'[[ '* ]] || return 2
+    ' "$2")" || {
+        printf 'fixture_probe_assertion: %s must contain exactly one line matching the nonempty literal prefix: %s\n' "$2" "$3" >&2
+        return 1
+    }
+    [[ "$assertion" == *'[[ '* ]] || {
+        printf 'fixture_probe_assertion: selected line in %s must contain a [[ assertion\n' "$2" >&2
+        return 2
+    }
     RETENTION_ASSERTION="$assertion" RETENTION_BINDINGS="$bindings" awk '
         { line=$0 }
         /^root="\$\{root%\/\.\}"$/ {
             line="root=\"$RETENTION_SOURCE_ROOT\""; anchored=1
         }
-        /^trap .* EXIT$/ && !trapped {
+        /^trap .* EXIT$/ {
+            if (!anchored) exit 1
+            printf "%s", prefix
             print line
             print "printf \"%s\\n\" \"$fixture\" > \"$RETENTION_ASSERTION_PATH\""
             print "printf \"retained assertion evidence\\n\" > \"$fixture/assertion-evidence\""
-            trapped=1
             print ENVIRON["RETENTION_BINDINGS"]
             print "printf reached > \"$RETENTION_ASSERTION_REACHED\""
             # Preserve return-based function guards as well as exit guards.
@@ -159,9 +173,13 @@ fixture_probe_assertion() {
             print "fixture_complete=true; exit 0"
             injected=1; exit
         }
-        { print line }
-        END { if (!anchored || !trapped || !injected) exit 1 }
-    ' "$source" > "$directory/$name.sh" || return
+        { prefix=prefix line "\n" }
+        END { if (!injected) exit 1 }
+    ' "$source" > "$directory/$name.sh" || {
+        # shellcheck disable=SC2016 # Show the literal source anchor to the caller.
+        printf 'fixture_probe_assertion: cannot render %s; expected root="${root%%/.}" before a column-one, single-line trap ACTION EXIT; move multiline actions into a named function\n' "$source" >&2
+        return 1
+    }
     RETENTION_SOURCE_ROOT="$source_root" RETENTION_ASSERTION_PATH="$observation" \
         RETENTION_ASSERTION_REACHED="$reached" \
         TMPDIR="$probe_root" "$BASH" "$directory/$name.sh" \

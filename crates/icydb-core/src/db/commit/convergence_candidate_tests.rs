@@ -44,8 +44,10 @@ const MAX_EFFECTS_PER_JOURNAL_RECORD: u64 = MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_R
 /// Conservative total positioned targets for one admitted debt ceiling.
 const MAX_POSITIONED_EFFECTS: u64 =
     BACKLOG_RECORD_LIMIT * MAX_EFFECTS_PER_JOURNAL_RECORD + GATE_ONE_WORK_LIMIT;
-/// Largest maintained positioned-effect family in one complete callback.
-const MAX_CALLBACK_POSITIONED_EFFECTS: u64 = 65_536;
+/// Replacement deletes the proved old domain and inserts the final domain.
+/// Their combined count is bounded by the shared before/after projection budget.
+const MAX_CALLBACK_POSITIONED_EFFECTS: u64 =
+    crate::db::schema::MAX_SCHEMA_PROJECTION_ENTRIES as u64;
 /// Maximum abstract candidate work after control, selector, and retirement.
 const CANDIDATE_WORK_LIMIT: u64 = GATE_ONE_WORK_LIMIT
     + 1
@@ -537,8 +539,8 @@ fn continuously_hot_early_allocation_cannot_pass_an_older_cold_head() {
 #[test]
 fn maximum_overlay_and_residual_formulas_are_checked_and_history_independent() {
     assert_eq!(MAX_POSITIONED_EFFECTS, 1_064_960);
-    assert_eq!(MAX_CALLBACK_POSITIONED_EFFECTS, 65_536);
-    assert_eq!(CANDIDATE_WORK_LIMIT, 81_937);
+    assert_eq!(MAX_CALLBACK_POSITIONED_EFFECTS, 131_072);
+    assert_eq!(CANDIDATE_WORK_LIMIT, 147_473);
     let maximum = candidate_heap_bound(
         BACKLOG_BATCH_LIMIT,
         BACKLOG_RECORD_LIMIT,
@@ -589,14 +591,17 @@ fn maximum_store_scan_and_accepted_index_retirement_use_the_canonical_owners() {
         StoreAllocationIdentity::new(100, "icydb.test.maximum-index.journal.v1"),
         JournalSequence::new(1),
     );
-    for target in 0..65_536_u64 {
+    for target in 0..MAX_CALLBACK_POSITIONED_EFFECTS {
         accepted_index_positions
             .preflight_publish(&target, position)
             .unwrap();
         accepted_index_positions.publish_preflighted(target, position);
     }
-    assert_eq!(accepted_index_positions.len(), 65_536);
-    for target in 0..65_536_u64 {
+    assert_eq!(
+        accepted_index_positions.len() as u64,
+        MAX_CALLBACK_POSITIONED_EFFECTS
+    );
+    for target in 0..MAX_CALLBACK_POSITIONED_EFFECTS {
         let retirement = accepted_index_positions
             .preflight_retirement(&target, position)
             .unwrap();

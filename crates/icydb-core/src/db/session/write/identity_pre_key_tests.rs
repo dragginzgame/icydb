@@ -1428,9 +1428,17 @@ const fn exact_key(value: u64) -> PrimaryKeyValue {
 }
 
 #[cfg(feature = "sql")]
-fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>) {
+fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>, fold: bool) {
     let first = insert_exact_key_fixture(session, 41);
     let second = insert_exact_key_fixture(session, 42);
+    if fold {
+        for _ in 0..8 {
+            if session.db.drive_startup_recovery_page().unwrap() {
+                break;
+            }
+        }
+        assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    }
     let missing = u64::MAX;
     let binding = exact_key_binding(session);
     let gets_before = DataStore::current_get_call_count();
@@ -1461,13 +1469,45 @@ fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>) {
         3,
         "four input positions with one duplicate must perform three physical reads",
     );
+    for limit in [1, 2] {
+        let budget = HardExecutionBudget::uniform_for_tests(
+            32_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1_024),
+        )
+        .with_limit_for_tests(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::RowsVisited,
+            limit,
+        );
+        let bounded = session.execute_exact_key_batch_with_hard_budget_for_tests(
+            &binding,
+            &[
+                exact_key(second),
+                exact_key(missing),
+                exact_key(first),
+                exact_key(second),
+            ],
+            &budget,
+        );
+        if limit == 2 {
+            let bounded = bounded.unwrap().unwrap();
+            assert_eq!(bounded.distinct_rows, result.distinct_rows);
+            assert_eq!(bounded.positions, result.positions);
+        } else {
+            let facts = bounded.unwrap_err().diagnostic_facts();
+            assert!(facts.contains(&(
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                icydb_diagnostic_code::DiagnosticExecutionBudgetResource::RowsVisited.raw(),
+            )));
+        }
+    }
 }
 
 #[cfg(feature = "sql")]
 #[test]
 fn exact_key_batches_preserve_semantics_across_heap_and_journaled_stores() {
-    assert_exact_key_batch(&initialize());
-    assert_exact_key_batch(&initialize_journaled());
+    assert_exact_key_batch(&initialize(), false);
+    assert_exact_key_batch(&initialize_journaled(), false);
+    assert_exact_key_batch(&initialize_journaled(), true);
 }
 
 #[cfg(feature = "sql")]
@@ -1603,7 +1643,7 @@ fn ordered_grouped_pages_close_a_group_spanning_physical_refills_before_resume()
 #[cfg(feature = "sql")]
 #[test]
 fn exhaustive_pages_require_and_recompare_the_complete_source_proof() {
-    let session = initialize();
+    let session = initialize_journaled();
     let first = insert_exact_key_fixture(&session, 41);
     let second = insert_exact_key_fixture(&session, 42);
     let third = insert_exact_key_fixture(&session, 43);
@@ -1659,7 +1699,64 @@ fn exhaustive_pages_require_and_recompare_the_complete_source_proof() {
 
 #[cfg(feature = "sql")]
 #[test]
+fn heap_exhaustive_pages_require_one_call_without_a_supplied_proof() {
+    let session = initialize();
+    insert_exact_key_fixture(&session, 41);
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .select(["id", "payload"])
+        .filter(crate::db::FieldRef::new("id").in_list([1_u64, 2, 3]))
+        .order_by(asc("id"));
+    for public in [false, true] {
+        let page = if public {
+            session.execute_public_exhaustive_page(&query, None, None)
+        } else {
+            session.execute_trusted_exhaustive_page(&query, None, None)
+        }
+        .unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert!(page.continuation.is_none());
+        let reused = if public {
+            session.execute_public_exhaustive_page(&query, None, Some(&page.proof))
+        } else {
+            session.execute_trusted_exhaustive_page(&query, None, Some(&page.proof))
+        };
+        assert!(matches!(
+            reused,
+            Err(ExhaustiveReadError::Revision(
+                ReadSetRevisionError::DurableStoreRequired { .. }
+            ))
+        ));
+    }
+    insert_exact_key_fixture(&session, 42);
+    insert_exact_key_fixture(&session, 43);
+    for public in [false, true] {
+        let page = if public {
+            session.execute_public_exhaustive_page(&query, None, None)
+        } else {
+            session.execute_trusted_exhaustive_page(&query, None, None)
+        };
+        assert!(matches!(
+            page,
+            Err(ExhaustiveReadError::Revision(
+                ReadSetRevisionError::DurableStoreRequired { .. }
+            ))
+        ));
+    }
+    assert_eq!(
+        session
+            .execute_trusted_live_page(&query, None)
+            .unwrap()
+            .rows
+            .len(),
+        2
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
 fn heap_sources_cannot_back_durable_resumable_jobs() {
+    use crate::db::{ResumableJobRecord, integrity::with_resumable_progress_store};
+
     let session = initialize();
     let proof = session
         .capture_read_set_revision_proof(&[ENTITY_NAME])
@@ -1668,9 +1765,98 @@ fn heap_sources_cannot_back_durable_resumable_jobs() {
         .expect("nonzero heap test job identity should admit");
 
     assert!(matches!(
-        session.start_resumable_job(job_id, proof, Vec::new()),
+        session.start_resumable_job(job_id, proof.clone(), Vec::new()),
         Err(ResumableJobError::SourceProof(
             ReadSetRevisionError::DurableStoreRequired { .. }
+        )),
+    ));
+
+    // Model a retained record whose current source is heap-backed while its
+    // revision values still match. Admission at creation cannot protect a
+    // later process; advancement must recheck the current storage capability.
+    let record = ResumableJobRecord::new(job_id, proof, vec![7]).unwrap();
+    with_resumable_progress_store::<TestCanister, _>(|store| store.insert_resumable(&record))
+        .unwrap();
+    let request = ResumableJobAdvanceRequest::new(
+        job_id,
+        0,
+        ResumableJobIdempotencyKey::new("heap-resume").unwrap(),
+    );
+    let called = Cell::new(false);
+    for _ in 0..2 {
+        assert!(matches!(
+            session.compare_proof_and_advance(&request, |_| {
+                called.set(true);
+                Ok::<_, ()>(ResumableJobAdvance::new(None, vec![8], Vec::new()).unwrap())
+            }),
+            Err(CompareProofAndAdvanceError::Protocol(
+                ResumableJobError::SourceProof(ReadSetRevisionError::DurableStoreRequired { .. })
+            )),
+        ));
+        assert!(!called.get());
+        assert_eq!(
+            session.resumable_job_state(job_id).unwrap(),
+            *record.state()
+        );
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn journaled_source_proof_and_job_survive_empty_and_retained_tail_recovery() {
+    let session = initialize_journaled();
+    insert_exact_key_fixture(&session, 51);
+    insert_exact_key_fixture(&session, 52);
+    insert_exact_key_fixture(&session, 53);
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .select(["id", "payload"])
+        .order_by(asc("id"));
+    let page = session
+        .execute_trusted_exhaustive_page(&query, None, None)
+        .unwrap();
+    let cursor = page.continuation.as_ref().unwrap();
+    let proof = page.proof;
+    let job_id = ResumableJobId::try_from_bytes([76; 32]).unwrap();
+    session
+        .start_resumable_job(job_id, proof.clone(), vec![0])
+        .unwrap();
+    let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
+    let revision = store.access_state_revision().unwrap();
+
+    // First recover retained row batches, then the now-empty tail. Neither
+    // changes the logical source, even though both rebuild disposable overlays.
+    for sequence in 0..2 {
+        forget_recovered_domain_for_tests(&session.db).unwrap();
+        drive_journaled_recovery_to_completion(&session);
+        assert_eq!(store.access_state_revision().unwrap(), revision);
+        session
+            .verify_durable_read_set_revision_proof(&proof)
+            .unwrap();
+        let resumed = session
+            .execute_trusted_exhaustive_page(&query, Some(cursor), Some(&proof))
+            .unwrap();
+        assert_eq!(resumed.rows.len(), 1);
+        let request = ResumableJobAdvanceRequest::new(
+            job_id,
+            sequence,
+            ResumableJobIdempotencyKey::new(format!("recovered-{sequence}")).unwrap(),
+        );
+        let receipt = session
+            .compare_proof_and_advance(&request, |_| {
+                Ok::<_, ()>(
+                    ResumableJobAdvance::new(Some("next".into()), vec![1], Vec::new()).unwrap(),
+                )
+            })
+            .unwrap();
+        assert_eq!(receipt.status, ResumableJobAdvanceStatus::Advanced);
+    }
+    // Actual readiness changes remain durable and invalidate the same proof.
+    store.mark_index_building().unwrap();
+    store.mark_index_ready().unwrap();
+    assert!(matches!(
+        session.verify_durable_read_set_revision_proof(&proof),
+        Err(ExhaustiveReadError::Revision(
+            ReadSetRevisionError::StoreAccessChanged { .. }
         )),
     ));
 }

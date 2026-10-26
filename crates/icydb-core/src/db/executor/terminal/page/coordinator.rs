@@ -256,30 +256,14 @@ impl PageWorkTracker {
         Ok(Self { envelope, observed })
     }
 
-    fn admit(&mut self, work: PageWork) -> Result<PageWorkAdmission, InternalError> {
-        let mut resource_index_in_all = 0;
-        while resource_index_in_all < RESOURCE_COUNT {
-            let resource = DiagnosticExecutionBudgetResource::ALL[resource_index_in_all];
-            let amount = work.amount(resource);
-            if amount != 0 {
-                let Some(limit) = self.envelope.limit(resource) else {
-                    return Err(InternalError::query_executor_invariant());
-                };
-                if amount > limit {
-                    return Err(InternalError::page_unit_too_large(resource, limit, amount));
-                }
-                if self.observed.amount(resource).saturating_add(amount) > limit {
-                    return Ok(PageWorkAdmission::EnvelopeFull);
-                }
-            }
-            resource_index_in_all += 1;
-        }
-
+    // The output owner preflights once, immediately before charging. No callback
+    // or tracker mutation intervenes between admission and these ordered charges.
+    fn charge_admitted(&mut self, work: PageWork) -> Result<(), InternalError> {
         for resource in DiagnosticExecutionBudgetResource::ALL {
             charge_current_execution_budget(resource, work.amount(resource))?;
         }
         self.observed = self.observed.merge(work);
-        Ok(PageWorkAdmission::Admitted)
+        Ok(())
     }
 
     fn preflight(&self, work: PageWork) -> Result<PageWorkAdmission, InternalError> {
@@ -380,9 +364,7 @@ impl ProductionScalarOutputWork {
         let work = scalar_output_row_work(row);
         match self.tracker.preflight(work) {
             Ok(PageWorkAdmission::Admitted) => {
-                if !matches!(self.tracker.admit(work)?, PageWorkAdmission::Admitted) {
-                    return Err(InternalError::query_executor_invariant());
-                }
+                self.tracker.charge_admitted(work)?;
                 Ok(true)
             }
             Ok(PageWorkAdmission::EnvelopeFull) => {
@@ -551,26 +533,16 @@ pub(in crate::db::executor) fn production_scalar_page_access_entry_limit()
 pub(in crate::db::executor) fn begin_production_scalar_page_unit(
     access_entry_bound: usize,
 ) -> Result<bool, InternalError> {
-    let active = ACTIVE_PRODUCTION_SCALAR_PAGE_WORK.with(|active| {
-        active
-            .try_borrow()
-            .map_err(|_| InternalError::query_executor_invariant())
-            .map(|active| active.is_some())
-    })?;
-    if !active {
-        return Ok(true);
-    }
-
-    let reservation = scalar_candidate_inspection_reservation(access_entry_bound)?;
-    let complete_unit_reservation = reservation.merge(SCALAR_OUTPUT_ROW_RESERVATION);
-    let before = current_execution_budget_usage()?;
     ACTIVE_PRODUCTION_SCALAR_PAGE_WORK.with(|active| {
         let mut active = active
             .try_borrow_mut()
             .map_err(|_| InternalError::query_executor_invariant())?;
-        let work = active
-            .as_mut()
-            .ok_or_else(InternalError::query_executor_invariant)?;
+        let Some(work) = active.as_mut() else {
+            return Ok(true);
+        };
+        let reservation = scalar_candidate_inspection_reservation(access_entry_bound)?;
+        let complete_unit_reservation = reservation.merge(SCALAR_OUTPUT_ROW_RESERVATION);
+        let before = current_execution_budget_usage()?;
         if work.unit.is_some() {
             return Err(InternalError::query_executor_invariant());
         }
@@ -593,24 +565,14 @@ pub(in crate::db::executor) fn begin_production_scalar_page_unit(
 /// Commit the exact hard-budget delta for one successfully completed scalar
 /// candidate. Unused conservative reservation is released immediately.
 pub(in crate::db::executor) fn finish_production_scalar_page_unit() -> Result<(), InternalError> {
-    let active = ACTIVE_PRODUCTION_SCALAR_PAGE_WORK.with(|active| {
-        active
-            .try_borrow()
-            .map_err(|_| InternalError::query_executor_invariant())
-            .map(|active| active.is_some())
-    })?;
-    if !active {
-        return Ok(());
-    }
-
-    let after = current_execution_budget_usage()?;
     ACTIVE_PRODUCTION_SCALAR_PAGE_WORK.with(|active| {
         let mut active = active
             .try_borrow_mut()
             .map_err(|_| InternalError::query_executor_invariant())?;
-        let work = active
-            .as_mut()
-            .ok_or_else(InternalError::query_executor_invariant)?;
+        let Some(work) = active.as_mut() else {
+            return Ok(());
+        };
+        let after = current_execution_budget_usage()?;
         let unit = work
             .unit
             .take()
@@ -720,6 +682,66 @@ mod tests {
         DiagnosticExecutionLane::TrustedRead,
         0x2210_0007_0000_0001,
     );
+
+    #[test]
+    fn production_units_preserve_inactive_and_nested_admission() {
+        assert!(begin_production_scalar_page_unit(usize::MAX).unwrap());
+        finish_production_scalar_page_unit().unwrap();
+        let hard_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
+        with_query_execution_budget_for_tests(hard_budget, TEST_CONTEXT, || {
+            with_production_scalar_page_work(PageWorkEnvelope::default_scalar(), || {
+                assert!(begin_production_scalar_page_unit(1)?);
+                let error = begin_production_scalar_page_unit(1).unwrap_err();
+                assert_eq!(
+                    error.diagnostic_code(),
+                    InternalError::query_executor_invariant().diagnostic_code(),
+                );
+                charge_test_production_candidate(1)?;
+                finish_production_scalar_page_unit()?;
+                assert!(begin_production_scalar_page_unit(1)?);
+                finish_production_scalar_page_unit()
+            })
+            .map_err(QueryError::execute)
+        })
+        .expect("nested refusal must preserve the original unit and subsequent admission");
+    }
+
+    #[test]
+    fn output_hard_failure_preserves_charge_order_without_a_page_receipt() {
+        use DiagnosticExecutionBudgetResource as Resource;
+
+        let hard_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+            .with_limit_for_tests(Resource::MaterializedBytes, 32);
+        with_query_execution_budget_for_tests(hard_budget, TEST_CONTEXT, || {
+            let mut output =
+                ProductionScalarOutputWork::new(PageWorkEnvelope::default_scalar(), None).unwrap();
+            let before = current_execution_budget_usage().unwrap();
+            let error = output
+                .admit_row(&[Value::Text("a".to_string())])
+                .unwrap_err();
+            assert!(error.diagnostic_facts().contains(&(
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                Resource::MaterializedBytes.raw(),
+            )));
+            let usage = current_execution_budget_usage().unwrap();
+            for resource in Resource::ALL {
+                assert_eq!(output.receipt().observed(resource), 0);
+                let expected = match resource {
+                    Resource::NestedValueSteps => 1,
+                    Resource::MaterializedBytes => 33,
+                    _ => 0,
+                };
+                assert_eq!(
+                    usage.observed(resource) - before.observed(resource),
+                    expected,
+                    "{resource:?}",
+                );
+            }
+            assert!(!output.envelope_stopped());
+            Ok::<_, QueryError>(())
+        })
+        .expect("inspect the failed charge within its hard execution scope");
+    }
 
     #[test]
     fn candidate_reservation_preserves_all_resource_amounts_and_overflow_rejection() {

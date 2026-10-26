@@ -308,12 +308,12 @@ pub(in crate::db) use migration_record::{
     physical_migration_record_ops_for_tests, prepared_schema_migration_record_op_for_tests,
     schema_migration_record_lifecycle_ops_for_tests,
 };
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use mutation::MAX_SCHEMA_PROJECTION_ENTRIES;
 #[cfg(feature = "migration")]
 pub(in crate::db) use mutation::MigrationIndexProjection;
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db::schema) use mutation::{
-    MAX_SCHEMA_PROJECTION_ENTRIES, SchemaTransitionSourceBudget,
-};
+pub(in crate::db::schema) use mutation::SchemaTransitionSourceBudget;
 pub(in crate::db) use mutation::{
     MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES, UniqueConstraintProjection,
 };

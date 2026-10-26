@@ -5,6 +5,91 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.284.2]
+
+### 🔧 Changed
+
+- Adopt Shared Tooling 0.26.19, IC Tooling 0.68.6 and IC Wire 0.7.15,
+  including explicit saved-release recovery and stricter upstream build admission.
+
+### 🩹 Fixed
+
+- Enforce journaled sources for resumable jobs and multi-call exhaustive reads,
+  retaining complete one-call heap reads
+  ([#67](https://github.com/dragginzgame/icydb/issues/67)).
+
+- Preserve journaled read proofs and resumable jobs across recovery that leaves
+  their logical source unchanged
+  ([#66](https://github.com/dragginzgame/icydb/issues/66)).
+
+- Restrict migration-abort cleanup to candidate index generations, preserving
+  unrelated entries and bounded cursor progress
+  ([#207](https://github.com/dragginzgame/icydb/issues/207)).
+
+- Qualify installed watchdog delivery after heap-only schema changes, without
+  relying on an unrelated update to prepare the runtime
+  ([#196](https://github.com/dragginzgame/icydb/issues/196)).
+
+- Reuse accepted-schema identity validation until identity storage changes,
+  avoiding repeated inventory scans on unchanged bundle borrows
+  ([#212](https://github.com/dragginzgame/icydb/issues/212)).
+
+- Project exact-key batches directly from borrowed heap/live rows, retaining
+  duplicate-key sharing, missing positions and bounded reads
+  ([#455](https://github.com/dragginzgame/icydb/issues/455)).
+
+- Share generated-index lowering across initial schemas, reconciliation and
+  migrations while preserving accepted identities and generations
+  ([#458](https://github.com/dragginzgame/icydb/pull/458)).
+
+- Use BLAKE3 for in-memory normalized predicate cache identity, preserving
+  canonical encoding, construction budgets and SHA-256 continuation signatures.
+
+- Check revision, epoch and generation constants alongside format versions,
+  with exact reviewed exceptions for semantic job identities and test fixtures
+  ([#119 — Persisted-policy scan misses revision counters](https://github.com/dragginzgame/icydb/issues/119)).
+
+- Reject new-write preparation with a fingerprint that differs from the accepted
+  catalog and document historical replay's accepted-layout compatibility checks
+  ([#141 — Independent commit fingerprint validation](https://github.com/dragginzgame/icydb/issues/141)).
+
+- Qualify real rejected-migration finding bytes and retained retries through the
+  installed browser caller
+  ([#448 — Populated browser finding coverage](https://github.com/dragginzgame/icydb/issues/448), partial).
+
+- Reject malformed persisted row directories in full and sparse reads, and
+  invalid integer relation keys, Decimal scales, non-nullable slots and Text/Blob
+  lengths (including nested values), plus duplicate or unordered sets/map keys,
+  preserving canonical row bytes
+  ([#144 — Noncanonical persisted row admission](https://github.com/dragginzgame/icydb/issues/144), partial).
+
+- Remove duplicate scalar-page admission checks and tracker lookups while
+  preserving budget limits and failure accounting
+  ([#293 — Repeated page accounting work](https://github.com/dragginzgame/icydb/issues/293), partial).
+
+- Reuse each entity's accepted fingerprint across journal index chunks while
+  retaining every chunk's corruption checks; extend the isolated convergence
+  qualification to the 131,072-effect replacement bound
+  ([#86 — Index-replacement recovery repeats fingerprints](https://github.com/dragginzgame/icydb/issues/86), partial).
+
+- Fix generated declarations failing to compile when application names shadow
+  standard derives, the composite-key `From` trait or private schema bookkeeping
+  ([#180 — Generated names collide with application aliases](https://github.com/dragginzgame/icydb/issues/180), partial).
+
+- Move changed structural-write keys and row images into commit staging after
+  validation, avoiding redundant copies without changing committed bytes
+  ([#425 — Structural writes copy keys and after-images](https://github.com/dragginzgame/icydb/issues/425)).
+
+- Avoid cloning decoded field values that integrity checks immediately discard,
+  preserving invalid-field findings
+  ([#453 — Integrity field checks copy discarded values](https://github.com/dragginzgame/icydb/issues/453)).
+
+- Copy covering-index components only for accepted rows, preserving predicate
+  results and corruption checks
+  ([#454 — Index predicates copy rejected components](https://github.com/dragginzgame/icydb/issues/454)).
+
+See [detailed notes](docs/changelog/0.284.md).
+
 ## [0.284.1] - 2026-10-25
 
 - Adopt Wire 0.7.11 generator diagnostics, restore non-SQL integrity compilation, reject unenforceable recursive relations and invalid generated migration targets, remove repeated recursive decoder scans, preflight journal revision writes, reject over-depth generated predicates, preserve index-key comparator transitivity and corruption visibility, bound INSERT SELECT staging, correct SQL nesting accounting, add surface-specific read allowlists, require confirmation for destructive refresh, preserve corrupt retained store

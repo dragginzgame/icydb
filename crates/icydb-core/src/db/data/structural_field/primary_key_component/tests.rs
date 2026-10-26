@@ -96,6 +96,82 @@ fn encode_list(items: &[Vec<u8>]) -> Vec<u8> {
 }
 
 #[test]
+fn integer_relation_keys_enforce_declared_width_in_every_shape() {
+    let mut cases = Vec::new();
+    for (kind, min, max) in [
+        (
+            AcceptedFieldKind::Int8,
+            i64::from(i8::MIN),
+            i64::from(i8::MAX),
+        ),
+        (
+            AcceptedFieldKind::Int16,
+            i64::from(i16::MIN),
+            i64::from(i16::MAX),
+        ),
+        (
+            AcceptedFieldKind::Int32,
+            i64::from(i32::MIN),
+            i64::from(i32::MAX),
+        ),
+        (AcceptedFieldKind::Int64, i64::MIN, i64::MAX),
+    ] {
+        for value in [min, 0, max] {
+            cases.push((kind.clone(), encode_int64(value), true));
+        }
+        for value in [min.checked_sub(1), max.checked_add(1)]
+            .into_iter()
+            .flatten()
+        {
+            cases.push((kind.clone(), encode_int64(value), false));
+        }
+    }
+    for (kind, max) in [
+        (AcceptedFieldKind::Nat8, u64::from(u8::MAX)),
+        (AcceptedFieldKind::Nat16, u64::from(u16::MAX)),
+        (AcceptedFieldKind::Nat32, u64::from(u32::MAX)),
+        (AcceptedFieldKind::Nat64, u64::MAX),
+    ] {
+        for value in [0, max] {
+            cases.push((kind.clone(), encode_nat64(value), true));
+        }
+        if let Some(value) = max.checked_add(1) {
+            cases.push((kind, encode_nat64(value), false));
+        }
+    }
+    for (kind, bytes, admitted) in cases {
+        assert_eq!(
+            decode_primary_key_component_field_binary_bytes(&bytes, &kind).is_ok(),
+            admitted
+        );
+        let relation = relation_kind(kind);
+        for (shape, encoded) in [
+            (relation.clone(), bytes.clone()),
+            (
+                AcceptedFieldKind::List(Box::new(relation.clone())),
+                encode_list(&[vec![0], bytes.clone()]),
+            ),
+            (
+                AcceptedFieldKind::Set(Box::new(relation)),
+                encode_list(&[bytes.clone(), vec![0]]),
+            ),
+        ] {
+            let keys = decode_accepted_relation_target_primary_key_components_binary_bytes(
+                &encoded, &shape,
+            );
+            assert_eq!(keys.is_ok(), admitted, "{shape:?}");
+            assert_eq!(
+                decode_primary_key_component_binary_value_bytes(&encoded, &shape).is_ok(),
+                admitted
+            );
+            if admitted {
+                assert_eq!(keys.unwrap().len(), 1, "null targets remain omitted");
+            }
+        }
+    }
+}
+
+#[test]
 fn primary_key_component_binary_roundtrips_all_supported_scalar_kinds() {
     let account = Account::from_owner_and_subaccount(
         Principal::from_slice(&[3]),

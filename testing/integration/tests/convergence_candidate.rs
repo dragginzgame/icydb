@@ -56,7 +56,7 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
         .expect("dormant convergence evidence should decode");
     let memory_after = canister_memory_bytes(&fixture);
 
-    assert_eq!(measured.effects, 65_536);
+    assert_eq!(measured.effects, 131_072);
     assert_eq!(measured.stores, 16);
     assert_eq!(measured.selected_store, 115);
     assert_eq!(measured.remaining_effects, 0);

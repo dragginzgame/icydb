@@ -15,7 +15,7 @@
 #[cfg(any(test, feature = "migration"))]
 use crate::db::data::RawRow;
 use crate::db::index::{
-    IndexEntryExistenceWitness, IndexEntryValue, IndexKey, IndexKeyKind, IndexStore,
+    IndexEntryExistenceWitness, IndexEntryValue, IndexKey, IndexKeyKind, IndexState, IndexStore,
 };
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
@@ -291,7 +291,8 @@ fn recover_domain<C: CanisterKind>(
         })?;
         validate_entity_mutation_revisions_against_accepted_schema(db)?;
         reset_journaled_live_projections(db)?;
-        db.mark_all_registered_index_stores_ready()
+        restore_journaled_index_state(db, IndexState::Ready)
+            .and_then(|()| db.mark_all_registered_index_stores_ready())
             .map_err(|error| {
                 StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
             })?;
@@ -456,7 +457,8 @@ fn finish_recovery<C: CanisterKind>(
         })?;
     }
 
-    db.mark_all_registered_index_stores_ready()
+    restore_journaled_index_state(db, IndexState::Ready)
+        .and_then(|()| db.mark_all_registered_index_stores_ready())
         .map_err(StartupRecoveryFailure::database_control)?;
     mark_commit_marker_verified_absent();
 
@@ -680,9 +682,10 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
 fn reset_journaled_live_projections<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<(), StartupRecoveryFailure> {
+    restore_journaled_index_state(db, IndexState::Building)
+        .map_err(StartupRecoveryFailure::database_control)?;
     for (store_path, handle) in sorted_journaled_store_handles(db) {
         let journal_failure = |error| StartupRecoveryFailure::journal_store(store_path, error);
-        handle.mark_index_building().map_err(journal_failure)?;
         let data_generation = handle
             .with_data_mut(|store| {
                 store.reset_journaled_live_projection()?;
@@ -704,6 +707,20 @@ fn reset_journaled_live_projections<C: CanisterKind>(
             .map_err(journal_failure)?;
     }
 
+    Ok(())
+}
+
+// Recovery reconstructs the same logical access state. Restore its durable
+// revision instead of recording the disposable Building/Ready transitions as
+// new access changes; genuine schema/readiness changes still advance it.
+fn restore_journaled_index_state<C: CanisterKind>(
+    db: &Db<C>,
+    state: IndexState,
+) -> Result<(), InternalError> {
+    for (_, handle) in sorted_journaled_store_handles(db) {
+        let revision = handle.access_state_revision()?;
+        handle.with_index_mut(|index| index.set_access_state(state, revision));
+    }
     Ok(())
 }
 
@@ -1678,12 +1695,16 @@ fn validate_journal_batch_records<C: CanisterKind>(
     let candidate =
         validate_journal_batch_envelope(db, expected_store_path, expected_handle, batch, mode)?;
 
+    // One immutable candidate owns this batch. Hash each referenced entity once,
+    // but compare every chunk's persisted fingerprint against that authority.
+    let mut index_fingerprints = BTreeMap::new();
     for (record_ordinal, record) in batch.records().iter().enumerate() {
         validate_journal_batch_record(
             db,
             expected_store_path,
             expected_handle,
             candidate.as_ref(),
+            &mut index_fingerprints,
             batch,
             record_ordinal,
             record,
@@ -1767,6 +1788,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     candidate: Option<&CandidateSchemaRevision>,
+    index_fingerprints: &mut BTreeMap<EntityTag, CommitSchemaFingerprint>,
     batch: &JournalBatch,
     record_ordinal: usize,
     record: &JournalRecord,
@@ -1802,6 +1824,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
             expected_store_path,
             expected_handle,
             candidate,
+            index_fingerprints,
             store_path,
             *entity_tag,
             *accepted_after_fingerprint,
@@ -1818,6 +1841,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
             expected_store_path,
             expected_handle,
             candidate,
+            index_fingerprints,
             store_path,
             *entity_tag,
             *accepted_after_fingerprint,
@@ -1905,6 +1929,7 @@ fn validate_accepted_schema_index_chunk(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     candidate: Option<&CandidateSchemaRevision>,
+    index_fingerprints: &mut BTreeMap<EntityTag, CommitSchemaFingerprint>,
     store_path: &str,
     entity_tag: EntityTag,
     accepted_after_fingerprint: CommitSchemaFingerprint,
@@ -1925,9 +1950,13 @@ fn validate_accepted_schema_index_chunk(
         .entity_snapshots()
         .get(&entity_tag)
         .ok_or_else(InternalError::store_corruption)?;
-    if accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_after)?
-        != accepted_after_fingerprint
-    {
+    let fingerprint = match index_fingerprints.entry(entity_tag) {
+        std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::btree_map::Entry::Vacant(entry) => entry.insert(
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_after)?,
+        ),
+    };
+    if *fingerprint != accepted_after_fingerprint {
         return Err(InternalError::store_corruption());
     }
     if insertion {
@@ -2240,7 +2269,7 @@ fn registry_store_handle_for_path<C: CanisterKind>(
 
 // Names can differ between a retained record, the canonical predecessor and
 // the live projection. Only the accepted tag determines store routing; row
-// preparation separately validates the recorded path, fingerprint and key.
+// preparation separately validates the path/key and record-to-context identity.
 fn journal_entity_store_handle<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
