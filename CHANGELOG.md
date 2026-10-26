@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.284.2]
+
+- Share generated-index key and predicate lowering across initial schemas,
+  reconciliation and migrations, preserving accepted identities and generations.
+  See [detailed notes](docs/changelog/0.284.md).
+
 ## [0.284.1] - 2026-10-25
 
 - Adopt Wire 0.7.11 generator diagnostics, restore non-SQL integrity compilation, reject unenforceable recursive relations and invalid generated migration targets, remove repeated recursive decoder scans, preflight journal revision writes, reject over-depth generated predicates, preserve index-key comparator transitivity and corruption visibility, bound INSERT SELECT staging, correct SQL nesting accounting, add surface-specific read allowlists, require confirmation for destructive refresh, preserve corrupt retained store
