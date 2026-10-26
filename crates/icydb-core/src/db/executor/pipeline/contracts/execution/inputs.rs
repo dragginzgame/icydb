@@ -7,10 +7,10 @@ use crate::{
     db::{
         access::ExecutableAccessPlan,
         cursor::CursorBoundary,
-        data::{DataRow, DecodedDataStoreKey},
+        data::DecodedDataStoreKey,
         executor::{
-            AccessStreamBindings, EntityAuthority, ExecutionPreparation,
-            order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
+            AccessStreamBindings, EntityAuthority, ExecutionPreparation, ProjectionDataRows,
+            order::cursor_boundary_from_orderable_row,
             pipeline::runtime::{ExecutionRuntimeAdapter, compile_retained_slot_layout_for_mode},
             terminal::{RetainedSlotLayout, RetainedSlotRow, RowLayout},
             traversal::row_read_consistency_for_plan,
@@ -101,14 +101,13 @@ pub(in crate::db) struct StructuralCursorPage {
 ///
 
 pub(in crate::db::executor) enum StructuralCursorPagePayload {
-    DataRows(Vec<DataRow>),
+    DataRows(ProjectionDataRows),
     SlotRows(Vec<RetainedSlotRow>),
 }
 
 impl StructuralCursorPage {
-    /// Build one structural scalar page from canonical data rows.
-    #[must_use]
-    pub(in crate::db) const fn new(data_rows: Vec<DataRow>) -> Self {
+    /// Keep order values paired with their raw rows through final projection.
+    pub(in crate::db::executor) const fn new(data_rows: ProjectionDataRows) -> Self {
         Self {
             payload: StructuralCursorPagePayload::DataRows(data_rows),
             last_scanned_key: None,
@@ -149,7 +148,7 @@ impl StructuralCursorPage {
     #[must_use]
     pub(in crate::db) const fn row_count(&self) -> usize {
         match &self.payload {
-            StructuralCursorPagePayload::DataRows(data_rows) => data_rows.len(),
+            StructuralCursorPagePayload::DataRows(data_rows) => data_rows.row_count(),
             StructuralCursorPagePayload::SlotRows(slot_rows) => slot_rows.len(),
         }
     }
@@ -171,10 +170,9 @@ impl StructuralCursorPage {
         resolved_order: &crate::db::query::plan::ResolvedOrder,
     ) -> Result<Option<CursorBoundary>, InternalError> {
         match &self.payload {
-            StructuralCursorPagePayload::DataRows(rows) => rows
-                .get(row_index)
-                .map(|row| cursor_boundary_from_data_row(row, row_layout, resolved_order))
-                .transpose(),
+            StructuralCursorPagePayload::DataRows(rows) => {
+                rows.cursor_boundary_at(row_index, row_layout, resolved_order)
+            }
             StructuralCursorPagePayload::SlotRows(rows) => Ok(rows
                 .get(row_index)
                 .map(|row| cursor_boundary_from_orderable_row(row, resolved_order))),
@@ -186,7 +184,7 @@ impl StructuralCursorPage {
     pub(in crate::db) fn consume_projection_rows<T>(
         self,
         handle_slot_rows: impl FnOnce(Vec<RetainedSlotRow>) -> T,
-        handle_data_rows: impl FnOnce(Vec<DataRow>) -> T,
+        handle_data_rows: impl FnOnce(ProjectionDataRows) -> T,
     ) -> T {
         match self.payload {
             StructuralCursorPagePayload::DataRows(data_rows) => handle_data_rows(data_rows),

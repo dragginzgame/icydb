@@ -480,11 +480,6 @@ impl IndexKey {
     }
 
     #[must_use]
-    pub(crate) fn uses_system_namespace(&self) -> bool {
-        self.key_kind == IndexKeyKind::System
-    }
-
-    #[must_use]
     pub(in crate::db) const fn key_kind(&self) -> IndexKeyKind {
         self.key_kind
     }

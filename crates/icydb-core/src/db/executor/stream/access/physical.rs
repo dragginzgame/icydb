@@ -951,7 +951,7 @@ impl PrimaryRangeKeyStream {
         })
     }
 
-    /// Visit ASC primary rows through one open physical range when the store
+    /// Visit primary rows in either direction through one open range when the store
     /// has a single visible backing and this leaf has not otherwise advanced.
     pub(in crate::db::executor) fn try_visit_rows_direct(
         &mut self,
@@ -961,10 +961,7 @@ impl PrimaryRangeKeyStream {
             &'row RawRow,
         ) -> Result<StoreVisit, InternalError>,
     ) -> Result<Option<()>, InternalError> {
-        if !matches!(self.direction, Direction::Asc)
-            || self.buffer_pos != 0
-            || !self.buffer.as_slice().is_empty()
-        {
+        if self.buffer_pos != 0 || !self.buffer.as_slice().is_empty() {
             return Ok(None);
         }
         if self.exhausted || matches!(self.remaining, Some(0)) {
@@ -978,6 +975,7 @@ impl PrimaryRangeKeyStream {
         let outcome = self.store.with_data(|store| {
             store.try_visit_range_with_row_preflight(
                 (self.lower_bound.as_ref(), self.upper_bound.as_ref()),
+                self.direction,
                 |_raw_key| {
                     if row_limit.is_some_and(|limit| visited.get() >= limit) || !begin_row()? {
                         return Ok::<StoreVisit, InternalError>(StoreVisit::Stop);
@@ -1007,10 +1005,14 @@ impl PrimaryRangeKeyStream {
         // The visitor consumes decoded keys. Retain their compact identity
         // and encode only the final resume boundary after traversal.
         if let Some(primary_key) = last_primary_key {
-            self.lower_bound = Bound::Excluded(
+            let boundary = Bound::Excluded(
                 DecodedDataStoreKey::new_primary_key_value(self.entity_tag, &primary_key)
                     .to_raw()?,
             );
+            match self.direction {
+                Direction::Asc => self.lower_bound = boundary,
+                Direction::Desc => self.upper_bound = boundary,
+            }
         }
         if let Some(remaining) = self.remaining.as_mut() {
             *remaining = remaining.saturating_sub(visited.get());
@@ -1989,7 +1991,12 @@ mod physical_polling_tests {
 
     #[test]
     fn direct_primary_visits_preserve_bounded_progress_after_early_stop() {
-        for composite in [false, true] {
+        for (composite, direction) in [
+            (false, Direction::Asc),
+            (false, Direction::Desc),
+            (true, Direction::Asc),
+            (true, Direction::Desc),
+        ] {
             reset_heap_stores();
             let keys = (1..=100)
                 .map(|value| {
@@ -2024,7 +2031,7 @@ mod physical_polling_tests {
                             STORE,
                             keys[9].clone(),
                             keys[89].clone(),
-                            Direction::Asc,
+                            direction,
                             limit,
                         )
                         .unwrap();
@@ -2048,6 +2055,9 @@ mod physical_polling_tests {
                             Some(())
                         );
                         let mut expected = keys[9..90].to_vec();
+                        if matches!(direction, Direction::Desc) {
+                            expected.reverse();
+                        }
                         if let Some(limit) = limit {
                             expected.truncate(limit);
                         }

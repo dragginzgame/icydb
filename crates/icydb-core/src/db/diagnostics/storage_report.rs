@@ -14,7 +14,7 @@ use crate::{
             memory_allocations::collect_memory_allocations,
         },
         encode_hex_lower,
-        index::{IndexKey, IndexStoreVisit},
+        index::{IndexKeyKind, IndexStoreVisit, decode_index_key_frame},
         registry::{StoreAllocationIdentity, StoreRuntimeStorageMode},
         runtime_entity_catalog::AcceptedRuntimeEntity,
     },
@@ -388,12 +388,12 @@ fn build_storage_report<C: CanisterKind>(
                     entries = entries.saturating_add(1);
                     memory_bytes = memory_bytes
                         .saturating_add(key.as_bytes().len() as u64 + value.len() as u64);
-                    let Ok(decoded_key) = IndexKey::try_from_raw(key) else {
+                    let Ok(decoded_key) = decode_index_key_frame(key) else {
                         corrupted_entries = corrupted_entries.saturating_add(1);
                         return Ok(IndexStoreVisit::Continue);
                     };
 
-                    if decoded_key.uses_system_namespace() {
+                    if decoded_key.key_kind() == IndexKeyKind::System {
                         system_entries = system_entries.saturating_add(1);
                     } else {
                         user_entries = user_entries.saturating_add(1);

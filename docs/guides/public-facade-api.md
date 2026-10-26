@@ -555,6 +555,31 @@ batch policy, an impossible candidate, managed-time regression, or admitted
 execution-policy divergence yields a bounded typed terminal
 `RestartRequired` state.
 
+### Mutation-job completion under concurrent writes
+
+Bounded advances do not guarantee eventual completion while the target entity
+keeps changing. Verify retains one target-entity journal revision across its
+entire sweep, not a fresh baseline per page. A revision change before or during
+a Verify page discards that verification checkpoint and restarts Forward from
+the beginning; discovering a row that still needs the patch does the same.
+Already committed Forward pages remain committed.
+
+Completion therefore needs a write-quiet window spanning a complete clean
+Verify sweep. Updates outside the job's predicate can still change the target
+entity revision and restart verification. Writes to other entities do not by
+themselves change this revision; accepted-schema or policy changes have their
+own restart rules. There is no configured retry ceiling or automatic backoff
+for repeated verification drift.
+
+Monitor `verify_restarts_total`, `phase` and `status` in the state returned by
+`mutation_job_state`. Rising scan totals alone do not prove progress toward completion:
+restarts can repeatedly scan the same keys. If verification keeps restarting,
+coordinate the application's writers and reserve a maintenance window for the
+job to finish, continuing to honor sequence and idempotency receipts. Claim
+completion only when `status` is `Completed`; pausing a caller or
+reaching a page boundary does not roll back earlier changes or release its
+retained job slot.
+
 An application may cancel only the exact unadvanced sequence-zero state. Job
 IDs are single-incarnation and must never be reused; a logical retry allocates
 a fresh ID. `progress_job_inventory` validates every retained shared-progress

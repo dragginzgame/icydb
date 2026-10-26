@@ -47,9 +47,6 @@ pub const MAX_ENTITY_NAME_LEN: usize = 64;
 // Maximum length for field schema identifiers.
 pub const MAX_FIELD_NAME_LEN: usize = 64;
 
-// Maximum number of fields allowed in a derived index.
-pub const MAX_INDEX_FIELDS: usize = 4;
-
 // Maximum length for derived index identifiers.
 pub const MAX_INDEX_NAME_LEN: usize =
     MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (1 + MAX_FIELD_NAME_LEN));
@@ -90,6 +87,7 @@ pub use icydb_model_macros::{
     Rem, RemAssign, Sub, SubAssign, Sum, canister, entity, enum_, list, map, newtype, normalizer,
     record, set, store, tuple, validator,
 };
+pub use icydb_schema::MAX_INDEX_FIELDS;
 pub use normalize::normalize;
 #[doc(hidden)]
 pub use typed_adapter::{

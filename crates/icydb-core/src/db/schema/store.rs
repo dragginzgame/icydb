@@ -1162,13 +1162,15 @@ impl SchemaStore {
     }
 
     /// Preflight exact coalesced count changes and the next complete fold watermark.
+    /// Invalid count evidence returns no maintenance, leaving its source stale
+    /// after the authoritative fold. Retained records remain available to diagnostics.
     pub(in crate::db) fn prepare_cardinality_maintenance(
         &self,
         current: CardinalityGenerationHeader,
         current_source: CardinalitySourceIdentity,
         next_source: CardinalitySourceIdentity,
         changes: &[(CardinalityCountDigest, i64)],
-    ) -> Result<PreparedCardinalityMaintenance, InternalError> {
+    ) -> Result<Option<PreparedCardinalityMaintenance>, InternalError> {
         if current.state() != CardinalityGenerationState::Ready
             || current.validate_source(current_source).is_err()
             || self.cardinality_generation_header()? != Some(current)
@@ -1199,17 +1201,23 @@ impl SchemaStore {
                     InternalError::store_corruption()
                 });
             }
-            let base = self
-                .cardinality_count(current.slot(), current.generation(), *digest)?
-                .unwrap_or(0);
+            let base = match self.cardinality_count(current.slot(), current.generation(), *digest) {
+                Ok(count) => count.unwrap_or(0),
+                Err(error) if error.class() == crate::error::ErrorClass::Corruption => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
             let count = if *delta > 0 {
                 base.checked_add(
                     u64::try_from(*delta).map_err(|_| InternalError::store_invariant())?,
                 )
             } else {
                 base.checked_sub(delta.unsigned_abs())
-            }
-            .ok_or_else(InternalError::store_corruption)?;
+            };
+            let Some(count) = count else {
+                return Ok(None);
+            };
             let value = if count == 0 {
                 None
             } else {
@@ -1221,13 +1229,13 @@ impl SchemaStore {
             };
             count_entries.push((key, value));
         }
-        Ok(PreparedCardinalityMaintenance {
+        Ok(Some(PreparedCardinalityMaintenance {
             count_entries,
             header: (
                 RawSchemaKey::from_cardinality_generation_header(),
                 RawSchemaValue::from_encoded_control_record(next.encode()),
             ),
-        })
+        }))
     }
 
     /// Mechanically publish one completely preflighted count/watermark transition.

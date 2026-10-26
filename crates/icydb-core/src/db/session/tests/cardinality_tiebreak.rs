@@ -1424,6 +1424,106 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
 }
 
 #[test]
+fn inconsistent_durable_count_does_not_block_authoritative_delete_fold() {
+    use crate::db::{
+        commit::{RecoveryProgress, continue_recovery},
+        schema::cardinality_generation::CardinalityCountDigest,
+    };
+
+    let session = initialize_journaled();
+    seed_rows(&session);
+    let drain = || {
+        assert!(
+            (0..32)
+                .any(|_| { continue_recovery(&session.db).unwrap() == RecoveryProgress::Complete })
+        );
+    };
+    drain();
+    drive_journaled_cardinality_to_ready(&session);
+    let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
+    assert_eq!(store.exact_entity_count(ENTITY_TAG), Some(12));
+    let header = store.with_schema_mut(|schema| {
+        let header = schema.cardinality_generation_header().unwrap().unwrap();
+        // Inject drift only in derived evidence: remove the count while all
+        // twelve authoritative rows remain intact at the same source boundary.
+        let prepared = schema
+            .prepare_cardinality_maintenance(
+                header,
+                header.source(),
+                header.source(),
+                &[(CardinalityCountDigest::for_entity(ENTITY_TAG), -12)],
+            )
+            .unwrap()
+            .unwrap();
+        schema
+            .apply_prepared_cardinality_maintenance(prepared)
+            .unwrap();
+        header
+    });
+    session
+        .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id = 1")
+        .unwrap();
+    drain();
+    assert_eq!(
+        store.with_schema(|schema| schema.cardinality_generation_header().unwrap()),
+        Some(header)
+    );
+    assert_eq!(store.exact_entity_count(ENTITY_TAG), None);
+    assert_eq!(
+        projection_rows(&session, "SELECT id FROM PlannerRow ORDER BY id LIMIT 20").len(),
+        11
+    );
+    drive_journaled_cardinality_to_ready(&session);
+    assert_eq!(store.exact_entity_count(ENTITY_TAG), Some(11));
+}
+
+#[test]
+fn unavailable_cardinality_delta_does_not_block_journal_convergence() {
+    use crate::db::{
+        commit::{RecoveryProgress, continue_recovery},
+        journal::{FoldWatermark, JournalSequence},
+    };
+
+    let session = initialize_journaled();
+    seed_rows(&session);
+    let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
+    let journal = store.journal_tail_store().unwrap();
+    let before = journal.with_borrow(|tail| tail.fold_watermark().unwrap());
+    assert!(journal.with_borrow(|tail| {
+        tail.next_batch_after(before.highest_folded_journal_sequence())
+            .unwrap()
+            .is_some()
+    }));
+    // Lose only optional planner evidence; authoritative rows, indexes and the
+    // journal remain intact. Convergence must not require rebuilding the hint.
+    store.with_index_mut(|index| {
+        index.apply_prefix_cardinality_delta_watermark(
+            FoldWatermark::new(JournalSequence::new(u64::MAX), u64::MAX),
+            before,
+        );
+    });
+    assert_eq!(
+        store.with_index(IndexStore::exact_prefix_cardinality_delta_watermark),
+        None
+    );
+    assert!(
+        (0..32).any(|_| { continue_recovery(&session.db).unwrap() == RecoveryProgress::Complete })
+    );
+    assert_ne!(
+        journal.with_borrow(|tail| tail.fold_watermark().unwrap()),
+        before
+    );
+    assert_eq!(
+        store.with_index(IndexStore::exact_prefix_cardinality_delta_watermark),
+        None
+    );
+    assert_eq!(projection_rows(
+        &session,
+        "SELECT id FROM PlannerRow WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 20",
+    ).len(), 6);
+}
+
+#[test]
 fn schema_publication_preserves_ready_counts_but_requires_fresh_source_evidence() {
     use crate::db::commit::{RecoveryProgress, continue_recovery};
 

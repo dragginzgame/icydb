@@ -114,6 +114,17 @@ impl RetainedSlotLayout {
         self.data.slot_to_value_index.get(slot).copied().flatten()
     }
 
+    /// Prove that a consumer's complete slot set retains original values,
+    /// rather than omitted fields or scalar byte-length substitutes.
+    pub(in crate::db::executor) fn retains_full_values_for_slots(&self, slots: &[usize]) -> bool {
+        slots.iter().all(|&slot| {
+            self.value_index_for_slot(slot).is_some_and(|index| {
+                self.override_value_modes()
+                    .is_none_or(|modes| modes.get(index) == Some(&RetainedSlotValueMode::Normal))
+            })
+        })
+    }
+
     /// Return the number of retained values each indexed retained row stores.
     #[must_use]
     pub(in crate::db::executor) fn retained_value_count(&self) -> usize {

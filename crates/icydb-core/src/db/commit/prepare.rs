@@ -17,9 +17,9 @@ use crate::{
         },
         index::{
             IndexDelta, IndexDeltaGroup, IndexEntryValue, IndexMembershipDelta, IndexMutationPlan,
-            IndexPlanReadView, IndexReadContract, IndexRowIdentity, IndexStore,
-            PreparedIndexMutationMetadata, RawIndexStoreKey, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
+            IndexPlanReadView, IndexReadContract, IndexStore, PreparedIndexMutationMetadata,
+            RawIndexStoreKey, StructuralIndexEntryReader, StructuralPrimaryRowReader,
+            plan_index_mutation_for_slot_reader_structural,
         },
         key_taxonomy::PrimaryKeyValue,
         registry::StoreRecoveryCapability,
@@ -964,90 +964,26 @@ fn build_commit_ops_for_index_delta_pair(
 
     // Phase 2: different-key transitions can touch at most two keys. Preserve
     // deterministic key order without the general BTreeMap machinery.
-    let mut first: Option<(
-        RawIndexStoreKey,
-        Option<IndexRowIdentity>,
-        PreparedIndexMutationBuilder,
-    )> = None;
-    let mut second: Option<(
-        RawIndexStoreKey,
-        Option<IndexRowIdentity>,
-        PreparedIndexMutationBuilder,
-    )> = None;
-
-    if let Some(remove_delta) = remove_delta {
-        insert_commit_candidate(
-            &mut first,
-            &mut second,
-            remove_delta.key.to_raw()?,
-            None,
-            PreparedIndexMutation::new,
-        );
-    }
-
-    if let Some(insert_delta) = insert_delta {
-        insert_commit_candidate(
-            &mut first,
-            &mut second,
-            insert_delta.key.to_raw()?,
-            Some(IndexRowIdentity::new(&insert_delta.primary_key)),
-            PreparedIndexMutation::new,
-        );
-    }
-
-    if let Some((raw_key, entry, build_commit_op)) = first {
-        push_commit_op_for_index_entry(commit_ops, store, raw_key, entry, build_commit_op);
-    }
-    if let Some((raw_key, entry, build_commit_op)) = second {
-        push_commit_op_for_index_entry(commit_ops, store, raw_key, entry, build_commit_op);
+    let remove = remove_delta
+        .map(|delta| delta.key.to_raw().map(|key| (key, None)))
+        .transpose()?;
+    let insert = insert_delta
+        .map(|delta| {
+            delta
+                .key
+                .to_raw()
+                .map(|key| (key, Some(IndexEntryValue::presence())))
+        })
+        .transpose()?;
+    let (first, second) = match (remove, insert) {
+        (Some(old), Some(new)) if old.0 > new.0 => (Some(new), Some(old)),
+        entries => entries,
+    };
+    for (raw_key, value) in first.into_iter().chain(second) {
+        commit_ops.push(PreparedIndexMutation::new(store, raw_key, value));
     }
 
     Ok(())
-}
-
-/// Insert one touched key into the small fixed-size ordered candidate set.
-fn insert_commit_candidate(
-    first: &mut Option<(
-        RawIndexStoreKey,
-        Option<IndexRowIdentity>,
-        PreparedIndexMutationBuilder,
-    )>,
-    second: &mut Option<(
-        RawIndexStoreKey,
-        Option<IndexRowIdentity>,
-        PreparedIndexMutationBuilder,
-    )>,
-    raw_key: RawIndexStoreKey,
-    entry: Option<IndexRowIdentity>,
-    build_commit_op: PreparedIndexMutationBuilder,
-) {
-    match first {
-        None => *first = Some((raw_key, entry, build_commit_op)),
-        Some((first_key, _, _)) if raw_key < *first_key => {
-            *second = first.take();
-            *first = Some((raw_key, entry, build_commit_op));
-        }
-        _ => *second = Some((raw_key, entry, build_commit_op)),
-    }
-}
-
-type PreparedIndexMutationBuilder = fn(
-    &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    RawIndexStoreKey,
-    Option<IndexEntryValue>,
-) -> PreparedIndexMutation;
-
-// Encode one touched index entry into one deterministic commit operation.
-fn push_commit_op_for_index_entry(
-    commit_ops: &mut Vec<PreparedIndexMutation>,
-    store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    raw_key: RawIndexStoreKey,
-    entry: Option<IndexRowIdentity>,
-    build_commit_op: PreparedIndexMutationBuilder,
-) {
-    let value = entry.map(|_| IndexEntryValue::presence());
-
-    commit_ops.push(build_commit_op(store, raw_key, value));
 }
 
 #[cfg(test)]

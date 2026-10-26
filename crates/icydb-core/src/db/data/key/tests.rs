@@ -44,6 +44,15 @@ where
     let decoded = K::from_primary_key_value(&primary_key_value).expect("primary key should decode");
 
     assert_eq!(decoded, key);
+
+    let raw = DecodedDataStoreKey::new_primary_key_value(EntityTag::new(17), &primary_key_value)
+        .to_raw_compact_key_error()
+        .expect("typed identity should encode");
+    let (entity, primary_key) = decode_data_store_key(&raw).expect("identity should decode");
+    let checkpoint = DecodedDataStoreKey::new_primary_key_value(entity, &primary_key)
+        .to_raw_compact_key_error()
+        .expect("decoded identity should re-encode");
+    assert_eq!(checkpoint.as_bytes(), raw.as_bytes());
 }
 
 fn assert_key_value_roundtrip<K>(key: K)
@@ -153,14 +162,21 @@ fn data_key_ordering_matches_bytes() {
 
 #[test]
 fn data_key_roundtrips_composite_primary_key_from_raw_bytes() {
-    let key = composite_data_key_fixture();
-    let raw = key.to_raw().expect("composite data key should encode");
-    let decoded =
-        DecodedDataStoreKey::try_from_raw(&raw).expect("composite data key should decode");
+    for key in [
+        composite_data_key_fixture(),
+        max_width_data_store_key_fixture(),
+    ] {
+        let raw = key.to_raw().expect("composite data key should encode");
+        let decoded =
+            DecodedDataStoreKey::try_from_raw(&raw).expect("composite data key should decode");
 
-    assert_eq!(decoded.entity_tag(), key.entity_tag());
-    assert_eq!(decoded.key, key.key);
-    assert_eq!(decoded.to_raw().unwrap().as_bytes(), raw.as_bytes());
+        assert_eq!(decoded.entity_tag(), key.entity_tag());
+        assert_eq!(decoded.key, key.key);
+        assert_eq!(
+            decoded.to_raw_compact_key_error().unwrap().as_bytes(),
+            raw.as_bytes()
+        );
+    }
 }
 
 #[test]
@@ -250,6 +266,13 @@ fn primary_key_decode_roundtrips_supported_typed_keys() {
         Principal::from_slice(&[9, 8, 7]),
         Some(Subaccount::from_array([5; 32])),
     ));
+    for subaccount in [None, Some(Subaccount::MIN), Some(Subaccount::MAX)] {
+        assert_primary_key_roundtrip(Account::from_owner_and_subaccount(
+            Principal::MAX,
+            subaccount,
+        ));
+    }
+    assert_primary_key_roundtrip(crate::types::U256::MAX);
     assert_primary_key_roundtrip(Unit);
     assert_primary_key_roundtrip(());
 }

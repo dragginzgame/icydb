@@ -9,7 +9,8 @@ use crate::{
         query::plan::EffectiveRuntimeFilterProgram,
         registry::StoreHandle,
         resource::budget::{
-            charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
+            charge_current_execution_budget, charge_current_execution_budget_pair,
+            charge_decoded_row, charge_materialized_data_row,
         },
     },
     error::InternalError,
@@ -305,10 +306,12 @@ impl ScalarRowRuntimeState {
 }
 
 fn charge_borrowed_traversal_row(row: &RawRow) -> Result<(), InternalError> {
-    charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::StoredBytesRead,
-        u64::try_from(row.len()).unwrap_or(u64::MAX),
+    charge_current_execution_budget_pair(
+        (DiagnosticExecutionBudgetResource::RowsVisited, 1),
+        (
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            u64::try_from(row.len()).unwrap_or(u64::MAX),
+        ),
     )
 }
 

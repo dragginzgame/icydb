@@ -3,7 +3,7 @@
 //! Does not own: journal-tail storage, commit marker lifecycle, recovery, or fold.
 //! Boundary: logical journal records -> stable-memory journal batch bytes.
 
-use crate::db::index::{IndexKey, IndexKeyKind, RawIndexStoreKey};
+use crate::db::index::{IndexKey, IndexKeyKind, RawIndexStoreKey, decode_index_key_frame};
 use crate::{
     db::{
         codec::{
@@ -1757,7 +1757,7 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
             let mut previous = None;
             for key in keys {
                 let decoded =
-                    IndexKey::try_from_raw(key).map_err(|_| journal_batch_corruption())?;
+                    decode_index_key_frame(key).map_err(|_| journal_batch_corruption())?;
                 if decoded.key_kind() != IndexKeyKind::User
                     || decoded.index_id().entity_tag() != *entity_tag
                     || previous.is_some_and(|prior: &RawIndexStoreKey| prior >= key)
@@ -1792,7 +1792,7 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
             validate_path(store_path)?;
             if key.as_bytes().is_empty()
                 || key.as_bytes().len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE
-                || crate::db::index::IndexKey::try_from_raw(key).is_err()
+                || decode_index_key_frame(key).is_err()
             {
                 return Err(journal_batch_corruption());
             }
@@ -1830,7 +1830,7 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
             validate_path(store_path)?;
             if key.as_bytes().is_empty()
                 || key.as_bytes().len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE
-                || crate::db::index::IndexKey::try_from_raw(key).is_err()
+                || decode_index_key_frame(key).is_err()
                 || plan_digest.to_bytes() == [0; 32]
             {
                 return Err(journal_batch_corruption());

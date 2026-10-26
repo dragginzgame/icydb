@@ -1022,9 +1022,6 @@ fn fold_selected_journal_head<C: CanisterKind>(
         prepared_ops.as_slice(),
     )
     .map_err(journal_failure)?;
-    handle
-        .with_index(|store| store.preflight_prefix_cardinality_delta_watermark(watermark))
-        .map_err(journal_failure)?;
     apply_preflighted_fold(
         store_path,
         handle,
@@ -1107,16 +1104,14 @@ fn prepare_folded_cardinality_maintenance(
         )
     })?;
     let changes = collect_folded_cardinality_changes(handle, prepared_ops, &authority)?;
-    handle
-        .with_schema(|schema| {
-            schema.prepare_cardinality_maintenance(
-                header,
-                authority.source(),
-                next_authority.source(),
-                changes.as_slice(),
-            )
-        })
-        .map(Some)
+    handle.with_schema(|schema| {
+        schema.prepare_cardinality_maintenance(
+            header,
+            authority.source(),
+            next_authority.source(),
+            changes.as_slice(),
+        )
+    })
 }
 
 const fn cardinality_batch_invalidates_source(record: &JournalRecord) -> bool {
@@ -1900,7 +1895,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
             }
             DecodedDataStoreKey::try_from_raw(primary_key)
                 .map_err(|_| InternalError::store_corruption())?;
-            RawRow::from_untrusted_bytes(row_bytes.clone())?;
+            RawRow::ensure_size(row_bytes)?;
             if mode == JournalRecordApplyMode::Fold {
                 expected_handle.with_data(DataStore::preflight_fold_recovered_journal)?;
             }

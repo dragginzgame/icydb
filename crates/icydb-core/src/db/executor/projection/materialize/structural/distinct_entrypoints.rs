@@ -8,7 +8,7 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             ProductionScalarOutputWork, StructuralCursorPage,
-            order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
+            order::cursor_boundary_from_orderable_row,
             projection::materialize::{
                 ProjectionDistinctStrategy, ProjectionDistinctWindow,
                 distinct::{DistinctProjectedRow, collect_distinct_projected_rows},
@@ -95,7 +95,7 @@ pub(in crate::db::executor::projection) fn project_distinct(
             collect_distinct_projected_rows(
                 strategy,
                 window,
-                data_rows,
+                data_rows.into_rows(),
                 |row| {
                     output_work
                         .borrow_mut()
@@ -104,9 +104,9 @@ pub(in crate::db::executor::projection) fn project_distinct(
                 },
                 |row| {
                     let boundary = resolved_order
-                        .map(|order| cursor_boundary_from_data_row(&row, &row_layout, order))
+                        .map(|order| row.cursor_boundary(&row_layout, order))
                         .transpose()?;
-                    project_data_row(&row_layout, prepared_projection, &row)
+                    project_data_row(&row_layout, prepared_projection, row)
                         .map(|row| DistinctProjectedRow::new(row, boundary))
                 },
             )

@@ -11,7 +11,7 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-ic-platform = { workspace = true, features = ["pocket-ic"] }
+ic-platform = { workspace = true, features = ["blake3", "pocket-ic"] }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
@@ -20,7 +20,6 @@ icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-blake3 = { workspace = true }
 ic-host-artifacts = { workspace = true }
 ic-wire = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }

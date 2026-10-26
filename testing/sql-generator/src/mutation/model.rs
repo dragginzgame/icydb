@@ -5,6 +5,7 @@
 
 use crate::{SqlGeneratorError, SqlGeneratorErrorKind, StructuralSignature};
 
+use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},

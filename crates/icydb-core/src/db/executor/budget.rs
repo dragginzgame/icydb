@@ -4,15 +4,11 @@
 use crate::{
     db::{
         executor::{EntityAuthority, RuntimeGroupedRow, SharedPreparedExecutionPlan},
-        resource::budget::{
-            HardExecutionContext, charge_current_execution_budget, runtime_value_work,
-        },
+        resource::budget::{HardExecutionContext, charge_runtime_result_work, runtime_value_work},
     },
     error::InternalError,
 };
-use icydb_diagnostic_code::{
-    DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
-};
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetScope, DiagnosticExecutionLane};
 
 /// Build literal-free attribution for one prepared read shape.
 pub(in crate::db::executor) fn prepared_read_execution_context(
@@ -98,16 +94,8 @@ pub(in crate::db::executor) fn charge_runtime_grouped_rows(
                 total.1.saturating_add(value_work.1),
             )
         });
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::ResultRows,
-        usize_as_u64(rows.len()),
-    )?;
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        nested_steps,
-    )?;
-    charge_current_execution_budget(DiagnosticExecutionBudgetResource::MaterializedBytes, bytes)?;
-    charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, bytes)
+
+    charge_runtime_result_work(rows.len(), bytes, nested_steps)
 }
 
 fn usize_as_u64(value: usize) -> u64 {

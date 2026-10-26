@@ -112,6 +112,51 @@ fn projection_row(contract: &StructuralRowContract, payload: &Value) -> DataRow 
     )
 }
 
+fn ordered_projection_row(layout: &RowLayout, payload: &Value) -> ProjectionDataRow {
+    use crate::db::{
+        executor::DataRowOrderWindow,
+        query::plan::{
+            OrderDirection, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
+        },
+    };
+    let order = ResolvedOrder::new(vec![ResolvedOrderField::new(
+        ResolvedOrderValueSource::direct_field(1),
+        OrderDirection::Asc,
+    )]);
+    let mut window = DataRowOrderWindow::new(layout.clone(), &order, Some(1));
+    window
+        .push(projection_row(layout.contract(), payload), None)
+        .unwrap();
+    window
+        .into_sorted_rows()
+        .unwrap()
+        .into_rows()
+        .next()
+        .unwrap()
+}
+
+#[test]
+fn ordered_projection_reuses_values_for_identity_and_repeated_columns() {
+    let layout = RowLayout::from_structural_row_contract(projection_contract(
+        AcceptedFieldKind::Text { max_len: None },
+        LeafCodec::Scalar(ScalarCodec::Text),
+        FieldStorageDecode::ByKind,
+    ));
+    let slots = PreparedDirectProjectionSlots::from_slots(&[1, 0, 1]);
+    for payload in [Value::Text("retained payload".into()), Value::Null] {
+        let row = ordered_projection_row(&layout, &payload);
+        let (raw, mut cached) = row.into_parts();
+        assert_eq!(
+            project_data_row_from_direct_slots(&layout, &raw, &slots, cached.as_mut()).unwrap(),
+            vec![payload.clone(), Value::Nat64(7), payload.clone()]
+        );
+        assert_eq!(
+            project_identity_data_row(&layout, ordered_projection_row(&layout, &payload)).unwrap(),
+            vec![Value::Nat64(7), payload]
+        );
+    }
+}
+
 #[test]
 fn scalar_byte_length_eligibility_uses_the_accepted_leaf_codec() {
     for (kind, codec, storage, eligible) in [
@@ -156,7 +201,7 @@ fn direct_projection_preserves_order_repeated_ownership_empty_and_null() {
         Value::Null,
     ] {
         let row = projection_row(layout.contract(), &payload);
-        let output = project_data_row_from_direct_slots(&layout, &row, &slots).unwrap();
+        let output = project_data_row_from_direct_slots(&layout, &row, &slots, None).unwrap();
         assert_eq!(output, vec![payload.clone(), Value::Nat64(7), payload]);
         if let (Value::List(first), Value::List(last)) = (&output[0], &output[2])
             && !first.is_empty()
@@ -186,7 +231,7 @@ fn direct_projection_preserves_scalar_storage_paths() {
                 let expected = vec![payload.clone(); order.len()];
                 let slots = PreparedDirectProjectionSlots::from_slots(&order);
                 assert_eq!(
-                    project_data_row_from_direct_slots(&layout, &row, &slots).unwrap(),
+                    project_data_row_from_direct_slots(&layout, &row, &slots, None).unwrap(),
                     expected
                 );
             }
@@ -209,13 +254,13 @@ fn direct_projection_validates_selected_slots_and_primary_key_only() {
     ));
     let id_only = PreparedDirectProjectionSlots::from_slots(&[0]);
     assert_eq!(
-        project_data_row_from_direct_slots(&layout, &row, &id_only).unwrap(),
+        project_data_row_from_direct_slots(&layout, &row, &id_only, None).unwrap(),
         vec![Value::Nat64(7)]
     );
     for order in [vec![1], vec![0, 1, 1]] {
         let slots = PreparedDirectProjectionSlots::from_slots(&order);
         assert_eq!(
-            project_data_row_from_direct_slots(&layout, &row, &slots)
+            project_data_row_from_direct_slots(&layout, &row, &slots, None)
                 .unwrap_err()
                 .class(),
             ErrorClass::Corruption
@@ -225,7 +270,7 @@ fn direct_projection_validates_selected_slots_and_primary_key_only() {
     let wrong_key =
         DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(8).into());
     assert_eq!(
-        project_data_row_from_direct_slots(&layout, &(wrong_key, raw), &id_only)
+        project_data_row_from_direct_slots(&layout, &(wrong_key, raw), &id_only, None)
             .unwrap_err()
             .class(),
         ErrorClass::Corruption
@@ -250,7 +295,7 @@ fn by_kind_materialization_preserves_empty_null_nested_and_repeated_values() {
     for payload in [Value::Null, Value::List(vec![]), nested_payload(2, 1024)] {
         let row = projection_row(layout.contract(), &payload);
         assert_eq!(
-            project_data_row_from_direct_slots(&layout, &row, &slots).unwrap(),
+            project_data_row_from_direct_slots(&layout, &row, &slots, None).unwrap(),
             vec![payload.clone(), Value::Nat64(7), payload.clone()],
         );
         let mut full = Vec::new();
@@ -282,7 +327,7 @@ fn by_kind_lazy_and_eager_materialization_agree_on_corruption() {
     ));
     let id_only = PreparedDirectProjectionSlots::from_slots(&[0]);
     assert_eq!(
-        project_data_row_from_direct_slots(&layout, &row, &id_only).unwrap(),
+        project_data_row_from_direct_slots(&layout, &row, &id_only, None).unwrap(),
         vec![Value::Nat64(7)]
     );
     let eager = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
@@ -301,6 +346,6 @@ fn by_kind_lazy_and_eager_materialization_agree_on_corruption() {
         assert_eq!(error.diagnostic_code(), eager.diagnostic_code());
     }
     let slots = PreparedDirectProjectionSlots::from_slots(&[1, 1]);
-    let error = project_data_row_from_direct_slots(&layout, &row, &slots).unwrap_err();
+    let error = project_data_row_from_direct_slots(&layout, &row, &slots, None).unwrap_err();
     assert_eq!(error.diagnostic_code(), eager.diagnostic_code());
 }

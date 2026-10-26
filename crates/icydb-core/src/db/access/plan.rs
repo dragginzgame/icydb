@@ -111,23 +111,11 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(in crate::db) fn union(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
-        let mut saw_explicit_empty = false;
         for child in children {
             Self::append_flattened_child(&mut out, child, true);
         }
-        out.retain(|child| {
-            let is_empty = child.is_explicit_empty();
-            if is_empty {
-                saw_explicit_empty = true;
-            }
 
-            !is_empty
-        });
-        if out.is_empty() && saw_explicit_empty {
-            return Self::by_keys(Vec::new());
-        }
-
-        Self::collapse_canonical_composite(out, true)
+        Self::collapse_composite_with_identities(out, true)
     }
 
     /// Construct a canonical intersection access plan.
@@ -142,11 +130,8 @@ impl<K> AccessPlan<K> {
         for child in children {
             Self::append_flattened_child(&mut out, child, false);
         }
-        if let Some(empty_child) = out.iter().position(Self::is_explicit_empty) {
-            return out.remove(empty_child);
-        }
 
-        Self::collapse_canonical_composite(out, false)
+        Self::collapse_composite_with_identities(out, false)
     }
 
     /// Borrow the concrete path when this plan is a single-path node.
@@ -256,8 +241,32 @@ impl<K> AccessPlan<K> {
         self.map_keys_with(&mut map_key)
     }
 
+    // Apply structural empty-set identities to already-flattened children.
+    // Value normalization reuses this operation without rebuilding its vector.
+    pub(super) fn collapse_composite_with_identities(
+        mut children: Vec<Self>,
+        is_union: bool,
+    ) -> Self {
+        if is_union {
+            let mut saw_explicit_empty = false;
+            children.retain(|child| {
+                let is_empty = child.is_explicit_empty();
+                saw_explicit_empty |= is_empty;
+
+                !is_empty
+            });
+            if children.is_empty() && saw_explicit_empty {
+                return Self::by_keys(Vec::new());
+            }
+        } else if let Some(empty_child) = children.iter().position(Self::is_explicit_empty) {
+            return children.remove(empty_child);
+        }
+
+        Self::collapse_canonical_composite(children, is_union)
+    }
+
     // Collapse an already-flattened composite node into canonical arity form.
-    fn collapse_canonical_composite(mut children: Vec<Self>, is_union: bool) -> Self {
+    pub(super) fn collapse_canonical_composite(mut children: Vec<Self>, is_union: bool) -> Self {
         if children.is_empty() {
             return Self::full_scan();
         }
@@ -273,7 +282,7 @@ impl<K> AccessPlan<K> {
     }
 
     // Append one child into the requested flattened composite accumulator.
-    fn append_flattened_child(out: &mut Vec<Self>, child: Self, flatten_union: bool) {
+    pub(super) fn append_flattened_child(out: &mut Vec<Self>, child: Self, flatten_union: bool) {
         match child {
             Self::Union(children) if flatten_union => {
                 for child in children {

@@ -3,6 +3,7 @@
 //! Does not own: scenario selection, execution, receipts, or artifact merging.
 //! Boundary: maps one stable scenario identity into the fixed shared eight-shard contract.
 
+use ic_platform::blake3;
 use std::{
     error::Error,
     fmt::{self, Display},

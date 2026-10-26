@@ -37,6 +37,7 @@ pub(super) struct ScalarMaterializationPlan<'a> {
     cursor_emission: CursorEmissionMode,
     defer_retained_slot_distinct_window: bool,
     payload_strategy: StructuralCursorPayloadStrategy,
+    resolved_order: Option<&'a ResolvedOrder>,
 }
 
 impl<'a> ScalarMaterializationPlan<'a> {
@@ -165,7 +166,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
         &self,
         rows: Vec<KernelRow>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        finalize_structural_cursor_payload(rows, self.payload_strategy)
+        finalize_structural_cursor_payload(rows, self.payload_strategy, self.resolved_order)
     }
 }
 
@@ -183,6 +184,7 @@ pub(in crate::db::executor) struct CursorlessShortPathPlan<'a> {
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     payload_strategy: StructuralCursorPayloadStrategy,
+    resolved_order: Option<&'a ResolvedOrder>,
 }
 
 impl<'a> CursorlessShortPathPlan<'a> {
@@ -214,7 +216,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
         &self,
         rows: Vec<KernelRow>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        finalize_structural_cursor_payload(rows, self.payload_strategy)
+        finalize_structural_cursor_payload(rows, self.payload_strategy, self.resolved_order)
     }
 }
 
@@ -275,6 +277,7 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
         cursor_emission: capabilities.cursor_emission,
         defer_retained_slot_distinct_window,
         payload_strategy: structural_policy.payload_strategy(),
+        resolved_order: retained_order_contract(plan, capabilities.retained_slot_layout),
     })
 }
 
@@ -322,7 +325,20 @@ pub(in crate::db::executor) fn resolve_cursorless_short_path_plan<'a>(
             capabilities.retain_slot_rows,
         ),
         payload_strategy: structural_policy.payload_strategy(),
+        resolved_order: retained_order_contract(plan, capabilities.retained_slot_layout),
     }))
+}
+
+// Forward only order inputs actually carried as complete values by the frozen
+// layout. Route-ordered cursorless projection may retain a different slot set.
+fn retained_order_contract<'a>(
+    plan: &'a AccessPlannedQuery,
+    layout: Option<&RetainedSlotLayout>,
+) -> Option<&'a ResolvedOrder> {
+    if !layout?.retains_full_values_for_slots(plan.order_referenced_slots()?) {
+        return None;
+    }
+    plan.resolved_order()
 }
 
 // Resolve the scalar structural execution policy shared by both the main

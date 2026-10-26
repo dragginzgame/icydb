@@ -333,3 +333,50 @@ fn casefold_missing_slots_and_corrupt_rows_keep_their_existing_outcomes() {
         }
     }
 }
+
+#[test]
+fn borrowed_field_pairs_match_general_comparison_semantics() {
+    let values = [
+        ScalarSlotValueRef::Null,
+        ScalarSlotValueRef::Value(ScalarValueRef::Text("")),
+        ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha")),
+        ScalarSlotValueRef::Value(ScalarValueRef::Text("ALPHA")),
+        ScalarSlotValueRef::Value(ScalarValueRef::Text("İß")),
+        ScalarSlotValueRef::Value(ScalarValueRef::Text("alpha suffix")),
+        ScalarSlotValueRef::Value(ScalarValueRef::Blob(&[])),
+        ScalarSlotValueRef::Value(ScalarValueRef::Blob(&[0, 1, 255])),
+        ScalarSlotValueRef::Value(ScalarValueRef::Blob(&[0, 2])),
+        ScalarSlotValueRef::Value(ScalarValueRef::Unit),
+    ];
+    for coercion in [
+        CoercionId::Strict,
+        CoercionId::CollectionElement,
+        CoercionId::TextCasefold,
+        CoercionId::NumericWiden,
+    ] {
+        let coercion = CoercionSpec::new(coercion);
+        for op in [
+            CompareOp::Eq,
+            CompareOp::Ne,
+            CompareOp::Lt,
+            CompareOp::Lte,
+            CompareOp::Gt,
+            CompareOp::Gte,
+            CompareOp::In,
+            CompareOp::NotIn,
+            CompareOp::Contains,
+            CompareOp::StartsWith,
+            CompareOp::EndsWith,
+        ] {
+            for left in values {
+                for right in values {
+                    assert_eq!(
+                        eval_compare_scalar_slot_pair(left, op, right, &coercion),
+                        eval_compare_values(&left.into_value(), op, &right.into_value(), &coercion),
+                        "{left:?} {op:?} {right:?} under {coercion:?}",
+                    );
+                }
+            }
+        }
+    }
+}

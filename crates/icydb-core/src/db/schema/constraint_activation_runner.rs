@@ -31,10 +31,10 @@ use crate::{
             publish_constraint_validation_job,
         },
         data::{
-            AcceptedStructuralRowAuthority, RawDataStoreKey, StoreVisit, StructuralRowContract,
-            StructuralSlotReader, decode_data_store_key,
+            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            StructuralRowContract, StructuralSlotReader, decode_data_store_key,
         },
-        key_taxonomy::RawDataStoreKeyRange,
+        key_taxonomy::{PrimaryKeyValue, RawDataStoreKeyRange},
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedConstraintCatalog, AcceptedRowConstraintEvaluationError,
@@ -1060,6 +1060,23 @@ impl ValidationPageScan {
     }
 }
 
+// Both validation scans retain decoded identity and materialize only their final
+// anchor. Empty resumed pages keep the incoming checkpoint unchanged.
+fn scan_checkpoint(
+    entity_tag: EntityTag,
+    primary_key: Option<&PrimaryKeyValue>,
+    checkpoint: Option<&RawDataStoreKey>,
+) -> Result<Option<RawDataStoreKey>, InternalError> {
+    primary_key
+        .map(|primary_key| {
+            DecodedDataStoreKey::new_primary_key_value(entity_tag, primary_key)
+                .to_raw_compact_key_error()
+                .map_err(|_| InternalError::identity_corruption())
+        })
+        .transpose()
+        .map(|key| key.or_else(|| checkpoint.cloned()))
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "one scan keeps exact row, schema, program, and finding identities explicit"
@@ -1083,7 +1100,7 @@ fn scan_row_local_validation_page(
         .upper_exclusive()
         .map(RawDataStoreKey::from_store_range_bound)
         .map_or(Bound::Unbounded, Bound::Excluded);
-    let mut final_checkpoint = checkpoint.cloned();
+    let mut last_key = None;
     let mut rows_scanned = 0usize;
     let mut decoded_bytes = 0usize;
     let mut findings = Vec::new();
@@ -1156,13 +1173,15 @@ fn scan_row_local_validation_page(
             }
             decoded_bytes = decoded_bytes.saturating_add(row_bytes);
             rows_scanned = rows_scanned.saturating_add(1);
-            final_checkpoint = Some(raw_key.clone());
+            // The strict key codec preserves identity bytes; only the final key
+            // needs an owned checkpoint after this scan.
+            last_key = Some(primary_key);
             Ok(StoreVisit::Continue)
         })
     })?;
 
     Ok(ValidationPageScan {
-        checkpoint: final_checkpoint,
+        checkpoint: scan_checkpoint(entity_tag, last_key.as_ref(), checkpoint)?,
         rows_scanned,
         findings,
         exhausted: !has_more,
@@ -1416,7 +1435,7 @@ fn scan_unique_validation_page(
                 .upper_exclusive()
                 .map(RawDataStoreKey::from_store_range_bound)
                 .map_or(Bound::Unbounded, Bound::Excluded);
-            let mut final_checkpoint = checkpoint.cloned();
+            let mut last_key = None;
             let mut rows_scanned = 0usize;
             let mut decoded_bytes = 0usize;
             let mut staged_bytes = 0usize;
@@ -1481,7 +1500,7 @@ fn scan_unique_validation_page(
                     }
                     decoded_bytes = decoded_bytes.saturating_add(row_bytes);
                     rows_scanned = rows_scanned.saturating_add(1);
-                    final_checkpoint = Some(raw_key.clone());
+                    last_key = Some(primary_key);
                     Ok(StoreVisit::Continue)
                 })
             })?;
@@ -1496,7 +1515,7 @@ fn scan_unique_validation_page(
 
             Ok(UniqueValidationPageScan {
                 page: ValidationPageScan {
-                    checkpoint: final_checkpoint,
+                    checkpoint: scan_checkpoint(entity_tag, last_key.as_ref(), checkpoint)?,
                     rows_scanned,
                     findings,
                     exhausted: !has_more,

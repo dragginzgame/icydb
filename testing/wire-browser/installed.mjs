@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
-import { Ed25519KeyIdentity } from '@icp-sdk/core/identity';
+import { Ed25519KeyIdentity } from '@tokostudios/ic-platform/identity';
 
 if (process.argv[2] === '--identity') {
   console.log(Ed25519KeyIdentity.generate(new Uint8Array(32).fill(7)).getPrincipal().toText());

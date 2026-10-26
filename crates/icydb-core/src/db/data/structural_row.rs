@@ -24,9 +24,6 @@ use crate::{
 };
 use std::rc::Rc;
 
-type SlotSpan = Option<(usize, usize)>;
-type SlotSpans = Vec<SlotSpan>;
-type RowFieldSpans<'a> = (&'a [u8], SlotSpans);
 type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
 
 enum FieldMaterialization<'a> {
@@ -352,8 +349,8 @@ impl StructuralRowContract {
 ///
 /// StructuralRowFieldBytes is the top-level persisted-row field scanner for
 /// slot-driven proof paths.
-/// It keeps the original encoded field payload bytes and records one byte span
-/// per model slot so callers can decode only the fields they actually need.
+/// It borrows the validated offset table and encoded field payload bytes so
+/// callers can decode only the fields they actually need without copying spans.
 ///
 
 #[derive(Clone, Debug)]
@@ -361,7 +358,7 @@ pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
     row_bytes: &'a [u8],
     layout_version: RowLayoutVersion,
     payload: &'a [u8],
-    spans: SlotSpans,
+    table: &'a [u8],
 }
 
 impl<'a> StructuralRowFieldBytes<'a> {
@@ -372,14 +369,19 @@ impl<'a> StructuralRowFieldBytes<'a> {
     ) -> Result<Self, InternalError> {
         let decoded = decode_structural_row_payload_bytes(row_bytes)?;
         let layout_version = decoded.layout_version();
-        let (payload, spans) =
-            decode_row_field_spans(decoded.into_payload(), layout_version, contract)?;
+        let (_, physical_count, table, payload) =
+            decode_slot_table_sections(decoded.into_payload(), layout_version, contract)?;
+        let mut next_start = 0;
+        for slot in 0..physical_count {
+            let (_, end) = decode_row_field_span(table, slot, payload.len(), next_start)?;
+            next_start = end;
+        }
 
         Ok(Self {
             row_bytes,
             layout_version,
             payload,
-            spans,
+            table,
         })
     }
 
@@ -398,9 +400,10 @@ impl<'a> StructuralRowFieldBytes<'a> {
     /// Borrow one encoded persisted field payload by stable slot index.
     #[must_use]
     pub(in crate::db::data) fn field(&self, slot: usize) -> Option<&'a [u8]> {
-        let (start, end) = self.spans.get(slot).copied().flatten()?;
+        // The immutable table was admitted in full when this reader opened.
+        let (start, end) = read_row_field_span(self.table, slot).ok()?;
 
-        Some(&self.payload[start..end])
+        self.payload.get(start..end)
     }
 
     /// Return the stamped physical row-layout identity.
@@ -480,26 +483,6 @@ fn decode_structural_row_payload_bytes(
     decode_row_payload_bytes(bytes)
 }
 
-// Decode the canonical slot-container header into slot-aligned payload spans.
-fn decode_row_field_spans<'payload>(
-    payload: &'payload [u8],
-    layout_version: RowLayoutVersion,
-    contract: &StructuralRowContract,
-) -> Result<RowFieldSpans<'payload>, InternalError> {
-    let (data_start, physical_count, table, data_section) =
-        decode_slot_table_sections(payload, layout_version, contract)?;
-    let mut spans: SlotSpans = vec![None; contract.field_count()];
-    let mut next_start = 0;
-
-    for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
-        let (start, end) = decode_row_field_span(table, slot, data_section.len(), next_start)?;
-        *span = Some((start, end));
-        next_start = end;
-    }
-
-    Ok((&payload[data_start..], spans))
-}
-
 type SparseRequiredRowFieldSpans<'a> =
     Result<(&'a [u8], Option<(usize, usize)>, (usize, usize)), InternalError>;
 
@@ -542,6 +525,21 @@ fn decode_row_field_span(
     data_len: usize,
     expected_start: usize,
 ) -> Result<(usize, usize), InternalError> {
+    let (start, end) = read_row_field_span(table, slot)?;
+    if end == start || start != expected_start {
+        return Err(InternalError::persisted_row_decode_corruption());
+    }
+    // The writer concatenates slot payloads in directory order. The final
+    // entry must consume the remaining bytes, with no gaps or aliases.
+    if end > data_len || (slot.checked_add(1) == Some(table.len() / 8) && end != data_len) {
+        return Err(InternalError::persisted_row_decode_corruption());
+    }
+    Ok((start, end))
+}
+
+// Read the same fixed-width table entry for admission and later borrowed access.
+// Checked offsets also make requests outside the physical table fail closed.
+fn read_row_field_span(table: &[u8], slot: usize) -> Result<(usize, usize), InternalError> {
     let entry_start = slot
         .checked_mul(8)
         .ok_or_else(InternalError::persisted_row_decode_corruption)?;
@@ -555,17 +553,9 @@ fn decode_row_field_span(
         .map_err(|_| InternalError::persisted_row_decode_corruption())?;
     let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
         .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-    if len == 0 || start != expected_start {
-        return Err(InternalError::persisted_row_decode_corruption());
-    }
     let end = start
         .checked_add(len)
         .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-    // The writer concatenates slot payloads in directory order. The final
-    // entry must consume the remaining bytes, with no gaps or aliases.
-    if end > data_len || (entry_end == table.len() && end != data_len) {
-        return Err(InternalError::persisted_row_decode_corruption());
-    }
     Ok((start, end))
 }
 

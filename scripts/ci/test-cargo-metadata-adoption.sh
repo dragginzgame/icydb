@@ -67,9 +67,10 @@ CARGO_HOME="$ROOT/.cache/cargo/icydb" \
   bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
   > "$fixture/boundaries.log" 2>&1
 cp Cargo.toml "$fixture/catalog.toml"
-for dependency in ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister; do
+for dependency in ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3; do
   cp "$fixture/catalog.toml" Cargo.toml
   case "$dependency" in
+    blake3) requirement=1.8.7 ;;
     ic-cdk) requirement=0.20.3 ;;
     ic-stable-structures) requirement=0.7.2 ;;
     pocket-ic) requirement=16.1.0 ;;

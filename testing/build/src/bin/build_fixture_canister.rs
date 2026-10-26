@@ -8,19 +8,29 @@ use icydb_testing_build::{
     stage_canister_for_icp_with_options,
 };
 
-fn main() {
-    let (canister_name, options) = match parse_args(std::env::args().skip(1)) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            eprintln!("{err}");
-            eprintln!(
-                "usage: build_fixture_canister [canister] [--build-profile local|production] [--profile debug|release|wasm-release|wasm-attribution] [--sql-mode on|off]"
-            );
-            std::process::exit(2);
-        }
-    };
+use clap::Parser;
 
-    match stage_canister_for_icp_with_options(canister_name.as_str(), options) {
+#[derive(Parser)]
+#[command(about = "Stage one supported fixture canister")]
+struct Args {
+    #[arg(default_value = "demo_rpg")]
+    canister: String,
+    #[arg(long, default_value = "local", value_parser = CanisterBuildProfile::parse)]
+    build_profile: CanisterBuildProfile,
+    #[arg(long, default_value = "debug", value_parser = CanisterWasmProfile::parse)]
+    profile: CanisterWasmProfile,
+    #[arg(long, default_value = "on", value_parser = CanisterSqlMode::parse)]
+    sql_mode: CanisterSqlMode,
+}
+
+fn main() {
+    let args = Args::parse();
+    let options = CanisterBuildOptions {
+        build_profile: args.build_profile,
+        profile: args.profile,
+        sql_mode: args.sql_mode,
+    };
+    match stage_canister_for_icp_with_options(&args.canister, options) {
         Ok(wasm_path) => println!("staged wasm: {}", wasm_path.display()),
         Err(err) => {
             eprintln!("{err}");
@@ -29,51 +39,35 @@ fn main() {
     }
 }
 
-fn parse_args(
-    args: impl IntoIterator<Item = String>,
-) -> Result<(String, CanisterBuildOptions), String> {
-    let mut canister_name = None;
-    let mut options = CanisterBuildOptions::default();
-    let mut args = args.into_iter();
+///
+/// TESTS
+///
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--build-profile" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| "--build-profile requires a value".to_string())?;
-                options.build_profile = CanisterBuildProfile::parse(value.as_str())?;
-            }
-            "--profile" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| "--profile requires a value".to_string())?;
-                options.profile = CanisterWasmProfile::parse(value.as_str())?;
-            }
-            "--sql-mode" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| "--sql-mode requires a value".to_string())?;
-                options.sql_mode = CanisterSqlMode::parse(value.as_str())?;
-            }
-            "--help" | "-h" => {
-                return Err(
-                    "build_fixture_canister stages a supported fixture canister".to_string()
-                );
-            }
-            value if value.starts_with('-') => {
-                return Err(format!("unknown option '{value}'"));
-            }
-            value => {
-                if canister_name.replace(value.to_string()).is_some() {
-                    return Err("only one canister name may be supplied".to_string());
-                }
-            }
-        }
+    #[test]
+    fn fixture_arguments_preserve_defaults_and_explicit_build_selection() {
+        let defaults = Args::try_parse_from(["build_fixture_canister"]).unwrap();
+        assert_eq!(defaults.canister, "demo_rpg");
+        assert_eq!(defaults.build_profile, CanisterBuildProfile::LocalTest);
+        assert_eq!(defaults.profile, CanisterWasmProfile::Debug);
+        assert_eq!(defaults.sql_mode, CanisterSqlMode::Enabled);
+        let explicit = Args::try_parse_from([
+            "build_fixture_canister",
+            "sql",
+            "--build-profile",
+            "production",
+            "--profile",
+            "wasm-attribution",
+            "--sql-mode",
+            "sql-off",
+        ])
+        .unwrap();
+        assert_eq!(explicit.canister, "sql");
+        assert_eq!(explicit.build_profile, CanisterBuildProfile::Production);
+        assert_eq!(explicit.profile, CanisterWasmProfile::WasmAttribution);
+        assert_eq!(explicit.sql_mode, CanisterSqlMode::Disabled);
+        assert!(Args::try_parse_from(["build_fixture_canister", "--profile", "unknown"]).is_err());
     }
-
-    Ok((
-        canister_name.unwrap_or_else(|| "demo_rpg".to_string()),
-        options,
-    ))
 }

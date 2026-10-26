@@ -8,27 +8,13 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::{DecodedDataStoreKey, StructuralRowContract, StructuralSlotReader},
-        index::{
-            IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
-            plan::{
-                accepted_expression_index_key_for_slot_reader_with_membership_structural,
-                accepted_field_path_index_key_for_slot_reader_with_membership_structural,
-                error::unique_violation,
-            },
-        },
+        index::{IndexKey, IndexPlanReadView, IndexReadContract, plan::AcceptedIndexKeyAuthority},
         key_taxonomy::PrimaryKeyValue,
-        predicate::PredicateProgram,
-        schema::{SchemaExpressionIndexInfo, SchemaIndexInfo},
     },
     error::{InternalError, MutationDiagnosticContext},
     types::EntityTag,
 };
 use std::ops::Bound;
-
-enum UniqueKeyAuthority<'a> {
-    AcceptedFieldPath(&'a SchemaIndexInfo, Option<&'a PredicateProgram>),
-    AcceptedExpression(&'a SchemaExpressionIndexInfo, Option<&'a PredicateProgram>),
-}
 
 const fn batch_override_releases_unique_membership(
     batch_overrides_existing: bool,
@@ -37,134 +23,14 @@ const fn batch_override_releases_unique_membership(
     batch_overrides_existing && !final_row_still_matches
 }
 
-impl UniqueKeyAuthority<'_> {
-    const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
-        match self {
-            Self::AcceptedFieldPath(index, _) => IndexId::new_with_generation(
-                entity_tag,
-                index.ordinal(),
-                index.physical_generation(),
-            ),
-            Self::AcceptedExpression(index, _) => IndexId::new_with_generation(
-                entity_tag,
-                index.ordinal(),
-                index.physical_generation(),
-            ),
-        }
-    }
-
-    fn build_index_key_from_row_slots(
-        &self,
-        entity_tag: EntityTag,
-        primary_key: &PrimaryKeyValue,
-        row_fields: &StructuralSlotReader<'_>,
-    ) -> Result<Option<IndexKey>, InternalError> {
-        match self {
-            Self::AcceptedFieldPath(index, predicate_program) => {
-                accepted_field_path_index_key_for_slot_reader_with_membership_structural(
-                    entity_tag,
-                    index,
-                    *predicate_program,
-                    primary_key,
-                    row_fields,
-                )
-            }
-            Self::AcceptedExpression(index, predicate_program) => {
-                accepted_expression_index_key_for_slot_reader_with_membership_structural(
-                    entity_tag,
-                    index,
-                    *predicate_program,
-                    primary_key,
-                    row_fields,
-                )
-            }
-        }
-    }
-
-    fn unique_violation(
-        &self,
-        accepted_schema_fingerprint: CommitSchemaFingerprint,
-        mutation: Option<MutationDiagnosticContext>,
-        entity_tag: EntityTag,
-    ) -> InternalError {
-        let identity = match self {
-            Self::AcceptedFieldPath(index, _) => index.unique_constraint(),
-            Self::AcceptedExpression(index, _) => index.unique_constraint(),
-        };
-        let Some(identity) = identity else {
-            return InternalError::index_unique_validation_corruption();
-        };
-        unique_violation(
-            accepted_schema_fingerprint,
-            mutation,
-            identity.id().get(),
-            entity_tag.value(),
-        )
-    }
-}
-
-/// Validate one accepted field-path unique index constraint.
 #[expect(clippy::too_many_arguments)]
-pub(super) fn validate_unique_constraint_accepted_field_path_structural(
+pub(super) fn validate_unique_constraint_structural_impl(
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    accepted_index: &SchemaIndexInfo,
-    predicate_program: Option<&PredicateProgram>,
-    read_contract: IndexReadContract<'_>,
-    new_primary_key: Option<&PrimaryKeyValue>,
-    new_index_key: Option<&IndexKey>,
-) -> Result<(), InternalError> {
-    validate_unique_constraint_structural_impl(
-        accepted_schema_fingerprint,
-        mutation,
-        entity_tag,
-        read_view,
-        row_contract,
-        UniqueKeyAuthority::AcceptedFieldPath(accepted_index, predicate_program),
-        read_contract,
-        new_primary_key,
-        new_index_key,
-    )
-}
-
-/// Validate one accepted expression unique index constraint.
-#[expect(clippy::too_many_arguments)]
-pub(super) fn validate_unique_constraint_accepted_expression_structural(
-    accepted_schema_fingerprint: CommitSchemaFingerprint,
-    mutation: Option<MutationDiagnosticContext>,
-    entity_tag: EntityTag,
-    read_view: &dyn IndexPlanReadView,
-    row_contract: &StructuralRowContract,
-    accepted_index: &SchemaExpressionIndexInfo,
-    predicate_program: Option<&PredicateProgram>,
-    read_contract: IndexReadContract<'_>,
-    new_primary_key: Option<&PrimaryKeyValue>,
-    new_index_key: Option<&IndexKey>,
-) -> Result<(), InternalError> {
-    validate_unique_constraint_structural_impl(
-        accepted_schema_fingerprint,
-        mutation,
-        entity_tag,
-        read_view,
-        row_contract,
-        UniqueKeyAuthority::AcceptedExpression(accepted_index, predicate_program),
-        read_contract,
-        new_primary_key,
-        new_index_key,
-    )
-}
-
-#[expect(clippy::too_many_arguments)]
-fn validate_unique_constraint_structural_impl(
-    accepted_schema_fingerprint: CommitSchemaFingerprint,
-    mutation: Option<MutationDiagnosticContext>,
-    entity_tag: EntityTag,
-    read_view: &dyn IndexPlanReadView,
-    row_contract: &StructuralRowContract,
-    key_authority: UniqueKeyAuthority<'_>,
+    key_authority: AcceptedIndexKeyAuthority<'_>,
     read_contract: IndexReadContract<'_>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
@@ -275,7 +141,7 @@ fn build_unique_index_key_from_row_slots(
     entity_tag: EntityTag,
     primary_key: &PrimaryKeyValue,
     row_fields: &StructuralSlotReader<'_>,
-    key_authority: &UniqueKeyAuthority<'_>,
+    key_authority: &AcceptedIndexKeyAuthority<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
     let key = key_authority.build_index_key_from_row_slots(entity_tag, primary_key, row_fields);
 

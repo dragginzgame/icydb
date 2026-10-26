@@ -50,6 +50,23 @@ fn full_and_sparse_reads_reject_malformed_unselected_spans() {
         )
         .unwrap(),
     );
+    let valid = StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
+        .expect("canonical table should open");
+    // Repeated out-of-order access uses the same admitted physical directory.
+    for slot in [2, 0, 1, 2, 0] {
+        let bytes = valid.field_bytes.field(slot).expect("physical slot exists");
+        let expected = encode_canonical_value_for_accepted_field_contract(
+            contract
+                .required_accepted_field_persistence_contract(slot)
+                .unwrap(),
+            &[Value::Nat64(7), Value::Bool(true), Value::Blob(vec![7])][slot],
+        )
+        .unwrap();
+        assert_eq!(bytes, expected);
+    }
+    for slot in [3, usize::MAX / 8, usize::MAX] {
+        assert!(valid.field_bytes.field(slot).is_none());
+    }
     let payload = decode_row_payload_bytes(row.as_bytes())
         .unwrap()
         .into_payload();

@@ -687,8 +687,8 @@ fn scan_data_rows_direct_with_filter_program(
     })
 }
 
-// Run the materialized-order raw data-row lane through one residual-predicate
-// policy helper so every scan shares the same scan-time filtering contract.
+// Let the ordering window consume the residual filter while its reader is
+// still alive, so accepted raw rows open only once for filtering and ordering.
 pub(super) fn scan_materialized_order_direct_data_rows<'a>(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
@@ -713,18 +713,14 @@ pub(super) fn scan_materialized_order_direct_data_rows<'a>(
 
         while let Some(key) = next_direct_data_row_scan_key(key_stream)? {
             rows_scanned = rows_scanned.saturating_add(1);
-            let row = match residual_filter_program {
-                None => row_runtime.read_data_row(consistency, key),
-                Some(filter_program) => {
-                    row_runtime.read_data_row_with_filter_program(consistency, key, filter_program)
-                }
-            }?;
+            let row = row_runtime.read_data_row(consistency, key)?;
             let Some(row) = row else {
                 continue;
             };
 
-            window.push(row)?;
-            rows_matched = rows_matched.saturating_add(1);
+            if window.push(row, residual_filter_program)? {
+                rows_matched = rows_matched.saturating_add(1);
+            }
         }
 
         Ok(DataRowOrderScanResult {
@@ -735,9 +731,8 @@ pub(super) fn scan_materialized_order_direct_data_rows<'a>(
     })
 }
 
-// Run one direct data-row scan through the shared residual-filter contract so
-// plain, filtered, and materialized-order raw lanes all choose the same row
-// reader in one place.
+// Run plain and filtered direct row collection through the shared residual
+// contract. Materialized ordering keeps its reader through window admission.
 pub(super) fn scan_direct_data_rows_with_residual_policy(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,

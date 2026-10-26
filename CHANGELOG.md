@@ -5,6 +5,72 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.284.3]
+
+### 🩹 Fixed
+
+- Extend direct primary-row traversal to descending scans, preserving bounded
+  admission and resume behavior ([#261](https://github.com/dragginzgame/icydb/issues/261), partial).
+
+- Keep journal convergence available when optional cardinality evidence is
+  stale, unavailable or contains invalid counts ([#79](https://github.com/dragginzgame/icydb/issues/79)).
+
+- Retain admitted order values through projection and cursor construction
+  ([#408](https://github.com/dragginzgame/icydb/issues/408)); reuse filter readers
+  for raw-row sorting ([#410](https://github.com/dragginzgame/icydb/issues/410), partial).
+
+- Borrow the validated row offset table instead of allocating a duplicate span
+  vector ([#257](https://github.com/dragginzgame/icydb/issues/257), partial).
+
+- Materialize only the final checkpoint for cardinality and constraint-validation
+  pages ([#459](https://github.com/dragginzgame/icydb/issues/459)).
+
+- Remove the discarded delete-scheduler key decode; commit preparation retains
+  strict admission ([#462](https://github.com/dragginzgame/icydb/issues/462)).
+
+- Compare text/blob fields without copying their stored payloads, preserving
+  coercion and null behavior ([#465](https://github.com/dragginzgame/icydb/issues/465)).
+
+- Avoid copying raw keys in migration validation, rewrite and final-check pages
+  ([#463](https://github.com/dragginzgame/icydb/issues/463)).
+
+- Avoid discarded row and key copies during migration journal validation
+  ([#466](https://github.com/dragginzgame/icydb/issues/466)), cardinality scans
+  ([#460](https://github.com/dragginzgame/icydb/issues/460)), unique-index validation
+  ([#464](https://github.com/dragginzgame/icydb/issues/464)) and index-frame checks
+  ([#461](https://github.com/dragginzgame/icydb/issues/461)), preserving corruption
+  refusals and retained data.
+
+### 🧹 Cleanup
+
+- Combine borrowed-row budget charges through the existing ordered charge owner
+  ([#293](https://github.com/dragginzgame/icydb/issues/293), partial).
+
+- Route browser Agent and identity APIs through published IC Platform, retaining
+  Wire frames and fixture trust behavior
+  ([#468](https://github.com/dragginzgame/icydb/issues/468)).
+
+
+- Share preparation, hashing and value construction through their existing
+  owners; standardize fixture-build arguments and help.
+
+### 🧪 Testing
+
+- Add scoped synthetic instruction-counter tests for budget sampling, exhaustion
+  and nested read accounting ([#154](https://github.com/dragginzgame/icydb/issues/154), partial).
+
+### 📚 Documentation
+
+- Explain the write-quiet verification window and restart monitoring required
+  for durable mutation-job completion ([#222](https://github.com/dragginzgame/icydb/issues/222)).
+
+### 📊 Audit
+
+- The order-value handoff spans 19 files: Rust physical lines +649/-71
+  (net +578). Earlier cleanup footprints remain in the detailed notes.
+
+See [detailed notes](docs/changelog/0.284.md).
+
 ## [0.284.2] - 2026-10-26
 
 ### 🔧 Changed

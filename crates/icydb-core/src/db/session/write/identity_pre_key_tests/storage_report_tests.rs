@@ -13,7 +13,9 @@ use crate::{
             canonical_row_from_stored_raw_row,
         },
         diagnostics::EntitySnapshot,
-        index::{IndexEntryValue, IndexKey, IndexStore, IndexStoreVisit, RawIndexStoreKey},
+        index::{
+            IndexEntryValue, IndexKey, IndexKeyKind, IndexStore, IndexStoreVisit, RawIndexStoreKey,
+        },
     },
     traits::CanisterKind,
     value::InputValue,
@@ -50,7 +52,7 @@ fn assert_report<C: CanisterKind>(
                     let mut namespaces = [0u64; 2];
                     let _: Result<(), Infallible> = index.visit_entries(|key, _| {
                         if let Ok(key) = IndexKey::try_from_raw(key) {
-                            namespaces[usize::from(key.uses_system_namespace())] += 1;
+                            namespaces[usize::from(key.key_kind() == IndexKeyKind::System)] += 1;
                         }
                         Ok(IndexStoreVisit::Continue)
                     });
@@ -156,7 +158,7 @@ fn corrupt_entries<C: CanisterKind>(session: &DbSession<C>, path: &str) {
     store.with_index_mut(|index| {
         let mut valid_key = None;
         let _: Result<(), Infallible> = index.visit_entries(|key, _| {
-            if !IndexKey::try_from_raw(key).unwrap().uses_system_namespace() {
+            if IndexKey::try_from_raw(key).unwrap().key_kind() != IndexKeyKind::System {
                 valid_key = Some(key.clone());
                 return Ok(IndexStoreVisit::Stop);
             }

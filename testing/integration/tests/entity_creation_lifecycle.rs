@@ -1,6 +1,7 @@
 //! Matched lifecycle envelopes; no instruction-to-cycle conversion is assumed.
 
 use super::{migration_status, projection};
+use ic_platform::blake3;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{Error, ErrorCode, db::RowProjectionOutput, metrics::SchemaLifecycleMetrics};
 use icydb_testing_build::CanisterWasmProfile;

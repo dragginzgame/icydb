@@ -4,6 +4,7 @@
 //! Boundary: makes valid scalar and aggregate query states explicit before current-contract rendering.
 
 use crate::{GeneratedFixture, GeneratedValue, SqlGeneratorError, SqlGeneratorErrorKind};
+use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 

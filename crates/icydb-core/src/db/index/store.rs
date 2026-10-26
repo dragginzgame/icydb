@@ -537,17 +537,8 @@ impl IndexStore {
         Ok(())
     }
 
-    /// Preflight movement of the exact delta's canonical base boundary.
-    pub(in crate::db) fn preflight_prefix_cardinality_delta_watermark(
-        &self,
-        current: FoldWatermark,
-    ) -> Result<(), crate::error::InternalError> {
-        (self.exact_prefix_cardinality_delta_watermark() == Some(current))
-            .then_some(())
-            .ok_or_else(crate::error::InternalError::store_corruption)
-    }
-
-    /// Publish a preflighted canonical base movement after the complete fold.
+    /// Advance matching derived evidence, or leave it unavailable after the fold.
+    /// A stale optional delta must not block authoritative journal convergence.
     pub(in crate::db) fn apply_prefix_cardinality_delta_watermark(
         &mut self,
         current: FoldWatermark,
@@ -1804,18 +1795,13 @@ mod tests {
             store.exact_prefix_cardinality_delta_watermark(),
             Some(current)
         );
-        store
-            .preflight_prefix_cardinality_delta_watermark(current)
-            .expect("matching watermark should preflight");
-        assert!(
-            store
-                .preflight_prefix_cardinality_delta_watermark(next)
-                .is_err(),
-            "a stale or future base must fail closed",
-        );
-
         store.apply_prefix_cardinality_delta_watermark(current, next);
         assert_eq!(store.exact_prefix_cardinality_delta_watermark(), Some(next));
+
+        store.apply_prefix_cardinality_delta_watermark(current, next);
+        assert_eq!(store.exact_prefix_cardinality_delta_watermark(), None);
+        store.apply_prefix_cardinality_delta_watermark(next, next);
+        assert_eq!(store.exact_prefix_cardinality_delta_watermark(), None);
     }
 
     #[test]

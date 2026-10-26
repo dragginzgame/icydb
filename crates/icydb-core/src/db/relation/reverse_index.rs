@@ -19,8 +19,8 @@ use crate::{
         direction::Direction,
         index::{
             BorrowedIndexKeyFrame, IndexEntryValue, IndexId, IndexKey, IndexKeyEncodeError,
-            IndexKeyKind, IndexRowIdentity, IndexState, IndexStore, RawIndexStoreKey,
-            StructuralPrimaryRowReader, raw_keys_for_component_prefix_with_kind,
+            IndexKeyKind, IndexState, IndexStore, RawIndexStoreKey, StructuralPrimaryRowReader,
+            raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::{
             EncodedPrimaryKey, IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
@@ -1523,9 +1523,10 @@ pub(in crate::db::relation) fn source_row_references_any_deleted_relation_target
 pub(super) fn decode_reverse_entry(
     index_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
-) -> Result<IndexRowIdentity, InternalError> {
+) -> Result<PrimaryKeyValue, InternalError> {
     raw_entry
-        .decode_row_identity(index_key)
+        .decode_row_witness(index_key)
+        .map(|witness| *witness.primary_key_value())
         .map_err(|_| InternalError::index_corruption())
 }
 

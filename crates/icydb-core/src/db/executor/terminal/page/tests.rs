@@ -32,6 +32,8 @@ fn retained_slot_layout_preserves_only_nondefault_decode_modes() {
         assert_eq!(layout.value_index_for_slot(3), Some(0));
         assert_eq!(layout.value_index_for_slot(1), Some(1));
         assert_eq!(layout.value_index_for_slot(0), None);
+        assert!(layout.retains_full_values_for_slots(&[1, 3]));
+        assert!(!layout.retains_full_values_for_slots(&[2]));
     }
 
     let modes = vec![Normal, ScalarOctetLength];
@@ -40,6 +42,8 @@ fn retained_slot_layout_preserves_only_nondefault_decode_modes() {
     assert_eq!(layout.override_value_modes(), Some(modes.as_slice()));
     assert_eq!(layout.value_index_for_slot(3), Some(0));
     assert_eq!(layout.value_index_for_slot(1), Some(1));
+    assert!(layout.retains_full_values_for_slots(&[3]));
+    assert!(!layout.retains_full_values_for_slots(&[1]));
 
     let empty = RetainedSlotLayout::compile(0, vec![]);
     assert!(!empty.has_value_mode_overrides());

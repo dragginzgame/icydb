@@ -9,6 +9,7 @@ use crate::{
     StructuralSignature, TIER_C_ROOT_SEEDS, is_valid_tier_c_failure_artifact_id,
     replay::canonical_json_bytes, scheduled_sql_scenario_shard, structural_witness_schedule_hash,
 };
+use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},

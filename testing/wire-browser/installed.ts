@@ -1,5 +1,5 @@
-import { HttpAgent } from '@icp-sdk/core/agent';
-import { Ed25519KeyIdentity } from '@icp-sdk/core/identity';
+import { HttpAgent } from '@tokostudios/ic-platform/agent';
+import { Ed25519KeyIdentity } from '@tokostudios/ic-platform/identity';
 import * as contracts from '../../target/wire-browser/icydb.js';
 import { call } from './client.js';
 

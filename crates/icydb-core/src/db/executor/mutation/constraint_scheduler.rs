@@ -216,8 +216,7 @@ impl AcceptedMutationConstraintScheduler {
         {
             return Err(InternalError::query_executor_invariant());
         }
-        let _ = DecodedDataStoreKey::try_from_raw(&row_op.key)
-            .map_err(|_| InternalError::query_executor_invariant())?;
+        // Commit preparation owns strict key decoding before marker publication.
         self.record_target_key(&row_op.key, entity_tag, batch_position)?;
         let deleted_keys = if let Some((_, deleted_keys)) = self
             .deleted_key_groups

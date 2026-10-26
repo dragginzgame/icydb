@@ -1,10 +1,11 @@
 use crate::{
     db::{
-        data::DataRow,
         executor::{
+            ProjectionDataRows,
             pipeline::contracts::StructuralCursorPage,
             terminal::page::{KernelRow, RetainedSlotRow},
         },
+        query::plan::ResolvedOrder,
     },
     error::InternalError,
 };
@@ -35,10 +36,11 @@ pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
 pub(in crate::db::executor) fn finalize_structural_cursor_payload(
     rows: Vec<KernelRow>,
     finalize_mode: StructuralCursorPayloadStrategy,
+    resolved_order: Option<&ResolvedOrder>,
 ) -> Result<StructuralCursorPage, InternalError> {
     match finalize_mode {
         StructuralCursorPayloadStrategy::DataRows => Ok(StructuralCursorPage::new(
-            collect_structural_data_rows(rows)?,
+            collect_structural_data_rows(rows, resolved_order)?,
         )),
         StructuralCursorPayloadStrategy::SlotRows => Ok(StructuralCursorPage::new_with_slot_rows(
             collect_structural_slot_rows(rows)?,
@@ -56,6 +58,9 @@ pub(in crate::db::executor) fn collect_structural_slot_rows(
 }
 
 // Convert kernel rows into data rows in one straight-line pass.
-fn collect_structural_data_rows(rows: Vec<KernelRow>) -> Result<Vec<DataRow>, InternalError> {
-    rows.into_iter().map(KernelRow::into_data_row).collect()
+fn collect_structural_data_rows(
+    rows: Vec<KernelRow>,
+    order: Option<&ResolvedOrder>,
+) -> Result<ProjectionDataRows, InternalError> {
+    ProjectionDataRows::from_kernel_rows(rows, order)
 }

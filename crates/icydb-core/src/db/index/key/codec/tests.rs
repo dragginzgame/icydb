@@ -536,7 +536,7 @@ fn index_key_kind_is_explicit() {
             .as_bytes()[0],
         IndexKeyKind::User as u8
     );
-    assert!(!user_key.uses_system_namespace());
+    assert_eq!(user_key.key_kind(), IndexKeyKind::User);
 
     let system_id = index_id();
     let system_key = IndexKey::empty_with_kind(&system_id, IndexKeyKind::System);
@@ -547,7 +547,7 @@ fn index_key_kind_is_explicit() {
             .as_bytes()[0],
         IndexKeyKind::System as u8
     );
-    assert!(system_key.uses_system_namespace());
+    assert_eq!(system_key.key_kind(), IndexKeyKind::System);
 
     let namespace_only_id = other_index_id();
     let namespace_only_key = IndexKey::empty_with_kind(&namespace_only_id, IndexKeyKind::User);
@@ -558,7 +558,7 @@ fn index_key_kind_is_explicit() {
             .as_bytes()[0],
         IndexKeyKind::User as u8
     );
-    assert!(!namespace_only_key.uses_system_namespace());
+    assert_eq!(namespace_only_key.key_kind(), IndexKeyKind::User);
 }
 
 #[test]

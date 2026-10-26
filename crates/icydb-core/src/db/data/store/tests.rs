@@ -466,34 +466,60 @@ fn data_store_visit_range_preserves_raw_key_bounds() {
 
 #[test]
 fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
-    let store = seed_store(229, &[(1, 1, 11), (1, 2, 12), (1, 3, 13)]);
-    let mut preflighted = Vec::new();
-    let mut visited = Vec::new();
+    for backend in 0..3 {
+        let mut store = if backend == 0 {
+            DataStore::init_heap()
+        } else {
+            DataStore::init_journaled(test_memory(229))
+        };
+        for (id, value) in [(1, 11), (2, 12), (3, 13)] {
+            if backend == 2 {
+                store
+                    .fold_recovered_journal_put(raw_key(1, id), raw_row(value))
+                    .unwrap();
+            } else {
+                store.insert_raw_for_test(raw_key(1, id), raw_row(value));
+            }
+        }
+        for direction in [Direction::Asc, Direction::Desc] {
+            let mut preflighted = Vec::new();
+            let mut visited = Vec::new();
 
-    let exhausted = store
-        .try_visit_range_with_row_preflight(
-            (
-                Bound::Included(raw_key(1, 1)),
-                Bound::Included(raw_key(1, 3)),
-            ),
-            |key| {
-                preflighted.push(key.clone());
-                Ok::<_, Infallible>(if key == &raw_key(1, 2) {
-                    StoreVisit::Stop
-                } else {
-                    StoreVisit::Continue
-                })
-            },
-            |key, row| {
-                visited.push((key.clone(), row.as_bytes()[0]));
-                Ok::<_, Infallible>(StoreVisit::Continue)
-            },
-        )
-        .expect("stable-only range should use the fused visitor");
+            let exhausted = store
+                .try_visit_range_with_row_preflight(
+                    (
+                        Bound::Included(raw_key(1, 1)),
+                        Bound::Included(raw_key(1, 3)),
+                    ),
+                    direction,
+                    |key| {
+                        preflighted.push(key.clone());
+                        Ok::<_, Infallible>(if key == &raw_key(1, 2) {
+                            StoreVisit::Stop
+                        } else {
+                            StoreVisit::Continue
+                        })
+                    },
+                    |key, row| {
+                        visited.push((key.clone(), row.as_bytes()[0]));
+                        Ok::<_, Infallible>(StoreVisit::Continue)
+                    },
+                )
+                .expect("single-backing range should use the fused visitor");
 
-    assert_eq!(exhausted, Some(false));
-    assert_eq!(preflighted, vec![raw_key(1, 1), raw_key(1, 2)]);
-    assert_eq!(visited, vec![(raw_key(1, 1), 11)]);
+            assert_eq!(exhausted, Some(false));
+            let first = if matches!(direction, Direction::Asc) {
+                1
+            } else {
+                3
+            };
+            assert_eq!(preflighted, vec![raw_key(1, first), raw_key(1, 2)]);
+            assert_eq!(
+                visited,
+                vec![(raw_key(1, first), 10 + u8::try_from(first).unwrap())]
+            );
+        }
+    }
 }
 
 #[test]
@@ -870,4 +896,63 @@ fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
 #[test]
 fn retained_store_corruption_does_not_initialize_a_replacement() {
     crate::testing::assert_retained_store_header_preserved(DataStore::init_journaled);
+}
+
+#[test]
+fn canonical_page_checkpoint_excludes_the_unconsumed_row() {
+    for journaled in [false, true] {
+        let mut store = if journaled {
+            DataStore::init_journaled(test_memory(228))
+        } else {
+            DataStore::init_heap()
+        };
+        for id in 1..=3 {
+            if journaled {
+                store
+                    .fold_recovered_journal_put(raw_key(1, id), raw_row(1))
+                    .unwrap();
+            } else {
+                store.insert(
+                    raw_key(1, id),
+                    canonical_row_from_stored_raw_row(raw_row(1)),
+                );
+            }
+        }
+        for accepted in 0..=3 {
+            let mut visited = 0;
+            let checkpoint = store
+                .visit_canonical_entries_after(None, |_, _| {
+                    if visited == accepted {
+                        return Ok(true);
+                    }
+                    visited += 1;
+                    Ok(false)
+                })
+                .unwrap();
+            let expected = match accepted {
+                1 | 2 => Some(raw_key(1, accepted)),
+                _ => None,
+            };
+            assert_eq!(checkpoint, expected);
+            assert_eq!(visited, accepted);
+            if let Some(checkpoint) = checkpoint {
+                let mut remaining = Vec::new();
+                assert!(
+                    store
+                        .visit_canonical_entries_after(Some(&checkpoint), |key, _| {
+                            remaining.push(key.clone());
+                            Ok(false)
+                        })
+                        .unwrap()
+                        .is_none()
+                );
+                assert_eq!(
+                    remaining,
+                    ((accepted + 1)..=3)
+                        .map(|id| raw_key(1, id))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
 }

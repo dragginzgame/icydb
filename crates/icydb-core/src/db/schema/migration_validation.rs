@@ -17,7 +17,7 @@ use super::migration_record::MAX_SCHEMA_MIGRATION_FINDINGS;
 use crate::{
     db::{
         Db,
-        data::{DecodedDataStoreKey, RawDataStoreKey, StoreVisit, StructuralSlotReader},
+        data::{RawDataStoreKey, StoreVisit, StructuralSlotReader, decode_data_store_key},
         index::{IndexEntryValue, IndexKey, IndexKeyKind, RawIndexStoreKey},
         key_taxonomy::RawDataStoreKeyRange,
         registry::{StoreHandle, StoreRecoveryCapability},
@@ -346,22 +346,23 @@ fn validate_entity_page<C: CanisterKind>(
                 }
                 work.charge(Resource::RowsVisited, 1)?;
                 work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
-                let decoded = DecodedDataStoreKey::try_from_raw(raw_key)
+                let (_, primary_key) = decode_data_store_key(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
                 let before = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                     raw_row,
                     &before_contract,
                 )?;
-                before.validate_primary_key(&decoded)?;
-                let candidate_row = match program.evaluate(&before, candidate_contract, &decoded) {
-                    Ok(row) => row,
-                    Err(finding) => {
-                        page.findings
-                            .push(migration_transform_finding(program, raw_key, finding)?);
-                        observe_row_progress(&mut page, program, raw_key, raw_row.len())?;
-                        return Ok(StoreVisit::Continue);
-                    }
-                };
+                before.validate_primary_key_value(&primary_key)?;
+                let candidate_row =
+                    match program.evaluate(&before, candidate_contract, &primary_key) {
+                        Ok(row) => row,
+                        Err(finding) => {
+                            page.findings
+                                .push(migration_transform_finding(program, raw_key, finding)?);
+                            observe_row_progress(&mut page, program, raw_key, raw_row.len())?;
+                            return Ok(StoreVisit::Continue);
+                        }
+                    };
                 let candidate_reader =
                     StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                         candidate_row.as_raw_row(),
@@ -389,7 +390,7 @@ fn validate_entity_page<C: CanisterKind>(
                     crate::db::relation::RelationCommitBudget::default();
                 for (relation, stage_relation) in &relations {
                     let projected = relation.project_row_with_budgets(
-                        &decoded.primary_key_value(),
+                        &primary_key,
                         &candidate_reader,
                         true,
                         &mut relation_projection_budget,
@@ -420,9 +421,7 @@ fn validate_entity_page<C: CanisterKind>(
                 let mut row_unique_keys = Vec::new();
                 for projection in &unique {
                     work.charge(Resource::PredicateExpressionSteps, 1)?;
-                    let Some(key) =
-                        projection.derive_key(&decoded.primary_key_value(), &candidate_reader)?
-                    else {
+                    let Some(key) = projection.derive_key(&primary_key, &candidate_reader)? else {
                         continue;
                     };
                     row_staged_bytes = row_staged_bytes
@@ -456,7 +455,7 @@ fn validate_entity_page<C: CanisterKind>(
                     program,
                     &prepared,
                     raw_key,
-                    &decoded,
+                    &primary_key,
                     candidate_row.as_raw_row(),
                     plan_digest,
                     work,

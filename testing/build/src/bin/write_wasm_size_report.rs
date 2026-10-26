@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use clap::Parser;
 use ic_build::artifacts::CargoBuildFacts;
 use ic_host_artifacts::{
     artifact::{Sha256Digest, encode_gzip},
@@ -53,19 +54,45 @@ const REPORT_OUTPUT_LIMITS: OutputLimits = OutputLimits {
     timeout: Some(Duration::from_secs(600)),
 };
 
-#[derive(Debug)]
+#[derive(Debug, Parser)]
+#[command(about = "Acquire retained canister artifacts and write Wasm size evidence")]
 struct Args {
+    #[arg(long)]
     canister: String,
-    build_options: CanisterBuildOptions,
+    #[arg(long, value_parser = CanisterWasmProfile::parse)]
+    profile: CanisterWasmProfile,
+    #[arg(long, value_parser = CanisterBuildProfile::parse)]
+    build_profile: CanisterBuildProfile,
+    #[arg(long, value_parser = CanisterSqlMode::parse)]
+    sql_mode: CanisterSqlMode,
+    #[arg(long)]
     compiler_wasm: PathBuf,
+    #[arg(long)]
     final_wasm: PathBuf,
+    #[arg(long)]
     final_gz: PathBuf,
+    #[arg(long)]
     compiler_info: PathBuf,
+    #[arg(long)]
     final_info: PathBuf,
+    #[arg(long)]
     report_json: PathBuf,
+    #[arg(long)]
     summary_md: PathBuf,
+    #[arg(long)]
     ic_wasm_bin: PathBuf,
+    #[arg(long)]
     wasm_opt_bin: PathBuf,
+}
+
+impl Args {
+    const fn build_options(&self) -> CanisterBuildOptions {
+        CanisterBuildOptions {
+            profile: self.profile,
+            build_profile: self.build_profile,
+            sql_mode: self.sql_mode,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -195,7 +222,7 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let args = parse_args(env::args().skip(1))?;
+    let args = Args::parse();
     validate_wasm_measurement_contract().map_err(str::to_string)?;
     if !wasm_measurement_subjects().any(|name| name == args.canister) {
         return Err(format!(
@@ -204,14 +231,14 @@ fn run() -> Result<(), String> {
         ));
     }
     let resolved =
-        resolve_fixture_canister_build_configuration(&args.canister, args.build_options)?;
+        resolve_fixture_canister_build_configuration(&args.canister, args.build_options())?;
 
     let workspace_root = workspace_root()?;
     let optimizer = admit_wasm_optimizer(&args.wasm_opt_bin, &workspace_root)?;
     let tools = capture_tools(&workspace_root, &args.ic_wasm_bin, &optimizer)?;
     // Retain both cache owners until evidence is copied and rendered. The facts
     // belong to this acquisition, including reuse; reporting never probes rustc.
-    let artifacts = build_canister_with_options(&args.canister, args.build_options)?;
+    let artifacts = build_canister_with_options(&args.canister, args.build_options())?;
     let facts = artifacts.cargo().facts();
     let provenance = capture_provenance(&workspace_root, facts)?;
     write_report_artifacts(&args, &artifacts, &workspace_root)?;
@@ -324,99 +351,6 @@ fn write_report_artifacts(
     }
 
     Ok(())
-}
-
-fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
-    let mut parsed = ParsedArgs::default();
-    let mut args = args.into_iter();
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--canister" => parsed.canister = Some(required_value(&arg, &mut args)?),
-            "--profile" => {
-                parsed.profile = Some(CanisterWasmProfile::parse(&required_value(
-                    &arg, &mut args,
-                )?)?);
-            }
-            "--build-profile" => {
-                parsed.build_profile = Some(CanisterBuildProfile::parse(&required_value(
-                    &arg, &mut args,
-                )?)?);
-            }
-            "--sql-mode" => {
-                parsed.sql_mode = Some(CanisterSqlMode::parse(&required_value(&arg, &mut args)?)?);
-            }
-            "--compiler-wasm" => parsed.compiler_wasm = Some(required_path(&arg, &mut args)?),
-            "--final-wasm" => parsed.final_wasm = Some(required_path(&arg, &mut args)?),
-            "--final-gz" => parsed.final_gz = Some(required_path(&arg, &mut args)?),
-            "--compiler-info" => parsed.compiler_info = Some(required_path(&arg, &mut args)?),
-            "--final-info" => parsed.final_info = Some(required_path(&arg, &mut args)?),
-            "--report-json" => parsed.report_json = Some(required_path(&arg, &mut args)?),
-            "--summary-md" => parsed.summary_md = Some(required_path(&arg, &mut args)?),
-            "--ic-wasm-bin" => parsed.ic_wasm_bin = Some(required_path(&arg, &mut args)?),
-            "--wasm-opt-bin" => parsed.wasm_opt_bin = Some(required_path(&arg, &mut args)?),
-            "--help" | "-h" => return Err(usage()),
-            value => return Err(format!("unknown option '{value}'\n{}", usage())),
-        }
-    }
-
-    parsed.finish()
-}
-
-#[derive(Default)]
-struct ParsedArgs {
-    canister: Option<String>,
-    profile: Option<CanisterWasmProfile>,
-    build_profile: Option<CanisterBuildProfile>,
-    sql_mode: Option<CanisterSqlMode>,
-    compiler_wasm: Option<PathBuf>,
-    final_wasm: Option<PathBuf>,
-    final_gz: Option<PathBuf>,
-    compiler_info: Option<PathBuf>,
-    final_info: Option<PathBuf>,
-    report_json: Option<PathBuf>,
-    summary_md: Option<PathBuf>,
-    ic_wasm_bin: Option<PathBuf>,
-    wasm_opt_bin: Option<PathBuf>,
-}
-
-impl ParsedArgs {
-    fn finish(self) -> Result<Args, String> {
-        Ok(Args {
-            canister: require_arg(self.canister, "--canister")?,
-            build_options: CanisterBuildOptions {
-                profile: require_arg(self.profile, "--profile")?,
-                build_profile: require_arg(self.build_profile, "--build-profile")?,
-                sql_mode: require_arg(self.sql_mode, "--sql-mode")?,
-            },
-            compiler_wasm: require_arg(self.compiler_wasm, "--compiler-wasm")?,
-            final_wasm: require_arg(self.final_wasm, "--final-wasm")?,
-            final_gz: require_arg(self.final_gz, "--final-gz")?,
-            compiler_info: require_arg(self.compiler_info, "--compiler-info")?,
-            final_info: require_arg(self.final_info, "--final-info")?,
-            report_json: require_arg(self.report_json, "--report-json")?,
-            summary_md: require_arg(self.summary_md, "--summary-md")?,
-            ic_wasm_bin: require_arg(self.ic_wasm_bin, "--ic-wasm-bin")?,
-            wasm_opt_bin: require_arg(self.wasm_opt_bin, "--wasm-opt-bin")?,
-        })
-    }
-}
-
-fn required_value(flag: &str, args: &mut impl Iterator<Item = String>) -> Result<String, String> {
-    args.next()
-        .ok_or_else(|| format!("{flag} requires a value\n{}", usage()))
-}
-
-fn required_path(flag: &str, args: &mut impl Iterator<Item = String>) -> Result<PathBuf, String> {
-    required_value(flag, args).map(PathBuf::from)
-}
-
-fn require_arg<T>(value: Option<T>, flag: &str) -> Result<T, String> {
-    value.ok_or_else(|| format!("missing required argument {flag}\n{}", usage()))
-}
-
-fn usage() -> String {
-    "usage: write_wasm_size_report --canister name --build-profile local|production --profile debug|release|wasm-release --sql-mode on|off --compiler-wasm path --final-wasm path --final-gz path --compiler-info path --final-info path --report-json path --summary-md path --ic-wasm-bin path --wasm-opt-bin path\nArtifact, info and report paths are outputs acquired from the canonical build helper.".to_string()
 }
 
 fn workspace_root() -> Result<PathBuf, String> {
@@ -892,6 +826,8 @@ fn append_step_summary(path: &Path, summary: &str) -> Result<(), String> {
 mod tests {
     use std::{collections::BTreeMap, env, fs};
 
+    use clap::Parser;
+
     use ic_build::{
         artifacts::CargoBuildFacts,
         cargo::selection::{CargoFeatureSelection, CargoSelection},
@@ -903,7 +839,7 @@ mod tests {
     };
 
     use super::{
-        FileMeta, WasmInfo, command_text, endpoint_surface, file_meta, parse_args, pipeline,
+        Args, FileMeta, WasmInfo, command_text, endpoint_surface, file_meta, pipeline,
         reduction_basis_points, validate_final_wasm_features, wasm_call_indirect_count,
         wasm_structure,
     };
@@ -1281,7 +1217,10 @@ mod tests {
         ] {
             arguments.extend([flag.to_string(), "unused".to_string()]);
         }
-        let args = parse_args(arguments).unwrap();
+        let args = Args::try_parse_from(
+            std::iter::once("write_wasm_size_report".to_string()).chain(arguments),
+        )
+        .unwrap();
         let before = super::FileMeta {
             path: "before".to_string(),
             bytes: 100,
@@ -1455,7 +1394,9 @@ mod tests {
 
     #[test]
     fn report_arguments_reject_untyped_build_labels() {
-        assert!(parse_args(["--profile", "profile-ish"].map(str::to_string)).is_err());
-        assert!(parse_args(["--sql-mode", "maybe"].map(str::to_string)).is_err());
+        assert!(
+            Args::try_parse_from(["write_wasm_size_report", "--profile", "profile-ish"]).is_err()
+        );
+        assert!(Args::try_parse_from(["write_wasm_size_report", "--sql-mode", "maybe"]).is_err());
     }
 }

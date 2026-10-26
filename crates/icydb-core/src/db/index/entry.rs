@@ -37,15 +37,6 @@ pub(crate) enum IndexEntryCorruption {
 }
 
 ///
-/// IndexRowIdentity
-///
-
-#[derive(Clone, Debug)]
-pub(crate) struct IndexRowIdentity {
-    primary_key_value: PrimaryKeyValue,
-}
-
-///
 /// IndexEntryExistenceWitness
 ///
 /// Narrow storage-owned row-existence witness carried per raw index entry.
@@ -113,25 +104,6 @@ impl IndexEntryRowWitness {
     }
 }
 
-impl IndexRowIdentity {
-    #[must_use]
-    pub(crate) const fn new(primary_key_value: &PrimaryKeyValue) -> Self {
-        Self {
-            primary_key_value: *primary_key_value,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn contains(&self, primary_key_value: &PrimaryKeyValue) -> bool {
-        &self.primary_key_value == primary_key_value
-    }
-
-    #[must_use]
-    pub(crate) const fn primary_key_value(&self) -> &PrimaryKeyValue {
-        &self.primary_key_value
-    }
-}
-
 ///
 /// IndexEntryValue
 ///
@@ -140,14 +112,6 @@ impl IndexEntryValue {
     #[must_use]
     pub(crate) fn presence() -> Self {
         Self::from_persisted_bytes(vec![IndexEntryExistenceWitness::Present.to_stored_byte()])
-    }
-
-    pub(crate) fn decode_row_identity(
-        &self,
-        raw_key: &RawIndexStoreKey,
-    ) -> Result<IndexRowIdentity, IndexEntryCorruption> {
-        self.decode_row_witness(raw_key)
-            .map(|witness| IndexRowIdentity::new(witness.primary_key_value()))
     }
 
     /// Decode this key-owned raw entry and append its scalar-or-composite

@@ -6,7 +6,7 @@
 use crate::{
     db::executor::{
         ProductionScalarOutputWork, StructuralCursorPage,
-        order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
+        order::cursor_boundary_from_orderable_row,
         projection::materialize::{
             execute::{project_data_row, project_slot_row},
             plan::PreparedProjectionContract,
@@ -58,7 +58,7 @@ pub(in crate::db) fn project(
         },
         |data_rows| {
             let rows = data_rows
-                .iter()
+                .into_rows()
                 .map(|row| {
                     project_data_row(&row_layout, prepared_projection, row).map(RowView::into_owned)
                 })
@@ -107,15 +107,15 @@ pub(in crate::db::executor::projection) fn project_admitted_page(
             })
         },
         |data_rows| {
-            let source_has_more = row_limit.is_some_and(|limit| data_rows.len() > limit);
+            let source_has_more = row_limit.is_some_and(|limit| data_rows.row_count() > limit);
             let mut rows = Vec::new();
             let mut last_emitted_logical = None;
             let mut output_stopped = false;
-            for row in data_rows.into_iter().take(row_limit.unwrap_or(usize::MAX)) {
+            for row in data_rows.into_rows().take(row_limit.unwrap_or(usize::MAX)) {
                 let boundary = resolved_order
-                    .map(|order| cursor_boundary_from_data_row(&row, &row_layout, order))
+                    .map(|order| row.cursor_boundary(&row_layout, order))
                     .transpose()?;
-                let projected = project_data_row(&row_layout, prepared_projection, &row)?;
+                let projected = project_data_row(&row_layout, prepared_projection, row)?;
                 if !output_work.borrow_mut().admit_row(projected.values())? {
                     output_stopped = true;
                     break;

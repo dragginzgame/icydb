@@ -676,31 +676,46 @@ impl DataStore {
 
     /// Visit canonical predecessor rows after one exclusive physical checkpoint.
     ///
-    /// Optional derived-evidence builders use this view so newer live overlays
-    /// cannot contaminate a generation bound to the canonical fold watermark.
+    /// The visitor returns true before consuming the current row. On that stop,
+    /// return the preceding consumed key; exhaustion returns no checkpoint.
+    /// Retain the previous entry until the next admission decision so only the
+    /// returned checkpoint copies key bytes, including for stable iterators.
+    /// Optional derived-evidence builders use this canonical view so newer live
+    /// overlays cannot contaminate a generation bound to its fold watermark.
     pub(in crate::db) fn visit_canonical_entries_after(
         &self,
         checkpoint: Option<&RawDataStoreKey>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<bool, crate::error::InternalError>,
-    ) -> Result<(), crate::error::InternalError> {
+    ) -> Result<Option<RawDataStoreKey>, crate::error::InternalError> {
         let lower = checkpoint.map_or(Bound::Unbounded, Bound::Excluded);
         match &self.backend {
             DataStoreBackend::Heap(map) => {
+                let mut previous: Option<&RawDataStoreKey> = None;
                 for (key, row) in map.range((lower, Bound::Unbounded)) {
                     if visitor(key, row)? {
-                        break;
+                        return Ok(previous.cloned());
                     }
+                    previous = Some(key);
                 }
+                Ok(None)
             }
             DataStoreBackend::Journaled { canonical, .. } => {
+                let mut previous = None;
+                let mut stopped = false;
                 for entry in canonical.range((lower, Bound::Unbounded)) {
                     if visitor(entry.key(), &entry.value())? {
+                        stopped = true;
                         break;
                     }
+                    previous = Some(entry);
                 }
+                Ok(if stopped {
+                    previous.map(|entry| entry.key().clone())
+                } else {
+                    None
+                })
             }
         }
-        Ok(())
     }
 
     /// Return whether the canonical predecessor domain is physically empty.
@@ -737,7 +752,7 @@ impl DataStore {
         Ok(())
     }
 
-    /// Visit one ascending row range while allowing the caller to stop after
+    /// Visit one directed row range while allowing the caller to stop after
     /// seeing the key but before a stable row payload is materialized.
     ///
     /// Mixed journal overlays retain the ordinary key-then-point-read path;
@@ -746,6 +761,7 @@ impl DataStore {
     pub(in crate::db) fn try_visit_range_with_row_preflight<E>(
         &self,
         key_range: impl RangeBounds<RawDataStoreKey>,
+        direction: Direction,
         mut preflight: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<Option<bool>, E> {
@@ -753,7 +769,11 @@ impl DataStore {
         let mut stopped = false;
         match &self.backend {
             DataStoreBackend::Heap(map) => {
-                for (key, row) in map.range(bounds) {
+                let mut entries = map.range(bounds);
+                while let Some((key, row)) = match direction {
+                    Direction::Asc => entries.next(),
+                    Direction::Desc => entries.next_back(),
+                } {
                     if preflight(key)?.should_stop() {
                         stopped = true;
                         break;
@@ -770,7 +790,11 @@ impl DataStore {
                 tombstones,
                 ..
             } if canonical.is_empty() => {
-                for (key, row) in live.range(bounds) {
+                let mut entries = live.range(bounds);
+                while let Some((key, row)) = match direction {
+                    Direction::Asc => entries.next(),
+                    Direction::Desc => entries.next_back(),
+                } {
                     if tombstones.contains(key) {
                         continue;
                     }
@@ -790,7 +814,11 @@ impl DataStore {
                 tombstones,
                 ..
             } if live.is_empty() && tombstones.is_empty() => {
-                for entry in canonical.range(bounds) {
+                let mut entries = canonical.range(bounds);
+                while let Some(entry) = match direction {
+                    Direction::Asc => entries.next(),
+                    Direction::Desc => entries.next_back(),
+                } {
                     if preflight(entry.key())?.should_stop() {
                         stopped = true;
                         break;

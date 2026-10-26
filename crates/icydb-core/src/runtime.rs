@@ -15,9 +15,40 @@ pub(crate) fn local_instruction_counter() -> u64 {
 
 /// Return zero when local instruction accounting runs outside the IC.
 #[must_use]
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 pub(crate) const fn local_instruction_counter() -> u64 {
     0
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+thread_local! {
+    static TEST_INSTRUCTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Read the scripted native test counter; this is never a timing measurement.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn local_instruction_counter() -> u64 {
+    TEST_INSTRUCTIONS.with(std::cell::Cell::get)
+}
+
+/// Scope synthetic instruction samples to one test thread, restoring on unwind.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn with_instruction_counter_for_tests<R>(
+    initial: u64,
+    run: impl FnOnce(&std::cell::Cell<u64>) -> R,
+) -> R {
+    struct RestoreCounter<'a>(&'a std::cell::Cell<u64>, u64);
+
+    impl Drop for RestoreCounter<'_> {
+        fn drop(&mut self) {
+            self.0.set(self.1);
+        }
+    }
+
+    TEST_INSTRUCTIONS.with(|counter| {
+        let _restore = RestoreCounter(counter, counter.replace(initial));
+        run(counter)
+    })
 }
 
 /// Return the current UNIX epoch time in milliseconds.

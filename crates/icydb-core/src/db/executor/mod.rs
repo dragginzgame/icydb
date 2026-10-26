@@ -83,6 +83,7 @@ pub(in crate::db::executor) use order::{
     BoundedOrderWindow, DataRowOrderWindow, OrderReadableRow, PendingOrderRows,
     compare_orderable_row_with_boundary,
 };
+pub(in crate::db) use order::{ProjectionDataRow, ProjectionDataRows};
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
 pub(in crate::db::executor) use pipeline::contracts::{

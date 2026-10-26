@@ -151,20 +151,22 @@ impl ResolvedOrderField {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ResolvedOrder {
-    fields: Vec<ResolvedOrderField>,
+    fields: Rc<[ResolvedOrderField]>,
 }
 
 impl ResolvedOrder {
     /// Construct one planner-owned resolved order program.
     #[must_use]
-    pub(in crate::db) const fn new(fields: Vec<ResolvedOrderField>) -> Self {
-        Self { fields }
+    pub(in crate::db) fn new(fields: Vec<ResolvedOrderField>) -> Self {
+        Self {
+            fields: fields.into(),
+        }
     }
 
     /// Borrow the frozen order fields in canonical evaluation order.
     #[must_use]
-    pub(in crate::db) const fn fields(&self) -> &[ResolvedOrderField] {
-        self.fields.as_slice()
+    pub(in crate::db) fn fields(&self) -> &[ResolvedOrderField] {
+        &self.fields
     }
 
     /// Return the stable referenced-slot set touched anywhere by this frozen

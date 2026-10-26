@@ -22,6 +22,8 @@ use serde::{Deserialize, Deserializer};
 pub struct InputValue(PublicValue);
 
 impl InputValue {
+    impl_public_value_scalar_constructors!("input");
+
     /// Wrap one caller-authored public value without conversion.
     #[must_use]
     pub const fn from_public(value: PublicValue) -> Self {
@@ -38,66 +40,6 @@ impl InputValue {
     #[must_use]
     pub fn into_public(self) -> PublicValue {
         self.0
-    }
-
-    /// Build an account input value.
-    #[must_use]
-    pub const fn account(value: Account) -> Self {
-        Self(PublicValue::Account(value))
-    }
-
-    /// Build a blob input value.
-    #[must_use]
-    pub const fn blob(value: Vec<u8>) -> Self {
-        Self(PublicValue::Blob(value))
-    }
-
-    /// Build a boolean input value.
-    #[must_use]
-    pub const fn boolean(value: bool) -> Self {
-        Self(PublicValue::Bool(value))
-    }
-
-    /// Build a date input value.
-    #[must_use]
-    pub const fn date(value: Date) -> Self {
-        Self(PublicValue::Date(value))
-    }
-
-    /// Build a decimal input value.
-    #[must_use]
-    pub const fn decimal(value: Decimal) -> Self {
-        Self(PublicValue::Decimal(value))
-    }
-
-    /// Build a duration input value.
-    #[must_use]
-    pub const fn duration(value: Duration) -> Self {
-        Self(PublicValue::Duration(value))
-    }
-
-    /// Build a finite 32-bit floating-point input value.
-    #[must_use]
-    pub const fn float32(value: Float32) -> Self {
-        Self(PublicValue::Float32(value))
-    }
-
-    /// Build a finite 64-bit floating-point input value.
-    #[must_use]
-    pub const fn float64(value: Float64) -> Self {
-        Self(PublicValue::Float64(value))
-    }
-
-    /// Build a 64-bit signed integer input value.
-    #[must_use]
-    pub const fn int64(value: i64) -> Self {
-        Self(PublicValue::Int64(value))
-    }
-
-    /// Build a 128-bit signed integer input value.
-    #[must_use]
-    pub const fn int128(value: i128) -> Self {
-        Self(PublicValue::Int128(value))
     }
 
     /// Build a recursive list from caller-authored input values.
@@ -125,70 +67,10 @@ impl InputValue {
         ))
     }
 
-    /// Build a null input value.
-    #[must_use]
-    pub const fn null() -> Self {
-        Self(PublicValue::Null)
-    }
-
     /// Report whether this input is null.
     #[must_use]
     pub const fn is_null(&self) -> bool {
         matches!(self.0, PublicValue::Null)
-    }
-
-    /// Build a principal input value.
-    #[must_use]
-    pub const fn principal(value: Principal) -> Self {
-        Self(PublicValue::Principal(value))
-    }
-
-    /// Build a fixed subaccount input value.
-    #[must_use]
-    pub const fn subaccount(value: Subaccount) -> Self {
-        Self(PublicValue::Subaccount(value))
-    }
-
-    /// Build a text input value.
-    #[must_use]
-    pub const fn text(value: String) -> Self {
-        Self(PublicValue::Text(value))
-    }
-
-    /// Build a timestamp input value.
-    #[must_use]
-    pub const fn timestamp(value: Timestamp) -> Self {
-        Self(PublicValue::Timestamp(value))
-    }
-
-    /// Build a 64-bit natural input value.
-    #[must_use]
-    pub const fn nat64(value: u64) -> Self {
-        Self(PublicValue::Nat64(value))
-    }
-
-    /// Build a 128-bit natural input value.
-    #[must_use]
-    pub const fn nat128(value: u128) -> Self {
-        Self(PublicValue::Nat128(value))
-    }
-
-    /// Build a ULID input value.
-    #[must_use]
-    pub const fn ulid(value: Ulid) -> Self {
-        Self(PublicValue::Ulid(value))
-    }
-
-    /// Build a unit input value.
-    #[must_use]
-    pub const fn unit() -> Self {
-        Self(PublicValue::Unit)
-    }
-
-    /// Build a fixed-width unsigned integer input value.
-    #[must_use]
-    pub const fn u256(value: U256) -> Self {
-        Self(PublicValue::U256(value))
     }
 
     /// Build an enum input with an optional schema-visible type path.

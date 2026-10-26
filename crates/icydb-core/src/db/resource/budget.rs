@@ -1029,9 +1029,19 @@ pub(in crate::db) fn charge_runtime_value_rows(rows: &[Vec<Value>]) -> Result<()
             total.1.saturating_add(value_work.1),
         )
     });
+
+    charge_runtime_result_work(rows.len(), bytes, nested_steps)
+}
+
+/// Charge materialized result totals in the same order for scalar and grouped output.
+pub(in crate::db) fn charge_runtime_result_work(
+    row_count: usize,
+    bytes: u64,
+    nested_steps: u64,
+) -> Result<(), InternalError> {
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::ResultRows,
-        usize_as_u64(rows.len()),
+        usize_as_u64(row_count),
     )?;
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::NestedValueSteps,
@@ -1462,6 +1472,63 @@ mod tests {
         assert_eq!(tracker.failure_headroom(), TEST_HEADROOM);
         assert_eq!(TEST_HEADROOM.instruction_units(), 500);
         assert_eq!(TEST_HEADROOM.response_bytes(), 256);
+    }
+
+    #[test]
+    fn result_charges_preserve_exact_limits_and_sequential_failure_accounting() {
+        use DiagnosticExecutionBudgetResource::{
+            MaterializedBytes, NestedValueSteps, ResultBytes, ResultRows,
+        };
+
+        const RESULT_BUDGET: HardExecutionBudget =
+            HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                .with_limit_for_tests(ResultRows, 2)
+                .with_limit_for_tests(NestedValueSteps, 3)
+                .with_limit_for_tests(MaterializedBytes, 11)
+                .with_limit_for_tests(ResultBytes, 11);
+        static BUDGETS: [HardExecutionBudget; 5] = [
+            RESULT_BUDGET,
+            RESULT_BUDGET.with_limit_for_tests(ResultRows, 1),
+            RESULT_BUDGET.with_limit_for_tests(NestedValueSteps, 2),
+            RESULT_BUDGET.with_limit_for_tests(MaterializedBytes, 10),
+            RESULT_BUDGET.with_limit_for_tests(ResultBytes, 10),
+        ];
+
+        for (case, budget) in BUDGETS.iter().enumerate() {
+            let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                TEST_HEADROOM,
+            ));
+            let result = with_execution_budget(
+                HardExecutionBudgetTracker::new_with_request_scope(
+                    budget,
+                    TEST_CONTEXT,
+                    &root.scope(),
+                ),
+                || charge_runtime_result_work(2, 11, 3),
+                std::convert::identity,
+                ExecutionBudgetFinish::Automatic,
+            );
+            assert_eq!(result.is_ok(), case == 0);
+            for (index, (resource, expected)) in [
+                (ResultRows, 2),
+                (NestedValueSteps, 3),
+                (MaterializedBytes, 11),
+                (ResultBytes, 11),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(
+                    root.observed(resource),
+                    if case == 0 || index < case {
+                        expected
+                    } else {
+                        0
+                    },
+                );
+            }
+        }
     }
 
     #[test]

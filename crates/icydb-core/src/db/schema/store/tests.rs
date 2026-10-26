@@ -587,7 +587,8 @@ fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publica
 
     let prepared = store
         .prepare_cardinality_maintenance(header, source, next_source, &[(digest, 2)])
-        .expect("increment and next watermark should preflight");
+        .expect("increment and next watermark should preflight")
+        .expect("valid counts should remain available");
     store
         .apply_prepared_cardinality_maintenance(prepared)
         .expect("preflighted positive maintenance should apply");
@@ -609,7 +610,8 @@ fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publica
 
     let prepared = store
         .prepare_cardinality_maintenance(next_header, next_source, final_source, &[(digest, -5)])
-        .expect("exact removal should preflight");
+        .expect("exact removal should preflight")
+        .expect("valid counts should remain available");
     store
         .apply_prepared_cardinality_maintenance(prepared)
         .expect("preflighted zero maintenance should apply");
@@ -634,8 +636,68 @@ fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publica
                 final_source,
                 &[(digest, -1)],
             )
-            .is_err(),
-        "count underflow must fail before stable mutation",
+            .expect("derived underflow must not block the fold")
+            .is_none(),
+        "count underflow must leave evidence unavailable before stable mutation",
+    );
+}
+
+#[test]
+fn invalid_cardinality_records_leave_maintenance_unavailable_without_writes() {
+    let source = cardinality_source_identity();
+    let header = CardinalityGenerationHeader::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityGenerationState::Ready,
+        CardinalityCountSlot::A,
+        source,
+    );
+    let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
+    let other = CardinalityCountDigest::for_entity(EntityTag::new(43));
+    let key = RawSchemaKey::from_cardinality_count(header.slot(), digest);
+    let cases = [
+        vec![0],
+        CardinalityCountRecord::new(CardinalityGenerationId::try_new(2).unwrap(), digest, 1)
+            .unwrap()
+            .encode()
+            .to_vec(),
+        CardinalityCountRecord::new(header.generation(), other, 1)
+            .unwrap()
+            .encode()
+            .to_vec(),
+        CardinalityCountRecord::new(header.generation(), digest, u64::MAX)
+            .unwrap()
+            .encode()
+            .to_vec(),
+    ];
+    let mut store = SchemaStore::init_journaled(test_memory(250));
+    store.write_cardinality_generation_header(header).unwrap();
+    for bytes in cases {
+        store
+            .insert_canonical_raw_value(key, bytes.clone())
+            .unwrap();
+        assert!(store.prepare_cardinality_maintenance(
+            header, source, source, &[(other, 1), (digest, 1)],
+        ).unwrap().is_none());
+        assert_eq!(store.cardinality_generation_header().unwrap(), Some(header));
+        assert_eq!(
+            store
+                .get_canonical_raw_value(&key)
+                .unwrap()
+                .unwrap()
+                .as_bytes(),
+            bytes
+        );
+        assert_eq!(
+            store
+                .cardinality_count(header.slot(), header.generation(), other)
+                .unwrap(),
+            None
+        );
+    }
+    assert!(
+        store
+            .prepare_cardinality_maintenance(header, source, source, &[(digest, 0)])
+            .is_err()
     );
 }
 

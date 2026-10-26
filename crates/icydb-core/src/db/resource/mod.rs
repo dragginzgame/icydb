@@ -6,3 +6,6 @@ pub(in crate::db) mod bounded_cache;
 pub(in crate::db) mod budget;
 pub(in crate::db) mod construction;
 pub(in crate::db) mod request;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod instruction_tests;

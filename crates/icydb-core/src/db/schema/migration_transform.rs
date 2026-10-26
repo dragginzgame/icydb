@@ -19,9 +19,10 @@ use icydb_schema::{
 use crate::{
     db::{
         data::{
-            CanonicalRow, CanonicalSlotReader, DecodedDataStoreKey, StructuralRowContract,
-            StructuralSlotReader, canonical_row_from_runtime_value_source_with_accepted_contract,
+            CanonicalRow, CanonicalSlotReader, StructuralRowContract, StructuralSlotReader,
+            canonical_row_from_runtime_value_source_with_accepted_contract,
         },
+        key_taxonomy::PrimaryKeyValue,
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedFieldKind, AcceptedSchemaSnapshot,
             CandidateSchemaRevision, ExistingProposalStore, FieldId,
@@ -160,7 +161,7 @@ impl CompiledMigrationEntityProgram {
         &self,
         before: &StructuralSlotReader<'_>,
         candidate_contract: &StructuralRowContract,
-        key: &DecodedDataStoreKey,
+        key: &PrimaryKeyValue,
     ) -> Result<CanonicalRow, MigrationTransformFinding> {
         let mut values = vec![None; candidate_contract.field_count()];
         for (target, source) in &self.preserved_slots {
@@ -202,7 +203,7 @@ impl CompiledMigrationEntityProgram {
         )
         .map_err(|_| MigrationTransformFinding::row_value_contract())?;
         reader
-            .validate_primary_key(key)
+            .validate_primary_key_value(key)
             .map_err(|_| MigrationTransformFinding::row_value_contract())?;
         Ok(row)
     }

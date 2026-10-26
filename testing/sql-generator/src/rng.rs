@@ -4,6 +4,7 @@
 //! Boundary: makes every witness repetition independent of enumeration and insertion order.
 
 use crate::{SqlGeneratorError, SqlGeneratorErrorKind};
+use ic_platform::blake3;
 
 const SELECT_WITNESS_SUB_SEED_DOMAIN: &[u8] = b"icydb-sql-0.215/select-witness-subseed/v1";
 const MUTATION_WITNESS_SUB_SEED_DOMAIN: &[u8] = b"icydb-sql-0.215/mutation-witness-subseed/v1";

@@ -6,7 +6,7 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        data::{DataStore, DecodedDataStoreKey},
+        data::{DataStore, decode_data_store_key},
         index::{IndexEntryExistenceWitness, IndexId, IndexKey, IndexKeyKind, IndexStore},
         integrity::DatabaseIncarnationId,
         journal::FoldWatermark,
@@ -574,8 +574,7 @@ fn collect_row_page(
     let checkpoint = match cursor.checkpoint() {
         None => None,
         Some(CardinalityBuildCheckpoint::Row(key)) => {
-            DecodedDataStoreKey::try_from_raw(key)
-                .map_err(|_| InternalError::store_corruption())?;
+            decode_data_store_key(key).map_err(|_| InternalError::store_corruption())?;
             Some(key)
         }
         Some(CardinalityBuildCheckpoint::Index(_)) => {
@@ -589,12 +588,11 @@ fn collect_row_page(
     count_digests
         .try_reserve_exact(maximum_entries)
         .map_err(|_| InternalError::store_unsupported())?;
-    let mut last_key = None;
     let mut has_more = false;
-    data.visit_canonical_entries_after(checkpoint, |key, row| {
-        let decoded = DecodedDataStoreKey::try_from_raw(key)
-            .map_err(|_| InternalError::store_corruption())?;
-        if !authority.accepts_entity(decoded.entity_tag()) {
+    let last_key = data.visit_canonical_entries_after(checkpoint, |key, row| {
+        let (entity_tag, _) =
+            decode_data_store_key(key).map_err(|_| InternalError::store_corruption())?;
+        if !authority.accepts_entity(entity_tag) {
             return Err(InternalError::store_corruption());
         }
         let source_bytes = key
@@ -607,8 +605,7 @@ fn collect_row_page(
             has_more = true;
             return Ok(true);
         }
-        count_digests.push(CardinalityCountDigest::for_entity(decoded.entity_tag()));
-        last_key = Some(key.clone());
+        count_digests.push(CardinalityCountDigest::for_entity(entity_tag));
         Ok(false)
     })?;
     if has_more && last_key.is_none() {
@@ -709,9 +706,14 @@ fn collect_index_page(
                 )?);
             }
         }
-        last_key = Some(raw_key.clone());
+        // Prefix counting already decoded this key; retain it instead of copying
+        // each visited raw key into a checkpoint that the next entry replaces.
+        last_key = Some(key);
         Ok(false)
     })?;
+    let last_key = last_key
+        .map(|key| key.to_raw().map_err(|_| InternalError::store_corruption()))
+        .transpose()?;
     if has_more && last_key.is_none() {
         return Err(InternalError::store_unsupported());
     }

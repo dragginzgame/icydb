@@ -20,6 +20,8 @@ use crate::value::Value;
 pub struct OutputValue(PublicValue);
 
 impl OutputValue {
+    impl_public_value_scalar_constructors!("output");
+
     /// Borrow the canonical recursive public value.
     #[must_use]
     pub const fn as_public(&self) -> &PublicValue {
@@ -36,66 +38,6 @@ impl OutputValue {
         Self(value)
     }
 
-    /// Build an account output value.
-    #[must_use]
-    pub const fn account(value: Account) -> Self {
-        Self(PublicValue::Account(value))
-    }
-
-    /// Build a blob output value.
-    #[must_use]
-    pub const fn blob(value: Vec<u8>) -> Self {
-        Self(PublicValue::Blob(value))
-    }
-
-    /// Build a boolean output value.
-    #[must_use]
-    pub const fn boolean(value: bool) -> Self {
-        Self(PublicValue::Bool(value))
-    }
-
-    /// Build a date output value.
-    #[must_use]
-    pub const fn date(value: Date) -> Self {
-        Self(PublicValue::Date(value))
-    }
-
-    /// Build a decimal output value.
-    #[must_use]
-    pub const fn decimal(value: Decimal) -> Self {
-        Self(PublicValue::Decimal(value))
-    }
-
-    /// Build a duration output value.
-    #[must_use]
-    pub const fn duration(value: Duration) -> Self {
-        Self(PublicValue::Duration(value))
-    }
-
-    /// Build a finite 32-bit floating-point output value.
-    #[must_use]
-    pub const fn float32(value: Float32) -> Self {
-        Self(PublicValue::Float32(value))
-    }
-
-    /// Build a finite 64-bit floating-point output value.
-    #[must_use]
-    pub const fn float64(value: Float64) -> Self {
-        Self(PublicValue::Float64(value))
-    }
-
-    /// Build a 64-bit signed integer output value.
-    #[must_use]
-    pub const fn int64(value: i64) -> Self {
-        Self(PublicValue::Int64(value))
-    }
-
-    /// Build a 128-bit signed integer output value.
-    #[must_use]
-    pub const fn int128(value: i128) -> Self {
-        Self(PublicValue::Int128(value))
-    }
-
     /// Build a recursive list output value.
     #[must_use]
     pub const fn list(values: Vec<PublicValue>) -> Self {
@@ -106,66 +48,6 @@ impl OutputValue {
     #[must_use]
     pub const fn map(entries: Vec<(PublicValue, PublicValue)>) -> Self {
         Self(PublicValue::Map(entries))
-    }
-
-    /// Build a null output value.
-    #[must_use]
-    pub const fn null() -> Self {
-        Self(PublicValue::Null)
-    }
-
-    /// Build a principal output value.
-    #[must_use]
-    pub const fn principal(value: Principal) -> Self {
-        Self(PublicValue::Principal(value))
-    }
-
-    /// Build a fixed subaccount output value.
-    #[must_use]
-    pub const fn subaccount(value: Subaccount) -> Self {
-        Self(PublicValue::Subaccount(value))
-    }
-
-    /// Build a text output value.
-    #[must_use]
-    pub const fn text(value: String) -> Self {
-        Self(PublicValue::Text(value))
-    }
-
-    /// Build a timestamp output value.
-    #[must_use]
-    pub const fn timestamp(value: Timestamp) -> Self {
-        Self(PublicValue::Timestamp(value))
-    }
-
-    /// Build a 64-bit natural output value.
-    #[must_use]
-    pub const fn nat64(value: u64) -> Self {
-        Self(PublicValue::Nat64(value))
-    }
-
-    /// Build a 128-bit natural output value.
-    #[must_use]
-    pub const fn nat128(value: u128) -> Self {
-        Self(PublicValue::Nat128(value))
-    }
-
-    /// Build a ULID output value.
-    #[must_use]
-    pub const fn ulid(value: Ulid) -> Self {
-        Self(PublicValue::Ulid(value))
-    }
-
-    /// Build a unit output value.
-    #[must_use]
-    pub const fn unit() -> Self {
-        Self(PublicValue::Unit)
-    }
-
-    /// Build a fixed-width unsigned integer output value.
-    #[must_use]
-    pub const fn u256(value: U256) -> Self {
-        Self(PublicValue::U256(value))
     }
 }
 

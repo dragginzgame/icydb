@@ -14,7 +14,7 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::{CanonicalSlotReader, StructuralRowContract},
-        index::{IndexKey, IndexReadContract, IndexRowIdentity},
+        index::{IndexId, IndexKey, IndexReadContract},
         key_taxonomy::PrimaryKeyValue,
         predicate::PredicateProgram,
         schema::{SchemaExpressionIndexInfo, SchemaIndexInfo},
@@ -47,6 +47,102 @@ impl IndexKeyLane {
             Self::Old => InternalError::structural_index_removal_entity_key_required(),
             Self::New => InternalError::structural_index_insertion_entity_key_required(),
         }
+    }
+}
+
+// The existing two-family key authority now serves mutation and uniqueness.
+// Key construction stays specialized; transition ordering has one owner.
+enum AcceptedIndexKeyAuthority<'a> {
+    AcceptedFieldPath(&'a SchemaIndexInfo, Option<&'a PredicateProgram>),
+    AcceptedExpression(&'a SchemaExpressionIndexInfo, Option<&'a PredicateProgram>),
+}
+
+impl<'a> AcceptedIndexKeyAuthority<'a> {
+    const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
+        match self {
+            Self::AcceptedFieldPath(index, _) => IndexId::new_with_generation(
+                entity_tag,
+                index.ordinal(),
+                index.physical_generation(),
+            ),
+            Self::AcceptedExpression(index, _) => IndexId::new_with_generation(
+                entity_tag,
+                index.ordinal(),
+                index.physical_generation(),
+            ),
+        }
+    }
+
+    const fn read_contract(&self) -> IndexReadContract<'a> {
+        match self {
+            Self::AcceptedFieldPath(index, _) => {
+                IndexReadContract::new(index.store(), index.unique())
+            }
+            Self::AcceptedExpression(index, _) => {
+                IndexReadContract::new(index.store(), index.unique())
+            }
+        }
+    }
+
+    fn load_key(
+        &self,
+        lane: IndexKeyLane,
+        entity_tag: EntityTag,
+        primary_key: Option<&PrimaryKeyValue>,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<Option<IndexKey>, InternalError> {
+        let primary_key = primary_key.ok_or_else(|| lane.missing_entity_key_error())?;
+
+        self.build_index_key_from_row_slots(entity_tag, primary_key, slots)
+    }
+
+    fn build_index_key_from_row_slots(
+        &self,
+        entity_tag: EntityTag,
+        primary_key: &PrimaryKeyValue,
+        row_fields: &dyn CanonicalSlotReader,
+    ) -> Result<Option<IndexKey>, InternalError> {
+        match self {
+            Self::AcceptedFieldPath(index, predicate_program) => {
+                accepted_field_path_index_key_for_slot_reader_with_membership_structural(
+                    entity_tag,
+                    index,
+                    *predicate_program,
+                    primary_key,
+                    row_fields,
+                )
+            }
+            Self::AcceptedExpression(index, predicate_program) => {
+                accepted_expression_index_key_for_slot_reader_with_membership_structural(
+                    entity_tag,
+                    index,
+                    *predicate_program,
+                    primary_key,
+                    row_fields,
+                )
+            }
+        }
+    }
+
+    fn unique_violation(
+        &self,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
+        mutation: Option<MutationDiagnosticContext>,
+        entity_tag: EntityTag,
+    ) -> InternalError {
+        let identity = match self {
+            Self::AcceptedFieldPath(index, _) => index.unique_constraint(),
+            Self::AcceptedExpression(index, _) => index.unique_constraint(),
+        };
+        let Some(identity) = identity else {
+            return InternalError::index_unique_validation_corruption();
+        };
+        error::unique_violation(
+            accepted_schema_fingerprint,
+            mutation,
+            identity.id().get(),
+            entity_tag.value(),
+        )
     }
 }
 
@@ -94,54 +190,12 @@ pub(in crate::db::index::plan) fn accepted_expression_index_key_for_slot_reader_
     )
 }
 
-fn load_structural_accepted_field_path_index_key(
-    lane: IndexKeyLane,
-    entity_tag: EntityTag,
-    accepted_index: &SchemaIndexInfo,
-    predicate_program: Option<&PredicateProgram>,
-    primary_key: Option<&PrimaryKeyValue>,
-    slots: &dyn CanonicalSlotReader,
-) -> Result<Option<IndexKey>, InternalError> {
-    let Some(primary_key) = primary_key else {
-        return Err(lane.missing_entity_key_error());
-    };
-
-    accepted_field_path_index_key_for_slot_reader_with_membership_structural(
-        entity_tag,
-        accepted_index,
-        predicate_program,
-        primary_key,
-        slots,
-    )
-}
-
-fn load_structural_accepted_expression_index_key(
-    lane: IndexKeyLane,
-    entity_tag: EntityTag,
-    accepted_index: &SchemaExpressionIndexInfo,
-    predicate_program: Option<&PredicateProgram>,
-    primary_key: Option<&PrimaryKeyValue>,
-    slots: &dyn CanonicalSlotReader,
-) -> Result<Option<IndexKey>, InternalError> {
-    let Some(primary_key) = primary_key else {
-        return Err(lane.missing_entity_key_error());
-    };
-
-    accepted_expression_index_key_for_slot_reader_with_membership_structural(
-        entity_tag,
-        accepted_index,
-        predicate_program,
-        primary_key,
-        slots,
-    )
-}
-
 // Prove that the pre-existing old index entry still contains the expected row
 // membership before commit planning becomes purely mechanical.
 fn validate_existing_old_index_membership(
     old_primary_key: Option<&PrimaryKeyValue>,
     old_key: Option<&IndexKey>,
-    old_entry: Option<&IndexRowIdentity>,
+    old_entry: Option<&PrimaryKeyValue>,
 ) -> Result<(), InternalError> {
     if old_key.is_none() {
         return Ok(());
@@ -151,11 +205,9 @@ fn validate_existing_old_index_membership(
         return Err(InternalError::structural_index_removal_entity_key_required());
     };
 
-    let entry = old_entry
-        .as_ref()
-        .ok_or_else(InternalError::structural_index_entry_corruption)?;
+    let entry = old_entry.ok_or_else(InternalError::structural_index_entry_corruption)?;
 
-    if !entry.contains(old_primary_key) {
+    if entry != old_primary_key {
         return Err(InternalError::structural_index_entry_corruption());
     }
 
@@ -188,14 +240,17 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
         .iter()
         .zip(&metadata.field_path_inputs)
     {
-        plan_accepted_field_path_index_mutation_for_slot_reader_structural(
+        plan_accepted_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_tag,
             accepted_schema_fingerprint,
             mutation,
             read_view,
             row_contract,
-            accepted_index,
+            AcceptedIndexKeyAuthority::AcceptedFieldPath(
+                accepted_index,
+                inputs.predicate_program.as_ref(),
+            ),
             inputs,
             old_primary_key,
             old_slots,
@@ -208,14 +263,17 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
         .iter()
         .zip(&metadata.expression_inputs)
     {
-        plan_accepted_expression_index_mutation_for_slot_reader_structural(
+        plan_accepted_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_tag,
             accepted_schema_fingerprint,
             mutation,
             read_view,
             row_contract,
-            accepted_index,
+            AcceptedIndexKeyAuthority::AcceptedExpression(
+                accepted_index,
+                inputs.predicate_program.as_ref(),
+            ),
             inputs,
             old_primary_key,
             old_slots,
@@ -228,32 +286,26 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
 }
 
 #[expect(clippy::too_many_arguments)]
-fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
+fn plan_accepted_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
     entity_tag: EntityTag,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    accepted_index: &SchemaIndexInfo,
+    accepted_index: AcceptedIndexKeyAuthority<'_>,
     inputs: &PreparedIndexInputs,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
 ) -> Result<(), InternalError> {
-    let predicate_program = inputs.predicate_program.as_ref();
     // Verification rebuilds every after-image key. Admit it even when the
     // indexed inputs are unchanged, then reuse it without reading index state.
     let new_key = match new_slots {
-        Some(slots) => load_structural_accepted_field_path_index_key(
-            IndexKeyLane::New,
-            entity_tag,
-            accepted_index,
-            predicate_program,
-            new_primary_key,
-            slots,
-        )?,
+        Some(slots) => {
+            accepted_index.load_key(IndexKeyLane::New, entity_tag, new_primary_key, slots)?
+        }
         None => None,
     };
     if unchanged_index_inputs(
@@ -266,18 +318,12 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         return Ok(());
     }
 
-    let index_store = accepted_index.store();
-    let index_is_unique = accepted_index.unique();
-    let read_contract = IndexReadContract::new(index_store, index_is_unique);
+    let read_contract = accepted_index.read_contract();
+    let index_store = read_contract.store_path();
     let old_key = match old_slots {
-        Some(slots) => load_structural_accepted_field_path_index_key(
-            IndexKeyLane::Old,
-            entity_tag,
-            accepted_index,
-            predicate_program,
-            old_primary_key,
-            slots,
-        )?,
+        Some(slots) => {
+            accepted_index.load_key(IndexKeyLane::Old, entity_tag, old_primary_key, slots)?
+        }
         None => None,
     };
 
@@ -292,102 +338,13 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
 
     validate_existing_old_index_membership(old_primary_key, old_key.as_ref(), old_entry.as_ref())?;
 
-    unique::validate_unique_constraint_accepted_field_path_structural(
+    unique::validate_unique_constraint_structural_impl(
         accepted_schema_fingerprint,
         mutation,
         entity_tag,
         read_view,
         row_contract,
         accepted_index,
-        predicate_program,
-        read_contract,
-        new_key.as_ref().and(new_primary_key),
-        new_key.as_ref(),
-    )?;
-
-    push_index_delta_group(
-        groups,
-        index_store,
-        old_key,
-        new_key,
-        old_primary_key,
-        new_primary_key,
-    )?;
-
-    Ok(())
-}
-
-#[expect(clippy::too_many_arguments)]
-fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
-    groups: &mut Vec<IndexDeltaGroup>,
-    entity_tag: EntityTag,
-    accepted_schema_fingerprint: CommitSchemaFingerprint,
-    mutation: Option<MutationDiagnosticContext>,
-    read_view: &dyn IndexPlanReadView,
-    row_contract: &StructuralRowContract,
-    accepted_index: &SchemaExpressionIndexInfo,
-    inputs: &PreparedIndexInputs,
-    old_primary_key: Option<&PrimaryKeyValue>,
-    old_slots: Option<&dyn CanonicalSlotReader>,
-    new_primary_key: Option<&PrimaryKeyValue>,
-    new_slots: Option<&dyn CanonicalSlotReader>,
-) -> Result<(), InternalError> {
-    let predicate_program = inputs.predicate_program.as_ref();
-    // Verification rebuilds every after-image key. Admit it even when the
-    // indexed inputs are unchanged, then reuse it without reading index state.
-    let new_key = match new_slots {
-        Some(slots) => load_structural_accepted_expression_index_key(
-            IndexKeyLane::New,
-            entity_tag,
-            accepted_index,
-            predicate_program,
-            new_primary_key,
-            slots,
-        )?,
-        None => None,
-    };
-    if unchanged_index_inputs(
-        old_primary_key,
-        old_slots,
-        new_primary_key,
-        new_slots,
-        &inputs.referenced_slots,
-    )? {
-        return Ok(());
-    }
-
-    let index_store = accepted_index.store();
-    let index_is_unique = accepted_index.unique();
-    let read_contract = IndexReadContract::new(index_store, index_is_unique);
-
-    let old_key = match old_slots {
-        Some(slots) => load_structural_accepted_expression_index_key(
-            IndexKeyLane::Old,
-            entity_tag,
-            accepted_index,
-            predicate_program,
-            old_primary_key,
-            slots,
-        )?,
-        None => None,
-    };
-
-    if old_key.as_ref() == new_key.as_ref() && old_primary_key == new_primary_key {
-        return Ok(());
-    }
-
-    let old_entry = load_existing_entry_structural(read_view, read_contract, old_key.as_ref())?;
-
-    validate_existing_old_index_membership(old_primary_key, old_key.as_ref(), old_entry.as_ref())?;
-
-    unique::validate_unique_constraint_accepted_expression_structural(
-        accepted_schema_fingerprint,
-        mutation,
-        entity_tag,
-        read_view,
-        row_contract,
-        accepted_index,
-        predicate_program,
         read_contract,
         new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),
@@ -447,17 +404,17 @@ fn push_index_delta_group(
     let mut deltas = Vec::with_capacity(2);
 
     if let Some(old_key) = old_key {
-        let Some(old_primary_key) = old_primary_key else {
+        let Some(_) = old_primary_key else {
             return Err(InternalError::index_commit_op_old_entity_key_required());
         };
-        deltas.push(IndexDelta::remove(old_key, old_primary_key));
+        deltas.push(IndexDelta::remove(old_key));
     }
 
     if let Some(new_key) = new_key {
-        let Some(new_primary_key) = new_primary_key else {
+        let Some(_) = new_primary_key else {
             return Err(InternalError::index_commit_op_new_entity_key_required());
         };
-        deltas.push(IndexDelta::insert(new_key, new_primary_key));
+        deltas.push(IndexDelta::insert(new_key));
     }
 
     if !deltas.is_empty() {
@@ -471,7 +428,7 @@ pub(super) fn load_existing_entry_structural(
     read_view: &dyn IndexPlanReadView,
     index: IndexReadContract<'_>,
     key: Option<&IndexKey>,
-) -> Result<Option<IndexRowIdentity>, InternalError> {
+) -> Result<Option<PrimaryKeyValue>, InternalError> {
     // No indexed key means no index entry to load.
     let Some(key) = key else {
         return Ok(None);
@@ -483,7 +440,8 @@ pub(super) fn load_existing_entry_structural(
         .read_index_entry(index, &raw_key)?
         .map(|raw_entry| {
             raw_entry
-                .decode_row_identity(&raw_key)
+                .decode_row_witness_from_index_key(key)
+                .map(|witness| *witness.primary_key_value())
                 .map_err(|_| InternalError::structural_index_entry_corruption())
         })
         .transpose()

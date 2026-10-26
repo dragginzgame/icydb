@@ -10,5 +10,9 @@
   {
     "dependency": "ic-cdk-bindgen",
     "allowed_packages": []
+  },
+  {
+    "dependency": "blake3",
+    "allowed_packages": []
   }
 ]

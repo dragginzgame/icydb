@@ -14,6 +14,7 @@ use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::fixture_variants::build_entity_creation_fixture_wasms;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
 
+use ic_platform::blake3;
 use std::sync::OnceLock;
 
 #[derive(serde::Deserialize, serde::Serialize)]

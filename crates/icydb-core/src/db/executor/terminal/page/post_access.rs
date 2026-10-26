@@ -1,11 +1,10 @@
 use crate::{
     db::{
         cursor::CursorBoundary,
-        data::DataRow,
         executor::{
-            ExecutionKernel, PendingOrderRows, compare_orderable_row_with_boundary,
-            pipeline::contracts::CursorEmissionMode, route::access_order_satisfied_by_route_mode,
-            terminal::page::KernelRow,
+            ExecutionKernel, PendingOrderRows, ProjectionDataRows,
+            compare_orderable_row_with_boundary, pipeline::contracts::CursorEmissionMode,
+            route::access_order_satisfied_by_route_mode, terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, ResolvedOrder},
         resource::budget::charge_current_execution_budget,
@@ -97,12 +96,15 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
 
 // Apply one simple cursorless load page window directly on canonical data
 // rows when route order is already final and no later slot-aware phase exists.
-pub(super) fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut Vec<DataRow>) {
+pub(super) fn apply_data_row_page_window(
+    plan: &AccessPlannedQuery,
+    rows: &mut ProjectionDataRows,
+) -> Result<(), InternalError> {
     let Some(page) = plan.scalar_plan().page.as_ref() else {
-        return;
+        return Ok(());
     };
 
-    let total = rows.len();
+    let total = rows.row_count();
     let start = usize::try_from(page.offset)
         .unwrap_or(usize::MAX)
         .min(total);
@@ -114,18 +116,19 @@ pub(super) fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut V
     };
     if start == 0 {
         rows.truncate(end);
-        return;
+        return Ok(());
     }
 
     let mut kept = 0usize;
     for read_index in start..end {
         if kept != read_index {
-            rows.swap(kept, read_index);
+            rows.swap(kept, read_index)?;
         }
         kept = kept.saturating_add(1);
     }
 
     rows.truncate(kept);
+    Ok(())
 }
 
 // Apply the ordered-load continuation boundary and page window in one in-place

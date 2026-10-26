@@ -21,7 +21,7 @@ use crate::{
         direction::Direction,
         index::{
             IndexEntryValue, IndexKey, IndexState, IndexStore, RawIndexStoreKey,
-            raw_user_index_entity_bounds,
+            decode_index_key_frame, raw_user_index_entity_bounds,
         },
         key_taxonomy::PrimaryKeyValue,
         predicate::PredicateProgram,
@@ -884,14 +884,14 @@ fn validate_projection(
         return Ok(());
     }
 
-    let mut previous = IndexKey::try_from_raw(&entries[0].key)
+    let mut previous = decode_index_key_frame(&entries[0].key)
         .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
     for entry in &entries[1..] {
-        let current = IndexKey::try_from_raw(&entry.key)
+        let current = decode_index_key_frame(&entry.key)
             .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
         if previous.index_id() == current.index_id()
-            && unique_index_ids.contains(previous.index_id())
-            && previous.has_same_components(&current)
+            && unique_index_ids.contains(&previous.index_id())
+            && previous.components() == current.components()
         {
             return Err(match authority {
                 ProjectionAuthority::AcceptedBefore => {
@@ -924,7 +924,7 @@ fn observe_current_user_index_domain(
         Direction::Asc,
         |raw_key, value| {
             budget.consume_projection_work()?;
-            IndexKey::try_from_raw(raw_key)
+            decode_index_key_frame(raw_key)
                 .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
             budget.consume_deletion_key(raw_key.as_bytes().len())?;
             entries.push(StagedUserIndexDomainEntry {
@@ -960,7 +960,7 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
         ),
         Direction::Asc,
         |raw_key, _| {
-            IndexKey::try_from_raw(raw_key)
+            decode_index_key_frame(raw_key)
                 .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
             found = true;
             Ok(true)
@@ -1140,6 +1140,60 @@ mod tests {
 
     use super::*;
     use crate::db::index::IndexKeyKind;
+
+    #[test]
+    fn projection_preserves_unique_conflicts_and_strict_frame_admission() {
+        let id = IndexId::new_with_generation(EntityTag::new(7), 0, 0);
+        let unique = BTreeSet::from([id]);
+        let entry = |primary: u64| StagedUserIndexDomainEntry {
+            key: IndexKey::new_from_components_with_primary_key_value(
+                &id,
+                IndexKeyKind::User,
+                &[vec![42]],
+                &crate::db::key_taxonomy::PrimaryKeyValue::from(
+                    crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(primary),
+                ),
+            )
+            .unwrap()
+            .to_raw()
+            .unwrap(),
+            value: IndexEntryValue::presence(),
+        };
+        assert!(matches!(
+            validate_projection(
+                &mut [entry(1), entry(1)],
+                &unique,
+                ProjectionAuthority::CandidateAfter
+            ),
+            Err(StagedUserIndexDomainError::DuplicateRawKey)
+        ));
+        assert!(matches!(
+            validate_projection(
+                &mut [entry(2), entry(1)],
+                &unique,
+                ProjectionAuthority::AcceptedBefore
+            ),
+            Err(StagedUserIndexDomainError::DuplicateUniqueKey)
+        ));
+        assert!(matches!(
+            validate_projection(
+                &mut [entry(2), entry(1)],
+                &unique,
+                ProjectionAuthority::CandidateAfter
+            ),
+            Err(StagedUserIndexDomainError::CandidateUniqueConflict)
+        ));
+        let mut malformed = entry(1);
+        malformed.key = RawIndexStoreKey::from_persisted_bytes(vec![0]);
+        assert!(matches!(
+            validate_projection(
+                &mut [malformed],
+                &unique,
+                ProjectionAuthority::CandidateAfter
+            ),
+            Err(StagedUserIndexDomainError::PhysicalKeyDecode)
+        ));
+    }
 
     #[test]
     fn stage_budget_rejections_preserve_the_exact_resource() {

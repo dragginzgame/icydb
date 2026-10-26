@@ -36,7 +36,7 @@ pub(in crate::db::executor::projection::materialize::structural) fn project_iden
         },
         |data_rows| {
             let rows = data_rows
-                .iter()
+                .into_rows()
                 .map(|row| project_identity_data_row(&row_layout, row))
                 .collect::<Result<Vec<_>, InternalError>>()?;
 

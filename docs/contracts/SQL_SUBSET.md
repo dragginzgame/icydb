@@ -829,7 +829,11 @@ Current boundary:
   sequence, and bounded idempotency key. Each advance scans in authoritative
   primary-key order, commits at most one independently atomic fixed-patch page,
   and reports completion only after a clean full verification sweep at one
-  unchanged target-entity journal revision.
+  unchanged target-entity journal revision. Completion requires a write-quiet
+  window covering that entire verification sweep. Target revision drift restarts
+  Forward from its beginning, without undoing committed pages; repeated drift
+  has no retry ceiling or eventual-completion guarantee. See the
+  [concurrent-write guidance](../guides/public-facade-api.md#mutation-job-completion-under-concurrent-writes).
 - resumable execution is restricted to journaled stores, fixed authored
   assignments, stable scopes, batch-independent accepted constraints, and
   entity graphs without application write callbacks. It has no row `RETURNING`

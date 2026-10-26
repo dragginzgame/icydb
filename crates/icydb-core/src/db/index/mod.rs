@@ -20,7 +20,6 @@ pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
 pub(in crate::db) use cardinality::UserIndexPrefixCardinalityKey;
 pub(in crate::db) use entry::IndexEntryExistenceWitness;
 pub(in crate::db) use entry::IndexEntryRowWitness;
-pub(in crate::db) use entry::IndexRowIdentity;
 pub(in crate::db) use envelope::{envelope_is_empty, key_within_envelope};
 pub(in crate::db) use envelope::{
     resume_bounds_for_continuation, resume_prefix_bounds_for_continuation,

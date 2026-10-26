@@ -107,7 +107,7 @@ impl OrderedKeyStreamBox {
         OrderedKeyStream::page_access_entry_bound(self)
     }
 
-    /// Visit one unconsumed ASC primary leaf through a single physical row
+    /// Visit one unconsumed primary leaf in its direction through one physical row
     /// traversal, preserving transparent budget and progress observers.
     pub(in crate::db::executor) fn try_visit_primary_rows_direct(
         &mut self,

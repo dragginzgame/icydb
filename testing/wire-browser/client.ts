@@ -1,4 +1,4 @@
-import type { HttpAgent } from '@icp-sdk/core/agent';
+import type { HttpAgent } from '@tokostudios/ic-platform/agent';
 
 // Authentication, certificates, root keys and update polling stay with the
 // caller's SDK agent. A generated contract owns bytes and the method identity.

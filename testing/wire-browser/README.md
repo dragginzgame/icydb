@@ -159,3 +159,12 @@ Generated files, bundles and reports stay ignored under `target/wire-browser/`.
 The installed report records the browser and actual frames. Linux qualification
 does not qualify native macOS. Raw Wasm/cycles/instructions are not measured by
 these correctness checks. Tracking: [#372 — Qualify native Wire browser codecs](https://github.com/dragginzgame/icydb/issues/372).
+
+The browser harness consumes Agent and identity APIs through published
+`@tokostudios/ic-platform` 0.1.0, which retains SDK Core 6.1.1 transitively.
+Wire still owns application frames. Disposable installed fixtures retain their
+explicit local root-key fetching; this is not a production trust default.
+The browser check rejects direct SDK declarations (including npm aliases) and
+literal SDK module references in first-party TypeScript/JavaScript sources.
+It excludes installed dependencies and does not prove arbitrary computed module
+names cannot reach the SDK.

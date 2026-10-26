@@ -19,19 +19,19 @@ use crate::{
             generate_marker_batch_id, next_database_commit_sequence,
         },
         data::{
-            DecodedDataStoreKey, PreparedDataPositionPublication, RawDataStoreKey, RawRow,
-            StoreVisit, StructuralSlotReader,
+            PreparedDataPositionPublication, RawDataStoreKey, RawRow, StoreVisit,
+            StructuralSlotReader, decode_data_store_key,
         },
         direction::Direction,
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, PreparedIndexPositionPublication,
-            RawIndexStoreKey,
+            RawIndexStoreKey, decode_index_key_frame,
         },
         journal::{
             DatabaseCommitSequence, JournalBatch, JournalRecord, MAX_JOURNAL_BATCH_RECORDS,
             journal_record_payload_len,
         },
-        key_taxonomy::RawDataStoreKeyRange,
+        key_taxonomy::{PrimaryKeyValue, RawDataStoreKeyRange},
         positioned_overlay::JournalOverlayPosition,
         registry::{StoreHandle, StoreRecoveryCapability},
         relation::{
@@ -318,11 +318,11 @@ fn rewrite_entity_page(
                 )?;
                 work.charge(Resource::RowsVisited, 1)?;
                 work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
-                let decoded = DecodedDataStoreKey::try_from_raw(raw_key)
+                let (_, primary_key) = decode_data_store_key(raw_key)
                     .map_err(|_| InternalError::store_corruption())?;
-                before.validate_primary_key(&decoded)?;
+                before.validate_primary_key_value(&primary_key)?;
                 let candidate = program
-                    .evaluate(&before, &prepared.candidate_contract, &decoded)
+                    .evaluate(&before, &prepared.candidate_contract, &primary_key)
                     .map_err(|_| {
                         InternalError::schema_migration(SchemaMigrationCode::CandidateMismatch)
                     })?;
@@ -331,7 +331,7 @@ fn rewrite_entity_page(
                     program,
                     prepared,
                     raw_key,
-                    &decoded,
+                    &primary_key,
                     candidate.as_raw_row(),
                     plan_digest,
                     work,
@@ -415,7 +415,7 @@ pub(in crate::db::schema) fn prepare_candidate_row_rewrite(
     program: &CompiledMigrationEntityProgram,
     prepared: &PreparedCandidateEntity,
     raw_key: &RawDataStoreKey,
-    decoded: &DecodedDataStoreKey,
+    primary_key: &PrimaryKeyValue,
     candidate: &RawRow,
     plan_digest: icydb_schema::SchemaMigrationPlanDigest,
     work: &dyn crate::db::resource::construction::ConstructionBudget,
@@ -426,13 +426,12 @@ pub(in crate::db::schema) fn prepare_candidate_row_rewrite(
         candidate,
         &prepared.candidate_contract,
     )?;
-    candidate_reader.validate_primary_key(decoded)?;
+    candidate_reader.validate_primary_key_value(primary_key)?;
     let mut row_effects = Vec::new();
     let mut row_index_bytes = 0usize;
     for projection in &prepared.indexes {
         work.charge(Resource::PredicateExpressionSteps, 1)?;
-        let Some(key) = projection.derive_key(&decoded.primary_key_value(), &candidate_reader)?
-        else {
+        let Some(key) = projection.derive_key(primary_key, &candidate_reader)? else {
             continue;
         };
         row_index_bytes = row_index_bytes
@@ -452,7 +451,7 @@ pub(in crate::db::schema) fn prepare_candidate_row_rewrite(
     let mut relation_commit_budget = crate::db::relation::RelationCommitBudget::default();
     for relation in &prepared.relations {
         let projected = relation.project_row_with_budgets(
-            &decoded.primary_key_value(),
+            primary_key,
             &candidate_reader,
             true,
             &mut relation_projection_budget,
@@ -827,13 +826,13 @@ fn final_validate_entity_page(
             }
             work.charge(Resource::RowsVisited, 1)?;
             work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
-            let decoded = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_| InternalError::store_corruption())?;
+            let (_, primary_key) =
+                decode_data_store_key(raw_key).map_err(|_| InternalError::store_corruption())?;
             let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                 raw_row,
                 &prepared.candidate_contract,
             )?;
-            row.validate_primary_key(&decoded)?;
+            row.validate_primary_key_value(&primary_key)?;
             let values = row.decode_selected_slot_values(prepared.constraints.required_slots())?;
             prepared
                 .constraints
@@ -843,7 +842,7 @@ fn final_validate_entity_page(
                 })?;
             for projection in &prepared.indexes {
                 work.charge(Resource::PredicateExpressionSteps, 1)?;
-                if let Some(key) = projection.derive_key(&decoded.primary_key_value(), &row)?
+                if let Some(key) = projection.derive_key(&primary_key, &row)?
                     && store.with_index(|index| index.get(&key))
                         != Some(IndexEntryValue::presence())
                 {
@@ -857,7 +856,7 @@ fn final_validate_entity_page(
             let mut relation_commit_budget = crate::db::relation::RelationCommitBudget::default();
             for relation in &prepared.relations {
                 let projected = relation.project_row_with_budgets(
-                    &decoded.primary_key_value(),
+                    &primary_key,
                     &row,
                     true,
                     &mut relation_projection_budget,
@@ -1111,7 +1110,7 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
                                 store_exhausted = false;
                                 return Ok::<_, InternalError>(true);
                             }
-                            IndexKey::try_from_raw(raw)
+                            decode_index_key_frame(raw)
                                 .map_err(|_| InternalError::store_corruption())?;
                             remaining_entries = remaining_entries.saturating_sub(1);
                             remaining_bytes = remaining_bytes.saturating_sub(raw.as_bytes().len());
@@ -1212,7 +1211,7 @@ mod tests {
     use super::*;
     use crate::{
         db::{
-            data::DataStore,
+            data::{DataStore, DecodedDataStoreKey},
             index::IndexStore,
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},

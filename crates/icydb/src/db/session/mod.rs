@@ -220,6 +220,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Advance one durable mutation job through one bounded engine-owned step.
+    ///
+    /// Completion requires a clean full Verify sweep at one unchanged target-entity
+    /// revision. Concurrent target writes can repeatedly restart Forward without
+    /// undoing committed pages; bounded steps do not guarantee eventual completion.
+    /// Inspect `verify_restarts_total` and coordinate writers when drift persists.
     #[cfg(feature = "sql")]
     pub fn advance_trusted_mutation_job(
         &self,

@@ -8,7 +8,7 @@ publish = false
 description = "Typed deterministic SQL correctness generator for IcyDB tests"
 
 [dependencies]
-blake3 = { workspace = true }
+ic-platform = { workspace = true, features = ["blake3"] }
 serde = { workspace = true, features = ["derive", "std"] }
 serde_json = { workspace = true }
 

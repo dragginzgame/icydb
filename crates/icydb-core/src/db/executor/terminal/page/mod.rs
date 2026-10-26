@@ -114,6 +114,14 @@ impl KernelRow {
         }
     }
 
+    /// Move a retained source field after ordering has finished using the row.
+    pub(in crate::db::executor) fn take_slot(&mut self, slot: usize) -> Option<Value> {
+        match &mut self.slots {
+            KernelRowSlots::NotMaterialized => None,
+            KernelRowSlots::Retained(slots) => slots.take_slot(slot),
+        }
+    }
+
     /// Return whether this row carries decoded slot values for slot-aware
     /// post-access phases such as in-memory ordering and cursor boundaries.
     #[must_use]

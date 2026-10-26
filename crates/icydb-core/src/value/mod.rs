@@ -13,6 +13,8 @@ mod canonical_enum;
 mod cleanup;
 mod coercion;
 mod compare;
+#[macro_use]
+mod constructors;
 pub(crate) mod format;
 mod hash;
 mod input;

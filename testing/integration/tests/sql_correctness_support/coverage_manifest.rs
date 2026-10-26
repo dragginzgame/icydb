@@ -13,6 +13,7 @@ use std::{
     process::Command,
 };
 
+use ic_platform::blake3;
 use icydb_testing_sql_generator::TIER_C_SQL_COVERAGE_MANIFEST_REVISION;
 use icydb_testing_sqlite_reference::required_sqlite_reference_scenarios;
 

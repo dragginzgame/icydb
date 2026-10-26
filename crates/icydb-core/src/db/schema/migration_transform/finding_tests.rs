@@ -115,7 +115,7 @@ fn preserved_slot_failure_retains_both_accepted_field_identities() {
     let before =
         StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &before_contract).unwrap();
     let program = preserving_program();
-    let key = DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(7).into());
+    let key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(7));
     let finding = program
         .evaluate(&before, &candidate_contract, &key)
         .unwrap_err();
@@ -146,8 +146,7 @@ fn row_contract_failures_are_retainable_without_field_attribution() {
     // Candidate encoding and final PK agreement fail at the whole-row boundary.
     for (max_len, id) in [(1, 7), (64, 8)] {
         let candidate_contract = contract(27, max_len);
-        let key =
-            DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(id).into());
+        let key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(id));
         let finding = program
             .evaluate(&before, &candidate_contract, &key)
             .unwrap_err();
@@ -161,6 +160,6 @@ fn row_contract_failures_are_retainable_without_field_attribution() {
         );
     }
     let candidate_contract = contract(27, 64);
-    let key = DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(7).into());
+    let key = PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(7));
     assert!(program.evaluate(&before, &candidate_contract, &key).is_ok());
 }

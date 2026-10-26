@@ -13,6 +13,7 @@ use icydb_testing_integration::{
     install_fixture_canister, startup_watchdog_armed, startup_watchdog_perf_snapshot,
 };
 
+use ic_platform::blake3;
 use std::time::Duration;
 
 const CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT: u64 = 30_000_000_000;

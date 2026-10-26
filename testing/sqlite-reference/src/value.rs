@@ -4,6 +4,7 @@
 //! Boundary: keeps comparisons typed and preserves nulls, bytes, order, and duplicates.
 
 use crate::{SqliteAdapterError, SqliteAdapterErrorKind};
+use ic_platform::blake3;
 
 /// Domain separator for canonical typed differential-result fingerprints.
 const SQLITE_REFERENCE_RESULT_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sqlite-reference-result/v1";

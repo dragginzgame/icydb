@@ -105,25 +105,16 @@ impl AccessPlan<Value> {
 
     fn normalize_union(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
-        let mut saw_explicit_empty = false;
 
         for child in children {
             let child = child.normalize_for_access();
             if child.is_single_full_scan() {
                 return Self::full_scan();
             }
-            if child.is_explicit_empty() {
-                saw_explicit_empty = true;
-                continue;
-            }
-
-            Self::append_union_child(&mut out, child);
-        }
-        if out.is_empty() && saw_explicit_empty {
-            return Self::path(AccessPath::ByKeys(Vec::new()));
+            Self::append_flattened_child(&mut out, child, true);
         }
 
-        Self::collapse_normalized_composite(out, true)
+        Self::collapse_normalized_composite(Self::collapse_composite_with_identities(out, true))
     }
 
     fn normalize_intersection(children: Vec<Self>) -> Self {
@@ -138,48 +129,25 @@ impl AccessPlan<Value> {
                 return child;
             }
 
-            Self::append_intersection_child(&mut out, child);
-        }
-        if let Some(empty_child) = out.iter().position(Self::is_explicit_empty) {
-            return out.remove(empty_child);
+            Self::append_flattened_child(&mut out, child, false);
         }
 
-        Self::collapse_normalized_composite(out, false)
+        Self::collapse_normalized_composite(Self::collapse_composite_with_identities(out, false))
     }
 
-    fn collapse_normalized_composite(mut out: Vec<Self>, is_union: bool) -> Self {
-        if out.is_empty() {
-            return Self::full_scan();
-        }
-        if out.len() == 1 {
-            return out.pop().unwrap_or_else(Self::full_scan);
-        }
+    // Constructors own structural identities and flattening; normalization adds
+    // only Value ordering/deduplication before reusing the same arity collapse.
+    fn collapse_normalized_composite(plan: Self) -> Self {
+        let (mut out, is_union) = match plan {
+            Self::Union(children) => (children, true),
+            Self::Intersection(children) => (children, false),
+            leaf @ Self::Path(_) => return leaf,
+        };
 
         canonicalize_access_plans_value(&mut out);
         dedup_sorted_access_plans(&mut out);
-        if out.len() == 1 {
-            return out.pop().unwrap_or_else(Self::full_scan);
-        }
 
-        if is_union {
-            Self::Union(out)
-        } else {
-            Self::Intersection(out)
-        }
-    }
-
-    fn append_union_child(out: &mut Vec<Self>, child: Self) {
-        match child {
-            Self::Union(children) => out.extend(children),
-            other => out.push(other),
-        }
-    }
-
-    fn append_intersection_child(out: &mut Vec<Self>, child: Self) {
-        match child {
-            Self::Intersection(children) => out.extend(children),
-            other => out.push(other),
-        }
+        Self::collapse_canonical_composite(out, is_union)
     }
 }
 

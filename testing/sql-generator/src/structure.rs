@@ -5,6 +5,7 @@
 
 use crate::{SqlGeneratorError, SqlGeneratorErrorKind, replay::canonical_json_bytes};
 
+use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -835,7 +836,7 @@ pub fn structural_witness_schedule_hash() -> Result<String, SqlGeneratorError> {
 ///
 /// Returns a typed error when a declaration is duplicated or its typed recipe is invalid.
 pub fn scheduled_select_witnesses() -> Result<Vec<ScheduledSelectWitness>, SqlGeneratorError> {
-    let mut witnesses = SCHEDULED_WITNESS_DECLARATIONS
+    let witnesses = SCHEDULED_WITNESS_DECLARATIONS
         .iter()
         .filter(|declaration| matches!(declaration.kind, ScheduledWitnessKind::Select))
         .map(|declaration| {
@@ -850,25 +851,11 @@ pub fn scheduled_select_witnesses() -> Result<Vec<ScheduledSelectWitness>, SqlGe
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    witnesses.sort_by(|left, right| left.witness_id.cmp(&right.witness_id));
-    let unique_witnesses = witnesses
-        .iter()
-        .map(|witness| witness.witness_id.as_str())
-        .collect::<BTreeSet<_>>();
-    let unique_requirements = witnesses
-        .iter()
-        .map(|witness| witness.requirement_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if witnesses.is_empty()
-        || unique_witnesses.len() != witnesses.len()
-        || unique_requirements.len() != witnesses.len()
-    {
-        return Err(SqlGeneratorError::new(
-            SqlGeneratorErrorKind::InvalidCase,
-            "generated SELECT witness schedule is empty or duplicated",
-        ));
-    }
-    Ok(witnesses)
+    canonicalize_witness_schedule(
+        witnesses,
+        |witness| (witness.witness_id.as_str(), witness.requirement_id.as_str()),
+        "generated SELECT witness schedule is empty or duplicated",
+    )
 }
 
 /// Return the exact stable-order generated mutation witness set from code-owned declarations.
@@ -877,7 +864,7 @@ pub fn scheduled_select_witnesses() -> Result<Vec<ScheduledSelectWitness>, SqlGe
 ///
 /// Returns a typed error when a declaration is duplicated or its typed recipe is invalid.
 pub fn scheduled_mutation_witnesses() -> Result<Vec<ScheduledMutationWitness>, SqlGeneratorError> {
-    let mut witnesses = SCHEDULED_WITNESS_DECLARATIONS
+    let witnesses = SCHEDULED_WITNESS_DECLARATIONS
         .iter()
         .filter(|declaration| matches!(declaration.kind, ScheduledWitnessKind::Mutation))
         .map(|declaration| {
@@ -892,14 +879,28 @@ pub fn scheduled_mutation_witnesses() -> Result<Vec<ScheduledMutationWitness>, S
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    witnesses.sort_by(|left, right| left.witness_id.cmp(&right.witness_id));
+    canonicalize_witness_schedule(
+        witnesses,
+        |witness| (witness.witness_id.as_str(), witness.requirement_id.as_str()),
+        "generated mutation witness schedule is empty or duplicated",
+    )
+}
+
+// Both recipe families share schedule identity rules. Their typed recipe and
+// signature construction stay separate; this helper only canonicalizes IDs.
+fn canonicalize_witness_schedule<T>(
+    mut witnesses: Vec<T>,
+    ids: impl Fn(&T) -> (&str, &str),
+    invalid_schedule: &str,
+) -> Result<Vec<T>, SqlGeneratorError> {
+    witnesses.sort_by(|left, right| ids(left).0.cmp(ids(right).0));
     let unique_witnesses = witnesses
         .iter()
-        .map(|witness| witness.witness_id.as_str())
+        .map(|witness| ids(witness).0)
         .collect::<BTreeSet<_>>();
     let unique_requirements = witnesses
         .iter()
-        .map(|witness| witness.requirement_id.as_str())
+        .map(|witness| ids(witness).1)
         .collect::<BTreeSet<_>>();
     if witnesses.is_empty()
         || unique_witnesses.len() != witnesses.len()
@@ -907,8 +908,9 @@ pub fn scheduled_mutation_witnesses() -> Result<Vec<ScheduledMutationWitness>, S
     {
         return Err(SqlGeneratorError::new(
             SqlGeneratorErrorKind::InvalidCase,
-            "generated mutation witness schedule is empty or duplicated",
+            invalid_schedule,
         ));
     }
+
     Ok(witnesses)
 }

@@ -24,6 +24,7 @@ use crate::sql_harness::{
     RouteFamily, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
+use ic_platform::blake3;
 use ic_platform::{pocket_ic::PocketIc, principal::ExternalPrincipal as Principal};
 use ic_testkit::pic::{
     CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard, SnapshotRestoreFunding,

@@ -11,6 +11,8 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
+            ProjectionDataRow,
+            order::ProjectionOrderValues,
             projection::{
                 eval::{
                     ProjectionEvalError, eval_compiled_expr_with_required_slot_reader_cow,
@@ -46,14 +48,17 @@ pub(super) fn project_slot_row(
 pub(super) fn project_data_row(
     row_layout: &RowLayout,
     prepared_projection: &PreparedProjectionContract,
-    row: &DataRow,
+    row: ProjectionDataRow,
 ) -> Result<RowView, InternalError> {
+    let (row, mut order_values) = row.into_parts();
     if let Some(slots) = prepared_projection.data_row_direct_projection_slots() {
-        return project_data_row_from_direct_slots(row_layout, row, slots).map(RowView::owned);
+        return project_data_row_from_direct_slots(row_layout, &row, slots, order_values.as_mut())
+            .map(RowView::owned);
     }
 
     let compiled_fields = prepared_projection.compiled_exprs();
-    project_scalar_data_row(compiled_fields, row, row_layout).map(RowView::owned)
+    project_scalar_data_row(compiled_fields, &row, row_layout, order_values.as_ref())
+        .map(RowView::owned)
 }
 
 // Decode one identity row directly into its final owned response row. The
@@ -61,11 +66,25 @@ pub(super) fn project_data_row(
 // the structural boundary and could duplicate large nested payloads.
 pub(super) fn project_identity_data_row(
     row_layout: &RowLayout,
-    row: &DataRow,
+    row: ProjectionDataRow,
 ) -> Result<Vec<Value>, InternalError> {
-    let (data_key, raw_row) = row;
+    let ((data_key, raw_row), order_values) = row.into_parts();
     let mut values = Vec::new();
-    row_layout.decode_full_value_row_from_data_key_into(data_key, raw_row, &mut values)?;
+    if let Some(mut order_values) = order_values {
+        let mut fields = row_layout.open_raw_row_with_contract(&raw_row)?;
+        values.reserve(row_layout.field_count());
+        // Preserve full-field admission before primary-key validation. Cached
+        // values passed this frozen row contract during ordering.
+        for slot in 0..row_layout.field_count() {
+            values.push(match order_values.take_slot(slot) {
+                Some(value) => value,
+                None => fields.take_required_value(slot)?,
+            });
+        }
+        fields.validate_primary_key(&data_key)?;
+    } else {
+        row_layout.decode_full_value_row_from_data_key_into(&data_key, &raw_row, &mut values)?;
+    }
     Ok(values)
 }
 
@@ -216,6 +235,7 @@ fn project_data_row_from_direct_slots(
     row_layout: &RowLayout,
     row: &DataRow,
     direct_slots: &PreparedDirectProjectionSlots,
+    order_values: Option<&mut ProjectionOrderValues>,
 ) -> Result<Vec<Value>, InternalError> {
     let projections = direct_slots.projections();
     let mut shaped = Vec::with_capacity(projections.len());
@@ -225,9 +245,16 @@ fn project_data_row_from_direct_slots(
             row,
             projections,
             &mut shaped,
+            order_values,
         )?;
     } else {
-        project_data_row_from_direct_slots_into(row_layout, row, projections, &mut shaped)?;
+        project_data_row_from_direct_slots_into(
+            row_layout,
+            row,
+            projections,
+            &mut shaped,
+            order_values,
+        )?;
     }
 
     Ok(shaped)
@@ -238,6 +265,7 @@ fn project_data_row_from_direct_slots_into(
     row: &DataRow,
     projections: &[PreparedDirectProjectionSlot],
     shaped: &mut Vec<Value>,
+    mut order_values: Option<&mut ProjectionOrderValues>,
 ) -> Result<(), InternalError> {
     charge_projection_steps(projections.len())?;
     shaped.clear();
@@ -247,7 +275,13 @@ fn project_data_row_from_direct_slots_into(
 
     for projection in projections {
         let slot = projection.source_slot();
-        let value = row_fields.take_direct_projection_value(slot)?;
+        let value = match order_values
+            .as_deref_mut()
+            .and_then(|values| values.take_slot(slot))
+        {
+            Some(value) => value,
+            None => row_fields.take_direct_projection_value(slot)?,
+        };
         shaped.push(value);
     }
 
@@ -259,6 +293,7 @@ fn project_repeated_data_row_from_direct_slots_into(
     row: &DataRow,
     projections: &[PreparedDirectProjectionSlot],
     shaped: &mut Vec<Value>,
+    mut order_values: Option<&mut ProjectionOrderValues>,
 ) -> Result<(), InternalError> {
     charge_projection_steps(projections.len())?;
     shaped.clear();
@@ -275,7 +310,13 @@ fn project_repeated_data_row_from_direct_slots_into(
                 .ok_or_else(InternalError::query_executor_invariant)?
         } else {
             let slot = projection.source_slot();
-            row_fields.take_direct_projection_value(slot)?
+            match order_values
+                .as_deref_mut()
+                .and_then(|values| values.take_slot(slot))
+            {
+                Some(value) => value,
+                None => row_fields.take_direct_projection_value(slot)?,
+            }
         };
 
         shaped.push(value);
@@ -288,9 +329,10 @@ fn project_scalar_data_row(
     compiled_fields: &[CompiledExpr],
     row: &DataRow,
     row_layout: &RowLayout,
+    order_values: Option<&ProjectionOrderValues>,
 ) -> Result<Vec<Value>, InternalError> {
     let mut shaped = Vec::with_capacity(compiled_fields.len());
-    project_scalar_data_row_into(compiled_fields, row, row_layout, &mut shaped)?;
+    project_scalar_data_row_into(compiled_fields, row, row_layout, &mut shaped, order_values)?;
 
     Ok(shaped)
 }
@@ -300,6 +342,7 @@ fn project_scalar_data_row_into(
     (data_key, raw_row): &DataRow,
     row_layout: &RowLayout,
     shaped: &mut Vec<Value>,
+    order_values: Option<&ProjectionOrderValues>,
 ) -> Result<(), InternalError> {
     charge_projection_steps(compiled_fields.len())?;
     shaped.clear();
@@ -307,6 +350,10 @@ fn project_scalar_data_row_into(
     row_fields.validate_primary_key(data_key)?;
 
     for compiled in compiled_fields {
+        if let Some(value) = order_values.and_then(|values| values.projection_value(compiled)) {
+            shaped.push(value);
+            continue;
+        }
         let mut record_slot = |_| {};
         let value = eval_compiled_expr_with_required_slot_reader_cow(
             compiled,

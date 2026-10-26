@@ -4,6 +4,7 @@
 //! Boundary: stores values by durable field identity and validates them against snapshot facts.
 
 use crate::{SelectSnapshot, SelectValueKind, SqlGeneratorError, SqlGeneratorErrorKind};
+use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 

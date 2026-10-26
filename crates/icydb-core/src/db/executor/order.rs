@@ -3,14 +3,29 @@
 //! Does not own: planner order semantics or cursor wire validation.
 //! Boundary: consumes planner-resolved order contracts and applies canonical ordering over slot-readable rows.
 
+#[cfg(test)]
+mod filter_tests;
+
 use crate::{
     db::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
-        data::{CanonicalSlotReader, DataRow},
-        executor::{projection::eval_compiled_expr_with_value_cow_reader, terminal::RowLayout},
+        data::{CanonicalSlotReader, DataRow, StructuralSlotReader},
+        executor::{
+            projection::{
+                eval_compiled_expr_with_value_cow_reader,
+                eval_effective_runtime_filter_program_with_slot_reader,
+            },
+            terminal::{KernelRow, RowLayout},
+        },
         numeric::canonical_value_compare,
-        query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
-        resource::budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
+        query::plan::{
+            EffectiveRuntimeFilterProgram, OrderDirection, ResolvedOrder, ResolvedOrderValueSource,
+            expr::CompiledExpr,
+        },
+        resource::budget::{
+            charge_current_execution_budget, charge_decoded_row, charge_sort_work,
+            runtime_value_work,
+        },
     },
     error::InternalError,
     value::Value,
@@ -110,6 +125,21 @@ impl CachedOrderValues {
         values.into_iter()
     }
 
+    fn value_at(&self, index: usize) -> Option<&Option<Value>> {
+        match self {
+            Self::Inline { len, values } => values[..*len].get(index),
+            Self::Heap(values) => values.get(index),
+        }
+    }
+
+    fn take_at(&mut self, index: usize) -> Option<Value> {
+        match self {
+            Self::Inline { len, values } => values[..*len].get_mut(index),
+            Self::Heap(values) => values.get_mut(index),
+        }
+        .and_then(Option::take)
+    }
+
     fn estimated_backing_bytes(&self) -> u64 {
         let values: &[Option<Value>] = match self {
             Self::Inline { len, values } => &values[..*len],
@@ -119,6 +149,279 @@ impl CachedOrderValues {
         values.iter().flatten().fold(0_u64, |total, value| {
             total.saturating_add(runtime_value_work(value).0)
         })
+    }
+}
+
+/// Raw page rows keep the window's existing tuple vector until projection.
+/// Uncached pages retain their compact raw vector without per-row cache space.
+pub(in crate::db) struct ProjectionDataRows {
+    storage: ProjectionDataRowStorage,
+}
+
+// Only ordering constructs cached tuples, preserving their source contract.
+enum ProjectionDataRowStorage {
+    Raw(Vec<DataRow>),
+    Ordered {
+        order: ResolvedOrder,
+        rows: Vec<(DataRow, CachedOrderValues)>,
+    },
+}
+
+impl ProjectionDataRows {
+    /// Wrap plain rows without allocation or per-row metadata.
+    pub(in crate::db) const fn raw(rows: Vec<DataRow>) -> Self {
+        Self {
+            storage: ProjectionDataRowStorage::Raw(rows),
+        }
+    }
+
+    /// Preserve order slots that the scalar kernel already materialized.
+    /// Slot-only output uses its existing page family; this handoff keeps raw
+    /// rows for identity and nested projections without discarding their slots.
+    pub(in crate::db::executor) fn from_kernel_rows(
+        rows: Vec<KernelRow>,
+        order: Option<&ResolvedOrder>,
+    ) -> Result<Self, InternalError> {
+        let Some(order) =
+            order.filter(|_| rows.first().is_some_and(KernelRow::has_materialized_slots))
+        else {
+            return rows
+                .into_iter()
+                .map(KernelRow::into_data_row)
+                .collect::<Result<Vec<_>, _>>()
+                .map(Self::raw);
+        };
+        // Admit the complete destination before allocation; the input kernel
+        // rows stay live while ownership moves into the wider page tuples.
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            (rows.len() as u64)
+                .saturating_mul(std::mem::size_of::<(DataRow, CachedOrderValues)>() as u64),
+        )?;
+        let mut output = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            if !row.has_materialized_slots() {
+                return Err(InternalError::query_executor_invariant());
+            }
+            let values = cache_order_values_from_kernel_row(&mut row, order)?;
+            output.push((row.into_data_row()?, values));
+        }
+        Ok(Self {
+            storage: ProjectionDataRowStorage::Ordered {
+                order: order.clone(),
+                rows: output,
+            },
+        })
+    }
+
+    /// Return the retained row count independent of ordering evidence.
+    pub(in crate::db) const fn row_count(&self) -> usize {
+        match &self.storage {
+            ProjectionDataRowStorage::Raw(rows) => rows.len(),
+            ProjectionDataRowStorage::Ordered { rows, .. } => rows.len(),
+        }
+    }
+
+    /// Discard rows together with their inseparable cached values.
+    pub(in crate::db) fn truncate(&mut self, limit: usize) {
+        match &mut self.storage {
+            ProjectionDataRowStorage::Raw(rows) => rows.truncate(limit),
+            ProjectionDataRowStorage::Ordered { rows, .. } => rows.truncate(limit),
+        }
+    }
+
+    /// Compact a page without separating raw rows and their ordering tuples.
+    pub(in crate::db::executor) fn swap(
+        &mut self,
+        left: usize,
+        right: usize,
+    ) -> Result<(), InternalError> {
+        if left >= self.row_count() || right >= self.row_count() {
+            return Err(InternalError::query_executor_invariant());
+        }
+        match &mut self.storage {
+            ProjectionDataRowStorage::Raw(rows) => rows.swap(left, right),
+            ProjectionDataRowStorage::Ordered { rows, .. } => rows.swap(left, right),
+        }
+        Ok(())
+    }
+
+    /// Borrow a page boundary without re-reading ordered raw fields.
+    pub(in crate::db) fn cursor_boundary_at(
+        &self,
+        index: usize,
+        layout: &RowLayout,
+        expected: &ResolvedOrder,
+    ) -> Result<Option<CursorBoundary>, InternalError> {
+        match &self.storage {
+            ProjectionDataRowStorage::Raw(rows) => rows
+                .get(index)
+                .map(|row| cursor_boundary_from_data_row(row, layout, expected))
+                .transpose(),
+            ProjectionDataRowStorage::Ordered { order, rows } => rows
+                .get(index)
+                .map(|(_, values)| cached_cursor_boundary(order, values, expected))
+                .transpose(),
+        }
+    }
+
+    /// Yield owned rows without allocating another row vector.
+    pub(in crate::db) fn into_rows(self) -> impl Iterator<Item = ProjectionDataRow> {
+        let (raw, ordered) = match self.storage {
+            ProjectionDataRowStorage::Raw(rows) => (Some(rows), None),
+            ProjectionDataRowStorage::Ordered { order, rows } => (None, Some((order, rows))),
+        };
+        raw.into_iter()
+            .flatten()
+            .map(ProjectionDataRow::raw)
+            .chain(ordered.into_iter().flat_map(|(order, rows)| {
+                rows.into_iter()
+                    .map(move |(row, values)| ProjectionDataRow {
+                        row,
+                        cached_order: Some(ProjectionOrderValues {
+                            order: order.clone(),
+                            values,
+                        }),
+                    })
+            }))
+    }
+}
+
+// Direct order slots move from the retained row into the final page tuple.
+// Duplicate terms borrow until their last use; expression results keep the
+// existing evaluator rather than pretending a computed value is a source slot.
+fn cache_order_values_from_kernel_row(
+    row: &mut KernelRow,
+    order: &ResolvedOrder,
+) -> Result<CachedOrderValues, InternalError> {
+    let fields = order.fields();
+    if !fields
+        .iter()
+        .all(|field| field.source().direct_field_slot().is_some())
+    {
+        return Ok(cache_order_values_from_row(row, order));
+    }
+    let mut values = CachedOrderValues::with_capacity(fields.len());
+    for (index, field) in fields.iter().enumerate() {
+        let slot = field
+            .source()
+            .direct_field_slot()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        let repeated = fields[index + 1..]
+            .iter()
+            .any(|later| later.source().direct_field_slot() == Some(slot));
+        let value = if repeated {
+            row.slot_ref(slot).cloned()
+        } else {
+            row.take_slot(slot)
+        };
+        values.push(Some(
+            value.ok_or_else(InternalError::query_executor_invariant)?,
+        ));
+    }
+    Ok(values)
+}
+
+// Values are useful only under the exact frozen contract that produced them.
+fn cached_cursor_boundary(
+    order: &ResolvedOrder,
+    values: &CachedOrderValues,
+    expected: &ResolvedOrder,
+) -> Result<CursorBoundary, InternalError> {
+    if order != expected {
+        return Err(InternalError::query_executor_invariant());
+    }
+    let slots = (0..order.fields().len())
+        .map(|index| {
+            values
+                .value_at(index)
+                .and_then(Option::as_ref)
+                .map_or(CursorBoundarySlot::Missing, |value| {
+                    CursorBoundarySlot::Present(value.clone())
+                })
+        })
+        .collect();
+    Ok(CursorBoundary { slots })
+}
+
+/// A projected raw row retains the order values already admitted by its window.
+/// The frozen contract stays paired with those values; plain rows carry none.
+pub(in crate::db) struct ProjectionDataRow {
+    row: DataRow,
+    cached_order: Option<ProjectionOrderValues>,
+}
+
+impl ProjectionDataRow {
+    /// Wrap an unordered or route-ordered raw row.
+    pub(in crate::db) const fn raw(row: DataRow) -> Self {
+        Self {
+            row,
+            cached_order: None,
+        }
+    }
+
+    /// Borrow the canonical row without discarding its ordering evidence.
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn data_row(&self) -> &DataRow {
+        &self.row
+    }
+
+    /// Split row storage from its owned values before borrowing raw field bytes.
+    pub(in crate::db::executor) fn into_parts(self) -> (DataRow, Option<ProjectionOrderValues>) {
+        (self.row, self.cached_order)
+    }
+
+    /// Reuse the window's tuple, refusing a different frozen order contract.
+    pub(in crate::db::executor) fn cursor_boundary(
+        &self,
+        row_layout: &RowLayout,
+        resolved_order: &ResolvedOrder,
+    ) -> Result<CursorBoundary, InternalError> {
+        let Some(cache) = self.cached_order.as_ref() else {
+            return cursor_boundary_from_data_row(&self.row, row_layout, resolved_order);
+        };
+        cached_cursor_boundary(&cache.order, &cache.values, resolved_order)
+    }
+}
+
+/// The ordering owner pairs evaluated values with their immutable source contract.
+/// Projection may move direct fields; cursor construction borrows before that move.
+pub(in crate::db::executor) struct ProjectionOrderValues {
+    order: ResolvedOrder,
+    values: CachedOrderValues,
+}
+
+impl ProjectionOrderValues {
+    /// Move a direct source once. Repeated projections reuse their output position.
+    pub(in crate::db::executor) fn take_slot(&mut self, slot: usize) -> Option<Value> {
+        let position = self
+            .order
+            .fields()
+            .iter()
+            .position(|field| field.source().direct_field_slot() == Some(slot))?;
+        Some(self.values.take_at(position).unwrap_or(Value::Null))
+    }
+
+    /// Reuse successful evaluations, preserving projection errors for missing
+    /// expression results. Repeated expressions still own distinct output values.
+    pub(in crate::db::executor) fn projection_value(&self, expr: &CompiledExpr) -> Option<Value> {
+        let position =
+            self.order
+                .fields()
+                .iter()
+                .position(|field| match (field.source(), expr) {
+                    (
+                        ResolvedOrderValueSource::DirectField(source),
+                        CompiledExpr::Slot { slot },
+                    ) => source == slot,
+                    (ResolvedOrderValueSource::Expression(source), expr) => source == expr,
+                    _ => false,
+                })?;
+        match self.values.value_at(position)? {
+            Some(value) => Some(value.clone()),
+            None if matches!(expr, CompiledExpr::Slot { .. }) => Some(Value::Null),
+            None => None,
+        }
     }
 }
 
@@ -383,13 +686,26 @@ impl<'a> DataRowOrderWindow<'a> {
         }
     }
 
-    /// Evaluate and retain one candidate under the captured order contract.
+    /// Filter and retain one candidate under the captured order contract.
+    /// Returns whether the residual filter admitted the row, independently of
+    /// whether it survives bounded selection.
     pub(in crate::db::executor) fn push(
         &mut self,
         candidate: DataRow,
-    ) -> Result<(), InternalError> {
-        let cached_values =
-            cache_order_values_from_data_row(&candidate, &self.row_layout, self.resolved_order)?;
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
+    ) -> Result<bool, InternalError> {
+        let cached_values = if let Some(filter_program) = filter_program {
+            // Keep the filter's reader alive until order extraction completes.
+            // Rejected rows must not touch order-only slots or pay order work.
+            charge_decoded_row(candidate.1.len(), 1)?;
+            let slots = self.row_layout.open_raw_row_with_contract(&candidate.1)?;
+            if !eval_effective_runtime_filter_program_with_slot_reader(filter_program, &slots)? {
+                return Ok(false);
+            }
+            cache_order_values_from_reader(&candidate, slots, self.resolved_order)?
+        } else {
+            cache_order_values_from_data_row(&candidate, &self.row_layout, self.resolved_order)?
+        };
         let retained_backing_bytes = data_row_retained_backing_bytes(&candidate)
             .saturating_add(cached_values.estimated_backing_bytes());
         match &self.candidates {
@@ -412,11 +728,13 @@ impl<'a> DataRowOrderWindow<'a> {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     /// Consume the selected candidates in final canonical order.
-    pub(in crate::db::executor) fn into_sorted_rows(self) -> Result<Vec<DataRow>, InternalError> {
+    pub(in crate::db::executor) fn into_sorted_rows(
+        self,
+    ) -> Result<ProjectionDataRows, InternalError> {
         let mut rows = match self.candidates {
             DataRowOrderCandidates::Bounded(window) => window.into_rows(),
             DataRowOrderCandidates::Complete(rows) => rows,
@@ -429,7 +747,12 @@ impl<'a> DataRowOrderWindow<'a> {
             });
         }
 
-        Ok(rows.into_iter().map(|(row, _)| row).collect())
+        Ok(ProjectionDataRows {
+            storage: ProjectionDataRowStorage::Ordered {
+                order: self.resolved_order.clone(),
+                rows,
+            },
+        })
     }
 }
 
@@ -838,6 +1161,34 @@ fn cache_order_values_from_data_row(
     // Phase 2: expression-backed ordering still needs the general structural
     // slot reader so expression evaluation can borrow slots repeatedly.
     let slots = row_layout.open_raw_row_with_contract(&row.1)?;
+    cache_order_values_from_reader(row, slots, resolved_order)
+}
+
+// Extract order values before releasing a filter/expression reader. The direct
+// field family retains the sparse decoder's primary-key admission; expression
+// evaluation retains its existing missing-value/error behavior.
+fn cache_order_values_from_reader(
+    row: &DataRow,
+    mut slots: StructuralSlotReader<'_>,
+    resolved_order: &ResolvedOrder,
+) -> Result<CachedOrderValues, InternalError> {
+    let fields = resolved_order.fields();
+    if fields
+        .iter()
+        .all(|field| field.source().direct_field_slot().is_some())
+    {
+        slots.validate_primary_key(&row.0)?;
+        let mut cached_values = CachedOrderValues::with_capacity(fields.len());
+        for slot in fields
+            .iter()
+            .filter_map(|field| field.source().direct_field_slot())
+        {
+            cached_values.push(Some(slots.take_required_value(slot)?));
+        }
+
+        return Ok(cached_values);
+    }
+
     let mut cached_values = CachedOrderValues::with_capacity(resolved_order.fields().len());
 
     for field in resolved_order.fields() {

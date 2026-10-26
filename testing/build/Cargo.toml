@@ -10,6 +10,7 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
+clap = { workspace = true }
 ic-build = { workspace = true }
 ic-host-artifacts = { workspace = true, features = ["gzip", "wasm"] }
 ic-host-fs = { workspace = true }

@@ -8,6 +8,7 @@ mod entity_rename;
 use icydb_testing_integration::WireCallExt as _;
 use std::{sync::OnceLock, time::Duration};
 
+use ic_platform::blake3;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,

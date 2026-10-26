@@ -24,6 +24,7 @@ use crate::{
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutableCompareOperand,
             ExecutableComparePredicate, ExecutablePredicate, Predicate,
+            eval_ordered_compare_result,
         },
     },
     value::{TextMode, Value, casefold_text},
@@ -821,16 +822,64 @@ fn eval_scalar_compare_slot_pair_fast_path(
     )))
 }
 
-// Keep two-slot scalar fast-path execution on the same compare semantics layer
-// by translating slot refs into canonical values only after both scalar reads
-// have already been resolved.
+// Compare variable-width slots by borrowing their payloads. Casefolding still
+// transforms both row values; the remaining scalar conversions are copy-only.
 fn eval_compare_scalar_slot_pair(
     left: ScalarSlotValueRef<'_>,
     op: CompareOp,
     right: ScalarSlotValueRef<'_>,
     coercion: &CoercionSpec,
 ) -> bool {
-    eval_compare_values(&left.into_value(), op, &right.into_value(), coercion)
+    match (left, right) {
+        (
+            ScalarSlotValueRef::Value(ScalarValueRef::Text(left)),
+            ScalarSlotValueRef::Value(ScalarValueRef::Text(right)),
+        ) => {
+            let (left, right) = match coercion.id {
+                CoercionId::Strict | CoercionId::CollectionElement => {
+                    (Cow::Borrowed(left), Cow::Borrowed(right))
+                }
+                CoercionId::TextCasefold => (
+                    Cow::Owned(casefold_text(left)),
+                    Cow::Owned(casefold_text(right)),
+                ),
+                CoercionId::NumericWiden => return false,
+            };
+            match op {
+                CompareOp::Eq
+                | CompareOp::Ne
+                | CompareOp::Lt
+                | CompareOp::Lte
+                | CompareOp::Gt
+                | CompareOp::Gte => eval_ordered_compare_result(op, left.cmp(&right)),
+                CompareOp::StartsWith => {
+                    coercion.id != CoercionId::CollectionElement && left.starts_with(right.as_ref())
+                }
+                CompareOp::EndsWith => {
+                    coercion.id != CoercionId::CollectionElement && left.ends_with(right.as_ref())
+                }
+                CompareOp::In | CompareOp::NotIn | CompareOp::Contains => false,
+            }
+        }
+        (
+            ScalarSlotValueRef::Value(ScalarValueRef::Blob(left)),
+            ScalarSlotValueRef::Value(ScalarValueRef::Blob(right)),
+        ) => {
+            matches!(
+                coercion.id,
+                CoercionId::Strict | CoercionId::CollectionElement
+            ) && match op {
+                CompareOp::Eq => left == right,
+                CompareOp::Ne => left != right,
+                _ => false,
+            }
+        }
+        (ScalarSlotValueRef::Value(ScalarValueRef::Text(_) | ScalarValueRef::Blob(_)), _)
+        | (_, ScalarSlotValueRef::Value(ScalarValueRef::Text(_) | ScalarValueRef::Blob(_))) => {
+            false
+        }
+        _ => eval_compare_values(&left.into_value(), op, &right.into_value(), coercion),
+    }
 }
 
 // Evaluate one logical `AND` child list through a shared fallible predicate walker.

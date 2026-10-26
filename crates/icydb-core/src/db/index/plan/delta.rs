@@ -3,7 +3,7 @@
 //! Does not own: commit-op materialization, executor context wiring, or apply sequencing.
 //! Boundary: index planning emits these deltas; commit preparation lowers them to store writes.
 
-use crate::db::{index::IndexKey, key_taxonomy::PrimaryKeyValue};
+use crate::db::index::IndexKey;
 
 ///
 /// IndexMutationPlan
@@ -54,8 +54,8 @@ impl IndexDeltaGroup {
 /// IndexDelta
 ///
 /// One row-identity presence change for one secondary index key. The delta
-/// records only index-domain facts: which key owns the row identity, which row
-/// primary key is affected, and whether that presence is inserted or removed.
+/// records only index-domain facts: the key carrying the row identity and
+/// whether that presence is inserted or removed.
 ///
 
 #[derive(Debug)]
@@ -69,20 +69,14 @@ pub(in crate::db) enum IndexDelta {
 impl IndexDelta {
     /// Build one removal membership delta.
     #[must_use]
-    pub(in crate::db) const fn remove(key: IndexKey, primary_key: &PrimaryKeyValue) -> Self {
-        Self::Remove(IndexMembershipDelta {
-            key,
-            primary_key: *primary_key,
-        })
+    pub(in crate::db) const fn remove(key: IndexKey) -> Self {
+        Self::Remove(IndexMembershipDelta { key })
     }
 
     /// Build one insertion membership delta.
     #[must_use]
-    pub(in crate::db) const fn insert(key: IndexKey, primary_key: &PrimaryKeyValue) -> Self {
-        Self::Insert(IndexMembershipDelta {
-            key,
-            primary_key: *primary_key,
-        })
+    pub(in crate::db) const fn insert(key: IndexKey) -> Self {
+        Self::Insert(IndexMembershipDelta { key })
     }
 }
 
@@ -97,5 +91,4 @@ impl IndexDelta {
 #[derive(Debug)]
 pub(in crate::db) struct IndexMembershipDelta {
     pub(in crate::db) key: IndexKey,
-    pub(in crate::db) primary_key: PrimaryKeyValue,
 }

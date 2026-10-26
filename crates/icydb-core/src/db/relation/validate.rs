@@ -156,7 +156,7 @@ where
                         let entry = decode_reverse_entry(reverse_key, raw_entry)?;
 
                         // Phase 2: verify the key-owned source row before rejecting delete.
-                        let source_key = *entry.primary_key_value();
+                        let source_key = entry;
                         let source_data_key =
                             DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
                         relation_budget.validate_delete_source_once(

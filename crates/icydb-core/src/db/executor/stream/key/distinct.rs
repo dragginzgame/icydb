@@ -50,9 +50,9 @@ impl DistinctOrderedKeyStream<Box<OrderedKeyStreamBox>> {
             &'row RawRow,
         ) -> Result<StoreVisit, InternalError>,
     ) -> Result<Option<()>, InternalError> {
-        // Direct visitation is exposed only by one ASC primary-map leaf. Its
+        // Direct visitation is exposed only by one primary-map leaf. Its
         // keys are already strictly ordered and unique, and the leaf advances
-        // its exclusive lower bound even when the visitor stops early. The
+        // its exclusive resume bound even when the visitor stops early. The
         // adapter therefore has no duplicate state to maintain on this route.
         self.inner
             .try_visit_primary_rows_direct(begin_row, visit_row)

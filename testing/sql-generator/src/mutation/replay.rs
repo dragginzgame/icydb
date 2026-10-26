@@ -7,6 +7,7 @@ use crate::{
     GeneratedMutationSequence, SqlGeneratorError, SqlGeneratorErrorKind,
     replay::{canonical_json_bytes, decode_replay_json, encode_bounded_replay},
 };
+use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 

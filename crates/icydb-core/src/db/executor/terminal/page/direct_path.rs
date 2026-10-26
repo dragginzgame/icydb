@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
-            ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
+            ExecutionKernel, OrderedKeyStreamBox, ProjectionDataRows, ScalarContinuationContext,
             pipeline::contracts::{ScalarPageMaterialization, StructuralCursorPage},
             route::LoadOrderRouteMode,
         },
@@ -61,7 +61,12 @@ pub(super) fn execute_direct_data_row_path(
             rows,
             rows_scanned,
             rows_matched,
-        }) => (rows, rows_scanned, rows_matched, true),
+        }) => (
+            ProjectionDataRows::raw(rows),
+            rows_scanned,
+            rows_matched,
+            true,
+        ),
         DirectDataRowScanOutcome::OrderWindow(DataRowOrderScanResult {
             window,
             rows_scanned,
@@ -78,7 +83,7 @@ pub(super) fn execute_direct_data_row_path(
     let post_access_rows = rows_matched;
 
     if !page_window_already_applied {
-        apply_data_row_page_window(plan, &mut data_rows);
+        apply_data_row_page_window(plan, &mut data_rows)?;
     }
 
     Ok(ScalarPageMaterialization {
