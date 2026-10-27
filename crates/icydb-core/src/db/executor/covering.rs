@@ -854,7 +854,7 @@ where
     let mut present_rows = 0usize;
     let mut emitted_rows = 0usize;
 
-    for (data_key, _existence_witness, components) in raw_pairs {
+    for (data_key, components) in raw_pairs {
         if matches!(consistency, MissingRowPolicy::Ignore)
             && window.limit.is_some_and(|limit| emitted_rows >= limit)
         {
@@ -959,7 +959,7 @@ where
         if window.limit.is_some_and(|limit| emitted_rows >= limit) {
             break;
         }
-        let Some((data_key, _existence_witness, components)) = next_row()? else {
+        let Some((data_key, components)) = next_row()? else {
             break;
         };
 

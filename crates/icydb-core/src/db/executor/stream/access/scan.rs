@@ -14,8 +14,8 @@ use crate::{
             lowered_index_prefix_exact_cardinalities,
         },
         index::{
-            IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
-            RawIndexStoreKey, decode_index_key_frame,
+            IndexEntryRowWitness, IndexEntryValue, IndexKey, RawIndexStoreKey,
+            decode_index_key_frame,
             predicate::{
                 IndexPredicateExecution, eval_index_program_on_frame,
                 eval_index_program_on_prefix_components,
@@ -36,11 +36,7 @@ use std::{cmp::Ordering, mem::size_of, ops::Bound, sync::Arc};
 
 pub(in crate::db::executor) type IndexComponentValues = Arc<[Vec<u8>]>;
 
-pub(in crate::db::executor) type IndexComponentRow = (
-    DecodedDataStoreKey,
-    IndexEntryExistenceWitness,
-    IndexComponentValues,
-);
+pub(in crate::db::executor) type IndexComponentRow = (DecodedDataStoreKey, IndexComponentValues);
 
 pub(in crate::db::executor) type IndexComponentRows = Vec<IndexComponentRow>;
 
@@ -437,12 +433,9 @@ impl IndexScan {
                         .ok_or_else(InternalError::executor_invariant)?;
                     let (primary_key, _) = IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
                         .map_err(|_| InternalError::index_corruption())?;
-                    let existence_witness = entry
-                        .decode_existence_witness()
+                    entry
+                        .validate()
                         .map_err(|_| InternalError::index_entry_decode_failed())?;
-                    if matches!(existence_witness, IndexEntryExistenceWitness::Missing) {
-                        return Err(InternalError::store_corruption());
-                    }
                     if exceeds_cardinality_proof {
                         return Err(InternalError::store_corruption());
                     }
@@ -596,7 +589,7 @@ impl IndexScan {
                 },
                 |order_key, raw_key, value| {
                     let primary_key_value = order_key.value;
-                    let row_witness = value
+                    value
                         .decode_row_witness_from_primary_key_value(&primary_key_value)
                         .map_err(|_| InternalError::index_entry_decode_failed())?;
                     let bytes_start = raw_key
@@ -616,7 +609,7 @@ impl IndexScan {
                             primary_key_bytes,
                         ),
                     );
-                    rows.push((data_key, row_witness.existence_witness(), Arc::default()));
+                    rows.push((data_key, Arc::default()));
 
                     Ok(rows.len() == limit)
                 },
@@ -1068,7 +1061,6 @@ impl IndexScan {
                 &row_witness,
                 primary_key_bytes,
             ),
-            row_witness.existence_witness(),
             components,
         ));
 
@@ -1104,7 +1096,6 @@ impl IndexScan {
                 &row_witness,
                 primary_key_bytes,
             ),
-            row_witness.existence_witness(),
             Arc::default(),
         ));
 

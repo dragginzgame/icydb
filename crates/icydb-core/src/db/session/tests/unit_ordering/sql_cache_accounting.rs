@@ -152,7 +152,7 @@ fn trusted_mutation_results_do_not_depend_on_cache_retention() {
 }
 
 #[test]
-fn sql_byte_eviction_keeps_recent_hits_and_bound_queries_do_not_retain_commands() {
+fn sql_byte_eviction_keeps_recent_hits() {
     let session = initialize();
     seed_singleton(&session);
     let statements = [
@@ -190,21 +190,6 @@ fn sql_byte_eviction_keeps_recent_hits_and_bound_queries_do_not_retain_commands(
         assert!(session.sql_compiled_cache_contains_for_tests(statements[0]));
         assert!(!session.sql_compiled_cache_contains_for_tests(statements[1]));
         assert!(session.sql_compiled_cache_contains_for_tests(statements[2]));
-    }
-    let usage = session.sql_compiled_cache_usage_for_tests();
-    let dispatch = sql_statement_dispatch("SELECT label FROM Singleton WHERE label = ?").unwrap();
-    for (label, expected) in [("singleton", 1), ("missing", 0)] {
-        let (result, _) = new_request_session()
-            .execute_trusted_sql_query_with_entity_name(
-                &dispatch,
-                &[InputValue::text(label.into())],
-            )
-            .unwrap();
-        let SqlStatementResult::Projection { rows, .. } = result else {
-            panic!("expected projection");
-        };
-        assert_eq!(rows.len(), expected);
-        assert_eq!(session.sql_compiled_cache_usage_for_tests(), usage);
     }
 }
 
@@ -300,6 +285,86 @@ fn sql_replace_empty_search_preserves_cold_and_warm_results() {
                 projection_rows(sql),
                 vec![vec![OutputValue::text(label.into()), OutputValue::null()]]
             );
+        }
+    }
+}
+
+#[test]
+fn checked_sql_templates_rebind_all_select_lanes_with_bounded_retention() {
+    let session = initialize();
+    seed_singleton(&session);
+    for sql in [
+        "SELECT label FROM Singleton WHERE label = ? ORDER BY id LIMIT 1",
+        "SELECT label FROM Singleton WHERE LOWER(label) = LOWER(?)",
+        "SELECT label FROM Singleton WHERE CASE WHEN label = ? THEN TRUE ELSE FALSE END",
+        "SELECT COUNT(*) FROM Singleton WHERE label = ?",
+        "SELECT MIN(amount) FROM Singleton WHERE label = ?",
+        "SELECT MAX(amount) FROM Singleton WHERE label = ?",
+        "SELECT SUM(amount) FROM Singleton WHERE label = ?",
+        "SELECT COUNT(DISTINCT amount) FROM Singleton WHERE label = ?",
+        "SELECT label, SUM(amount) FROM Singleton WHERE label = ? GROUP BY label HAVING COUNT(*) > 0",
+    ] {
+        let labels = [
+            "singleton".to_string(),
+            "missing".repeat(20),
+            "singleton".to_string(),
+        ];
+        let expected = labels
+            .iter()
+            .map(|label| {
+                format!(
+                    "{:?}",
+                    new_request_session()
+                        .execute_trusted_sql_query(&sql.replace('?', &format!("'{label}'")))
+                        .unwrap_or_else(|error| panic!("literal control {sql}: {error:?}"))
+                )
+            })
+            .collect::<Vec<_>>();
+        let dispatch = sql_statement_dispatch(sql).unwrap();
+        session.clear_sql_compiled_cache_for_tests(4 * 1024 * 1024);
+        new_request_session()
+            .execute_trusted_sql_query_with_entity_name(
+                &dispatch,
+                &[InputValue::text(labels[0].clone())],
+            )
+            .unwrap();
+        let (entries, required) = session.sql_compiled_cache_usage_for_tests();
+        assert_eq!(entries, 1);
+        for capacity in [required - 1, required, required + 1] {
+            session.clear_sql_compiled_cache_for_tests(capacity);
+            for (label, expected) in labels.iter().zip(&expected) {
+                let (actual, _) = new_request_session()
+                    .execute_trusted_sql_query_with_entity_name(
+                        &dispatch,
+                        &[InputValue::text(label.clone())],
+                    )
+                    .unwrap();
+                assert_eq!(&format!("{actual:?}"), expected, "{sql}");
+                assert_eq!(
+                    session.sql_compiled_cache_usage_for_tests(),
+                    if capacity >= required {
+                        (1, required)
+                    } else {
+                        (0, 0)
+                    }
+                );
+            }
+            // A retained template is never a license to execute unbound text.
+            assert!(
+                new_request_session()
+                    .execute_trusted_sql_query(sql)
+                    .is_err()
+            );
+            let before = session.sql_compiled_cache_usage_for_tests();
+            assert!(
+                new_request_session()
+                    .execute_trusted_sql_query_with_entity_name(
+                        &dispatch,
+                        &[InputValue::boolean(true)],
+                    )
+                    .is_err()
+            );
+            assert_eq!(session.sql_compiled_cache_usage_for_tests(), before);
         }
     }
 }

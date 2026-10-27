@@ -50,12 +50,6 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
         slot.binding,
         MemoryAllocationBinding::Current { .. }
     ) && slot.allocated_bytes > 0));
-    assert!(
-        allocations
-            .memories
-            .iter()
-            .all(|slot| slot.payload_bytes.is_none())
-    );
     assert_eq!(allocations.metadata_bytes_read, 34_848);
 
     let repeated: Result<StorageReport, Error> = fixture

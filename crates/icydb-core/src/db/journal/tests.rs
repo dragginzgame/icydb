@@ -20,10 +20,13 @@ use crate::{
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         positioned_overlay::{OnlineOverlayDecision, classify_journal_overlay},
         schema::{
-            AcceptedCheckExprV1, AcceptedSchemaFingerprint, AcceptedSchemaRevision,
-            ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
-            ConstraintId, ConstraintOrigin, ConstraintValidationJob, FieldId, IdentityRangeAdvance,
-            IdentityStateOwner, empty_accepted_schema_candidate_for_tests,
+            AcceptedCheckExprV1, AcceptedFieldKind, AcceptedSchemaFingerprint,
+            AcceptedSchemaRevision, ConstraintActivationKind, ConstraintActivationSnapshot,
+            ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
+            FieldId, FieldStorageDecode, IdentityRangeAdvance, IdentityStateOwner,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault,
+            SchemaRowLayout, SchemaVersion, accepted_schema_candidate_for_tests,
+            empty_accepted_schema_candidate_for_tests,
         },
     },
     error::{ErrorClass, ErrorOrigin},
@@ -34,7 +37,7 @@ use ic_memory::{Memory, VectorMemory};
 use ic_storage::adapter::Storable;
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
-use std::{borrow::Cow, mem::size_of};
+use std::{borrow::Cow, collections::BTreeMap, mem::size_of};
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
@@ -396,6 +399,88 @@ fn journal_batch_codec_round_trips_accepted_schema_publication() {
     assert_eq!(batch.published_entity_tags(), Some([].as_slice()));
     assert_eq!(decoded.published_entity_tags(), Some([].as_slice()));
     assert_eq!(decoded, batch);
+}
+
+#[test]
+fn populated_schema_publication_preserves_entity_revisions_through_decode_and_append() {
+    let tags = [EntityTag::new(3), EntityTag::new(9)];
+    let snapshots = tags
+        .into_iter()
+        .enumerate()
+        .map(|(index, tag)| {
+            let field = FieldId::new(1);
+            let kind = AcceptedFieldKind::Nat64;
+            let codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+            let snapshot = PersistedSchemaSnapshot::new(
+                SchemaVersion::initial(),
+                format!("test::Entity{index}"),
+                format!("Entity{index}"),
+                field,
+                SchemaRowLayout::initial(vec![(field, SchemaFieldSlot::new(0))]),
+                vec![PersistedFieldSnapshot::new_initial(
+                    field,
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    kind,
+                    Vec::new(),
+                    false,
+                    SchemaInsertDefault::None,
+                    FieldStorageDecode::ByKind,
+                    codec,
+                )],
+            );
+            (tag, snapshot)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let candidate = accepted_schema_candidate_for_tests(
+        "test::Store",
+        AcceptedSchemaRevision::new(2),
+        snapshots,
+    );
+    let publication = JournalBatch::new(
+        [0x71; 16],
+        [0x72; 16],
+        JournalSequence::new(1),
+        vec![
+            JournalRecord::accepted_schema_publish(
+                "test::Store",
+                AcceptedSchemaRevision::INITIAL,
+                candidate.encoded_bundle().to_vec(),
+                candidate.encoded_root().to_vec(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let decoded = decode_journal_batch(&encode_journal_batch(&publication).unwrap()).unwrap();
+    assert_eq!(publication.published_entity_tags(), Some(tags.as_slice()));
+    assert_eq!(decoded, publication);
+
+    // Both caller-built and recovered batches must establish exactly the
+    // published inventory, then allow writes to either accepted entity.
+    for batch in [&publication, &decoded] {
+        let mut store = JournalTailStore::init(test_memory(234));
+        store.initialize_current_tail_control().unwrap();
+        store.append_batch(batch).unwrap();
+        store
+            .validate_current_entity_mutation_revisions(&tags)
+            .unwrap();
+        for tag in tags {
+            assert_entity_revision(&store, tag, 1);
+        }
+        let rows = JournalBatch::new(
+            [0x73; 16],
+            [0x74; 16],
+            JournalSequence::new(2),
+            vec![row_put_record_for(tags[1], 1)],
+        )
+        .unwrap();
+        store.append_batch(&rows).unwrap();
+        assert_entity_revision(&store, tags[0], 1);
+        assert_entity_revision(&store, tags[1], 3);
+        store.append_batch(&rows).unwrap();
+        assert_entity_revision(&store, tags[1], 3);
+    }
 }
 
 #[test]

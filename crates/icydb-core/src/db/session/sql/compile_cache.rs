@@ -16,7 +16,8 @@ use crate::{
         session::sql::{
             CompiledSqlCommand, SqlCompiledCommandCacheEntry, SqlCompiledCommandCacheKey,
             SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
-            cache::compiled_command_retained_bytes, sql_statement_entity_name_from_statement,
+            cache::{SqlCachedCommand, compiled_command_retained_bytes},
+            sql_statement_entity_name_from_statement,
         },
         sql::{lowering::validate_sql_bindings, parser::SqlStatement},
         sql_shared::validate_sql_input_bytes,
@@ -45,7 +46,9 @@ impl<C: CanisterKind> DbSession<C> {
         validate_sql_input_bytes(sql).map_err(QueryError::from_sql_parse_error)?;
         let key = SqlCompiledCommandCacheKey::new(SqlCompiledCommandSurface::Query, sql);
         let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&key).cloned());
-        if let Some(cached) = cached {
+        if let Some(cached) = cached
+            && let SqlCachedCommand::Literal(command) = cached.command
+        {
             let root = self
                 .accepted_schema_runtime_root()
                 .map_err(AcceptedInspectionPlanLoadError::into_internal)
@@ -60,7 +63,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .to_string();
                 return Ok((
                     SqlCompiledCommandExecutionContext::new(
-                        cached.command,
+                        command,
                         catalog,
                         SqlCompiledCommandSurface::Query,
                     ),
@@ -124,15 +127,39 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: AcceptedSchemaCatalogContext,
         bindings: &[InputValue],
     ) -> Result<SqlCompiledCommandExecutionContext, QueryError> {
-        // Bound invocations never construct, look up, or insert a SQL-text key.
-        // They use the same semantic compiler and execution context as misses.
         if !bindings.is_empty() {
-            let compiled = self.compile_sql_statement(
+            let key = SqlCompiledCommandCacheKey::new(surface, sql);
+            let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&key).cloned());
+            if let Some(cached) = cached
+                && cached.root == catalog.runtime_root_identity()
+                && let SqlCachedCommand::Parameterized(template) = cached.command
+            {
+                let compiled = self.bind_sql_parameter_template(
+                    &template,
+                    catalog.accepted_schema_info(),
+                    bindings,
+                )?;
+                self.with_sql_compiled_command_cache(|cache| cache.refresh(&key));
+                return Ok(SqlCompiledCommandExecutionContext::new(
+                    compiled, catalog, surface,
+                ));
+            }
+            let (template, compiled) = self.compile_sql_parameter_template(
                 parsed,
                 surface,
                 catalog.accepted_schema_info(),
                 bindings,
             )?;
+            let resident = SqlCompiledCommandCacheEntry {
+                root: catalog.runtime_root_identity(),
+                entity_name: sql_statement_entity_name_from_statement(parsed).map(Rc::from),
+                command: SqlCachedCommand::Parameterized(Rc::new(template)),
+            };
+            if let Some(bytes) = compiled_command_retained_bytes(&key, &resident) {
+                self.with_sql_compiled_command_cache(|cache| {
+                    cache.insert_weighted(key, resident, bytes);
+                });
+            }
             return Ok(SqlCompiledCommandExecutionContext::new(
                 compiled, catalog, surface,
             ));
@@ -157,9 +184,10 @@ impl<C: CanisterKind> DbSession<C> {
         let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
         if let Some(cached) = cached
             && cached.root == catalog.runtime_root_identity()
+            && let SqlCachedCommand::Literal(command) = cached.command
         {
             self.with_sql_compiled_command_cache(|cache| cache.refresh(&cache_key));
-            return Ok(cached.command);
+            return Ok(command);
         }
         let schema = catalog.accepted_schema_info();
 
@@ -170,7 +198,7 @@ impl<C: CanisterKind> DbSession<C> {
         let resident = SqlCompiledCommandCacheEntry {
             root: catalog.runtime_root_identity(),
             entity_name: sql_statement_entity_name_from_statement(parsed).map(Rc::from),
-            command: compiled.clone(),
+            command: SqlCachedCommand::Literal(compiled.clone()),
         };
         if let Some(bytes) = compiled_command_retained_bytes(&cache_key, &resident) {
             self.with_sql_compiled_command_cache(|cache| {

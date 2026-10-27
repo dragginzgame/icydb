@@ -878,6 +878,126 @@ mod tests {
         });
     }
 
+    // Retaining the bindings lets this test verify that repeated writes share
+    // accepted mappings, rather than merely comparing equal rebuilt values.
+    struct ObservedBatchInsert<'a> {
+        name: &'a str,
+        bindings: &'a std::cell::RefCell<Vec<TypedEntityBinding>>,
+    }
+
+    impl TypedWriteAdapter for ObservedBatchInsert<'_> {
+        type Entity = OneSimpleEntity01;
+
+        fn encode_write(
+            self,
+            binding: &TypedEntityBinding,
+        ) -> Result<TypedWrite, TypedAdapterError> {
+            self.bindings.borrow_mut().push(binding.clone());
+            OneSimpleEntity01Insert {
+                name: WriteCell::Value(self.name.to_string()),
+                profiles: WriteCell::Value(Vec::new()),
+            }
+            .encode_write(binding)
+        }
+    }
+
+    struct InvalidBatchEntity;
+
+    impl TypedEntityAdapter for InvalidBatchEntity {
+        const DESCRIPTOR: &'static TypedEntityDescriptor =
+            &TypedEntityDescriptor::new(OneSimpleEntity01::ENTITY, &["absent-field"], &[]);
+    }
+
+    impl TypedRowAdapter for InvalidBatchEntity {
+        type Row = OneSimpleEntity01;
+
+        fn decode_row(
+            binding: &TypedEntityBinding,
+            row: OutputRow,
+        ) -> Result<Self::Row, TypedAdapterError> {
+            OneSimpleEntity01::decode_row(binding, row)
+        }
+    }
+
+    impl TypedWriteAdapter for InvalidBatchEntity {
+        type Entity = Self;
+
+        fn encode_write(self, _: &TypedEntityBinding) -> Result<TypedWrite, TypedAdapterError> {
+            panic!("invalid descriptor must reject before encoding")
+        }
+    }
+
+    #[test]
+    fn typed_batch_shares_bindings_without_admitting_a_different_descriptor() {
+        crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
+        icydb::db::with_request_execution(|| {
+            let database = db().unwrap();
+            let observed = std::cell::RefCell::new(Vec::new());
+            let mut batch = database.trusted_typed_write_batch();
+            let first = batch
+                .push(ObservedBatchInsert {
+                    name: "first",
+                    bindings: &observed,
+                })
+                .unwrap();
+            assert!(matches!(
+                batch.push(InvalidBatchEntity),
+                Err(TypedOperationError::Adapter(_)),
+            ));
+            let second = batch
+                .push(ObservedBatchInsert {
+                    name: "second",
+                    bindings: &observed,
+                })
+                .unwrap();
+            let bindings = observed.borrow();
+            let source = <ReachableInputProfile as icydb::model::TypedNamedType>::SOURCE_KEY;
+            let first_name = bindings[0].named_type_name(source).unwrap();
+            let second_name = bindings[1].named_type_name(source).unwrap();
+            assert!(
+                std::ptr::eq(first_name, second_name),
+                "batch must share its accepted type-name allocation"
+            );
+            let mut results = batch.execute().unwrap();
+            assert_eq!(results.row(&first).unwrap().name, "first");
+            assert_eq!(results.row(&second).unwrap().name, "second");
+        });
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn typed_batch_rejects_cached_bindings_after_schema_publication() {
+        crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
+        icydb::db::with_request_execution(|| {
+            let database = db().unwrap();
+            let input = || OneSimpleEntity01Insert {
+                name: WriteCell::Value("current".to_string()),
+                profiles: WriteCell::Value(Vec::new()),
+            };
+            let mut batch = database.trusted_typed_write_batch();
+            batch.push(input()).unwrap();
+            database
+                .execute_admin_sql_ddl("ALTER TABLE OneSimpleEntity01 ADD COLUMN note TEXT NULL EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2")
+                .unwrap();
+            assert!(matches!(
+                batch.push(input()),
+                Err(TypedOperationError::Adapter(
+                    TypedAdapterError::StaleBinding
+                ))
+            ));
+            assert!(matches!(
+                batch.execute(),
+                Err(TypedOperationError::Adapter(
+                    TypedAdapterError::StaleBinding
+                ))
+            ));
+            let mut current = database.trusted_typed_write_batch();
+            let handle = current.push(input()).unwrap();
+            let mut results = current.execute().unwrap();
+            assert_eq!(results.row(&handle).unwrap().name, "current");
+        });
+    }
+
     #[test]
     fn generated_typed_write_batch_projects_and_consumes_each_row_once() {
         crate::__icydb_generated::__drive_native_database_for_tests()

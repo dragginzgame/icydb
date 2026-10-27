@@ -58,6 +58,14 @@ accepted head. The older publication head stored in source lineage is provenance
 not a freshness requirement. Stale requests and mismatched proposal/command heads
 still reject with `StaleAcceptedHead`; source-version and digest checks remain.
 
+Retained validation findings expose the accepted entity and primary-key identity,
+optional `source_field()` and `target_field()` IDs, and a typed
+`transform_reason()`. Transform reasons distinguish overflow, negative-to-unsigned
+conversion, precision loss, null source and value-contract failure. Field IDs
+refer to the accepted migration contracts, not Rust declaration positions;
+row-wide findings can omit them. Non-transform findings omit all three details.
+The CLI displays each available field and reason alongside the finding.
+
 ## Declare The Current Version
 
 Every entity has its own positive source version. Start a new entity at

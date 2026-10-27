@@ -118,3 +118,50 @@ fn sql_text_cache_does_not_admit_mutations_bindings_or_invalid_input() {
     assert_eq!(sql_parse_count_for_tests(), before);
     assert_eq!(session.sql_compiled_cache_usage_for_tests(), usage);
 }
+
+#[test]
+fn sql_parameter_templates_reject_stale_schema_before_binding_current_values() {
+    let session = initialize();
+    seed_singleton(&session);
+    let sql = "SELECT label FROM Singleton WHERE label = ?";
+    let dispatch = sql_statement_dispatch(sql).unwrap();
+    for label in ["singleton", "missing"] {
+        new_request_session()
+            .execute_trusted_sql_query_with_entity_name(
+                &dispatch,
+                &[InputValue::text(label.into())],
+            )
+            .unwrap();
+    }
+    assert!(session.sql_compiled_cache_contains_for_tests(sql));
+    publish_schema_with_label(
+        &session,
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevision::new(2),
+        "renamed",
+    );
+    let actual = new_request_session()
+        .execute_trusted_sql_query_with_entity_name(
+            &dispatch,
+            &[InputValue::text("singleton".into())],
+        )
+        .expect_err("old template cannot outlive its accepted schema");
+    let expected = new_request_session()
+        .execute_trusted_sql_query("SELECT label FROM Singleton WHERE label = 'singleton'")
+        .unwrap_err();
+    assert_eq!(actual.diagnostic(), expected.diagnostic());
+    let current =
+        sql_statement_dispatch("SELECT renamed FROM Singleton WHERE renamed = ?").unwrap();
+    for _ in 0..2 {
+        let (result, _) = new_request_session()
+            .execute_trusted_sql_query_with_entity_name(
+                &current,
+                &[InputValue::text("singleton".into())],
+            )
+            .unwrap();
+        let SqlStatementResult::Projection { rows, .. } = result else {
+            panic!("expected projection")
+        };
+        assert_eq!(rows, vec![vec![OutputValue::text("singleton".into())]]);
+    }
+}

@@ -14,6 +14,7 @@ use crate::db::sql::parser::{SqlProjection, SqlSelectItem, SqlSelectStatement, S
 #[cfg(feature = "sql")]
 pub(in crate::db::sql::lowering) use command::LoweredSqlGlobalAggregateCommand;
 pub(crate) use command::SqlGlobalAggregateCommand;
+pub(in crate::db::sql::lowering) use command::SqlGlobalAggregateTemplate;
 #[cfg(feature = "sql")]
 pub(in crate::db) use command::bind_lowered_sql_explain_global_aggregate_with_schema;
 pub(in crate::db) use command::compile_sql_global_aggregate_command_from_prepared_with_schema;

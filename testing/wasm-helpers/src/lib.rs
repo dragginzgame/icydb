@@ -54,7 +54,7 @@ where
             let Some(structural_input) = structural_input else {
                 return 0;
             };
-            let Ok(binding) = E::typed_binding(session) else {
+            let Ok(binding) = session.bind_typed_entity(E::DESCRIPTOR) else {
                 return 0;
             };
             let Ok(structural_input) = session.bind_typed_input(&binding, structural_input) else {
@@ -104,7 +104,7 @@ where
     C: CanisterKind,
     E: EntitySource + TypedEntityAdapter,
 {
-    let Ok(binding) = E::typed_binding(session) else {
+    let Ok(binding) = session.bind_typed_entity(E::DESCRIPTOR) else {
         return false;
     };
     let request = DynamicQuery::new(E::ENTITY).limit(1);
@@ -123,7 +123,7 @@ where
     E: TypedEntityAdapter,
     W: TypedWriteAdapter<Entity = E>,
 {
-    let Ok(binding) = E::typed_binding(session) else {
+    let Ok(binding) = session.bind_typed_entity(E::DESCRIPTOR) else {
         return false;
     };
     let Ok(write) = input.encode_write(&binding) else {
@@ -142,7 +142,7 @@ where
     E: TypedEntityAdapter,
     W: TypedWriteAdapter<Entity = E>,
 {
-    let Ok(binding) = E::typed_binding(session) else {
+    let Ok(binding) = session.bind_typed_entity(E::DESCRIPTOR) else {
         return false;
     };
     let Ok(first) = first.encode_write(&binding) else {
@@ -165,7 +165,7 @@ where
     C: CanisterKind,
     E: EntityKey<Key = Ulid> + EntitySource + TypedEntityAdapter,
 {
-    let Ok(binding) = E::typed_binding(session) else {
+    let Ok(binding) = session.bind_typed_entity(E::DESCRIPTOR) else {
         return false;
     };
     let write = TypedWrite::delete(&binding, InputValue::from(Ulid::MIN));

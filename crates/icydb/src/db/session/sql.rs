@@ -52,9 +52,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// are unsupported. Empty bindings preserve literal-query cache behavior.
     ///
     /// SQL is an optional frontend; structural queries need no parsed syntax.
-    /// Bound calls bypass the SQL concrete-command cache and repeat semantic
-    /// compilation, even for identical values. Eligible shared-plan reuse still
-    /// applies. Avoiding parsing therefore does not promise faster execution.
+    /// Bound calls reuse checked SELECT structure while binding and validating
+    /// the current WHERE operands on every invocation. Templates share the
+    /// bounded SQL cache and require the current accepted runtime root. Physical
+    /// access and eligible shared-plan reuse still depend on the current values;
+    /// reuse alone does not promise faster execution.
     pub fn execute_trusted_sql_query_dispatch(
         &self,
         dispatch: &core::db::SqlStatementDispatch<'_>,

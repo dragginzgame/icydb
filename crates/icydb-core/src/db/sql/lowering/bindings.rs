@@ -149,14 +149,24 @@ pub(in crate::db) fn prepare_bound_sql_statement(
         return Err(binding_error(SqlLoweringCode::ParameterPlacement));
     };
     if let Some(expr) = &mut select.predicate {
-        bind_expr(expr, schema, bindings, true, work)?;
-        let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
-            .map_err(QueryError::from_sql_lowering_error)?;
-        if !scalar_where_truth_condition_is_admitted(&lowered) {
-            return Err(binding_error(SqlLoweringCode::WhereExpressionShape));
-        }
+        bind_prepared_where(expr, schema, bindings, work)?;
     }
     Ok(PreparedSqlStatement { statement })
+}
+
+pub(in crate::db::sql::lowering) fn bind_prepared_where(
+    expr: &mut SqlExpr,
+    schema: &SchemaInfo,
+    bindings: &[InputValue],
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    bind_expr(expr, schema, bindings, true, work)?;
+    let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
+        .map_err(QueryError::from_sql_lowering_error)?;
+    if !scalar_where_truth_condition_is_admitted(&lowered) {
+        return Err(binding_error(SqlLoweringCode::WhereExpressionShape));
+    }
+    Ok(())
 }
 
 fn operand(index: usize, bindings: &[InputValue]) -> Result<Value, QueryError> {

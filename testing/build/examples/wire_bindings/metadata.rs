@@ -185,6 +185,10 @@ pub(super) fn registry() -> Result<SchemaRegistry> {
         icydb_core::db::SchemaMigrationFindingKind,
         "SchemaMigrationFindingKind"
     );
+    register!(
+        icydb_core::db::SchemaMigrationTransformReason,
+        "SchemaMigrationTransformReason"
+    );
     register!(icydb_core::db::SchemaMigrationPhase, "SchemaMigrationPhase");
     register!(
         icydb_core::db::SchemaMigrationReceipt,

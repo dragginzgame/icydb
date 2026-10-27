@@ -107,6 +107,8 @@ export async function qualifyRejectedMigration(host: string, canisterId: string)
   require(status.ok.findings.length === 1, 'one checked-cast finding');
   const finding = status.ok.findings[0];
   require(finding.kind.tag === 'Transform', 'checked-cast finding kind');
+  require(finding.source_field !== null && finding.target_field !== null && finding.source_field.some === finding.target_field.some, 'accepted source and target field IDs');
+  require(finding.transform_reason !== null && finding.transform_reason.some.tag === 'Overflow', 'typed checked-cast overflow');
   require(finding.primary_key instanceof Uint8Array && finding.primary_key.length > 0, 'migration key is a nonempty byte buffer');
   require(status.ok.next_cursor === null, 'bounded status has no next cursor');
   const retry = await invoke(contracts.icydb_schema_migration, { cursor: null });

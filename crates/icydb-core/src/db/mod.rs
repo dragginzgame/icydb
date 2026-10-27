@@ -191,7 +191,7 @@ pub use schema::{
 pub use schema::{
     SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
-    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest, SchemaMigrationTransformReason,
 };
 pub use session::DbSession;
 #[cfg(feature = "sql")]

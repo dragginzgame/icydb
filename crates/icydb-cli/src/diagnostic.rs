@@ -1617,7 +1617,7 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::PredicateStartsWithFirstArgument => {
             "STARTS_WITH first argument forms beyond plain or LOWER field wrappers"
         }
-        SqlFeatureCode::QuotedIdentifiers => "quoted identifiers",
+        SqlFeatureCode::QuotedIdentifiers => "backtick-quoted identifiers",
         SqlFeatureCode::ReturningUnsupportedShape => "unsupported RETURNING shape",
         SqlFeatureCode::ScalarFunctionExpressionPosition => {
             "functions beyond supported scalar forms in this expression position"

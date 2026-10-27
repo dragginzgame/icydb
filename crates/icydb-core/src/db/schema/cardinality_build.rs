@@ -7,7 +7,7 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         data::{DataStore, decode_data_store_key},
-        index::{IndexEntryExistenceWitness, IndexId, IndexKey, IndexKeyKind, IndexStore},
+        index::{IndexId, IndexKey, IndexKeyKind, IndexStore},
         integrity::DatabaseIncarnationId,
         journal::FoldWatermark,
         registry::StoreAllocationIdentities,
@@ -660,7 +660,7 @@ fn collect_index_page(
     let mut has_more = false;
     index.visit_canonical_raw_entries_in_range((&lower, &upper), |raw_key, entry| {
         let key = IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
-        let witness = entry
+        entry
             .decode_row_witness_from_index_key(&key)
             .map_err(|_| InternalError::store_corruption())?;
         let accepted_component_count = if key.key_kind() == IndexKeyKind::User {
@@ -673,9 +673,7 @@ fn collect_index_page(
         {
             return Err(InternalError::store_corruption());
         }
-        let prefix_updates = if accepted_component_count.is_some()
-            && witness.existence_witness() == IndexEntryExistenceWitness::Present
-        {
+        let prefix_updates = if accepted_component_count.is_some() {
             u64::try_from(key.component_count()).map_err(|_| InternalError::store_unsupported())?
         } else {
             0

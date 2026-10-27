@@ -275,6 +275,15 @@ fn print_status(status: &SchemaMigrationStatusPage) {
             finding.entity_tag(),
             encode_hex_lower(finding.primary_key()),
         );
+        if let Some(field) = finding.source_field() {
+            println!("      source field: {field}");
+        }
+        if let Some(field) = finding.target_field() {
+            println!("      target field: {field}");
+        }
+        if let Some(reason) = finding.transform_reason() {
+            println!("      transform reason: {reason:?}");
+        }
     }
 }
 

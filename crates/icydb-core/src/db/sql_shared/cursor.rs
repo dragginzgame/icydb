@@ -237,7 +237,7 @@ impl SqlTokenCursor {
             return Err(SqlParseError::expected(SqlExpectedToken::Identifier, None));
         };
         let token_kind = std::mem::replace(&mut token.kind, TokenKind::Comma);
-        let TokenKind::Identifier(name) = token_kind else {
+        let (TokenKind::Identifier(name) | TokenKind::QuotedIdentifier(name)) = token_kind else {
             token.kind = token_kind;
             return Err(SqlParseError::expected(
                 SqlExpectedToken::Identifier,

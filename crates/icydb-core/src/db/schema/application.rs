@@ -68,10 +68,11 @@ use crate::db::commit::{
 use crate::db::schema::{
     PersistedSchemaMigrationEntity, PersistedSchemaMigrationFindingKind,
     PersistedSchemaMigrationIndex, PersistedSchemaMigrationPhase,
-    PersistedSchemaMigrationTransition, SchemaMigrationCommand, SchemaMigrationEntityTransition,
-    SchemaMigrationFinding, SchemaMigrationFindingKind, SchemaMigrationPhase,
-    SchemaMigrationReceipt, SchemaMigrationRecord, SchemaMigrationRecordOp,
-    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
+    PersistedSchemaMigrationTransformReason, PersistedSchemaMigrationTransition,
+    SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
+    SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
+    SchemaMigrationRecord, SchemaMigrationRecordOp, SchemaMigrationStatusPage,
+    SchemaMigrationStatusRequest, SchemaMigrationTransformReason,
     live_schema_checkpoint::{load_entity_source_lineage_catalog, load_schema_migration_record},
     migration_execution::{
         cleanup_migration_staging_page, final_validate_migration_page,
@@ -1816,6 +1817,25 @@ fn active_migration_status(
                 kind,
                 finding.entity().value(),
                 finding.primary_key().to_vec(),
+                finding.source_field().map(crate::db::schema::FieldId::get),
+                finding.target_field().map(crate::db::schema::FieldId::get),
+                finding.transform_reason().map(|reason| match reason {
+                    PersistedSchemaMigrationTransformReason::Overflow => {
+                        SchemaMigrationTransformReason::Overflow
+                    }
+                    PersistedSchemaMigrationTransformReason::NegativeToUnsigned => {
+                        SchemaMigrationTransformReason::NegativeToUnsigned
+                    }
+                    PersistedSchemaMigrationTransformReason::PrecisionLoss => {
+                        SchemaMigrationTransformReason::PrecisionLoss
+                    }
+                    PersistedSchemaMigrationTransformReason::NullSource => {
+                        SchemaMigrationTransformReason::NullSource
+                    }
+                    PersistedSchemaMigrationTransformReason::ValueContract => {
+                        SchemaMigrationTransformReason::ValueContract
+                    }
+                }),
             )
         })
         .collect();
@@ -5568,7 +5588,10 @@ mod tests {
         use super::migrate_schema;
         use crate::db::{
             data::StoreVisit,
-            schema::{SchemaMigrationCommand, SchemaMigrationFindingKind, SchemaMigrationPhase},
+            schema::{
+                SchemaMigrationCommand, SchemaMigrationFindingKind, SchemaMigrationPhase,
+                SchemaMigrationStatusPage, SchemaMigrationTransformReason,
+            },
         };
 
         let db = Db::<MigrationFindingCanister>::new(
@@ -5684,6 +5707,25 @@ mod tests {
                 SchemaMigrationFindingKind::Transform,
             ],
         );
+        for finding in rejected.findings() {
+            if finding.kind() == SchemaMigrationFindingKind::Transform {
+                assert!(finding.source_field().is_some());
+                assert_eq!(finding.target_field(), finding.source_field());
+                assert_eq!(
+                    finding.transform_reason(),
+                    Some(SchemaMigrationTransformReason::Overflow)
+                );
+            } else {
+                assert_eq!(finding.source_field(), None);
+                assert_eq!(finding.target_field(), None);
+                assert_eq!(finding.transform_reason(), None);
+            }
+        }
+        let bytes =
+            icydb_schema::wire::encode_one(&rejected).expect("finding status should encode");
+        let decoded: SchemaMigrationStatusPage =
+            icydb_schema::wire::decode_one(&bytes).expect("finding status should decode");
+        assert_eq!(decoded, rejected);
         assert_eq!(
             row_bytes(),
             before_rows,

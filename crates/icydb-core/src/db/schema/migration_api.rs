@@ -162,6 +162,22 @@ pub enum SchemaMigrationFindingKind {
     ResourceLimit,
 }
 
+/// Exact reason a closed migration transform rejected an accepted row.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+pub enum SchemaMigrationTransformReason {
+    /// The converted value exceeds the target range.
+    Overflow,
+    /// A negative value cannot be represented by an unsigned target.
+    NegativeToUnsigned,
+    /// Conversion would discard precision.
+    PrecisionLoss,
+    /// A required source value is null.
+    NullSource,
+    /// The value does not satisfy the accepted field or row contract.
+    ValueContract,
+}
+
 /// One bounded accepted-ID migration finding.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
@@ -170,6 +186,9 @@ pub struct SchemaMigrationFinding {
     entity_tag: u64,
     #[serde(with = "serde_bytes")]
     primary_key: Vec<u8>,
+    source_field: Option<u32>,
+    target_field: Option<u32>,
+    transform_reason: Option<SchemaMigrationTransformReason>,
 }
 
 impl SchemaMigrationFinding {
@@ -177,11 +196,17 @@ impl SchemaMigrationFinding {
         kind: SchemaMigrationFindingKind,
         entity_tag: u64,
         primary_key: Vec<u8>,
+        source_field: Option<u32>,
+        target_field: Option<u32>,
+        transform_reason: Option<SchemaMigrationTransformReason>,
     ) -> Self {
         Self {
             kind,
             entity_tag,
             primary_key,
+            source_field,
+            target_field,
+            transform_reason,
         }
     }
 
@@ -195,6 +220,24 @@ impl SchemaMigrationFinding {
     #[must_use]
     pub const fn entity_tag(&self) -> u64 {
         self.entity_tag
+    }
+
+    /// Return the accepted source field ID, when the finding identifies one.
+    #[must_use]
+    pub const fn source_field(&self) -> Option<u32> {
+        self.source_field
+    }
+
+    /// Return the accepted target field ID, when the finding identifies one.
+    #[must_use]
+    pub const fn target_field(&self) -> Option<u32> {
+        self.target_field
+    }
+
+    /// Return the exact reason for a transform finding; other families have none.
+    #[must_use]
+    pub const fn transform_reason(&self) -> Option<SchemaMigrationTransformReason> {
+        self.transform_reason
     }
 
     /// Borrow the exact primary-key bytes associated with the finding.

@@ -6,7 +6,10 @@
 use crate::db::resource::bounded_cache::{BoundedCache, CacheEntryWeight};
 
 use crate::{
-    db::{DbSession, schema::AcceptedSchemaRuntimeRootIdentity, session::sql::CompiledSqlCommand},
+    db::{
+        DbSession, schema::AcceptedSchemaRuntimeRootIdentity, session::sql::CompiledSqlCommand,
+        sql::lowering::CheckedSqlSelectTemplate,
+    },
     retained::RetainedBytes,
     traits::CanisterKind,
 };
@@ -57,7 +60,14 @@ pub(in crate::db) type SqlCompiledCommandCache =
 pub(in crate::db::session::sql) struct SqlCompiledCommandCacheEntry {
     pub(in crate::db::session::sql) root: AcceptedSchemaRuntimeRootIdentity,
     pub(in crate::db::session::sql) entity_name: Option<Rc<str>>,
-    pub(in crate::db::session::sql) command: CompiledSqlCommand,
+    pub(in crate::db::session::sql) command: SqlCachedCommand,
+}
+
+// A template cannot enter execution until its current operands have been bound.
+#[derive(Clone, Debug)]
+pub(in crate::db::session::sql) enum SqlCachedCommand {
+    Literal(CompiledSqlCommand),
+    Parameterized(Rc<CheckedSqlSelectTemplate>),
 }
 
 thread_local! {
@@ -168,4 +178,9 @@ crate::retained::retained_fields!(SqlCompiledCommandCacheKey {
 });
 crate::retained::retained_fields!(SqlCompiledCommandCacheEntry {
     Self { root: _, entity_name, command } => [entity_name, command],
+});
+
+crate::retained::retained_fields!(SqlCachedCommand {
+    Self::Literal(command) => [command],
+    Self::Parameterized(template) => [template],
 });

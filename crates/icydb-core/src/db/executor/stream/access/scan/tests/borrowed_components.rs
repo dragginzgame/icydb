@@ -103,7 +103,7 @@ fn covering_components_preserve_identity_selection_order_resume_and_limits() {
                         })
                         .unwrap();
                         assert_eq!(rows.len(), limit.min(expected.len()));
-                        for ((key, witness, components), expected) in
+                        for ((key, components), expected) in
                             rows.iter().zip(expected.iter().take(limit))
                         {
                             assert_eq!(
@@ -118,12 +118,6 @@ fn covering_components_preserve_identity_selection_order_resume_and_limits() {
                                 )
                                 .to_raw()
                                 .unwrap()
-                            );
-                            assert_eq!(
-                                *witness,
-                                IndexEntryValue::presence()
-                                    .decode_existence_witness()
-                                    .unwrap()
                             );
                             assert_eq!(
                                 components.as_ref(),
@@ -295,13 +289,11 @@ fn covering_component_chunks_preserve_bounded_directional_progress() {
                                         .map(DecodedDataStoreKey::primary_key_value)
                                         .collect::<Vec<_>>(),
                                     rows.iter()
-                                        .map(|(key, _, _)| key.primary_key_value())
+                                        .map(|(key, _)| key.primary_key_value())
                                         .collect::<Vec<_>>()
                                 );
                             }
-                            actual.extend(
-                                rows.into_iter().map(|(key, _, _)| key.primary_key_value()),
-                            );
+                            actual.extend(rows.into_iter().map(|(key, _)| key.primary_key_value()));
                             let Some(next) = next else {
                                 break;
                             };

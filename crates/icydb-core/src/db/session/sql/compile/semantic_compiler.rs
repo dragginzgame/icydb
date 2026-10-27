@@ -15,7 +15,8 @@ use crate::{
         session::sql::{CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandSurface},
         sql::{
             lowering::{
-                PreparedSqlStatement, bind_lowered_sql_delete_query_structural_with_schema,
+                BoundSqlSelect, CheckedSqlSelectTemplate, PreparedSqlStatement,
+                bind_lowered_sql_delete_query_structural_with_schema,
                 bind_lowered_sql_select_query_structural_with_schema,
                 bind_sql_select_statement_structural_with_schema,
                 compile_sql_global_aggregate_command_from_prepared_with_schema,
@@ -350,6 +351,43 @@ impl<C: CanisterKind> DbSession<C> {
     // happens here before the cache-independent semantic compiler runs, so no
     // caller can accidentally compile a query through the update lane or the
     // inverse.
+    pub(in crate::db::session::sql) fn compile_sql_parameter_template(
+        &self,
+        statement: &SqlStatement,
+        surface: SqlCompiledCommandSurface,
+        schema: &SchemaInfo,
+        bindings: &[InputValue],
+    ) -> Result<(CheckedSqlSelectTemplate, CompiledSqlCommand), QueryError> {
+        Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
+        PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::TrustedRead,
+            |work| {
+                let (template, bound) =
+                    CheckedSqlSelectTemplate::compile(statement, schema, bindings, work)?;
+                let command = bound_select_command(bound);
+                Ok((template, command))
+            },
+        )
+    }
+
+    pub(in crate::db::session::sql) fn bind_sql_parameter_template(
+        &self,
+        template: &CheckedSqlSelectTemplate,
+        schema: &SchemaInfo,
+        bindings: &[InputValue],
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::TrustedRead,
+            |work| {
+                template
+                    .bind(schema, bindings, work)
+                    .map(bound_select_command)
+            },
+        )
+    }
+
     pub(in crate::db::session::sql) fn compile_sql_statement(
         &self,
         statement: &SqlStatement,
@@ -395,4 +433,11 @@ fn insert_select_source_with_primary_key_order(
     }
 
     Ok(source)
+}
+
+fn bound_select_command(bound: BoundSqlSelect) -> CompiledSqlCommand {
+    match bound {
+        BoundSqlSelect::Select(query) => CompiledSqlCommand::select(query),
+        BoundSqlSelect::GlobalAggregate(command) => CompiledSqlCommand::global_aggregate(command),
+    }
 }

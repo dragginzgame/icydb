@@ -86,6 +86,46 @@ fn rejected_checked_cast_preserves_source_rows_and_can_abort() {
     assert_eq!(projection(&fixture, SOURCE_ROWS), source_rows);
 }
 
+#[test]
+fn rejected_migration_abort_skips_unrelated_index_inventory() {
+    let (fixture, seed) = seeded_fixture();
+    let unrelated_query = "SELECT label FROM SqlTestNumericTypes ORDER BY label ASC LIMIT 2048";
+    let initial_unrelated_rows = projection(&fixture, unrelated_query).rows.len();
+    // More than one cleanup page in another entity's index must not become
+    // migration work. Keep the migrating entity's three source rows unchanged.
+    let seeded: Result<(), Error> = fixture
+        .pocket_ic()
+        .update_wire(
+            fixture.canister_id(),
+            "seed_migration_unrelated_indexes",
+            (),
+        )
+        .expect("unrelated seed response should decode");
+    seeded.expect("unrelated index inventory should seed");
+    let unrelated = projection(&fixture, unrelated_query);
+    assert_eq!(unrelated.rows.len(), initial_unrelated_rows + 1024);
+    assert!(unrelated.rows.len() > 512);
+    let (source_rows, mut status) = reject_checked_cast(&fixture, &seed);
+    let source_head = status.accepted_head().clone();
+    let plan = status
+        .plan_digest()
+        .expect("rejected migration retains its plan");
+    // One abort call must finish even when unrelated domains exceed a page.
+    status = migration_command(
+        &fixture,
+        SchemaMigrationCommand::Abort {
+            expected_database: status.database_identity(),
+            expected_head: source_head.clone(),
+            expected_plan: plan,
+        },
+    );
+    assert_eq!(status.phase(), SchemaMigrationPhase::Aborted);
+    assert_eq!(status.accepted_head(), &source_head);
+    upgrade(&fixture, artifacts().0.clone());
+    assert_eq!(projection(&fixture, SOURCE_ROWS), source_rows);
+    assert_eq!(projection(&fixture, unrelated_query), unrelated);
+}
+
 // Share the real rejected source/successor recipe with installed browser coverage.
 fn reject_checked_cast(
     fixture: &StandaloneCanisterFixture,
@@ -128,6 +168,15 @@ fn reject_checked_cast(
         SchemaMigrationFindingKind::Transform
     );
     assert!(!status.findings()[0].primary_key().is_empty());
+    assert!(status.findings()[0].source_field().is_some());
+    assert_eq!(
+        status.findings()[0].source_field(),
+        status.findings()[0].target_field()
+    );
+    assert_eq!(
+        status.findings()[0].transform_reason(),
+        Some(icydb::db::SchemaMigrationTransformReason::Overflow)
+    );
     assert!(
         status.next_cursor().is_none(),
         "one finding fits in one bounded page"

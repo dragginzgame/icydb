@@ -129,10 +129,13 @@ Public value conversion and exact native payload-size validation complete
 before the marker is opened. The current bounds are 4,096 operations, 64
 distinct entities, 16 MiB
 of cumulative encoded keys plus canonical before/after rows, 4 MiB per row,
-and 1 MiB for the encoded ordered result vector of
-`execute_trusted_structural_mutation_batch`. Existing single-mutation and
-insert-only convenience calls retain their prior response behavior; SQL
-`RETURNING` owns an independent query response bound.
+and 1 MiB for the encoded batch response. This result limit covers the
+structural mixed batch, typed batches and the insert-only convenience batch,
+using each API's actual response envelope. Oversized insert-only replies reject
+before commit with `MutationBatchResultBytesExceeded`; no rows, generated
+identities or commit sequence are consumed. Single-mutation calls retain their
+prior response behavior; SQL `RETURNING` owns an independent query response
+bound.
 
 If any step fails, execution returns an error and does not open a commit window.
 Rows exceeding the 4 MiB encoded-row limit reject as `Unsupported` at the

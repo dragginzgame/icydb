@@ -16,7 +16,10 @@ pub(in crate::db::predicate::parser::expression::atom::field::plain) fn parse_pl
     field: String,
 ) -> Result<Predicate, SqlParseError> {
     let op = parse_compare_operator(cursor)?;
-    if matches!(cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
+    if matches!(
+        cursor.peek_kind(),
+        Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))
+    ) {
         let right_field = cursor.expect_identifier()?;
         return Ok(predicate_compare_fields(field, op, right_field));
     }

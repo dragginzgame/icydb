@@ -10,6 +10,7 @@ mod bindings;
 mod copy;
 mod expr;
 mod normalize;
+mod parameterized;
 mod predicate;
 mod prepare;
 mod select;
@@ -39,6 +40,7 @@ pub(in crate::db::sql::lowering) use analysis::{
     AnalyzedLoweredExpr, LoweredExprAnalysis, LoweredExprSourceRef, analyze_lowered_expr,
 };
 pub(in crate::db) use bindings::{prepare_bound_sql_statement, validate_sql_bindings};
+pub(in crate::db) use parameterized::{BoundSqlSelect, CheckedSqlSelectTemplate};
 pub(in crate::db) use prepare::bind_sql_select_statement_structural_with_schema;
 #[cfg(feature = "sql")]
 pub(in crate::db) use prepare::lower_sql_explain_command_from_prepared_statement_with_schema;

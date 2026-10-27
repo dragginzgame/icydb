@@ -14,9 +14,7 @@
 
 #[cfg(any(test, feature = "migration"))]
 use crate::db::data::RawRow;
-use crate::db::index::{
-    IndexEntryExistenceWitness, IndexEntryValue, IndexKey, IndexKeyKind, IndexState, IndexStore,
-};
+use crate::db::index::{IndexEntryValue, IndexKey, IndexKeyKind, IndexState, IndexStore};
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::{apply_schema_migration_record_op, verify_schema_migration_record_op};
 use crate::{
@@ -1205,12 +1203,9 @@ fn accepted_prefix_digests(
     if key.component_count() != component_count {
         return Err(InternalError::store_corruption());
     }
-    let witness = value
+    value
         .decode_row_witness_from_index_key(&key)
         .map_err(|_| InternalError::store_corruption())?;
-    if witness.existence_witness() != IndexEntryExistenceWitness::Present {
-        return Ok(Vec::new());
-    }
     let mut digests = Vec::new();
     digests
         .try_reserve_exact(component_count)

@@ -84,7 +84,7 @@ pub use errors::{SchemaLiteralValidationReason, SchemaValidationOperator, Valida
 pub use migration_api::{
     SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
-    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest, SchemaMigrationTransformReason,
 };
 
 pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;

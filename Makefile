@@ -547,6 +547,7 @@ ci-workspace:
 		_ci-workspace-clippy \
 		_ci-workspace-integration-clippy \
 		_ci-workspace-tests \
+		test-canister-artifact-contract \
 		_test-canister-libs \
 		_test-durability-integration
 

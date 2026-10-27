@@ -277,3 +277,89 @@ fn single_mutation_keeps_its_batch_result_limit_bypass() {
     );
     assert!(stored_row(1).is_some());
 }
+
+// Insert-only replies use the same single-entity envelope as typed batches,
+// but allocate two fresh IDs instead of updating an existing row.
+fn assert_insert_only_result_boundary(slack: usize) {
+    let session = initialize_blob_session();
+    session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+            entity: ENTITY_NAME.into(),
+            patch: blob_patch(vec![0]),
+        })
+        .unwrap();
+    let before = stored_row(1).unwrap();
+    let control_before = database_control_proof_identity().unwrap();
+    let expected = |payload_len| {
+        let mut results = expected_results(payload_len);
+        for (index, result) in results.iter_mut().enumerate() {
+            result.rows[0][0] = OutputValue::nat64(index as u64 + 2);
+        }
+        BatchSurface::SameEntityTyped.encode_results(results)
+    };
+    let limit = MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES;
+    let payload_len = limit - (expected(limit).len() - limit);
+    assert_eq!(expected(payload_len).len(), limit);
+    let patches = |len| vec![blob_patch(vec![1]), blob_patch(vec![2; len])];
+    let error = session
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, patches(payload_len + 1))
+        .unwrap_err();
+    assert!(matches!(
+        error.diagnostic().detail(),
+        Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
+            ..
+        })
+    ));
+    assert_eq!(
+        error.diagnostic_facts(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ActualLength,
+                (limit + 1) as u64
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::Limit,
+                limit as u64
+            ),
+        ]
+    );
+    assert_eq!(stored_row(1).as_ref(), Some(&before));
+    assert_eq!(stored_row(2), None);
+    assert_eq!(stored_row(3), None);
+    assert_eq!(DATA_STORE.with(|store| store.borrow().len()), 1);
+    assert_eq!(database_control_proof_identity().unwrap(), control_before);
+    SCHEMA_STORE.with(|store| {
+        let cursor = store
+            .borrow()
+            .identity_statement_cursor(
+                database_incarnation_id().unwrap(),
+                ENTITY_TAG,
+                FieldId::new(1),
+                &AcceptedFieldKind::Nat64,
+            )
+            .unwrap();
+        assert_eq!(cursor.expected_high_water(), 1);
+        assert!(!cursor.has_allocations());
+    });
+    let result = session
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, patches(payload_len - slack))
+        .unwrap();
+    let actual = icydb_schema::wire::encode_one(result).unwrap();
+    assert_eq!(actual.len(), limit - slack);
+    assert_eq!(actual, expected(payload_len - slack));
+    assert_eq!(stored_row(1).as_ref(), Some(&before));
+    assert!(stored_row(2).is_some());
+    assert!(stored_row(3).is_some());
+    assert_eq!(DATA_STORE.with(|store| store.borrow().len()), 3);
+}
+
+#[test]
+fn insert_only_batch_exact_result_boundary_preserves_rows_and_identity() {
+    assert_insert_only_result_boundary(0);
+}
+
+#[test]
+fn insert_only_batch_below_result_boundary_preserves_rows_and_identity() {
+    assert_insert_only_result_boundary(1);
+}

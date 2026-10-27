@@ -181,8 +181,6 @@ pub struct MemoryAllocation {
     pub allocated_bytes: u64,
     /// Assigned capacity beyond the virtual extent.
     pub bucket_slack_bytes: u64,
-    /// Unavailable: manager metadata cannot measure live payload occupancy.
-    pub payload_bytes: Option<u64>,
 }
 
 impl MemoryAllocation {
@@ -223,8 +221,6 @@ impl MemoryAllocation {
             allocated_buckets: memory.allocated_buckets,
             allocated_bytes,
             bucket_slack_bytes,
-            // The manager measures addressable capacity, never live payload.
-            payload_bytes: None,
         })
     }
 }

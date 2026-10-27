@@ -406,10 +406,6 @@ fn accepted_present_indexes_count_every_prefix_and_exclude_other_domains() {
             IndexEntryValue::presence_only(),
         ),
         (
-            index_key(accepted, IndexKeyKind::User, &[vec![9], vec![9]], 3),
-            IndexEntryValue::from_persisted_bytes(vec![1]),
-        ),
-        (
             index_key(accepted, IndexKeyKind::System, &[vec![4], vec![5]], 4),
             IndexEntryValue::presence_only(),
         ),
@@ -441,7 +437,7 @@ fn accepted_present_indexes_count_every_prefix_and_exclude_other_domains() {
     let CardinalityBuildPageOutcome::CandidateComplete { totals, .. } = complete else {
         panic!("the bounded accepted index page should complete");
     };
-    assert_eq!(totals.source_entries(), 5);
+    assert_eq!(totals.source_entries(), 4);
     assert_eq!(totals.prefix_updates(), 4);
     assert_eq!(totals.distinct_count_keys(), 3);
 
@@ -570,7 +566,7 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
 fn malformed_row_and_index_keys_fail_without_advancing_the_durable_cursor() {
     let entity = EntityTag::new(9);
     let accepted = IndexId::new_with_generation(entity, 1, 1);
-    let (mut data, mut index, mut schema) = initialized_stores();
+    let (mut data, index, mut schema) = initialized_stores();
     let authority = authority([entity], [(accepted, 1)], 0);
     data.fold_recovered_journal_put(
         RawDataStoreKey::from_persisted_bytes(Vec::new()),
@@ -588,25 +584,33 @@ fn malformed_row_and_index_keys_fail_without_advancing_the_durable_cursor() {
     assert_eq!(cursor.checkpoint(), None);
     assert_eq!(cursor.totals(), CardinalityBuildTotals::default());
 
-    let (data, _, mut schema) = initialized_stores();
-    index
-        .apply_canonical_entry(
+    for (raw, value) in [
+        (
             RawIndexStoreKey::from_persisted_bytes(vec![0]),
-            Some(IndexEntryValue::presence_only()),
-        )
-        .expect("malformed raw index key should seed corruption fixture");
-    advance_cardinality_build_page(&data, &index, &mut schema, &authority)
-        .expect("isolated slot should initialize");
-    advance_cardinality_build_page(&data, &index, &mut schema, &authority)
-        .expect("empty row phase should advance");
-    assert!(advance_cardinality_build_page(&data, &index, &mut schema, &authority).is_err());
-    let cursor = schema
-        .cardinality_build_cursor()
-        .expect("cursor should decode")
-        .expect("cursor should remain");
-    assert_eq!(cursor.phase(), CardinalityBuildPhase::Indexes);
-    assert_eq!(cursor.checkpoint(), None);
-    assert_eq!(cursor.totals(), CardinalityBuildTotals::default());
+            IndexEntryValue::presence_only(),
+        ),
+        (
+            index_key(accepted, IndexKeyKind::User, &[vec![1]], 1),
+            IndexEntryValue::from_persisted_bytes(vec![1]),
+        ),
+    ] {
+        let (data, mut index, mut schema) = initialized_stores();
+        index
+            .apply_canonical_entry(raw, Some(value))
+            .expect("raw corruption fixture should seed");
+        advance_cardinality_build_page(&data, &index, &mut schema, &authority)
+            .expect("isolated slot should initialize");
+        advance_cardinality_build_page(&data, &index, &mut schema, &authority)
+            .expect("empty row phase should advance");
+        assert!(advance_cardinality_build_page(&data, &index, &mut schema, &authority).is_err());
+        let cursor = schema
+            .cardinality_build_cursor()
+            .expect("cursor should decode")
+            .expect("cursor should remain");
+        assert_eq!(cursor.phase(), CardinalityBuildPhase::Indexes);
+        assert_eq!(cursor.checkpoint(), None);
+        assert_eq!(cursor.totals(), CardinalityBuildTotals::default());
+    }
 }
 
 #[test]

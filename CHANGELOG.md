@@ -5,6 +5,77 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.286.0]
+
+### ⚠️ Breaking
+
+- Remove the always-unavailable `MemoryAllocation.payload_bytes` field and CLI
+  column. Allocation diagnostics still report capacity, virtual extent and slack,
+  not live payload occupancy. Regenerate clients for the changed snapshot contract
+  ([#365](https://github.com/dragginzgame/icydb/issues/365)).
+- Migration findings now expose optional accepted source/target field IDs and
+  `SchemaMigrationTransformReason`; the CLI displays retained transform details.
+  Regenerate clients for the changed migration-status contract. Persisted findings
+  and migration execution are unchanged
+  ([#206](https://github.com/dragginzgame/icydb/issues/206)).
+- Remove the unwritten index `Missing` witness state and its scan/count/recovery
+  branches. Written presence bytes remain `0`; other bytes fail as corruption.
+  No rewrite is needed for entries produced by maintained writers
+  ([#245](https://github.com/dragginzgame/icydb/issues/245)).
+
+- Insert-only batch replies now share the 1 MiB batch result limit. Split larger
+  imports into smaller batches; oversized replies reject before commit without
+  consuming generated identities
+  ([#285 — Insert-only dynamic batches lack a result-size bound](https://github.com/dragginzgame/icydb/issues/285)).
+
+- Remove the `TypedEntityAdapter::typed_binding` override hook; generic callers
+  must use `session.bind_typed_entity(E::DESCRIPTOR)`. Generated entities retain
+  their inherent `typed_binding` convenience method. Mixed typed batches share
+  current accepted bindings per descriptor
+  ([#164 — Typed mixed batch repeats binding issuance](https://github.com/dragginzgame/icydb/issues/164)).
+
+### Changed
+
+- Update the pinned Rust toolchain GitHub Action revision; the selected compiler
+  versions remain unchanged ([#456](https://github.com/dragginzgame/icydb/pull/456)).
+- Update the pinned Rust cache GitHub Action to 2.9.3 in CI and SQL qualification
+  workflows ([#457](https://github.com/dragginzgame/icydb/pull/457)).
+
+- Reuse checked SQL SELECT templates across parameter values within the existing
+  cache limits. Each call still validates its inputs, current schema and
+  value-sensitive query behavior
+  ([#392 — Compiled SQL cache recompiles every bound call](https://github.com/dragginzgame/icydb/issues/392)).
+
+### Testing
+
+- Qualify pre-rewrite migration abort with more than one page of unrelated
+  index entries, checking one-call completion and exact row preservation across
+  upgrade. A migration-only test-admin seeder uses the trusted batch owner without
+  widening public SQL admission ([#207](https://github.com/dragginzgame/icydb/issues/207)).
+- Make the manual identity closeout probe explicitly use `wasm-release` and report
+  raw Wasm bytes, artifact identity and whole-call cycles alongside its existing
+  IC instruction samples ([#212](https://github.com/dragginzgame/icydb/issues/212)).
+
+- Add canister-upgrade coverage for journaled read proofs, including rejection
+  after a later write ([#66 — Journaled proofs fail across upgrades](https://github.com/dragginzgame/icydb/issues/66)).
+
+- Cover populated schema publication through journal decode, append and replay,
+  preserving per-entity revisions
+  ([#273 — Batch validation repeats work](https://github.com/dragginzgame/icydb/issues/273)).
+
+### 🩹 Fixed
+
+- Allow double-quoted SQL identifier segments to address fields, entities and
+  aliases named after keywords, including `SELECT "count" FROM "Deep"`.
+  Existing catalog name rules and case resolution remain unchanged
+  ([#231](https://github.com/dragginzgame/icydb/issues/231)).
+
+- Run the production/local canister endpoint contract in workspace CI and reject
+  workflow changes that remove it
+  ([#120 — Production test actors expose trusted methods](https://github.com/dragginzgame/icydb/issues/120)).
+
+Details: [0.286 release notes](docs/changelog/0.286.md).
+
 ## [0.285.0] - 2026-10-26
 
 ### ⚠️ Breaking

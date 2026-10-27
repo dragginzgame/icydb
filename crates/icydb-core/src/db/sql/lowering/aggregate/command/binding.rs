@@ -1,5 +1,6 @@
 use crate::db::query::preparation::PreparationWork;
 use crate::db::{
+    QueryError,
     predicate::MissingRowPolicy,
     query::{
         intent::StructuralQuery,
@@ -11,7 +12,7 @@ use crate::db::{
     schema::{AcceptedFieldKind, SchemaInfo},
     sql::{
         lowering::{
-            PreparedSqlStatement, SqlLoweringError,
+            LoweredBaseQueryShape, PreparedSqlStatement, SqlLoweringError,
             aggregate::{
                 command::{LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape},
                 strategy::{
@@ -302,28 +303,16 @@ impl LoweredSqlGlobalAggregateCommand {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        validate_base_query_sql_capabilities(schema, &query)?;
-
-        let extrema_input_order = indexed_extrema_input_order(schema, &query, &strategies);
-
-        let mut query = apply_lowered_base_query_shape_with_schema(
-            StructuralQuery::new(consistency),
+        let (query, facts) = bind_global_query(
             query,
-            schema,
-            work,
-        )?;
-        if let Some(order) = extrema_input_order {
-            query = query.order_spec(order);
-        }
-        let facts = AggregateShapeFacts::from_parts(
-            schema,
-            &query,
-            strategies.as_slice(),
+            consistency,
+            &strategies,
             &projection,
             having.as_ref(),
             authored_order_by,
-        );
-
+            schema,
+            work,
+        )?;
         Ok(SqlGlobalAggregateCommand {
             query,
             strategies,
@@ -333,6 +322,106 @@ impl LoweredSqlGlobalAggregateCommand {
         })
     }
 }
+
+// Both ordinary compilation and parameter binding derive current filter-sensitive
+// extrema order and metadata eligibility here. Cached shape facts are never reused
+// after a WHERE operand has been supplied.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one owner binds aggregate shape facts for both compile routes"
+)]
+fn bind_global_query(
+    query: LoweredBaseQueryShape,
+    consistency: MissingRowPolicy,
+    strategies: &[PreparedSqlScalarAggregateStrategy],
+    projection: &ProjectionSpec,
+    having: Option<&Expr>,
+    authored_order_by: bool,
+    schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
+) -> Result<(StructuralQuery, AggregateShapeFacts), SqlLoweringError> {
+    validate_base_query_sql_capabilities(schema, &query)?;
+    let extrema_input_order = indexed_extrema_input_order(schema, &query, strategies);
+    let mut query = apply_lowered_base_query_shape_with_schema(
+        StructuralQuery::new(consistency),
+        query,
+        schema,
+        work,
+    )?;
+    if let Some(order) = extrema_input_order {
+        query = query.order_spec(order);
+    }
+    let facts = AggregateShapeFacts::from_parts(
+        schema,
+        &query,
+        strategies,
+        projection,
+        having,
+        authored_order_by,
+    );
+    Ok((query, facts))
+}
+
+/// Checked aggregate operands and projection, with an unbound WHERE slot.
+#[derive(Clone, Debug)]
+pub(in crate::db::sql::lowering) struct SqlGlobalAggregateTemplate {
+    base: LoweredBaseQueryShape,
+    command: SqlGlobalAggregateCommand,
+    authored_order_by: bool,
+}
+
+impl SqlGlobalAggregateTemplate {
+    pub(in crate::db::sql::lowering) fn bind(
+        &self,
+        predicate: &crate::db::sql::parser::SqlExpr,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<SqlGlobalAggregateCommand, QueryError> {
+        let mut base = self.base.clone();
+        base.filter = Some(
+            crate::db::sql::lowering::LoweredSqlFilter::from_where_expr_requiring_predicate_subset(
+                predicate, work,
+            )
+            .map_err(QueryError::from_sql_lowering_error)?,
+        );
+        let mut command = self.command.clone();
+        let (query, facts) = bind_global_query(
+            base,
+            MissingRowPolicy::Ignore,
+            &command.strategies,
+            &command.projection,
+            command.having.as_ref(),
+            self.authored_order_by,
+            schema,
+            work,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        command.query = query;
+        command.facts = facts;
+        Ok(command)
+    }
+}
+
+impl LoweredSqlGlobalAggregateCommand {
+    pub(in crate::db::sql::lowering) fn into_parameter_template(
+        self,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<SqlGlobalAggregateTemplate, SqlLoweringError> {
+        let base = self.query.clone();
+        let authored_order_by = self.authored_order_by;
+        let command = self.into_command_with_schema(MissingRowPolicy::Ignore, schema, work)?;
+        Ok(SqlGlobalAggregateTemplate {
+            base,
+            command,
+            authored_order_by,
+        })
+    }
+}
+
+crate::retained::retained_fields!(SqlGlobalAggregateTemplate {
+    Self { base, command, authored_order_by: _ } => [base, command],
+});
 
 // Project one internal, order-insensitive extrema access intent only when the
 // accepted schema proves the complete direct-field target + primary-key index

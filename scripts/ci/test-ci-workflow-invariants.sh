@@ -261,6 +261,7 @@ for selection in \
   'missing-cargo-provider|cargo test --locked --no-fail-fast|:' \
   'unrouted-workspace-provider|^[[:space:]]*_ci-workspace-tests|_ci-workspace-clippy' \
   'unrouted-canister-tests|^[[:space:]]*_test-canister-libs|_ci-workspace-clippy' \
+  'unrouted-artifact-contract|^[[:space:]]*test-canister-artifact-contract|_ci-workspace-clippy' \
   'unrouted-durability-tests|^[[:space:]]*_test-durability-integration$|_ci-workspace-clippy' \
   'unrouted-tier-b-provider|^[[:space:]]*_ci-tier-b-sql-perf$|_ci-tier-b-sql-canister' \
   'excluded-provider|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-core --exclude icydb-testing-integration --verbose' \

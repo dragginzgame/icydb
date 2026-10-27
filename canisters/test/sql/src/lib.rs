@@ -327,6 +327,18 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+/// Populate unrelated index domains without widening the public SQL write policy.
+#[cfg(all(feature = "test-admin-api", feature = "schema-migration-api"))]
+fn seed_migration_unrelated_indexes() -> Result<(), icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let patches = (0..512).flat_map(|_| sql_numeric_type_patches()).collect();
+        icydb::db!()?.execute_trusted_structural_insert_batch("SqlTestNumericTypes", patches)?;
+        Ok(())
+    })
+}
+#[cfg(all(feature = "test-admin-api", feature = "schema-migration-api"))]
+icydb_testing_wasm_helpers::export_wire!(update, "seed_migration_unrelated_indexes", SeedMigrationUnrelatedIndexes, seed_migration_unrelated_indexes, (), Result<(), icydb::Error>);
+
 /// Build one deterministic baseline SQL user fixture batch.
 #[cfg(feature = "test-admin-api")]
 fn sql_user_patches() -> Vec<StructuralPatch> {
@@ -618,10 +630,13 @@ where
     C: icydb::traits::CanisterKind,
     W: TypedWriteAdapter,
 {
-    let binding = W::Entity::typed_binding(session).map_err(|error| match error {
-        icydb::db::TypedOperationError::Adapter(_) => typed_fixture_invariant_error(),
-        icydb::db::TypedOperationError::Database(error) => error,
-    })?;
+    let binding =
+        session
+            .bind_typed_entity(W::Entity::DESCRIPTOR)
+            .map_err(|error| match error {
+                icydb::db::TypedOperationError::Adapter(_) => typed_fixture_invariant_error(),
+                icydb::db::TypedOperationError::Database(error) => error,
+            })?;
     let write = input
         .encode_write(&binding)
         .map_err(typed_adapter_fixture_error)?;

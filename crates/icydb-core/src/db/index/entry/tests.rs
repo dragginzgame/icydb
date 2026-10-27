@@ -1,6 +1,4 @@
-use super::{
-    IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryValue, MAX_INDEX_ENTRY_BYTES,
-};
+use super::{IndexEntryCorruption, IndexEntryValue, MAX_INDEX_ENTRY_BYTES};
 use crate::{
     db::{
         index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
@@ -51,10 +49,7 @@ fn index_entry_value_round_trip() {
         .expect("decode scalar row identity");
 
     assert_eq!(decoded, key);
-    assert_eq!(
-        raw.as_bytes(),
-        &[IndexEntryExistenceWitness::Present.to_stored_byte()]
-    );
+    assert_eq!(raw.as_bytes(), &[0]);
 }
 
 #[test]
@@ -89,7 +84,7 @@ fn index_entry_value_presence_decodes_row_identity_from_raw_key() {
     );
     assert_eq!(
         raw.as_bytes(),
-        &[IndexEntryExistenceWitness::Present.to_stored_byte()],
+        &[0],
         "raw index-entry values must stay presence-only"
     );
 }
@@ -113,10 +108,6 @@ fn index_entry_value_decode_row_witness_recovers_present_witness() {
     assert_eq!(
         row_witness.primary_key_value(),
         &PrimaryKeyValue::Scalar(key)
-    );
-    assert_eq!(
-        row_witness.existence_witness(),
-        IndexEntryExistenceWitness::Present
     );
 }
 
@@ -169,11 +160,14 @@ fn index_entry_value_rejects_empty() {
 #[test]
 fn index_entry_value_rejects_invalid_witness() {
     let raw_key = raw_key_for(PrimaryKeyComponent::Int64(1));
-    let raw = IndexEntryValue::from_bytes(Cow::Owned(vec![9]));
-    std::assert_matches!(
-        raw.decode_row_witness(&raw_key),
-        Err(IndexEntryCorruption::InvalidWitness)
-    );
+    for byte in 1..=u8::MAX {
+        let raw = IndexEntryValue::from_bytes(Cow::Owned(vec![byte]));
+        std::assert_matches!(raw.validate(), Err(IndexEntryCorruption::InvalidWitness));
+        std::assert_matches!(
+            raw.decode_row_witness(&raw_key),
+            Err(IndexEntryCorruption::InvalidWitness)
+        );
+    }
 }
 
 #[test]

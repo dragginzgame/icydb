@@ -143,7 +143,7 @@ where
     E: TypedEntityAdapter,
 {
     pub(crate) fn new(session: &'session DbSession<C>) -> Result<Self, TypedOperationError> {
-        let binding = E::typed_binding(session)?;
+        let binding = session.bind_typed_entity(E::DESCRIPTOR)?;
         let request = DynamicQuery::new(binding.entity());
         Ok(Self {
             session,
@@ -379,7 +379,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKey + TypedEntityAdapter,
         E::Row: Clone,
     {
-        let binding = E::typed_binding(self)?;
+        let binding = self.bind_typed_entity(E::DESCRIPTOR)?;
         let keys = encode_typed_exact_keys(ids)?;
         let prepared = self.execute_public_prepared_exact_key_batch(&binding, &keys)?;
         let mut distinct_rows = Vec::with_capacity(prepared.distinct_rows.len());

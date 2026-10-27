@@ -268,7 +268,7 @@ impl SqlFoundToken {
     const fn from_token_kind(kind: Option<&TokenKind>) -> Self {
         match kind {
             None => Self::EndOfInput,
-            Some(TokenKind::Identifier(_)) => Self::Identifier,
+            Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_)) => Self::Identifier,
             Some(TokenKind::Number(_)) => Self::Number,
             Some(TokenKind::StringLiteral(_)) => Self::StringLiteral,
             Some(TokenKind::BlobLiteral(_)) => Self::BlobLiteral,
@@ -453,6 +453,8 @@ impl Keyword {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TokenKind {
     Identifier(String),
+    // Quoting escapes keyword interpretation; accepted name rules stay unchanged.
+    QuotedIdentifier(String),
     Number(String),
     StringLiteral(String),
     BlobLiteral(Vec<u8>),
@@ -484,6 +486,7 @@ pub(crate) struct Token {
 pub(crate) fn token_kind_sql_fragment(kind: &TokenKind) -> String {
     match kind {
         TokenKind::Identifier(name) | TokenKind::Number(name) => name.clone(),
+        TokenKind::QuotedIdentifier(name) => format!("\"{name}\""),
         TokenKind::StringLiteral(value) => format!("'{}'", value.replace('\'', "''")),
         TokenKind::BlobLiteral(bytes) => {
             let mut rendered = String::with_capacity(bytes.len().saturating_mul(2) + 3);

@@ -47,7 +47,7 @@ pub use icydb_core::db::{MemoryRuntimeBindingError, bind_memory_runtime, memory_
 pub use icydb_core::db::{
     SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
-    SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest, SchemaMigrationTransformReason,
 };
 pub use memory_admission::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
 #[cfg(feature = "sql")]

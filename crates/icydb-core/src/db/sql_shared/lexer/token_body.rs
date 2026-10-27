@@ -3,13 +3,38 @@ use crate::db::sql_shared::{
     SqlParseError, SqlSyntaxErrorKind, TokenKind,
     lexer::{
         Lexer,
-        keywords::{is_identifier_continue, keyword_from_ident_bytes},
+        keywords::{is_identifier_continue, is_identifier_start, keyword_from_ident_bytes},
     },
 };
 
 const MAX_SQL_BLOB_LITERAL_BYTES: usize = 1_048_576;
 
 impl Lexer<'_> {
+    // Escape reserved/contextual words without widening catalog name syntax.
+    // Keep the token distinct until parsing so quoted SET/DEEP are names.
+    pub(super) fn lex_quoted_identifier(&mut self) -> Result<String, SqlParseError> {
+        self.expect_byte(b'"')?;
+        let start = self.pos;
+        if !self.peek_byte().is_some_and(is_identifier_start) {
+            return Err(SqlParseError::expected(
+                crate::db::sql_shared::SqlExpectedToken::Identifier,
+                None,
+            ));
+        }
+        self.pos += 1;
+        while self.peek_byte().is_some_and(is_identifier_continue) {
+            self.pos += 1;
+        }
+        let end = self.pos;
+        self.expect_byte(b'"')?;
+        if self.peek_byte() == Some(b'"') {
+            return Err(SqlParseError::invalid_syntax(
+                SqlSyntaxErrorKind::UnexpectedCharacter { byte: b'"' },
+            ));
+        }
+        Ok(self.source_slice(start, end).to_owned())
+    }
+
     pub(super) fn lex_blob_literal(
         &mut self,
     ) -> Result<Vec<u8>, crate::db::sql_shared::SqlParseError> {

@@ -133,7 +133,10 @@ impl Parser {
     // shared floor does not pay the full projection expression parser for
     // simple field items and optional bare aliases.
     fn projection_item_is_simple_field(&self) -> bool {
-        if !matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+        if !matches!(
+            self.peek_kind(),
+            Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))
+        ) {
             return false;
         }
 
@@ -141,7 +144,7 @@ impl Parser {
         loop {
             if !matches!(
                 self.cursor.peek_kind_at(offset),
-                Some(TokenKind::Identifier(_))
+                Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))
             ) {
                 return false;
             }
@@ -151,7 +154,7 @@ impl Parser {
             }
             if !matches!(
                 self.cursor.peek_kind_at(offset + 2),
-                Some(TokenKind::Identifier(_))
+                Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))
             ) {
                 return false;
             }
@@ -165,6 +168,7 @@ impl Parser {
                 TokenKind::Comma
                     | TokenKind::Keyword(Keyword::From | Keyword::As)
                     | TokenKind::Identifier(_)
+                    | TokenKind::QuotedIdentifier(_)
             )
         )
     }
@@ -176,7 +180,10 @@ impl Parser {
             return self.expect_identifier().map(Some);
         }
 
-        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+        if matches!(
+            self.peek_kind(),
+            Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))
+        ) {
             return self.expect_identifier().map(Some);
         }
 

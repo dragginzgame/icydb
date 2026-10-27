@@ -535,13 +535,36 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
 #[test]
 #[ignore = "release-closeout instruction probe over the exact prepared-commit work bound"]
 fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
-    let fixture = install_sql_canister_fixture();
+    use icydb_testing_build::{
+        CanisterBuildOptions, CanisterWasmProfile, local_fixture_wasm_bytes_with_options,
+    };
+    use icydb_testing_integration::install_prebuilt_fixture_canister;
+
+    let module = local_fixture_wasm_bytes_with_options(
+        "sql",
+        CanisterBuildOptions {
+            profile: CanisterWasmProfile::WasmRelease,
+            ..CanisterBuildOptions::default()
+        },
+    );
+    println!(
+        "identity closeout wasm-release raw_bytes={} blake3={}",
+        module.len(),
+        blake3::hash(&module)
+    );
+    let fixture = install_prebuilt_fixture_canister("sql", module);
     let pic = fixture.pocket_ic();
-    let canister_id = *fixture.metadata();
+    let canister_id = fixture.canister_id();
     let stable_before = stable_memory_fingerprint(pic, canister_id);
+    let cycles_before = pic.cycle_balance(canister_id);
     let result: Result<IdentityCloseoutPerfResult, Error> = pic
         .update_wire(canister_id, "measure_identity_closeout_perf", ())
         .expect("Identity closeout perf result should decode");
+    let call_cycles = cycles_before
+        .checked_sub(pic.cycle_balance(canister_id))
+        .expect("probe receives no cycles");
+    // This includes the complete update envelope, not only measured regions.
+    println!("identity closeout call_envelope_cycles={call_cycles}");
     let result = result.expect("Identity closeout perf endpoint should succeed");
 
     assert!(result.caller_nat64_instructions > 0);

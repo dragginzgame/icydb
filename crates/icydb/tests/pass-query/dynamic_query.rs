@@ -105,7 +105,7 @@ fn typed_dynamic_live_page_adapter<C, E>(
     C: CanisterKind,
     E: TypedEntityAdapter,
 {
-    let Ok(binding) = E::typed_binding(db) else {
+    let Ok(binding) = db.bind_typed_entity(E::DESCRIPTOR) else {
         return;
     };
     let cursor = db.prepare_live_page_cursor(binding, request.clone());
@@ -133,7 +133,7 @@ where
     C: CanisterKind,
     E: TypedEntityAdapter,
 {
-    let Ok(binding) = E::typed_binding(db) else {
+    let Ok(binding) = db.bind_typed_entity(E::DESCRIPTOR) else {
         return;
     };
     let LiveQueryPageOutput {
@@ -156,7 +156,7 @@ where
     C: CanisterKind,
     E: TypedEntityAdapter,
 {
-    let Ok(binding) = E::typed_binding(db) else {
+    let Ok(binding) = db.bind_typed_entity(E::DESCRIPTOR) else {
         return;
     };
     let Ok(prepared) = db.execute_public_prepared_exact_key_batch(&binding, keys) else {
@@ -176,7 +176,7 @@ where
     C: CanisterKind,
     E: TypedEntityAdapter,
 {
-    let Ok(binding) = E::typed_binding(db) else {
+    let Ok(binding) = db.bind_typed_entity(E::DESCRIPTOR) else {
         return;
     };
     let Ok(rows) = db.execute_trusted_typed_write_batch_rows(&binding, writes) else {

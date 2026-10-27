@@ -325,7 +325,7 @@ fn exact_intersection_comparison_is_directionally_equivalent() {
 }
 
 #[test]
-fn exact_intersection_child_requires_every_indexed_row_to_exist() {
+fn exact_intersection_child_rejects_invalid_presence_marker() {
     reset_exact_intersection_stores();
     let index_id = IndexId::new(EXACT_INTERSECTION_ENTITY, 1);
     let raw_index_key = nat64_index_key(&index_id, b"lane", 7)
@@ -351,13 +351,13 @@ fn exact_intersection_child_requires_every_indexed_row_to_exist() {
         .map_err(QueryError::execute)
     });
     let Err(error) = result else {
-        panic!("a direct intersection child must not discard a stale accepted-index key");
+        panic!("a direct intersection child must reject an invalid presence marker");
     };
 
     let QueryError::Execute(QueryExecutionError::Corruption(error)) = error else {
-        panic!("missing direct-intersection row should retain corruption taxonomy");
+        panic!("invalid direct-intersection marker should retain corruption taxonomy");
     };
-    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(error.origin(), ErrorOrigin::Index);
 }
 
 #[test]

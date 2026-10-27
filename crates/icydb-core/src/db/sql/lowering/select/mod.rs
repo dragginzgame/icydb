@@ -77,7 +77,7 @@ impl LoweredSqlFilter {
     // Lower one scalar WHERE expression into the visible-expression contract
     // used by ordinary scalar SELECTs. Query intent derives the shared
     // predicate subset after schema binding.
-    fn from_scalar_where_expr(
+    pub(in crate::db::sql::lowering) fn from_scalar_where_expr(
         expr: &SqlExpr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
@@ -87,7 +87,7 @@ impl LoweredSqlFilter {
 
     // Lower one grouped WHERE expression without scalar-only CASE
     // canonicalization, preserving the existing grouped/base-query behavior.
-    fn from_grouped_where_expr(
+    pub(in crate::db::sql::lowering) fn from_grouped_where_expr(
         expr: &SqlExpr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
@@ -157,7 +157,7 @@ impl LoweredSqlFilter {
         }
     }
 
-    fn apply_to_query(
+    pub(in crate::db::sql::lowering) fn apply_to_query(
         self,
         query: StructuralQuery,
         schema: &SchemaInfo,

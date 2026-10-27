@@ -980,7 +980,7 @@ mod tests {
         <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xFF]))
     }
 
-    fn missing_index_entry_value() -> IndexEntryValue {
+    fn invalid_index_entry_value() -> IndexEntryValue {
         <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1]))
     }
 
@@ -1021,7 +1021,6 @@ mod tests {
             let mut previous = None;
             for next in [
                 Some(IndexEntryValue::presence()),
-                Some(missing_index_entry_value()),
                 Some(IndexEntryValue::presence()),
                 Some(IndexEntryValue::presence()),
                 None,
@@ -1057,13 +1056,9 @@ mod tests {
                 Some(1)
             );
             if journaled {
-                for (sequence, next) in [
-                    Some(missing_index_entry_value()),
-                    Some(IndexEntryValue::presence()),
-                    None,
-                ]
-                .into_iter()
-                .enumerate()
+                for (sequence, next) in [Some(IndexEntryValue::presence()), None]
+                    .into_iter()
+                    .enumerate()
                 {
                     store
                         .publish_positioned_journal_entry(
@@ -1580,7 +1575,7 @@ mod tests {
     }
 
     #[test]
-    fn index_prefix_cardinality_ignores_missing_user_index_mutations() {
+    fn index_prefix_cardinality_refuses_invalid_user_index_mutations() {
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
         let draft = b"Draft".to_vec();
@@ -1593,7 +1588,7 @@ mod tests {
         store.mark_prefix_cardinality_data_generation(7);
 
         let stale_key = indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2);
-        store.insert(stale_key.clone(), missing_index_entry_value());
+        store.insert(stale_key.clone(), invalid_index_entry_value());
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1601,15 +1596,15 @@ mod tests {
                 index_id,
                 &[collection.clone(), draft.clone()],
             ),
-            Some(1),
-            "missing user index entries must not affect synchronized prefix cardinality",
+            None,
+            "invalid user index entries invalidate synchronized prefix cardinality",
         );
 
         store.remove(&stale_key);
         assert_eq!(
             store.exact_prefix_cardinality(7, IndexKeyKind::User, index_id, &[collection, draft],),
-            Some(1),
-            "missing user index removals must not affect synchronized prefix cardinality",
+            None,
+            "removing invalid bytes cannot restore a complete cardinality proof",
         );
     }
 

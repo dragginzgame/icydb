@@ -4624,7 +4624,7 @@ fn parse_sql_unsupported_feature_codes_are_stable() {
             SqlFeatureCode::MultiStatementSql,
         ),
         (
-            "SELECT \"name\" FROM users",
+            "SELECT `name` FROM users",
             SqlFeatureCode::QuotedIdentifiers,
         ),
         (
@@ -5267,9 +5267,9 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
 }
 
 #[test]
-fn parse_sql_rejects_quoted_identifier_syntax() {
-    let err = parse_sql("SELECT \"name\" FROM users")
-        .expect_err("quoted identifiers should be rejected in reduced parser");
+fn parse_sql_rejects_backtick_identifier_syntax() {
+    let err =
+        parse_sql("SELECT `name` FROM users").expect_err("backtick identifiers should be rejected");
 
     assert_eq!(
         err,
@@ -5646,5 +5646,74 @@ fn parsed_insert_alias_retention_obeys_the_same_byte_ceiling() {
     assert_eq!(
         RetainedBytes::measure(&statement, retained),
         Some(retained - alias_capacity)
+    );
+}
+
+#[test]
+fn quoted_identifier_segments_preserve_statement_semantics() {
+    for (plain, quoted) in [
+        (
+            "SELECT u.name AS label FROM users AS u WHERE u.name = 'x' ORDER BY label",
+            r#"SELECT "u"."name" AS "label" FROM "users" AS "u" WHERE "u"."name" = 'x' ORDER BY "label""#,
+        ),
+        (
+            "SELECT age + 1 FROM users GROUP BY age",
+            r#"SELECT "age" + 1 FROM "users" GROUP BY "age""#,
+        ),
+        (
+            "UPDATE users SET age = 1 WHERE id = 2 RETURNING age",
+            r#"UPDATE "users" SET "age" = 1 WHERE "id" = 2 RETURNING "age""#,
+        ),
+        (
+            "INSERT INTO users (id, age) VALUES (1, 2)",
+            r#"INSERT INTO "users" ("id", "age") VALUES (1, 2)"#,
+        ),
+        (
+            "DELETE FROM users WHERE id = 1",
+            r#"DELETE FROM "users" WHERE "id" = 1"#,
+        ),
+        (
+            "ALTER TABLE users ADD COLUMN age nat64",
+            r#"ALTER TABLE "users" ADD COLUMN "age" nat64"#,
+        ),
+    ] {
+        assert_eq!(
+            parse_sql(quoted).unwrap(),
+            parse_sql(plain).unwrap(),
+            "{quoted}"
+        );
+    }
+    for sql in [
+        r#"SELECT "index", "count", "json" FROM "Deep" WHERE "json" IS NULL ORDER BY "count""#,
+        r#"UPDATE "Deep" SET "count" = 1 WHERE "index" = 2"#,
+        r#"SELECT "SET"."count" FROM "Deep" "SET""#,
+        r#"SELECT COUNT("count") FROM "Deep" GROUP BY "index""#,
+    ] {
+        parse_sql(sql).unwrap_or_else(|error| panic!("{sql}: {error:?}"));
+    }
+    let SqlStatement::Ddl(SqlDdlStatement::CreateIndex(index)) =
+        parse_sql(r#"CREATE INDEX "index" ON "Deep" ("count") WHERE "count" > 1"#).unwrap()
+    else {
+        panic!("expected index declaration");
+    };
+    assert_eq!(index.name, "index");
+    assert_eq!(index.entity, "Deep");
+    assert_eq!(
+        index.key_items,
+        vec![SqlCreateIndexKeyItem::FieldPath("count".into())]
+    );
+    // Reconstructed predicate SQL must retain quotes until the predicate lexer.
+    let predicate =
+        crate::db::predicate::parse_sql_predicate(index.predicate_sql.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        predicate,
+        crate::db::predicate::parse_sql_predicate(r#""count" > 1"#).unwrap()
+    );
+    let integrity = parse_integrity_sql(r#"CHECK INTEGRITY "Deep" QUICK"#).unwrap();
+    assert_eq!(
+        integrity,
+        SqlIntegrityStatement::Quick {
+            entity: "Deep".into()
+        }
     );
 }

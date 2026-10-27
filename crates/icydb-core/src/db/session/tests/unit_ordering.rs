@@ -199,7 +199,7 @@ fn bound_sql_validates_operands_before_dead_branch_folding() {
 }
 
 #[test]
-fn bound_sql_reuses_syntax_with_current_values_without_sql_command_residents() {
+fn bound_sql_reuses_one_checked_template_with_current_values() {
     let session = initialize();
     seed_singleton(&session);
     let before = session.sql_compiled_cache_len_for_tests();
@@ -220,7 +220,7 @@ fn bound_sql_reuses_syntax_with_current_values_without_sql_command_residents() {
             panic!("projection");
         };
         assert_eq!(rows.len(), expected_rows);
-        assert_eq!(session.sql_compiled_cache_len_for_tests(), before);
+        assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 1);
         assert_eq!(
             crate::db::sql::parser::sql_parse_count_for_tests(),
             parse_count
@@ -232,11 +232,11 @@ fn bound_sql_reuses_syntax_with_current_values_without_sql_command_residents() {
     session
         .execute_trusted_sql_query_with_entity_name(&literal, &[])
         .expect("literal cache miss");
-    assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 1);
+    assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 2);
     session
         .execute_trusted_sql_query_with_entity_name(&literal, &[])
         .expect("literal cache hit");
-    assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 1);
+    assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 2);
 }
 
 #[test]
@@ -524,8 +524,8 @@ fn rejected_sql_fields_keep_exact_role() {
 
     let quoted_error = session
         .execute_trusted_sql_query("SELECT \"missing\" FROM Singleton ORDER BY id LIMIT 1")
-        .expect_err("quoted identifiers are outside the maintained resolver context");
-    assert_eq!(quoted_error.query_field_context(), None);
+        .expect_err("quoted unknown fields retain normal resolver diagnostics");
+    assert_query_field(&quoted_error, QueryFieldRole::Projection, "missing");
 }
 
 #[test]
@@ -1335,4 +1335,49 @@ fn singleton_stored_row() -> Vec<OutputValue> {
     let mut row = singleton_row();
     row.push(OutputValue::u256(U256::from(2_u64)));
     row
+}
+
+#[test]
+fn quoted_keyword_fields_execute_through_current_catalog_and_cache() {
+    let session = initialize();
+    seed_singleton(&session);
+    publish_schema_with_label(
+        &session,
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevision::new(2),
+        "count",
+    );
+    let session = new_request_session();
+    for _ in 0..2 {
+        assert_eq!(
+            sql_rows(
+                &session,
+                r#"SELECT "count" AS "index" FROM "Singleton" WHERE "count" = 'singleton' ORDER BY "index" LIMIT 1"#
+            ),
+            vec![vec![OutputValue::text("singleton".into())]]
+        );
+    }
+    session
+        .execute_trusted_sql_exact_update(
+            r#"UPDATE "Singleton" SET "count" = 'updated' WHERE amount = U256 '2'"#,
+            1,
+        )
+        .unwrap();
+    assert_eq!(
+        sql_rows(
+            &session,
+            r#"SELECT "count" FROM "Singleton" WHERE "count" = 'updated' ORDER BY id LIMIT 1"#
+        ),
+        vec![vec![OutputValue::text("updated".into())]]
+    );
+    session
+        .execute_trusted_sql_mutation(r#"DELETE FROM "Singleton" WHERE "count" = 'updated'"#)
+        .unwrap();
+    assert!(
+        sql_rows(
+            &session,
+            r#"SELECT "count" FROM "Singleton" ORDER BY id LIMIT 1"#
+        )
+        .is_empty()
+    );
 }

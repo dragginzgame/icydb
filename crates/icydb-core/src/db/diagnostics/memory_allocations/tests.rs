@@ -32,12 +32,6 @@ fn assert_accounting(report: &MemoryAllocations) {
             .map(|slot| slot.allocated_bytes)
             .sum::<u64>()
     );
-    assert!(
-        report
-            .memories
-            .iter()
-            .all(|slot| slot.payload_bytes.is_none())
-    );
 }
 
 // Numeric observers must retain detailed accounting without materializing ID rows.

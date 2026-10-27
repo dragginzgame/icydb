@@ -119,7 +119,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError> {
     let mut keyed_components = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
 
-    for (data_key, _existence_witness, components) in raw_pairs.into_iter().skip(page_skip_count) {
+    for (data_key, components) in raw_pairs.into_iter().skip(page_skip_count) {
         keyed_components.push((data_key, components));
     }
 
@@ -178,7 +178,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
     let mut projected_rows = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
     let mut projected_row_count = 0usize;
 
-    for (data_key, _existence_witness, components) in raw_pairs {
+    for (data_key, components) in raw_pairs {
         let sparse_row_fields = read_hybrid_projection_row_fields_from_store(
             row_layout,
             data_store,

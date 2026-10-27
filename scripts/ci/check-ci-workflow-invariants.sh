@@ -176,6 +176,7 @@ done
 
 for route in 'ci-workspace _ci-workspace-tests' 'ci-workspace _test-canister-libs' \
   'ci-workspace _test-durability-integration' \
+  'ci-workspace test-canister-artifact-contract' \
   'ci-sql-tier-b _ci-tier-b-sql-canister' 'ci-sql-tier-b _ci-tier-b-sql-perf'; do
   read -r parent child <<< "$route"
   if ! make_target_recipe "$parent" | awk '/^\t/ { print }' |

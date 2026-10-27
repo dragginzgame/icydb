@@ -449,19 +449,19 @@ impl PersistedSchemaMigrationFinding {
     }
 
     #[must_use]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "migration"))]
     pub(in crate::db::schema) const fn source_field(&self) -> Option<FieldId> {
         self.source_field
     }
 
     #[must_use]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "migration"))]
     pub(in crate::db::schema) const fn target_field(&self) -> Option<FieldId> {
         self.target_field
     }
 
     #[must_use]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "migration"))]
     pub(in crate::db::schema) const fn transform_reason(
         &self,
     ) -> Option<PersistedSchemaMigrationTransformReason> {

@@ -4,8 +4,8 @@
 //! Boundary: index store maintains this opportunistic metadata; callers must prove row/index sync.
 
 use crate::db::index::{
-    BorrowedIndexKeyFrame, IndexEntryExistenceWitness, IndexEntryValue, IndexId, IndexKeyKind,
-    RawIndexStoreKey, decode_canonical_index_int64_component, decode_index_key_frame,
+    BorrowedIndexKeyFrame, IndexEntryValue, IndexId, IndexKeyKind, RawIndexStoreKey,
+    decode_canonical_index_int64_component, decode_index_key_frame,
 };
 use crate::db::journal::FoldWatermark;
 use crate::db::resource::budget::charge_current_execution_budget;
@@ -812,9 +812,8 @@ fn counted_prefix_change<'a>(
     frame.primary_key_value_and_bytes().ok()?;
     let contribution = |entry: Option<&IndexEntryValue>| {
         entry.map_or(Some(0), |entry| {
-            Some(i64::from(
-                entry.decode_existence_witness().ok()? == IndexEntryExistenceWitness::Present,
-            ))
+            entry.validate().ok()?;
+            Some(1)
         })
     };
     let before = contribution(previous)?;
@@ -944,7 +943,6 @@ mod tests {
             .unwrap(),
         );
         let present = IndexEntryValue::presence();
-        let missing = IndexEntryValue::from_persisted_bytes(vec![1]);
         for kind in [IndexKeyKind::User, IndexKeyKind::System] {
             for generation in [0, 17] {
                 let id = IndexId::new_with_generation(EntityTag::new(42), 7, generation);
@@ -966,8 +964,8 @@ mod tests {
                         .unwrap()
                         .to_raw()
                         .unwrap();
-                        for previous in [None, Some(&missing), Some(&present)] {
-                            for next in [None, Some(&missing), Some(&present)] {
+                        for previous in [None, Some(&present)] {
+                            for next in [None, Some(&present)] {
                                 let before = previous == Some(&present);
                                 let after = next == Some(&present);
                                 let counted = kind == IndexKeyKind::User && width > 0;
@@ -1068,7 +1066,6 @@ mod tests {
         let primary = PrimaryKeyComponent::Nat64(7).into();
         let id = IndexId::new(EntityTag::new(42), 7);
         let present = IndexEntryValue::presence();
-        let missing = IndexEntryValue::from_persisted_bytes(vec![1]);
         for kind in [IndexKeyKind::User, IndexKeyKind::System] {
             let raw = IndexKey::new_from_components_with_primary_key_value(
                 &id,
@@ -1114,6 +1111,11 @@ mod tests {
                 ),
                 (
                     raw.clone(),
+                    IndexEntryValue::from_persisted_bytes(vec![1]),
+                    user,
+                ),
+                (
+                    raw.clone(),
                     IndexEntryValue::from_persisted_bytes(vec![9]),
                     user,
                 ),
@@ -1131,7 +1133,7 @@ mod tests {
                 // projection; equal valid entries retain its synchronization.
                 counts.apply_insert(&observed_key, Some(&next), &next);
                 let mut overlay = IndexPrefixCardinalityDelta::unbound_empty();
-                overlay.apply_transition(&observed_key, Some(&missing), Some(&next));
+                overlay.apply_transition(&observed_key, None, Some(&next));
                 assert_eq!(counts.decodable, !invalid);
                 assert_eq!(overlay.decodable, !invalid);
                 if invalid {

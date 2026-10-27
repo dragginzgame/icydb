@@ -1254,6 +1254,23 @@ fn query_streaming_execution_exhaustive_page(
 #[cfg(feature = "test-admin-api")]
 icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_exhaustive_page", QueryStreamingExecutionExhaustivePage, query_streaming_execution_exhaustive_page, (continuation: Option<String>, proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
 
+/// Verify a journaled source proof through the public exhaustive-read facade.
+#[cfg(feature = "test-admin-api")]
+fn query_journaled_exhaustive_page(
+    proof: Option<ReadSetRevisionProof>,
+) -> Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError> {
+    icydb::db::with_request_execution(|| {
+        let query = DynamicQuery::new("PerfAuditJournaledUser")
+            .order_by(asc("id"))
+            .select(["id"]);
+        db().map_err(StreamingExhaustivePageError::Database)?
+            .execute_trusted_exhaustive_page(&query, None, proof.as_ref())
+            .map_err(Into::into)
+    })
+}
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_journaled_exhaustive_page", QueryJournaledExhaustivePage, query_journaled_exhaustive_page, (proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
+
 /// Measure one fixed page through the 0.236 tied-index cursor fixture.
 #[cfg(feature = "test-admin-api")]
 fn query_cardinality_tiebreak_live_page_with_perf(

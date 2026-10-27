@@ -45,7 +45,8 @@ impl<'a> Lexer<'a> {
                 b'X' | b'x' if self.peek_next_byte() == Some(b'\'') => {
                     TokenKind::BlobLiteral(self.lex_blob_literal()?)
                 }
-                b'"' | b'`' => {
+                b'"' => TokenKind::QuotedIdentifier(self.lex_quoted_identifier()?),
+                b'`' => {
                     return Err(SqlParseError::unsupported_feature(
                         SqlFeatureCode::QuotedIdentifiers,
                     ));

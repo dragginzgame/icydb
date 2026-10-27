@@ -104,7 +104,10 @@ impl Parser {
                 .parse_literal()
                 .map(|value| (SqlExpr::Literal(value), 1));
         }
-        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+        if matches!(
+            self.peek_kind(),
+            Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))
+        ) {
             let field = self.expect_identifier()?;
             if self.peek_lparen() {
                 return Err(SqlParseError::unsupported_feature(

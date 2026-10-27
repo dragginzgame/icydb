@@ -1298,7 +1298,7 @@ fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStre
             where
                 C: #runtime::traits::CanisterKind,
             {
-                <Self as #runtime::db::TypedEntityAdapter>::typed_binding(session)
+                session.bind_typed_entity(<Self as #runtime::db::TypedEntityAdapter>::DESCRIPTOR)
             }
         }
 

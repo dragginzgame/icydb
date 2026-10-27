@@ -16,7 +16,6 @@ use std::borrow::Cow;
 
 const INDEX_ENTRY_WITNESS_BYTES: usize = 1;
 const INDEX_ENTRY_WITNESS_PRESENT: u8 = 0;
-const INDEX_ENTRY_WITNESS_MISSING: u8 = 1;
 pub(crate) const MAX_INDEX_ENTRY_BYTES: u32 = 1;
 
 ///
@@ -37,70 +36,28 @@ pub(crate) enum IndexEntryCorruption {
 }
 
 ///
-/// IndexEntryExistenceWitness
-///
-/// Narrow storage-owned row-existence witness carried per raw index entry.
-/// Maintained writers emit `Present`. The current decoder also recognizes the
-/// explicit `Missing` witness; startup does not repair stale secondary entries.
-/// Deep integrity checks diagnose missing primary rows.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum IndexEntryExistenceWitness {
-    Present,
-    Missing,
-}
-
-impl IndexEntryExistenceWitness {
-    const fn to_stored_byte(self) -> u8 {
-        match self {
-            Self::Present => INDEX_ENTRY_WITNESS_PRESENT,
-            Self::Missing => INDEX_ENTRY_WITNESS_MISSING,
-        }
-    }
-
-    const fn try_from_stored_byte(byte: u8) -> Result<Self, IndexEntryCorruption> {
-        match byte {
-            INDEX_ENTRY_WITNESS_PRESENT => Ok(Self::Present),
-            INDEX_ENTRY_WITNESS_MISSING => Ok(Self::Missing),
-            _ => Err(IndexEntryCorruption::InvalidWitness),
-        }
-    }
-}
-
-///
 /// IndexEntryRowWitness
 ///
-/// One decoded raw index-entry row identity plus its storage-owned existence
-/// witness. The raw index key owns the identity; the raw entry value only
-/// proves whether that key currently has a row.
+/// One decoded row identity with a validated presence marker. The raw index key
+/// owns the identity. Primary-row existence is checked independently by integrity
+/// and row-fetch paths; the marker does not prove a primary row is readable.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexEntryRowWitness {
     primary_key_value: PrimaryKeyValue,
-    existence_witness: IndexEntryExistenceWitness,
 }
 
 impl IndexEntryRowWitness {
-    const fn new(
-        primary_key_value: &PrimaryKeyValue,
-        existence_witness: IndexEntryExistenceWitness,
-    ) -> Self {
+    const fn new(primary_key_value: &PrimaryKeyValue) -> Self {
         Self {
             primary_key_value: *primary_key_value,
-            existence_witness,
         }
     }
 
     #[must_use]
     pub(in crate::db) const fn primary_key_value(&self) -> &PrimaryKeyValue {
         &self.primary_key_value
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn existence_witness(self) -> IndexEntryExistenceWitness {
-        self.existence_witness
     }
 }
 
@@ -111,7 +68,7 @@ impl IndexEntryRowWitness {
 impl IndexEntryValue {
     #[must_use]
     pub(crate) fn presence() -> Self {
-        Self::from_persisted_bytes(vec![IndexEntryExistenceWitness::Present.to_stored_byte()])
+        Self::from_persisted_bytes(vec![INDEX_ENTRY_WITNESS_PRESENT])
     }
 
     /// Decode this key-owned raw entry and append its scalar-or-composite
@@ -162,26 +119,13 @@ impl IndexEntryValue {
         &self,
         primary_key_value: &PrimaryKeyValue,
     ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
-        let witness = self.validate_witness()?;
+        self.validate()?;
 
-        Ok(IndexEntryRowWitness::new(primary_key_value, witness))
+        Ok(IndexEntryRowWitness::new(primary_key_value))
     }
 
-    /// Decode only the storage-owned row-presence witness.
-    pub(in crate::db) fn decode_existence_witness(
-        &self,
-    ) -> Result<IndexEntryExistenceWitness, IndexEntryCorruption> {
-        self.validate_witness()
-    }
-
-    /// Validate the raw index entry structure without binding to an entity.
+    /// Validate the sole current presence marker without binding to an entity.
     pub(crate) fn validate(&self) -> Result<(), IndexEntryCorruption> {
-        self.validate_witness().map(|_| ())
-    }
-
-    // Validate the raw index-entry witness payload. Row identity now belongs to
-    // `RawIndexStoreKey`; the value carries only a storage-owned existence witness.
-    fn validate_witness(&self) -> Result<IndexEntryExistenceWitness, IndexEntryCorruption> {
         let bytes = self.as_bytes();
         if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
             return Err(IndexEntryCorruption::TooLarge);
@@ -193,7 +137,10 @@ impl IndexEntryValue {
             return Err(IndexEntryCorruption::LengthMismatch);
         }
 
-        IndexEntryExistenceWitness::try_from_stored_byte(bytes[0])
+        if bytes[0] != INDEX_ENTRY_WITNESS_PRESENT {
+            return Err(IndexEntryCorruption::InvalidWitness);
+        }
+        Ok(())
     }
 
     #[must_use]

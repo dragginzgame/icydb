@@ -382,6 +382,18 @@ rejects before conversion; a binding without the required source identity
 returns the typed adapter's `FieldUnavailable` error. The method does not add a
 second encoder, field mutation mode, or subpath write route.
 
+`TypedEntityAdapter` supplies only its static `DESCRIPTOR`; the session owns
+binding issuance. Generic callers use `db.bind_typed_entity(E::DESCRIPTOR)`.
+Generated concrete entities retain the inherent `Robot::typed_binding(&db)`
+convenience method. Custom binding overrides are no longer supported.
+
+A `trusted_typed_write_batch` shares one binding for repeated uses of the same
+static descriptor. Different descriptors are admitted separately, even when
+naming the same entity. Reuse checks current schema and lifecycle authority;
+a stale binding rejects, and execution still validates every staged write.
+Failed encoding does not retain a new cache entry. The cache is batch-local and
+grows only with successfully staged entities.
+
 Generated `Insert`, `Patch`, and `Replace` input types implement
 `TypedWriteAdapter` whenever the declaring crate includes the runtime facade.
 Bind the generated entity to the current session, encode the input, then call

@@ -1,7 +1,10 @@
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
-    db::{DatabaseStartupState, LiveQueryPageOutput, sql::SqlQueryResult},
+    db::{
+        DatabaseStartupState, ExhaustiveQueryPageOutput, LiveQueryPageOutput, ReadSetRevisionError,
+        ReadSetRevisionProof, sql::SqlQueryResult,
+    },
     diagnostic::DiagnosticFactTag,
 };
 use icydb_testing_audit_sql_perf_fixtures::contracts::StartupObservationPerfResult;
@@ -1304,6 +1307,84 @@ AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
     let stable_after_recovery = canister_memory_bytes(&fixture).1;
     assert_metadata_backed_count(token_count_with_perf(&fixture, COUNT_SQL), 512);
     assert_eq!(canister_memory_bytes(&fixture).1, stable_after_recovery);
+}
+
+// Mirror the audit actor's fixture-only error envelope without changing the
+// application facade or promoting a test protocol into the library.
+#[derive(Debug, serde::Deserialize)]
+enum StreamingExhaustivePageError {
+    Database(Error),
+    Revision(ReadSetRevisionError),
+}
+
+fn journaled_exhaustive_page(
+    fixture: &StandaloneCanisterFixture,
+    proof: Option<ReadSetRevisionProof>,
+) -> Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError> {
+    fixture
+        .pocket_ic()
+        .query_wire(
+            fixture.canister_id(),
+            "query_journaled_exhaustive_page",
+            (proof,),
+        )
+        .expect("exhaustive journaled page should decode")
+}
+
+#[test]
+fn journaled_read_proof_survives_upgrade_but_rejects_later_writes() {
+    let fixture = install_fixture_canister("sql_perf");
+    let loaded: Result<(), Error> = fixture
+        .pocket_ic()
+        .update_wire(
+            fixture.canister_id(),
+            "load_journaled_reentry_probe_fixture",
+            (),
+        )
+        .expect("journaled fixture should decode");
+    loaded.expect("journaled fixture should load");
+    let initial = journaled_exhaustive_page(&fixture, None).expect("initial proof should capture");
+    assert_eq!(initial.row_count, 32);
+    assert!(initial.continuation.is_none());
+
+    // Reconstruct both populated journal state and the subsequently drained
+    // state. Cursor signing keys rotate on upgrade; this tests the durable
+    // source proof, independently of that intentional token expiry.
+    let wasm = current_sql_perf_wasm();
+    for _ in 0..2 {
+        upgrade_with_wasm(&fixture, wasm.clone());
+        advance_startup_watchdog_until_ready(&fixture);
+        let recovered = journaled_exhaustive_page(&fixture, Some(initial.proof.clone()))
+            .expect("unchanged journaled source must retain its proof across upgrade");
+        assert_eq!(recovered.proof, initial.proof);
+        assert_eq!(recovered.rows, initial.rows);
+        assert_eq!(recovered.row_count, initial.row_count);
+        assert!(recovered.continuation.is_none());
+    }
+
+    let changed: Result<u32, Error> = fixture
+        .pocket_ic()
+        .update_wire(
+            fixture.canister_id(),
+            "update_journaled_user_after_mutation_job_start",
+            (),
+        )
+        .expect("ordinary journaled update should decode");
+    assert_eq!(
+        changed.expect("ordinary journaled update should succeed"),
+        1
+    );
+    match journaled_exhaustive_page(&fixture, Some(initial.proof)) {
+        Err(StreamingExhaustivePageError::Revision(ReadSetRevisionError::StoreDataChanged {
+            ..
+        })) => {}
+        Err(StreamingExhaustivePageError::Database(error)) => {
+            panic!("unexpected database error: {error:?}")
+        }
+        other => panic!("expected source-data invalidation, got {other:?}"),
+    }
+    let fresh = journaled_exhaustive_page(&fixture, None).expect("fresh proof should capture");
+    assert_eq!(fresh.rows, initial.rows);
 }
 
 #[test]

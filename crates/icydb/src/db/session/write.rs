@@ -793,19 +793,13 @@ pub trait TypedRowAdapter {
     ) -> Result<Self::Row, TypedAdapterError>;
 }
 
-/// IcyDB-owned binding adapter implemented by runtime-enabled generated entities.
+/// Generated source contract for binding through [`DbSession::bind_typed_entity`].
+///
+/// Binding issuance is owned by the session; adapters cannot override it.
 pub trait TypedEntityAdapter: TypedRowAdapter {
     /// Static generated source contract validated before an opaque binding is issued.
     #[doc(hidden)]
     const DESCRIPTOR: &'static TypedEntityDescriptor;
-
-    /// Bind generated source identities to current accepted schema authority.
-    fn typed_binding<C>(session: &DbSession<C>) -> Result<TypedEntityBinding, TypedOperationError>
-    where
-        C: CanisterKind,
-    {
-        session.bind_typed_entity(Self::DESCRIPTOR)
-    }
 }
 
 /// IcyDB-owned write adapter implemented by runtime-enabled generated inputs.
@@ -923,6 +917,7 @@ pub struct TrustedTypedWriteBatch<'session, C: CanisterKind> {
     owner: Arc<()>,
     writes: Vec<TypedWrite>,
     bindings: Vec<TypedEntityBinding>,
+    bound_entities: Vec<(&'static TypedEntityDescriptor, TypedEntityBinding)>,
 }
 
 impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
@@ -932,6 +927,7 @@ impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
             owner: Arc::new(()),
             writes: Vec::new(),
             bindings: Vec::new(),
+            bound_entities: Vec::new(),
         }
     }
 
@@ -940,10 +936,27 @@ impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
     where
         W: TypedWriteAdapter,
     {
-        let binding = W::Entity::typed_binding(self.session)?;
+        let descriptor = W::Entity::DESCRIPTOR;
+        // Static descriptor identity is local to this builder, never persisted.
+        // Distinct descriptors still pass canonical admission independently.
+        let cached = self
+            .bound_entities
+            .iter()
+            .find(|(cached, _)| std::ptr::eq(*cached, descriptor));
+        let binding = if let Some((_, binding)) = cached {
+            self.session.ensure_typed_binding_is_current(binding)?;
+            binding.clone()
+        } else {
+            self.session.bind_typed_entity(descriptor)?
+        };
         let write = input.encode_write(&binding)?;
         if write.binding != binding {
             return Err(TypedAdapterError::EntityMismatch.into());
+        }
+        // Retain only successfully encoded entities; failed pushes cannot grow
+        // the cache. Its size is bounded by the number of staged writes.
+        if cached.is_none() {
+            self.bound_entities.push((descriptor, binding.clone()));
         }
         let position = self.writes.len();
         self.writes.push(write);
@@ -1275,7 +1288,9 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// All patches bind to one accepted snapshot and share one database-owned
     /// operation timestamp. The batch either commits completely or returns a
-    /// typed error without publishing a partial prefix.
+    /// typed error without publishing a partial prefix. The complete encoded
+    /// reply is capped at 1 MiB before commit; split larger imports into smaller
+    /// batches. Rejection does not consume generated identities.
     pub fn execute_trusted_structural_insert_batch(
         &self,
         entity: &str,
@@ -1444,8 +1459,9 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Start one mixed-entity generated typed-write batch.
     ///
-    /// `push` resolves each generated input's entity binding automatically;
-    /// `execute` dispatches exactly once through the canonical typed batch.
+    /// `push` shares one current binding per static generated descriptor;
+    /// stale bindings reject before encoding. `execute` dispatches exactly once
+    /// through the canonical typed batch and validates every staged write.
     #[must_use]
     pub fn trusted_typed_write_batch(&self) -> TrustedTypedWriteBatch<'_, C> {
         TrustedTypedWriteBatch::new(self)

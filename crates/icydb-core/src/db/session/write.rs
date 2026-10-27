@@ -262,7 +262,7 @@ fn prepare_dynamic_mutation_result(
     catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     rows: Vec<AcceptedStructuralMutationRow>,
-    enforce_mixed_batch_result_bound: bool,
+    enforce_batch_result_bound: bool,
 ) -> Result<DynamicMutationResult, InternalError> {
     let affected_rows = rows.iter().try_fold(0_u32, |total, row| {
         total
@@ -292,7 +292,7 @@ fn prepare_dynamic_mutation_result(
         rows,
         affected_rows,
     };
-    if enforce_mixed_batch_result_bound {
+    if enforce_batch_result_bound {
         let encoded_bytes = icydb_schema::wire::encoded_reply_len(&result)
             .map_err(|_| InternalError::executor_invariant())?;
         validate_structural_mutation_result_bytes(encoded_bytes)?;
@@ -681,7 +681,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
-        enforce_mixed_batch_result_bound: bool,
+        enforce_batch_result_bound: bool,
     ) -> Result<DynamicMutationResult, InternalError> {
         self.execute_accepted_structural_save_batch(
             catalog,
@@ -693,7 +693,7 @@ impl<C: CanisterKind> DbSession<C> {
                     catalog,
                     descriptor,
                     rows,
-                    enforce_mixed_batch_result_bound,
+                    enforce_batch_result_bound,
                 )
             },
         )
@@ -1061,7 +1061,8 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// Every patch is lowered against the same accepted snapshot and shares
     /// one operation timestamp before the canonical structural batch owner
-    /// stages any durable effect.
+    /// stages any durable effect. The complete encoded response must fit the
+    /// shared batch result limit before any commit marker is published.
     pub fn execute_trusted_dynamic_insert_batch(
         &self,
         entity: &str,
@@ -1103,6 +1104,6 @@ impl<C: CanisterKind> DbSession<C> {
             )?);
         }
 
-        self.execute_lowered_dynamic_mutation_batch(&catalog, &descriptor, mutations, false)
+        self.execute_lowered_dynamic_mutation_batch(&catalog, &descriptor, mutations, true)
     }
 }

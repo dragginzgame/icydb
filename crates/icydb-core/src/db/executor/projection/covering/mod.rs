@@ -142,7 +142,7 @@ where
         let raw_anchor = raw_anchor.ok_or_else(InternalError::query_executor_invariant)?;
         let decoded_anchor =
             IndexKey::try_from_raw(&raw_anchor).map_err(|_| InternalError::index_corruption())?;
-        let [projected_component] = row.2.as_ref() else {
+        let [projected_component] = row.1.as_ref() else {
             return Err(InternalError::query_executor_invariant());
         };
         if decoded_anchor.component(0) != Some(projected_component.as_slice()) {
@@ -150,14 +150,14 @@ where
         }
         admit_index_prefix_bounds(
             decoded_anchor.component_count(),
-            row.2.as_ref(),
+            row.1.as_ref(),
             &ExecutionConstructionBudget,
         )?;
         let (group_low, group_high) = raw_keys_for_component_prefix_with_kind(
             decoded_anchor.index_id(),
             decoded_anchor.key_kind(),
             decoded_anchor.component_count(),
-            row.2.as_ref(),
+            row.1.as_ref(),
         )
         .map_err(|_| InternalError::query_executor_invariant())?;
         let value = decode_single_covering_projection_pairs(

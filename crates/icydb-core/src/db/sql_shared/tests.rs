@@ -222,3 +222,23 @@ fn tokenize_sql_hex_blob_preserves_all_bytes_and_empty_payloads() {
         )),
     );
 }
+
+#[test]
+fn quoted_names_escape_keywords_without_widening_identifier_syntax() {
+    for name in ["index", "count", "DEEP", "SET", "U256", "_name", "field9"] {
+        assert_eq!(
+            tokenize_sql(&format!("\"{name}\"")).unwrap()[0].kind,
+            TokenKind::QuotedIdentifier(name.into())
+        );
+    }
+    for sql in [
+        "\"\"",
+        "\"unclosed",
+        "\"a.b\"",
+        "\"with space\"",
+        "\"9name\"",
+        "\"a\"\"b\"",
+    ] {
+        assert!(tokenize_sql(sql).is_err(), "{sql}");
+    }
+}

@@ -227,8 +227,12 @@ accepts typed scalar bindings in SELECT WHERE expressions: at most 64 operands
 and 64 KiB of total logical payload. Containers and parameters in projection,
 ORDER BY, HAVING, EXPLAIN or mutation statements reject. Each invocation checks
 accepted-schema operand semantics before boolean simplification and substitutes
-into an execution-owned AST; the retained dispatch remains reusable. Bound calls
-bypass the concrete SQL-command cache while retaining eligible shared-plan reuse.
+into an execution-owned WHERE expression; the retained dispatch remains reusable.
+Bound calls reuse checked scalar, grouped or global-aggregate SELECT structure
+from the same SQL cache. Templates retain no supplied operands. Each invocation
+rechecks binding count, family, payload and current accepted authority, validates
+its current expressions before folding, and derives filter-sensitive aggregate
+eligibility and physical access from the new values.
 
 #### SQL cache retention
 
@@ -236,12 +240,14 @@ Trusted text query calls look up exact SQL and API surface before parsing. A
 resident command is reused only after the current accepted runtime root, including
 its database incarnation and all catalog identities, matches the compilation
 root. Its original entity label is resolved from that same current root. Misses
-and stale entries use the ordinary parser/compiler; bound dispatches retain the
-separate behavior above. Application authorization remains per invocation.
+and stale entries use the ordinary parser/compiler. Bound dispatches compile a
+checked parameter template on misses and bind it before any executable context
+is created. An unbound text call cannot execute a resident parameter template.
+Application authorization remains per invocation.
 
 The compiled-command cache admits at most 1,024 entries and 4 MiB of accounted
 retained payload per store registry. Accounting includes both key references,
-compiled syntax and decoded literals; shared allocations are charged
+compiled syntax, decoded literals and checked parameter templates; shared allocations are charged
 conservatively. Commands larger than this cache budget execute without
 retention. Successful current-schema cache hits refresh eviction order, so the
 least recently inserted or reused command is evicted first. Refreshing a hit
@@ -911,7 +917,13 @@ root. An inner matching segment never qualifies the enclosing record path:
 record path `c.name`; the qualifier is not stripped again during expression
 normalization. The same rule applies to read and mutation expressions.
 
-Unquoted entity names resolve against accepted catalog display names using
+Double quotes escape reserved or contextual keywords in entity, field, index
+and alias names: `SELECT "count" FROM "Deep" WHERE "index" = 1`. Quote path
+segments separately (`"u"."count"`). Quotes retain the existing identifier syntax
+(ASCII letter/underscore followed by ASCII letters, digits or underscores);
+they do not introduce spaces, dots or embedded quotes into catalog names.
+Backtick quoting remains unsupported. Quoting does not change name resolution:
+entity names resolve against accepted catalog display names using
 ASCII case-insensitive matching. For example, `DESCRIBE customer` resolves an
 accepted entity authored as `Customer`, and metadata continues to report the
 authored spelling. Immutable entity source keys remain exact and are not SQL

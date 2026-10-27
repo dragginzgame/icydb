@@ -105,9 +105,6 @@ fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
                 memory.allocated_bytes.to_string(),
                 memory.virtual_extent.bytes.to_string(),
                 memory.bucket_slack_bytes.to_string(),
-                memory
-                    .payload_bytes
-                    .map_or_else(|| "unavailable".to_string(), |bytes| bytes.to_string()),
             ]
         })
         .collect::<Vec<_>>();
@@ -122,7 +119,6 @@ fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
             "allocated bytes",
             "virtual bytes",
             "bucket slack",
-            "payload bytes",
         ],
         &rows,
         &[
@@ -130,7 +126,6 @@ fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
-            ColumnAlign::Right,
             ColumnAlign::Right,
             ColumnAlign::Right,
             ColumnAlign::Right,
