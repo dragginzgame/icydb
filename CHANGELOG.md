@@ -71,7 +71,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   ([#231](https://github.com/dragginzgame/icydb/issues/231)).
 
 - Run the production/local canister endpoint contract in workspace CI and reject
-  workflow changes that remove it
+  workflow changes that remove it. Align the adapter fixture's Cargo trace with
+  that route and verify its explicit ignored-test selection
   ([#120 — Production test actors expose trusted methods](https://github.com/dragginzgame/icydb/issues/120)).
 
 Details: [0.286 release notes](docs/changelog/0.286.md).
