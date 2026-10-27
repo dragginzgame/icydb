@@ -1599,6 +1599,7 @@ dependencies = [
  "clap",
  "ic-host-artifacts",
  "ic-host-fs",
+ "ic-host-process",
  "ic-host-text",
  "ic-host-tools",
  "icydb",

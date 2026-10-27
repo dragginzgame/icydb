@@ -4,15 +4,15 @@
 //! Boundary: exposes reusable call builders and response decoding to CLI command surfaces.
 
 use std::{
-    io::Write as _,
+    io::{self, Write as _},
     path::Path,
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
 };
 
 use ic_host_fs::scratch::TemporaryFile;
 use ic_host_tools::response::{ResponseError, ResponseFormat, ResponseLimits, decode};
 
-use crate::icp::process::output_stderr;
+use crate::icp::process::{output_stderr, probe_output};
 
 pub(super) fn icp_query_command(
     environment: &str,
@@ -129,6 +129,7 @@ pub(super) fn call_query_hex(
         wire_arg,
         |path| icp_query_command(environment, canister, method, path),
         error_message,
+        probe_output,
     )
 }
 
@@ -143,6 +144,7 @@ pub(super) fn call_update_hex(
         wire_arg,
         |path| icp_update_command(environment, canister, method, path),
         error_message,
+        Command::output,
     )
 }
 
@@ -150,6 +152,7 @@ pub(super) fn call_hex(
     wire_arg: &[u8],
     build_command: impl FnOnce(&Path) -> Command,
     error_message: impl FnOnce(&str) -> String,
+    capture: impl FnOnce(&mut Command) -> io::Result<Output>,
 ) -> Result<Vec<u8>, String> {
     // The private file stays alive through child completion and is removed on
     // every return. Passing a path avoids OS argv limits and binary NUL bytes.
@@ -167,12 +170,13 @@ pub(super) fn call_hex(
             ),
         });
     }
-    let output = build_command(arguments.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| format!("failed to run icp canister call: {err}"))?;
+    let output = capture(
+        build_command(arguments.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .map_err(|err| format!("failed to run icp canister call: {err}"))?;
 
     if !output.status.success() {
         let stderr = output_stderr(output.stderr.as_slice());
@@ -194,7 +198,7 @@ mod tests {
         process::Command,
     };
 
-    use super::call_hex;
+    use super::{call_hex, probe_output};
 
     #[test]
     fn private_argument_file_lives_through_child_and_is_removed_on_success() {
@@ -215,6 +219,7 @@ mod tests {
                 command
             },
             str::to_owned,
+            probe_output,
         );
         assert_eq!(result.unwrap(), [0]);
         assert!(!argument_path.exists());
@@ -243,6 +248,7 @@ mod tests {
                     }
                 },
                 str::to_owned,
+                probe_output,
             );
             assert!(result.is_err());
             assert!(!argument_path.exists());
@@ -260,6 +266,7 @@ mod tests {
                     panic!("command construction failed")
                 },
                 str::to_owned,
+                probe_output,
             );
         }));
         assert!(panic.is_err());

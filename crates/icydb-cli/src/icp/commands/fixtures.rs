@@ -5,11 +5,14 @@
 
 use canic_icydb::wire::Endpoint;
 
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use crate::icp::{
     commands::append_environment_args,
-    process::{CanisterStatusOutput, canister_status_command, output_stderr, run_external_command},
+    process::{
+        CanisterStatusOutput, canister_status_command, output_stderr, probe_output,
+        run_external_command,
+    },
     project::environment_targets_local,
 };
 
@@ -60,16 +63,19 @@ fn ensure_local_fixture_cycles(environment: &str, canister: &str) -> Result<(), 
 }
 
 fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128>, String> {
-    let output = canister_status_command(environment, canister, CanisterStatusOutput::Capture)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|err| err.to_string())?;
+    let output = probe_output(&mut canister_status_command(
+        environment,
+        canister,
+        CanisterStatusOutput::Capture,
+    ))
+    .map_err(|err| err.to_string())?;
     if !output.status.success() {
         return Err(output_stderr(output.stderr.as_slice()));
     }
 
     Ok(parse_canister_cycles(
-        String::from_utf8_lossy(output.stdout.as_slice()).as_ref(),
+        std::str::from_utf8(&output.stdout)
+            .map_err(|error| format!("parse icp cycles UTF-8: {error}"))?,
     ))
 }
 
@@ -81,6 +87,7 @@ fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String
         &arguments,
         |path| fixtures_load_command(environment, canister, path),
         str::to_owned,
+        Command::output,
     );
     fixture_load_result(response)
 }

@@ -3,7 +3,41 @@
 //! Does not own: high-level canister workflows, project discovery, or generated endpoint calls.
 //! Boundary: exposes process primitives to sibling ICP modules.
 
-use std::process::{Command, Output, Stdio};
+use std::{
+    io,
+    process::{Command, Output, Stdio},
+    time::Duration,
+};
+
+use ic_host_process::tool::{ExecutionFailure, OutputLimit, OutputLimits, capture_command};
+
+const PROBE_STDOUT_BYTES: usize = 16 * 1024 * 1024;
+const PROBE_STDERR_BYTES: usize = 64 * 1024;
+
+/// Capture read-only ICP observations with finite output and elapsed-time budgets.
+/// Mutating calls retain their existing dispatch and uncertain-effect contract.
+pub(super) fn probe_output(command: &mut Command) -> io::Result<Output> {
+    capture_command(
+        command,
+        OutputLimits {
+            stdout: OutputLimit::Terminate(PROBE_STDOUT_BYTES),
+            stderr: OutputLimit::Terminate(PROBE_STDERR_BYTES),
+            timeout: Some(Duration::from_secs(30)),
+        },
+    )
+    .map(|output| Output {
+        status: output.status,
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
+    .map_err(|error| {
+        let kind = match error.execution_error().map(|error| &error.failure) {
+            Some(ExecutionFailure::Io { source, .. }) => source.kind(),
+            _ => io::ErrorKind::Other,
+        };
+        io::Error::new(kind, error)
+    })
+}
 
 /// Run one icp-cli command as a client call. This never starts or stops a local network.
 pub(super) fn run_external_command(mut command: Command, label: &str) -> Result<(), String> {
@@ -35,9 +69,9 @@ pub(super) fn canister_is_installed(environment: &str, canister: &str) -> Result
 /// Resolve an icp-cli canister id without treating absent local ids as fatal.
 pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<String>, String> {
     let output = canister_status_output(environment, canister, CanisterStatusOutput::IdOnly)?;
-    let id = String::from_utf8_lossy(output.stdout.as_slice())
-        .trim()
-        .to_string();
+    let id = String::from_utf8(output.stdout)
+        .map_err(|error| format!("parse icp canister id UTF-8: {error}"))?;
+    let id = id.trim().to_owned();
 
     Ok((!id.is_empty()).then_some(id))
 }
@@ -53,10 +87,7 @@ fn canister_status_output(
     canister: &str,
     output: CanisterStatusOutput,
 ) -> Result<Output, String> {
-    let output = canister_status_command(environment, canister, output)
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
+    let output = probe_output(&mut canister_status_command(environment, canister, output))
         .map_err(|err| format!("failed to run icp canister status: {err}"))?;
     if !output.status.success() {
         return Err(format!(
@@ -93,5 +124,47 @@ pub(super) fn canister_status_command(
 }
 
 pub(super) fn output_stderr(stderr: &[u8]) -> String {
-    String::from_utf8_lossy(stderr).trim().to_string()
+    ic_host_text::escape::terminal_text(String::from_utf8_lossy(stderr).trim()).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_stderr_is_escaped_for_presentation() {
+        let raw = b"bad\x1b[2J\r\n\tmessage";
+        let rendered = output_stderr(raw);
+        assert!(!rendered.chars().any(char::is_control));
+        assert!(rendered.contains("message"));
+        assert_eq!(raw[3], 27);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_capture_preserves_nonzero_status_and_original_bytes() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "printf '\\377'; printf failure >&2; exit 7"]);
+        let output = probe_output(&mut command).unwrap();
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(output.stdout, [255]);
+        assert_eq!(output.stderr, b"failure");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_capture_refuses_excess_machine_output() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "dd if=/dev/zero bs=1048576 count=17 2>/dev/null"]);
+        let error = probe_output(&mut command).unwrap_err();
+        let cause = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<ic_host_process::tool::ToolError>()
+            .unwrap();
+        assert!(matches!(
+            cause.execution_error().unwrap().failure,
+            ExecutionFailure::OutputLimit { .. }
+        ));
+    }
 }

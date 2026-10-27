@@ -78,7 +78,13 @@ case "$1:$2" in
     read -r contents < "$artifact" || exit 1
     printf '%s\n' "$contents" > "$ICP_FIXTURE_DIRECTORY/installed"
     ;;
-  canister:list) printf '%s\n' '{"canisters":["fixture"]}' ;;
+  canister:list)
+    if [ -n "${ICP_FIXTURE_LIST_RESPONSE+x}" ]; then
+      printf '%s\n' "$ICP_FIXTURE_LIST_RESPONSE"
+    else
+      printf '%s\n' '{"canisters":["fixture"]}'
+    fi
+    ;;
   canister:status)
     if [ -n "${ICP_FIXTURE_STATUS_ERROR-}" ]; then
       printf '%s\n' "$ICP_FIXTURE_STATUS_ERROR" >&2
@@ -712,6 +718,48 @@ fn failed_canister_probes_preserve_diagnostics_and_stop_before_effects() {
             }
         }
     }
+}
+
+#[test]
+fn malformed_inventory_cannot_fall_back_to_the_manifest() {
+    for response in [
+        "{}",
+        r#"{"canisters":42}"#,
+        r#"{"canisters":["fixture",42]}"#,
+    ] {
+        let fixture = IcpFixture::new();
+        fs::write(
+            fixture.directory.join("icp.yaml"),
+            "environments:\n  - name: local\n    canisters: [fixture]\n",
+        )
+        .unwrap();
+        let output = fixture
+            .command(&success_response())
+            .env("ICP_FIXTURE_LIST_RESPONSE", response)
+            .args(["canister", "list", "-e", "local"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert!(!calls.lines().any(|line| line == "status"));
+    }
+}
+
+#[test]
+fn external_probe_diagnostics_cannot_inject_terminal_controls() {
+    let fixture = IcpFixture::new();
+    let output = fixture
+        .command(&success_response())
+        .env("ICP_FIXTURE_STATUS_ERROR", "bad\x1b[2J\rmessage")
+        .args(["canister", "list", "-e", "local"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains('\x1b'));
+    assert!(!stderr.contains('\r'));
+    assert!(stderr.contains("message"));
 }
 
 #[test]

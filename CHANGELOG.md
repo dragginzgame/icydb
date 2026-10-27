@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.286.1]
+
+### 🩹 Fixed
+
+- Reject malformed ICP canister inventories and invalid machine-output UTF-8.
+  Bound read-only ICP probes and escape captured diagnostics for terminal display.
+  Mutating command dispatch is unchanged. [Details](docs/changelog/0.286.md).
+
 ## [0.286.0] - 2026-10-27
 
 ### ⚠️ Breaking
