@@ -93,15 +93,16 @@ pub fn allowlist_for_surface(
 /// Apply the canonical generated SQL read-authorization boundary.
 ///
 /// This is public only for generated-code and evidence-canister plumbing.
-/// Transport principals are normalized through Platform's owned conversion
-/// before constructing the application authorization context.
+/// Transport principal bytes are checked and normalized through Platform before
+/// constructing the application context. This boundary does not require the
+/// transport and database to select the same Platform package identity.
 #[doc(hidden)]
 pub fn authorize_sql_read(
-    caller: impl Into<Principal>,
+    caller: impl AsRef<[u8]>,
     guard: ReadAuthorizationGuard,
 ) -> Result<(), Error> {
     authorize_read(
-        caller.into(),
+        caller.as_ref(),
         ReadAuthorizationSurface::Sql,
         guard,
         RuntimeBoundaryCode::SqlSurfacePolicyDenied,
@@ -111,15 +112,16 @@ pub fn authorize_sql_read(
 /// Apply the canonical generated accepted-schema read-authorization boundary.
 ///
 /// This is public only for generated-code and evidence-canister plumbing.
-/// Transport principals are normalized through Platform's owned conversion
-/// before constructing the application authorization context.
+/// Transport principal bytes are checked and normalized through Platform before
+/// constructing the application context. This boundary does not require the
+/// transport and database to select the same Platform package identity.
 #[doc(hidden)]
 pub fn authorize_schema_read(
-    caller: impl Into<Principal>,
+    caller: impl AsRef<[u8]>,
     guard: ReadAuthorizationGuard,
 ) -> Result<(), Error> {
     authorize_read(
-        caller.into(),
+        caller.as_ref(),
         ReadAuthorizationSurface::Schema,
         guard,
         RuntimeBoundaryCode::SchemaSurfacePolicyDenied,
@@ -127,11 +129,14 @@ pub fn authorize_schema_read(
 }
 
 fn authorize_read(
-    caller: Principal,
+    caller: &[u8],
     surface: ReadAuthorizationSurface,
     guard: ReadAuthorizationGuard,
     denied_boundary: RuntimeBoundaryCode,
 ) -> Result<(), Error> {
+    // A principal's canonical bytes, rather than a transport crate's Rust type,
+    // are the identity boundary. Refuse invalid bytes before application code.
+    let caller = Principal::try_from_slice(caller).map_err(|_| policy_denied(denied_boundary))?;
     if caller == Principal::anonymous() {
         return Err(policy_denied(denied_boundary));
     }
@@ -156,6 +161,7 @@ mod tests {
 
     thread_local! {
         static GUARD_CALLS: Cell<u8> = const { Cell::new(0) };
+        static OBSERVED_CONTEXT: Cell<Option<ReadAuthorizationContext>> = const { Cell::new(None) };
     }
 
     fn principal(seed: u8) -> Principal {
@@ -353,5 +359,57 @@ mod tests {
                 .code(),
             crate::ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
         );
+    }
+
+    #[test]
+    fn caller_bytes_preserve_all_canonical_lengths_on_both_surfaces() {
+        fn record(context: ReadAuthorizationContext) -> ReadAuthorizationDecision {
+            OBSERVED_CONTEXT.with(|observed| observed.set(Some(context)));
+            ReadAuthorizationDecision::Allow
+        }
+
+        let bytes = [2; Principal::MAX_LENGTH_IN_BYTES];
+        for length in 0..=bytes.len() {
+            let caller = &bytes[..length];
+            let expected = Principal::from_slice(caller);
+            assert_eq!(authorize_sql_read(caller, record), Ok(()));
+            assert_eq!(
+                OBSERVED_CONTEXT.with(Cell::take),
+                Some(ReadAuthorizationContext {
+                    caller: expected,
+                    surface: ReadAuthorizationSurface::Sql,
+                }),
+            );
+            assert_eq!(authorize_schema_read(caller, record), Ok(()));
+            assert_eq!(
+                OBSERVED_CONTEXT.with(Cell::take),
+                Some(ReadAuthorizationContext {
+                    caller: expected,
+                    surface: ReadAuthorizationSurface::Schema,
+                }),
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_caller_bytes_deny_before_guard_invocation() {
+        take_guard_calls();
+        let invalid = [0; Principal::MAX_LENGTH_IN_BYTES + 1];
+        let anonymous = Principal::anonymous();
+        for caller in [invalid.as_slice(), anonymous.as_slice()] {
+            assert_eq!(
+                authorize_sql_read(caller, counting_allow)
+                    .expect_err("invalid or anonymous SQL caller must be denied")
+                    .code(),
+                crate::ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
+            );
+            assert_eq!(
+                authorize_schema_read(caller, counting_schema_allow)
+                    .expect_err("invalid or anonymous schema caller must be denied")
+                    .code(),
+                crate::ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
+            );
+        }
+        assert_eq!(take_guard_calls(), 0);
     }
 }

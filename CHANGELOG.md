@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🩹 Fixed
 
+- Normalize generated SQL/schema guard callers through checked principal bytes,
+  so authorization does not require Canic and IcyDB to share a Platform version.
 - Keep grouped `FIRST`/`LAST` identities stable across scan direction, index
   choice and continuation pages ([#52](https://github.com/dragginzgame/icydb/issues/52)).
 - Admit text transforms before allocation during execution and literal folding,

@@ -100,6 +100,10 @@ published 0.6.21 sources. Both runtime adapters use the same registry
 `ic-cdk-executor` 2.0.0 identity. Memory/Storage 0.51.9, Timers 0.31.9 and
 Tooling 0.69 select Platform 0.7.0. Canic still selects Platform 0.6.21
 transitively; the two package identities are explicit in the lockfile.
+The generated SQL/schema authorization seam normalizes canonical caller bytes
+through IcyDB's checked Platform constructor, avoiding a shared nominal principal
+type requirement with the pinned adapter. Updating that adapter is not a
+prerequisite for the current authorization integration.
 The selected Core Wasm normal graph has no Candid; the existing adapter's external
 entropy boundary and host Testkit graphs retain their upstream Candid selection.
 

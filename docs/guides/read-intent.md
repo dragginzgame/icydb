@@ -258,6 +258,11 @@ only the `Schema` surface and does not authorize `SHOW`, `DESCRIBE`, or
 surfaces reject anonymous callers before application code and replace rather
 than union with controller authority.
 
+The transport hands caller identity to IcyDB through canonical principal bytes.
+IcyDB uses Platform's checked constructor before creating the application guard
+context; invalid bytes deny before the guard. This handoff does not require the
+transport adapter and database to select the same Platform package version.
+
 ## Endpoint Review Checklist
 
 - Authorize before dispatch.
