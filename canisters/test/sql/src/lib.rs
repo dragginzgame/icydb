@@ -374,12 +374,13 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
         let session = icydb::db!()?;
         set_sql_numeric_group_name(&session, "alpha", "a".repeat(OVERSIZED_SQL_GROUP_NAME_LEN))?;
         set_sql_numeric_group_name(&session, "beta", "b".repeat(OVERSIZED_SQL_GROUP_NAME_LEN))?;
-        let gamma = "c".repeat(OVERSIZED_SQL_GROUP_NAME_LEN);
+        // Insert within the batch reply budget, then grow the stored payload via
+        // the same no-row-returning mutation used for the existing fixture rows.
         session.execute_trusted_structural_insert_batch(
             "SqlTestNumericTypes",
             vec![sql_numeric_type_patch(
                 "gamma",
-                gamma.as_str(),
+                "gamma",
                 3,
                 7,
                 89,
@@ -393,6 +394,7 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
                 Float64::from(0),
             )],
         )?;
+        set_sql_numeric_group_name(&session, "gamma", "c".repeat(OVERSIZED_SQL_GROUP_NAME_LEN))?;
 
         Ok(())
     })

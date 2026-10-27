@@ -37,7 +37,7 @@ fn aggregate_row_limit_rejects_individually_valid_fields_without_batch_effects()
     session
         .execute_trusted_dynamic_insert_batch(
             ENTITY_NAME,
-            vec![blob_row(1, 8), blob_row(2, 1024 * 1024)],
+            vec![blob_row(1, 8), blob_row(2, 256 * 1024)],
         )
         .unwrap();
     let before = projection_rows(&session, read);
