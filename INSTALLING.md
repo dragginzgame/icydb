@@ -501,6 +501,27 @@ cargo run -q -p icydb-cli -- canister list
 cargo run -q -p icydb-cli -- canister list --environment test
 ```
 
+`canister list` validates ICP's complete JSON inventory. A successful empty
+inventory stays empty; malformed successful output and capture failures stop the
+command. Manifest discovery remains available when ICP is absent or its list
+command exits unsuccessfully. Read-only query and canister observations use
+bounded capture (16 MiB stdout, 64 KiB stderr, a 30-second execution deadline).
+Update RPCs, including fixture loads, use the same byte ceilings and a five-minute
+execution deadline with Host-owned process-group cleanup. SIGINT, SIGTERM and
+SIGHUP cancel the local capture. Spawning/setup/cleanup syscalls can exceed the
+execution deadline; escaped descendants and hard termination of the CLI are
+outside that cleanup guarantee.
+
+A timeout, output overflow, cancellation, failed process or undecodable reply
+after dispatch reports **update outcome unknown**. The remote operation may have
+completed. Inspect the selected canister's state (or migration status) before
+repeating it. The CLI does not automatically retry. Known pre-spawn failures and
+successfully decoded endpoint errors retain their respective diagnostics.
+
+Machine IDs and cycle observations require valid UTF-8. A nonempty ID must be a
+valid principal before the CLI admits a canister call; a blank ID still means
+absent. External diagnostics are escaped for terminal display.
+
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for the destructive reset flow
 in the selected ICP environment. It deploys or reinstalls the canister, then

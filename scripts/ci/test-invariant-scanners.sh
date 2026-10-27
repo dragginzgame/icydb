@@ -63,6 +63,29 @@ check() {
   cases=$((cases + 1))
 }
 
+# Qualify the actual private compiler package's structured CLI, not the shared
+# scanner's full semantic matrix. Help must not inspect the supplied source.
+check scanner-help 0 "$TEST_RUNTIME_PANIC_CHECKER" --help "$scratch/absent.rs"
+check scanner-empty 2 "$TEST_RUNTIME_PANIC_CHECKER"
+check scanner-unknown-option 2 "$TEST_RUNTIME_PANIC_CHECKER" --unknown
+check scanner-missing-file 2 "$TEST_RUNTIME_PANIC_CHECKER" "$scratch/absent.rs"
+printf 'fn malformed(\n' > "$scratch/malformed.rs"
+check scanner-parse 2 "$TEST_RUNTIME_PANIC_CHECKER" "$scratch/malformed.rs"
+printf 'fn production() {}\n' > "$scratch/source.rs"
+check scanner-positional 0 "$TEST_RUNTIME_PANIC_CHECKER" "$scratch/source.rs"
+# Raw argument bytes must reach the source owner even on a filesystem that
+# refuses to create this filename (notably native macOS filesystems).
+non_utf8_source="$scratch/source-"$'\377'".rs"
+if cp "$scratch/source.rs" "$non_utf8_source" 2> "$scratch/non-utf8-create.stderr"; then
+  check scanner-non-utf8 0 "$TEST_RUNTIME_PANIC_CHECKER" "$non_utf8_source"
+else
+  check scanner-non-utf8 2 "$TEST_RUNTIME_PANIC_CHECKER" "$non_utf8_source"
+fi
+cp "$scratch/source.rs" "$scratch/-source.rs"
+scanner_relative() { (cd "$scratch"; "$TEST_RUNTIME_PANIC_CHECKER" "$@"); }
+check scanner-leading-hyphen 0 scanner_relative -- -source.rs
+check scanner-leading-option 2 scanner_relative -source.rs
+
 common="$scratch/scripts/ci/invariant-common.sh"
 printf '%s\n' 'forbidden' '// forbidden' > "$scratch/source.rs"
 search() {
@@ -94,7 +117,6 @@ done
 executor="$scratch/${panic_roots[0]}"
 panic_checker="$scratch/scripts/ci/check-executor-no-production-panics.sh"
 # Shared owns syntax regressions; retain only local root/discovery boundaries.
-bash "$ROOT/scripts/ci/test-runtime-panics.sh" "$TEST_RUNTIME_PANIC_CHECKER"
 printf 'fn production() {}\n' > "$executor/production.rs"
 for root in "${panic_roots[@]:1}"; do
   printf 'fn production() { value.unwrap(); }\n' > "$scratch/$root/production.rs"

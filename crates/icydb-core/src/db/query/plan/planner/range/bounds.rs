@@ -53,33 +53,24 @@ fn merge_lower_bound(
     candidate: Bound<Value>,
     budget: &dyn ConstructionBudget,
 ) -> Result<bool, InternalError> {
-    let replace = match (&candidate, &*existing) {
-        (Bound::Unbounded, _) => false,
-        (_, Bound::Unbounded) => true,
-        (
-            Bound::Included(left) | Bound::Excluded(left),
-            Bound::Included(right) | Bound::Excluded(right),
-        ) => match compare_range_bound_values(left, right, budget)? {
-            Some(Ordering::Greater) => true,
-            Some(Ordering::Less) => false,
-            Some(Ordering::Equal) => {
-                matches!(candidate, Bound::Excluded(_)) && matches!(existing, Bound::Included(_))
-            }
-            None => return Ok(false),
-        },
-    };
-
-    if replace {
-        *existing = candidate;
-    }
-
-    Ok(true)
+    merge_bound(existing, candidate, budget, Ordering::Greater)
 }
 
 fn merge_upper_bound(
     existing: &mut Bound<Value>,
     candidate: Bound<Value>,
     budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    merge_bound(existing, candidate, budget, Ordering::Less)
+}
+
+// Direction changes only strict tightening; exclusion and incomparability have
+// the same ownership and budget semantics at either end of an interval.
+fn merge_bound(
+    existing: &mut Bound<Value>,
+    candidate: Bound<Value>,
+    budget: &dyn ConstructionBudget,
+    tightening: Ordering,
 ) -> Result<bool, InternalError> {
     let replace = match (&candidate, &*existing) {
         (Bound::Unbounded, _) => false,
@@ -88,11 +79,10 @@ fn merge_upper_bound(
             Bound::Included(left) | Bound::Excluded(left),
             Bound::Included(right) | Bound::Excluded(right),
         ) => match compare_range_bound_values(left, right, budget)? {
-            Some(Ordering::Less) => true,
-            Some(Ordering::Greater) => false,
             Some(Ordering::Equal) => {
                 matches!(candidate, Bound::Excluded(_)) && matches!(existing, Bound::Included(_))
             }
+            Some(ordering) => ordering == tightening,
             None => return Ok(false),
         },
     };

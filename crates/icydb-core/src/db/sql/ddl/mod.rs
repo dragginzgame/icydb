@@ -380,8 +380,9 @@ pub(in crate::db) enum SqlDdlLoweringError {
 ///
 /// Typed fail-closed preparation errors for SQL DDL.
 ///
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(in crate::db) enum SqlDdlPrepareError {
+    Construction(crate::error::InternalError),
     Bind(SqlDdlBindError),
 
     Lowering(SqlDdlLoweringError),
@@ -406,32 +407,45 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
     schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<PreparedSqlDdlCommand, SqlDdlPrepareError> {
-    let bound = bind_sql_ddl_statement(statement, accepted_before, schema, index_store_path)?;
-    validate_bound_sql_ddl_version_contract(&bound, accepted_before)?;
-    let derivation = match bound.statement() {
-        BoundSqlDdlStatement::NoOp(_)
-        | BoundSqlDdlStatement::AddCheckConstraint(_)
-        | BoundSqlDdlStatement::DropConstraint(_)
-        | BoundSqlDdlStatement::ValidateConstraint(_) => None,
-        BoundSqlDdlStatement::CreateIndex(create) if create.candidate_index().unique() => None,
-        BoundSqlDdlStatement::DropIndex(drop) if drop.pending_activation_id().is_some() => None,
-        BoundSqlDdlStatement::AlterColumnNullability(alter)
-            if alter.pending_activation_id().is_some() =>
-        {
-            None
-        }
-        _ => Some(derive_bound_sql_ddl_accepted_after(
-            accepted_before,
-            &bound,
-        )?),
-    };
-    let report = ddl_preparation_report(&bound);
+    // One volatile authority covers this complete new DDL preparation. Retained
+    // schema projection/recovery does not acquire another construction allowance.
+    let work = crate::db::resource::budget::MaintenanceConstructionBudget::new();
+    work.run(
+        |work| {
+            let bound =
+                bind_sql_ddl_statement(statement, accepted_before, schema, index_store_path, work)?;
+            validate_bound_sql_ddl_version_contract(&bound, accepted_before)?;
+            let derivation = match bound.statement() {
+                BoundSqlDdlStatement::NoOp(_)
+                | BoundSqlDdlStatement::AddCheckConstraint(_)
+                | BoundSqlDdlStatement::DropConstraint(_)
+                | BoundSqlDdlStatement::ValidateConstraint(_) => None,
+                BoundSqlDdlStatement::CreateIndex(create) if create.candidate_index().unique() => {
+                    None
+                }
+                BoundSqlDdlStatement::DropIndex(drop) if drop.pending_activation_id().is_some() => {
+                    None
+                }
+                BoundSqlDdlStatement::AlterColumnNullability(alter)
+                    if alter.pending_activation_id().is_some() =>
+                {
+                    None
+                }
+                _ => Some(derive_bound_sql_ddl_accepted_after(
+                    accepted_before,
+                    &bound,
+                )?),
+            };
+            let report = ddl_preparation_report(&bound);
 
-    Ok(PreparedSqlDdlCommand {
-        bound,
-        derivation,
-        report,
-    })
+            Ok(PreparedSqlDdlCommand {
+                bound,
+                derivation,
+                report,
+            })
+        },
+        SqlDdlPrepareError::Construction,
+    )
 }
 
 /// Bind one parsed SQL DDL statement against accepted catalog metadata.
@@ -440,6 +454,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
     index_store_path: &'static str,
+    work: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let SqlStatement::Ddl(ddl) = statement else {
         return Err(SqlDdlBindError::NotDdl);
@@ -447,7 +462,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
 
     let mut bound = match ddl {
         SqlDdlStatement::CreateIndex(statement) => {
-            bind_create_index_statement(statement, accepted_before, schema, index_store_path)
+            bind_create_index_statement(statement, accepted_before, schema, index_store_path, work)
         }
         SqlDdlStatement::DropIndex(statement) => {
             bind_drop_index_statement(statement, accepted_before, schema)

@@ -7,8 +7,8 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.26.23 at published revision
-`48ec9794892da6f8e2812653ec16c5e8ea23df47`. The canonical exporter owns the
+IcyDB selects Shared Tooling 0.27.2 at published revision
+`7efce1e36275ff9e4bbbdd9ccab9a8d94520fd98`. The canonical exporter owns the
 130 selected payloads and their hashes/modes. Refresh them canonically; a
 sibling checkout's uncommitted changes are not part of this snapshot.
 
@@ -88,9 +88,9 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Current direct minimums are IC Build/Host/Testkit 0.69.0, Platform 0.7.0,
+Current direct minimums are IC Build/Host/Testkit 0.69.3, Platform 0.7.0,
 Wire 0.7.18, Memory/Storage 0.51.8 and Metrics 0.16.3. Timers' minimum remains
-0.31.7; the compatible lock selects Memory/Storage 0.51.10 and Timers 0.31.10.
+0.31.7; the current lock selects Memory/Storage 0.51.13 and Timers 0.31.11.
 Registry availability was verified before locked cache preparation. Canic stays at its explicit adapter
 revision in Cargo.toml; endpoint and lifecycle ownership are unchanged.
 
@@ -107,12 +107,38 @@ prerequisite for the current authorization integration.
 The selected Core Wasm normal graph has no Candid; the existing adapter's external
 entropy boundary and host Testkit graphs retain their upstream Candid selection.
 
-Tooling 0.69.0 is published from
+The earlier Tooling 0.69.0 qualification used sources published from
 `f268aef5d205e51811e934648afcd13f026635f1`. Its seven consumed package archives
 contain unchanged Rust sources relative to 0.68.12; the coordinated release
 aligns their Platform-owned Principal identity with IcyDB's existing 0.7
-selection. Shared Tooling 0.26.23 and Platform 0.7.0 are the latest verified
-releases for this adoption.
+selection. Current Tooling 0.69.3 is published from
+`e3a71a922b1604f53b3e5a1530e154aec96e2a81`; all seven consumed
+registry archives were prepared without changing their existing locked selection.
+Its Testkit exposes mutable client access while retaining instance/server custody.
+The three installed browser fixtures consume that API directly, removing local
+client/server splitting. Platform 0.7.0 remains the registry selection.
+
+Shared Tooling 0.27.2 retains the structured runtime-scanner CLI
+([#476](https://github.com/dragginzgame/icydb/issues/476)). The existing private
+compiler package adds the inherited Clap dependency; its locked version and
+features were already selected elsewhere in this workspace. No deployed package
+gains that edge. The consumer fixture checks the actual binary's help, argument,
+path and exit-status handoff while retaining IcyDB's source inventory. The full
+shared scanner matrix remains upstream; the scanner source and guide are direct
+snapshot roots. Its test runner is retained only to satisfy the canonical guide's
+local link, not invoked by IcyDB's gate. The
+snapshot also retains the shared hook and formatting driver; no standalone-file
+formatting option is selected locally. The 0.26.26 driver uses its declared lexer
+companion to distinguish balanced conditional attributes from actual module-path
+metadata before reusing formatting results. IcyDB's real Make/hook fixture
+includes an ordinary conditional attribute followed by an unrelated `path` name.
+The scanner consumer fixture follows 0.26.25's native filesystem contract:
+representable non-UTF8 filenames scan successfully; hosts rejecting creation
+still qualify source-IO refusal through the raw argument. Native macOS
+qualification remains with CI. The 0.27.2 snapshot also includes the canonical
+fixture companion-closure correction and native prerequisite ordering. Shared
+dependency findings belong in one supplier-owned remediation issue per root
+cause; consumer issues require independently actionable local work.
 
 Shared Tooling 0.26.23 owns Rust formatting orchestration. IcyDB selects
 `FORMAT_RUST_ARGS := --sort-derives`, replacing its paired shell commands with
@@ -133,13 +159,15 @@ fixture qualifies retained exit-43
 failure logs, manifest-before-derive partial writes, real-tool input reuse,
 source invalidation and forced execution. The hook checks reject partial staging
 and preserve role groups, lockfiles and unrelated edits, including unusual paths.
-These results do not qualify native macOS, installed IC/browser behavior or the
-full release gate. Cargo dependency and package-version selections are unchanged.
+These script results do not qualify native macOS, installed IC/browser behavior
+or the full release gate; the current installed-browser evidence is recorded
+separately below. Locked dependency and own-package versions are unchanged.
 
-The new gzip ownership rule is already met by the production report writer,
-which delegates encoding to IC Tooling. One shell report fixture still constructs
-its gzip member with the system encoder; its independent follow-through is
-tracked in [#475](https://github.com/dragginzgame/icydb/issues/475).
+The production report delegates gzip encoding to IC Tooling. Its shell custody
+fixture uses a tiny level-1 member generated by the same published helper rather
+than invoking another encoder
+([#475](https://github.com/dragginzgame/icydb/issues/475)). The fixture does not
+qualify production compression bytes or ratios.
 
 The earlier Shared Tooling 0.26.22 adoption changed governance payloads, including
 owned-type Candid restrictions and mechanical error-derive guidance. Its
@@ -168,6 +196,10 @@ without editing their selections. Focused Core SQL/migration Clippy and Rust
 1.91 facade Wasm compilation pass on that graph; the earlier installed result
 does not qualify these later runtime package selections.
 
+The incoming lock selected Timers 0.31.11 during the Shared 0.26.26 work.
+Its locked source was prepared without changing Cargo metadata. Scanner and
+formatter qualification do not establish runtime qualification of that update.
+
 Earlier scalar/Wire and focused Core budget/traversal/memory-diagnostic results
 belong to their recorded dependency graphs. This tooling adoption does not
 claim those complete test families were rerun.
@@ -175,10 +207,18 @@ Native macOS, browser and full release gates remain separate qualification
 obligations. Deployment artifact dependency exclusion enforcement remains
 tracked separately in #378.
 
-Earlier browser qualification covered 90 exact frames across 12 methods plus
-3,108 truncations and malformed/value/limit controls. That evidence belongs to
-its recorded dependency selections; this adoption does not rerun or claim
-installed Chromium qualification.
+Tooling 0.69.3 is qualified locally on Linux through strict Core, CLI, build
+and affected integration-target linting; focused index, build-cache and CLI
+process tests; and the actual Shared formatting/hook, setup and release-adapter
+fixtures. All three maintained installed Chromium subjects pass with
+Testkit-managed PocketIC 16.1.0: the endpoint roster makes 25 calls across
+12 methods, rejected-migration findings make two calls, and physical-integrity
+findings make two calls. Generation also checks 90 exact frames, 3,112
+truncations and malformed/value/limit controls. Testkit retains instance/server
+custody through gateway setup and cleans up the local server. These results
+include the actors' Wasm builds; they do not qualify native macOS, the declared
+MSRV, a live IC deployment or the full repository/release gates. No matched
+Wasm-size, cycle or instruction delta was measured.
 
 The new [RPC-budget rule](../../rules/rpc-budgets.md) applies to browser contracts.
 IcyDB already projects schema-owned policy through Wire generation and checks
@@ -274,6 +314,10 @@ These are retained adoption results, not a fresh full gate for later changes.
 Shared owns generic installer and dependency-check regression matrices. IcyDB
 qualifies its actual selections and consumer behavior rather than duplicating
 those producer matrices. Substitute fixtures do not qualify installed tools.
+The generic CI-inspection matrix likewise stays upstream
+([#474](https://github.com/dragginzgame/icydb/issues/474)); IcyDB retains its actual
+Make/workflow/release-adapter checks and explicitly selects the interactive
+`scripts/dev/gh-ci.sh` helper.
 
 ## Structural Rust scanner source
 

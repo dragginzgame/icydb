@@ -105,10 +105,13 @@ impl AcceptedIndexPredicate {
         predicate: &Predicate,
         snapshot: &PersistedSchemaSnapshot,
         catalog: &AcceptedValueCatalogHandle,
+        work: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<Self, InternalError> {
         let bound = Self::bind_fields(predicate, snapshot.fields(), catalog)?;
-        let normalized =
-            crate::db::predicate::normalize(bound.to_predicate(snapshot.fields(), catalog)?);
+        let normalized = crate::db::predicate::normalize_with_budget(
+            bound.to_predicate(snapshot.fields(), catalog)?,
+            work,
+        )?;
         Self::bind_fields(&normalized, snapshot.fields(), catalog)
     }
 

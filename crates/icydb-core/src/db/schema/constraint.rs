@@ -326,23 +326,11 @@ pub(in crate::db::schema) const fn accepted_rule_exact_numeric_kind_is_supported
 pub(in crate::db::schema) const fn accepted_rule_numeric_kind_is_supported(
     kind: &AcceptedFieldKind,
 ) -> bool {
-    matches!(
-        kind,
-        AcceptedFieldKind::Decimal { .. }
-            | AcceptedFieldKind::Float32
-            | AcceptedFieldKind::Float64
-            | AcceptedFieldKind::Int8
-            | AcceptedFieldKind::Int16
-            | AcceptedFieldKind::Int32
-            | AcceptedFieldKind::Int64
-            | AcceptedFieldKind::Int128
-            | AcceptedFieldKind::Nat8
-            | AcceptedFieldKind::Nat16
-            | AcceptedFieldKind::Nat32
-            | AcceptedFieldKind::Nat64
-            | AcceptedFieldKind::Nat128
-            | AcceptedFieldKind::U256
-    )
+    accepted_rule_exact_numeric_kind_is_supported(kind)
+        || matches!(
+            kind,
+            AcceptedFieldKind::Float32 | AcceptedFieldKind::Float64 | AcceptedFieldKind::U256
+        )
 }
 
 pub(in crate::db::schema) const fn accepted_rule_length_kind_is_supported(

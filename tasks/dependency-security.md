@@ -22,5 +22,14 @@ Distinguish an advisory match from proven exploitability, and audit completion
 from current-feed coverage. Do not upgrade packages, edit exemptions or refresh
 lockfiles as part of the check.
 
+## Remediation ownership
+
+Apply the baseline's [shared dependency finding rule](../rules/engineering-details.md#shared-dependency-findings).
+Reuse the supplying owner's canonical advisory issue, including IC Platform
+for crypto/Agent dependencies supplied through its external IC boundary.
+Retain the selected consumer's graph and operation evidence there, distinguishing
+fresh observations from historical ones. Respect consolidated issue redirects;
+separate consumer issues require distinct actionable work under that rule.
+
 Return graph identity, advisory database revision/time, command/run evidence and
 owning issues. This is a dependency advisory task, not a complete security audit.

@@ -337,11 +337,10 @@ impl AccessPlanStreamResolver {
         spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
         let mut streams = Self::reserve_stream_slots(children.len())?;
+        // Callers select leaf ordering once. Composite children never inherit a
+        // physical fetch hint, regardless of their admitted ordering policy.
+        let child_inputs = inputs.with_physical_fetch_hint(None);
         for child in children {
-            // Composite plans never need physical fetch-hint expansion on child lookups.
-            let child_inputs = inputs
-                .with_physical_fetch_hint(None)
-                .without_leaf_index_order_preservation();
             streams.push(Self::produce_key_stream(
                 runtime,
                 child,
@@ -349,31 +348,6 @@ impl AccessPlanStreamResolver {
                 spec_cursor,
             )?);
         }
-
-        Ok(streams)
-    }
-
-    // Collect direct exact-prefix children while retaining their accepted
-    // primary-key suffix order for one bounded overlap probe.
-    fn collect_exact_intersection_child_streams(
-        runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
-        inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
-    ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
-        let mut streams = Self::reserve_stream_slots(children.len())?;
-        for child in children {
-            let child_inputs = inputs
-                .with_physical_fetch_hint(None)
-                .with_physical_leaf_order();
-            streams.push(Self::produce_key_stream(
-                runtime,
-                child,
-                child_inputs,
-                spec_cursor,
-            )?);
-        }
-
         Ok(streams)
     }
 
@@ -787,8 +761,12 @@ impl AccessPlanStreamResolver {
         let admission = Self::exact_intersection_admission(runtime, children, inputs, *spec_cursor);
         match admission {
             ExactIntersectionAdmission::NotApplicable => {
-                let streams =
-                    Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
+                let streams = Self::collect_child_key_streams(
+                    runtime,
+                    children,
+                    inputs.without_leaf_index_order_preservation(),
+                    spec_cursor,
+                )?;
                 let stream = OrderedKeyStreamBox::intersect_all(streams, key_comparator)?;
                 // A pull may skip arbitrarily many nonmatching child keys.
                 // Finish this blocking fallback under the hard request budget
@@ -803,10 +781,10 @@ impl AccessPlanStreamResolver {
                 Self::produce_exact_intersection_fallback(runtime, children, inputs, spec_cursor)
             }
             ExactIntersectionAdmission::ProvenEmpty => {
-                let _consumed_streams = Self::collect_exact_intersection_child_streams(
+                let _consumed_streams = Self::collect_child_key_streams(
                     runtime,
                     children,
-                    inputs,
+                    inputs.with_physical_leaf_order(),
                     spec_cursor,
                 )?;
                 Ok(OrderedKeyStreamBox::empty())
@@ -841,10 +819,10 @@ impl AccessPlanStreamResolver {
                 }
 
                 let mut probe_cursor = *spec_cursor;
-                let probe_streams = Self::collect_exact_intersection_child_streams(
+                let probe_streams = Self::collect_child_key_streams(
                     runtime,
                     children,
-                    inputs,
+                    inputs.with_physical_leaf_order(),
                     &mut probe_cursor,
                 )?;
                 let overlap = Self::collect_exact_intersection_overlap(

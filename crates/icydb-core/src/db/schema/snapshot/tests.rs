@@ -615,7 +615,8 @@ fn nullable_unique_acceptance_rejects_unguardable_nested_omission() {
         crate::db::schema::AcceptedIndexPredicate::bind(
             &crate::db::predicate::parse_sql_predicate("profile.email IS NOT NULL").unwrap(),
             &nested,
-            &catalog
+            &catalog,
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .is_err()
     );

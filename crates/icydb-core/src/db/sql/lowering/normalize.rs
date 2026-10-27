@@ -73,16 +73,14 @@ pub(in crate::db::sql::lowering) fn normalize_delete_statement_to_expected_entit
         statement.table_alias.as_deref(),
         work,
     )?;
-    statement.predicate = statement
-        .predicate
-        .map(|predicate| normalize_sql_expr_to_scope(predicate, entity_scope.as_slice(), work))
-        .transpose()?;
-    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice(), work)?;
-    statement.returning = statement
-        .returning
-        .map(|returning| normalize_returning_projection(returning, entity_scope.as_slice(), work))
-        .transpose()?;
-    statement.table_alias = None;
+    normalize_write_tail(
+        &mut statement.predicate,
+        &mut statement.order_by,
+        &mut statement.returning,
+        &mut statement.table_alias,
+        entity_scope.as_slice(),
+        work,
+    )?;
 
     Ok(statement)
 }
@@ -122,18 +120,39 @@ pub(in crate::db::sql::lowering) fn normalize_update_statement_to_expected_entit
     )?;
     statement.assignments =
         normalize_assignments(statement.assignments, entity_scope.as_slice(), work)?;
-    statement.predicate = statement
-        .predicate
-        .map(|predicate| normalize_sql_expr_to_scope(predicate, entity_scope.as_slice(), work))
-        .transpose()?;
-    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice(), work)?;
-    statement.returning = statement
-        .returning
-        .map(|returning| normalize_returning_projection(returning, entity_scope.as_slice(), work))
-        .transpose()?;
-    statement.table_alias = None;
+    normalize_write_tail(
+        &mut statement.predicate,
+        &mut statement.order_by,
+        &mut statement.returning,
+        &mut statement.table_alias,
+        entity_scope.as_slice(),
+        work,
+    )?;
 
     Ok(statement)
+}
+
+// Keep suffix normalization and alias retirement in the original failure order;
+// UPDATE's assignment normalization still completes before entering this helper.
+fn normalize_write_tail(
+    predicate: &mut Option<SqlExpr>,
+    order_by: &mut Vec<SqlOrderTerm>,
+    returning: &mut Option<SqlReturningProjection>,
+    table_alias: &mut Option<String>,
+    entity_scope: &[String],
+    work: &PreparationWork<'_>,
+) -> Result<(), SqlLoweringError> {
+    *predicate = predicate
+        .take()
+        .map(|predicate| normalize_sql_expr_to_scope(predicate, entity_scope, work))
+        .transpose()?;
+    *order_by = normalize_order_terms(std::mem::take(order_by), entity_scope, work)?;
+    *returning = returning
+        .take()
+        .map(|returning| normalize_returning_projection(returning, entity_scope, work))
+        .transpose()?;
+    *table_alias = None;
+    Ok(())
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(

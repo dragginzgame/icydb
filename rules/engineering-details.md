@@ -658,7 +658,8 @@ contracts; ordinary development does not require rereading these mechanics.
   and the smallest useful verification.
 - Track upstream acceptance separately from verified consumer adoption. Close
   producer issues when their own delivered implementation and required checks
-  are complete; keep outstanding adoption in linked consumer-owned issues.
+  are complete; keep concrete, independently actionable adoption work in linked
+  consumer-owned issues. Shared waiting findings follow the rule below.
   Do not keep or reopen a completed producer issue solely for fleet adoption,
   or create a second open tracker for the same consumer obligations. The
   [issue maintenance procedure](agent-maintenance.md#issue-review-and-repair)
@@ -676,6 +677,32 @@ contracts; ordinary development does not require rereading these mechanics.
 - Report the outcome, changed files, relevant verification, skipped checks,
   remaining risks and open consumer actions. State compatibility and host impact
   when relevant. Do not claim a release proves publication, adoption or deployment.
+
+### Shared dependency findings
+
+- Keep **one active remediation issue per shared dependency root cause**, at the
+  repository that owns the supplying dependency or capability. A matching
+  advisory or inherited defect in multiple consumer graphs does not create
+  multiple implementation outcomes. IC Platform owns findings in its external
+  IC boundary, including the crypto/Agent dependencies supplied through it;
+  other capabilities retain their established owners.
+- Search open and closed issues before filing. Reuse the canonical issue and
+  respect closed consumer redirects. Attach materially new affected-consumer
+  source/lock identities, dependency paths and operation/target evidence there;
+  do not recreate mirrors, repeated unchanged comments or a Shared umbrella.
+- Open a separate consumer issue only for **distinct, independently actionable
+  consumer-owned work**, such as a direct boundary bypass, an integration defect
+  or adoption of an available qualified correction requiring local changes.
+  State that local action and link the supplying issue. Merely waiting for the
+  same supplier or observing the same advisory in another lock is insufficient.
+- Consolidate existing mirrors only after linking their unique evidence and
+  remaining migration requirements from the canonical issue. Close them as
+  superseded/not planned, with an explicit redirect. Preserve historical
+  discussions; do not describe the dependency as fixed or adoption as complete.
+- Tracking consolidation changes no advisory/release gate, scoped acceptance,
+  expiry date or qualification obligation. The supplier closes its issue on its
+  own correction or reviewed decision and required evidence; this neither
+  certifies fleet adoption nor makes each consumer an acknowledgement gate.
 
 ### Repository handoff files
 

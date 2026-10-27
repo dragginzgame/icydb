@@ -27,7 +27,26 @@ check() {
   cases=$((cases + 1))
 }
 check no-input 2 "$checker"
+grep -F 'runtime panic checker requires a nonempty source inventory' "$scratch/no-input.stderr" > /dev/null
+check help 0 "$checker" --help "$scratch/absent.rs"
+grep -F 'Usage:' "$scratch/help.stdout" > /dev/null
+[[ ! -s "$scratch/help.stderr" ]]
+check unknown-option 2 "$checker" --unknown-scanner-option
+grep -F 'unexpected argument' "$scratch/unknown-option.stderr" > /dev/null
 check missing-input 2 "$checker" "$scratch/absent.rs"
+# Clap must pass raw path bytes to the filesystem. Some filesystems (including
+# macOS runners') reject these names: qualify the source-IO diagnostic there,
+# rather than failing while constructing a filename the host cannot represent.
+non_utf8_source="$executor/non-utf8-"$'\377'".rs"
+if (printf 'fn valid() {}\n' > "$non_utf8_source") 2> "$scratch/non-utf8-create.stderr"; then
+  check non-utf8-source 0 "$checker" "$non_utf8_source"
+else
+  check non-utf8-source 2 "$checker" "$non_utf8_source"
+  grep -F 'cannot parse runtime source' "$scratch/non-utf8-source.stderr" > /dev/null
+fi
+printf 'fn valid() {}\n' > "$executor/-fixture.rs"
+# shellcheck disable=SC2016 # Positional arguments expand in the child shell.
+check hyphen-source 0 bash -c 'cd "$1"; exec "$2" -- -fixture.rs' -- "$executor" "$checker"
 for pattern in 'value.unwrap();' 'value.expect ("reason");' 'panic!("reason");' \
   'panic! { "reason" };' 'assert!(false);' 'assert_eq!(1, 2);' 'assert_ne![1, 1];' \
   'unreachable!();' 'todo!();' 'unimplemented!();'; do

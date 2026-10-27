@@ -11,8 +11,8 @@ if (process.argv[2] === '--identity') {
   console.log(Ed25519KeyIdentity.generate(new Uint8Array(32).fill(7)).getPrincipal().toText());
 } else {
   const here = dirname(fileURLToPath(import.meta.url)), out = resolve(here, '../../target/wire-browser');
-  const [host, canister, report, subject = 'endpoints'] = process.argv.slice(2);
-  assert(['endpoints', 'rejected-migration'].includes(subject), 'unknown installed qualification subject');
+  const [host, canister, report, subject = 'endpoints', integritySql] = process.argv.slice(2);
+  assert(['endpoints', 'rejected-migration', 'integrity-findings'].includes(subject), 'unknown installed qualification subject');
   assert(host && canister && report, 'expected host, canister and report path');
   await build({ entryPoints: [resolve(here, 'installed.ts')], bundle: true, format: 'esm', platform: 'browser', outfile: resolve(out, 'installed.js') });
   const server = createServer((request, response) => {
@@ -29,11 +29,12 @@ if (process.argv[2] === '--identity') {
     const page = await browser.newPage();
     page.on('console', message => console.error(`browser: ${message.text()}`));
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    const result = await page.evaluate(async ({ host, canister, subject }) => {
-      const { qualify, qualifyRejectedMigration } = await import('/installed.js');
+    const result = await page.evaluate(async ({ host, canister, subject, integritySql }) => {
+      const { qualify, qualifyRejectedMigration, qualifyIntegrityFindings } = await import('/installed.js');
+      if (subject === 'integrity-findings') return qualifyIntegrityFindings(host, canister, integritySql);
       return subject === 'rejected-migration'
         ? qualifyRejectedMigration(host, canister) : qualify(host, canister);
-    }, { host, canister, subject }).catch(async error => {
+    }, { host, canister, subject, integritySql }).catch(async error => {
       const frames = await page.evaluate(() => globalThis.icydbWireFrames ?? []);
       writeFileSync(report, JSON.stringify({ failed: true, frames }, null, 2) + '\n');
       throw error;

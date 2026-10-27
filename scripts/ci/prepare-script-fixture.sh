@@ -8,16 +8,10 @@ set -euo pipefail
 fixture_fail() { echo "script fixture refused: $*" >&2; exit 2; }
 source_path="$1" fixture_path="$2"
 shift 2
-for directory in "$source_path" "$fixture_path"; do
-    case "$directory" in *$'\n'*|*$'\r'*) fixture_fail 'directory contains CR/LF' ;; esac
-done
 source_root="$(CDPATH='' cd -P -- "$source_path" && printf '%s/.' "$PWD")"
 source_root="${source_root%/.}"
 fixture_root="$(CDPATH='' cd -P -- "$fixture_path" && printf '%s/.' "$PWD")"
 fixture_root="${fixture_root%/.}"
-for directory in "$source_root" "$fixture_root"; do
-    case "$directory" in *$'\n'*|*$'\r'*) fixture_fail 'resolved directory contains CR/LF' ;; esac
-done
 case "$source_root/" in "$fixture_root/"*) fixture_fail 'roots overlap' ;; esac
 helper="${BASH_SOURCE[0]}"
 [[ "$helper" == /* ]] || helper="$PWD/$helper"

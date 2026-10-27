@@ -22,19 +22,24 @@ while IFS= read -r -d '' path; do
         echo 'Finish staging that file or preserve its unstaged edits separately, then retry.' >&2
         exit 1
     fi
+    # Gitlinks are opaque commit identities. checkout-index exports no child
+    # worktree, and the hook must neither format nor re-add their contents.
+    entry=''
+    IFS= read -r -d '' entry < <(git --literal-pathspecs ls-files --stage -z -- "$path") || :
+    case "$entry" in 160000\ *) continue ;; esac
     selected[count]="$path"
     count=$((count + 1))
 done < "$snapshot/selected"
 [[ "$count" -gt 0 ]] || exit 0
 bash "$root/scripts/ci/check-make-execution.sh"
 
-# A symlink or submodule's target bytes are not part of this index snapshot.
+# Symlink target bytes are outside the snapshot; submodules remain opaque.
 # Do not let formatting escape into another checkout or the real working tree.
 git ls-files --stage -z > "$snapshot/entries"
 while IFS= read -r -d '' entry; do
     case "$entry" in
-        100644\ *|100755\ *) ;;
-        *) echo 'pre-commit: formatting requires regular tracked files, with no symlinks, submodules or unresolved entries.' >&2; exit 1 ;;
+        100644\ *|100755\ *|160000\ *) ;;
+        *) echo 'pre-commit: formatting requires regular tracked files, with no symlinks or unresolved entries; submodules remain opaque.' >&2; exit 1 ;;
     esac
 done < "$snapshot/entries"
 

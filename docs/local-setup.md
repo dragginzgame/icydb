@@ -30,7 +30,9 @@ retain the actual command and its source context. Product pins remain local.
 
 ## Common setup
 
-From the checkout root, prepare the common executables explicitly:
+Prepare the declared compiler and the consumer's
+[native/system prerequisites](#native-bootstrap-before-cargo-tools) first. Then,
+from the checkout root, prepare the common executables explicitly:
 
 ```bash
 make install-tools
@@ -54,6 +56,44 @@ bootstrap. This is not a compiler/linker qualification or a toolchain upgrade.
 Setup then runs host and Rust installation in that order, followed by declared product tools;
 `tools-check` checks the same sets in order. Each stops at the first failure.
 Sets activate independently: a later failure preserves earlier completed sets.
+
+### Native bootstrap before Cargo tools
+
+System/native setup that changes Cargo build inputs must finish **before**
+`make install-tools`, `make install-rust-tools` or selected Cargo executable
+setup, including the release metadata editor. This includes compiler/linker and
+SDK setup and the consumer's system packages. The
+[standard build identity](#standard-cargo-tool-build-environment) includes native
+compiler/linker digests and Linux package inventory or macOS/Xcode/SDK identity;
+changing those after Cargo setup correctly invalidates the earlier selection.
+
+Keep an explicit sequence in the consumer's existing setup/release-preparation
+adapter:
+
+1. Install required system/native prerequisites and prepare the selected Rust
+   toolchain; admit those prerequisites with the consumer's read-only checker.
+2. Prepare common Shared tools and selected Cargo executables, including the
+   release editor when used.
+3. Prepare browser and other product dependencies that leave the compiler/native
+   environment unchanged. Any step that changes fingerprinted build inputs
+   belongs in the first phase instead.
+4. Run offline tool admission and all other prerequisite checks needed by the
+   actual release gate, then dispatch validation.
+
+OS package lists, supported-host setup and local names such as
+`install-native-tools` / `native-tools-check` remain consumer-owned. The ordered
+`LOCAL_TOOL_INSTALL_TARGETS` list runs **after** the common host/Cargo sets, so it
+is too late for native bootstrap. Do not add unordered prerequisites to shared
+aggregates, replace their recipes or invent another tool catalog. Use the
+[consumer adapter example](make-interface.md#native-bootstrap-adapter).
+
+If system packages, a compiler or an SDK change after preparation and offline
+admission reports “No prepared Cargo tool selection for the current compiler/build
+inputs”, finish native setup and explicitly rerun the affected common/selected
+Cargo setup before checking again. Preserve previous builds and diagnostic
+evidence; do not edit receipts, bypass fingerprints or make a checker install
+packages. `tools-check` admits only its declared common/local tool sets, not every
+native or product prerequisite of a release. The consumer must check those too.
 
 ## Required tool inventory
 

@@ -7,17 +7,22 @@ mod render;
 
 use canic_icydb::wire::Endpoint;
 
-use crate::{cli::CanisterTarget, icp::require_created_canister, observability::call_query};
+use crate::{
+    cli::CanisterTarget,
+    icp::{IcpCallKind, require_created_canister},
+    observability::call_endpoint,
+};
 
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    let report = call_query::<icydb::db::StorageReport>(
+    let report = call_endpoint::<icydb::db::StorageReport>(
         target.environment(),
         target.canister_name(),
         Endpoint::Snapshot,
         (),
         "snapshot",
+        IcpCallKind::Query,
     )?;
     print!("{}", render_snapshot_report(&report));
     Ok(())

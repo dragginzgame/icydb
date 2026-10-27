@@ -701,6 +701,17 @@ its selected snapshot is wired into its own repository. Installing a snapshot
 does not require running every exported upstream test in routine consumer CI or
 adding the complete producer suite to its release gate.
 
+During adoption, inventory prerequisites for **every target in the actual release
+gate**, including nested/native and browser steps. Keep consumer-owned
+system/compiler bootstrap before shared or selected Cargo-tool preparation;
+post-common install extensions cannot supply those earlier prerequisites.
+Wire explicit setup and read-only admission for the full inventory, and qualify
+the real adapter's order and failure stopping using
+[script-boundary substitutes](make-interface.md#hosted-preparation-and-disposable-fixtures).
+Keep [native fingerprint rejection and re-preparation](local-setup.md#native-bootstrap-before-cargo-tools)
+intact; neither a generic tool check nor a substituted ordering fixture proves
+complete native/product acceptance.
+
 | Proof | Owner and selection |
 | --- | --- |
 | Snapshot bytes, modes and declared roots | Consumer: verify every maintained bundle. Integrity alone does not establish caller behavior. |

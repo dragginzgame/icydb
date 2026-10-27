@@ -997,23 +997,11 @@ const fn exact_numeric_scalar(scalar: ScalarType) -> bool {
 }
 
 const fn numeric_scalar(scalar: ScalarType) -> bool {
-    matches!(
-        scalar,
-        ScalarType::Decimal { .. }
-            | ScalarType::Float32
-            | ScalarType::Float64
-            | ScalarType::Int8
-            | ScalarType::Int16
-            | ScalarType::Int32
-            | ScalarType::Int64
-            | ScalarType::Int128
-            | ScalarType::Nat8
-            | ScalarType::Nat16
-            | ScalarType::Nat32
-            | ScalarType::Nat64
-            | ScalarType::Nat128
-            | ScalarType::U256
-    )
+    exact_numeric_scalar(scalar)
+        || matches!(
+            scalar,
+            ScalarType::Float32 | ScalarType::Float64 | ScalarType::U256
+        )
 }
 
 fn collect_named_type_references(r#type: &NamedTypeFragment, references: &mut ProposalReferences) {

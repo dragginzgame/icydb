@@ -563,23 +563,7 @@ const fn value_is_scalar_literal_supported(value: &Value) -> bool {
 
 // Admit only index-encodable single values into direct index comparisons.
 const fn value_is_index_literal(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Blob(_)
-            | Value::Bool(_)
-            | Value::Date(_)
-            | Value::Duration(_)
-            | Value::Float32(_)
-            | Value::Float64(_)
-            | Value::Int64(_)
-            | Value::Principal(_)
-            | Value::Subaccount(_)
-            | Value::Text(_)
-            | Value::Timestamp(_)
-            | Value::Nat64(_)
-            | Value::Ulid(_)
-            | Value::Unit
-    )
+    !matches!(value, Value::Null) && value_is_scalar_literal_supported(value)
 }
 
 // `IN`/`NOT IN` index compares require a non-empty all-literal list.

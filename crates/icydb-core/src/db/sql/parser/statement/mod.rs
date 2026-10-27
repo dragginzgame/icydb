@@ -14,10 +14,11 @@ mod update;
 use crate::db::sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::db::{
     sql::parser::{
-        Parser, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement, SqlOrderTerm,
-        SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
-        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
-        SqlShowRelationsStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+        Parser, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement, SqlExpr, SqlOrderTerm,
+        SqlReturningProjection, SqlSelectStatement, SqlShowColumnsStatement,
+        SqlShowConstraintsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+        SqlShowMemoryStatement, SqlShowRelationsStatement, SqlShowStoresStatement, SqlStatement,
+        SqlUpdateStatement,
     },
     sql_shared::{
         Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError,
@@ -106,6 +107,32 @@ impl Parser {
             limit,
             offset,
         })
+    }
+
+    // UPDATE assignments and DELETE's FROM prefix stay with their statement
+    // owners; the shared suffix preserves WHERE -> window -> RETURNING order.
+    fn parse_write_tail(
+        &mut self,
+    ) -> Result<
+        (
+            Option<SqlExpr>,
+            SqlOrderedWindowSuffix,
+            Option<SqlReturningProjection>,
+        ),
+        SqlParseError,
+    > {
+        let predicate = if self.eat_keyword(Keyword::Where) {
+            Some(self.parse_where_expr()?)
+        } else {
+            None
+        };
+        let window = self.parse_order_limit_offset_clauses()?;
+        let returning = if self.eat_keyword(Keyword::Returning) {
+            Some(self.parse_returning_projection()?)
+        } else {
+            None
+        };
+        Ok((predicate, window, returning))
     }
 
     // Classify one trailing token as a likely out-of-order clause mistake so

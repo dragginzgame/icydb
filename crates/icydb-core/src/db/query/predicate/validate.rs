@@ -116,30 +116,29 @@ fn validate_compare_fields(
     let left_type = ensure_field(schema, &cmp.left_field)?;
     let right_type = ensure_field(schema, &cmp.right_field)?;
 
-    if !cmp.op.supports_field_compare() {
-        Err(ValidateError::invalid_operator(
+    let supported = cmp.op.supports_field_compare()
+        && if cmp.op.is_equality_family() {
+            field_types_support_field_compare_eq_ne(left_type.as_ref(), right_type.as_ref())
+        } else {
+            left_type
+                .as_ref()
+                .field_ordering_coercion(right_type.as_ref())
+                .is_some()
+        };
+    if !supported {
+        return Err(ValidateError::invalid_operator(
             &cmp.left_field,
             SchemaValidationOperator::compare_field(cmp.op, &cmp.right_field),
-        ))
-    } else if cmp.op.is_equality_family() {
-        validate_compare_fields_eq_ne(
-            &cmp.left_field,
-            left_type.as_ref(),
-            &cmp.right_field,
-            right_type.as_ref(),
-            &cmp.coercion,
-            cmp.op,
-        )
-    } else {
-        validate_compare_fields_ordering(
-            &cmp.left_field,
-            left_type.as_ref(),
-            &cmp.right_field,
-            right_type.as_ref(),
-            &cmp.coercion,
-            cmp.op,
-        )
+        ));
     }
+    // Preserve operator/pair refusal before checking the authored coercion.
+    if !compare_fields_coercion_supported(left_type.as_ref(), right_type.as_ref(), &cmp.coercion) {
+        return Err(ValidateError::InvalidCoercion {
+            field: cmp.left_field.clone(),
+            coercion: cmp.coercion.id,
+        });
+    }
+    Ok(())
 }
 
 fn validate_eq_ne(
@@ -155,31 +154,6 @@ fn validate_eq_ne(
     }
 
     ensure_coercion(field, field_type, value, coercion)
-}
-
-fn validate_compare_fields_eq_ne(
-    left_field: &str,
-    left_type: &FieldType,
-    right_field: &str,
-    right_type: &FieldType,
-    coercion: &CoercionSpec,
-    op: CompareOp,
-) -> Result<(), ValidateError> {
-    if !field_types_support_field_compare_eq_ne(left_type, right_type) {
-        return Err(ValidateError::invalid_operator(
-            left_field,
-            SchemaValidationOperator::compare_field(op, right_field),
-        ));
-    }
-
-    if !compare_fields_coercion_supported(left_type, right_type, coercion) {
-        return Err(ValidateError::InvalidCoercion {
-            field: left_field.to_string(),
-            coercion: coercion.id,
-        });
-    }
-
-    Ok(())
 }
 
 fn validate_ordering(
@@ -206,31 +180,6 @@ fn validate_ordering(
     ensure_scalar_literal(field, value)?;
 
     ensure_coercion(field, field_type, value, coercion)
-}
-
-fn validate_compare_fields_ordering(
-    left_field: &str,
-    left_type: &FieldType,
-    right_field: &str,
-    right_type: &FieldType,
-    coercion: &CoercionSpec,
-    op: CompareOp,
-) -> Result<(), ValidateError> {
-    if left_type.field_ordering_coercion(right_type).is_none() {
-        return Err(ValidateError::invalid_operator(
-            left_field,
-            SchemaValidationOperator::compare_field(op, right_field),
-        ));
-    }
-
-    if !compare_fields_coercion_supported(left_type, right_type, coercion) {
-        return Err(ValidateError::InvalidCoercion {
-            field: left_field.to_string(),
-            coercion: coercion.id,
-        });
-    }
-
-    Ok(())
 }
 
 /// Validate list membership predicates.

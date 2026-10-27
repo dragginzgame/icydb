@@ -152,29 +152,26 @@ impl Parser {
     }
 
     fn parse_u32_literal(&mut self, clause: SqlIntegerLiteralClause) -> Result<u32, SqlParseError> {
-        let Some(TokenKind::Number(value)) = self.peek_kind() else {
-            return Err(SqlParseError::expected(
-                SqlExpectedToken::IntegerLiteral { clause },
-                self.peek_kind(),
-            ));
-        };
-        let value = value.as_str();
-
-        if value.contains('.') || value.starts_with('-') {
-            return Err(SqlParseError::invalid_syntax(
-                SqlSyntaxErrorKind::IntegerLiteralRequiresNonNegative { clause },
-            ));
-        }
-
-        let parsed = value.parse::<u32>().map_err(|_| {
-            SqlParseError::invalid_syntax(SqlSyntaxErrorKind::IntegerLiteralU32Overflow { clause })
-        })?;
-        self.cursor.advance();
-
-        Ok(parsed)
+        self.parse_integer_literal(
+            clause,
+            SqlSyntaxErrorKind::IntegerLiteralU32Overflow { clause },
+        )
     }
 
     fn parse_u64_literal(&mut self, clause: SqlIntegerLiteralClause) -> Result<u64, SqlParseError> {
+        self.parse_integer_literal(
+            clause,
+            SqlSyntaxErrorKind::IntegerLiteralU64Overflow { clause },
+        )
+    }
+
+    // Keep admission and cursor advancement identical across integer widths;
+    // callers retain the clause-specific overflow diagnostic.
+    fn parse_integer_literal<T: std::str::FromStr>(
+        &mut self,
+        clause: SqlIntegerLiteralClause,
+        overflow: SqlSyntaxErrorKind,
+    ) -> Result<T, SqlParseError> {
         let Some(TokenKind::Number(value)) = self.peek_kind() else {
             return Err(SqlParseError::expected(
                 SqlExpectedToken::IntegerLiteral { clause },
@@ -182,18 +179,15 @@ impl Parser {
             ));
         };
         let value = value.as_str();
-
         if value.contains('.') || value.starts_with('-') {
             return Err(SqlParseError::invalid_syntax(
                 SqlSyntaxErrorKind::IntegerLiteralRequiresNonNegative { clause },
             ));
         }
-
-        let parsed = value.parse::<u64>().map_err(|_| {
-            SqlParseError::invalid_syntax(SqlSyntaxErrorKind::IntegerLiteralU64Overflow { clause })
-        })?;
+        let parsed = value
+            .parse()
+            .map_err(|_| SqlParseError::invalid_syntax(overflow))?;
         self.cursor.advance();
-
         Ok(parsed)
     }
 

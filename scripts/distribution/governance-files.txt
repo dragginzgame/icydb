@@ -51,6 +51,7 @@ docs/provenance.md
 docs/verification-helpers.md
 docs/ic-tools.md
 docs/local-setup.md
+docs/node-tools.md
 docs/make-interface.md
 ci/ic-tools.tsv
 ci/tool-versions.env

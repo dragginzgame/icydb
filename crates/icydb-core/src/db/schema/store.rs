@@ -1318,20 +1318,12 @@ impl SchemaStore {
         field_id: FieldId,
         accepted_kind: &AcceptedFieldKind,
     ) -> Result<IdentityStatementCursor, InternalError> {
-        let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
-        let raw = self
-            .get_raw_value(&key)
-            .ok_or_else(InternalError::identity_state_corruption)?;
-        let state = decode_identity_state(raw.as_bytes())?;
-        let owner = state.owner();
-        if owner.database_incarnation_id() != database_incarnation_id
-            || owner.entity_tag() != entity_tag
-            || owner.field_id() != field_id
-            || state.accepted_kind() != accepted_kind
-            || state.lifecycle() != IdentityStateLifecycle::Active
-        {
-            return Err(InternalError::identity_state_corruption());
-        }
+        let state = self.active_identity_state(
+            database_incarnation_id,
+            entity_tag,
+            field_id,
+            accepted_kind,
+        )?;
         IdentityStatementCursor::from_active_state(&state)
     }
 
@@ -1343,21 +1335,31 @@ impl SchemaStore {
         field_id: FieldId,
         accepted_kind: &AcceptedFieldKind,
     ) -> Result<u128, InternalError> {
-        let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
-        let raw = self
-            .get_raw_value(&key)
-            .ok_or_else(InternalError::identity_state_corruption)?;
-        let state = decode_identity_state(raw.as_bytes())?;
-        let owner = state.owner();
-        if owner.database_incarnation_id() != database_incarnation_id
-            || owner.entity_tag() != entity_tag
-            || owner.field_id() != field_id
-            || state.accepted_kind() != accepted_kind
+        self.active_identity_state(database_incarnation_id, entity_tag, field_id, accepted_kind)
+            .map(|state| state.materialized_high_water())
+    }
+
+    // Both statement allocation and inspection require the exact same active
+    // owner and accepted kind; the existing owner loader owns persisted decoding.
+    fn active_identity_state(
+        &self,
+        database_incarnation_id: DatabaseIncarnationId,
+        entity_tag: EntityTag,
+        field_id: FieldId,
+        accepted_kind: &AcceptedFieldKind,
+    ) -> Result<IdentityState, InternalError> {
+        let owner = crate::db::schema::identity_state::IdentityStateOwner::try_new(
+            database_incarnation_id,
+            entity_tag,
+            field_id,
+        )?;
+        let state = self.identity_state_for_owner(owner, IdentityStateStorageView::Effective)?;
+        if state.accepted_kind() != accepted_kind
             || state.lifecycle() != IdentityStateLifecycle::Active
         {
             return Err(InternalError::identity_state_corruption());
         }
-        Ok(state.materialized_high_water())
+        Ok(state)
     }
 
     /// Revalidate one tentative range against the quiescent effective state.
@@ -2125,20 +2127,7 @@ impl SchemaStore {
         let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
-        if bundle.store_path() != registered_store_path {
-            return Err(InternalError::store_corruption());
-        }
-        let Some(snapshot) = bundle.entity_snapshots().get(&entity_tag) else {
-            return Ok(None);
-        };
-
-        AcceptedRuntimeEntity::from_accepted_snapshot(
-            &bundle,
-            entity_tag,
-            snapshot,
-            registered_store_path,
-        )
-        .map(Some)
+        Self::runtime_entity_for_tag_in_bundle(&bundle, registered_store_path, entity_tag)
     }
 
     /// Resolve one entity tag from the canonical accepted predecessor.
@@ -2150,15 +2139,24 @@ impl SchemaStore {
         let Some(bundle) = self.current_canonical_accepted_schema_bundle()? else {
             return Ok(None);
         };
+        Self::runtime_entity_for_tag_in_bundle(&bundle, registered_store_path, entity_tag)
+    }
+
+    // The bundle source owns current/canonical visibility. Resolution enforces
+    // the registered store identity identically for either immutable bundle.
+    fn runtime_entity_for_tag_in_bundle(
+        bundle: &AcceptedSchemaRevisionBundle,
+        registered_store_path: &'static str,
+        entity_tag: EntityTag,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
         if bundle.store_path() != registered_store_path {
             return Err(InternalError::store_corruption());
         }
         let Some(snapshot) = bundle.entity_snapshots().get(&entity_tag) else {
             return Ok(None);
         };
-
         AcceptedRuntimeEntity::from_accepted_snapshot(
-            &bundle,
+            bundle,
             entity_tag,
             snapshot,
             registered_store_path,
@@ -2186,27 +2184,9 @@ impl SchemaStore {
         let Some(bundle) = self.current_canonical_accepted_schema_bundle()? else {
             return Ok(None);
         };
-        if bundle.store_path() != registered_store_path {
-            return Err(InternalError::store_corruption());
-        }
-
-        let mut matched = None;
-        for (entity_tag, snapshot) in bundle.entity_snapshots() {
-            if snapshot.entity_path() != entity_path {
-                continue;
-            }
-            let entity = AcceptedRuntimeEntity::from_accepted_snapshot(
-                &bundle,
-                *entity_tag,
-                snapshot,
-                registered_store_path,
-            )?;
-            if matched.replace(entity).is_some() {
-                return Err(InternalError::store_corruption());
-            }
-        }
-
-        Ok(matched)
+        Self::runtime_entity_matching_in_bundle(&bundle, registered_store_path, |path, _| {
+            path == entity_path
+        })
     }
 
     /// Resolve one accepted entity display name without materializing the full store catalog.
@@ -2224,11 +2204,21 @@ impl SchemaStore {
     fn current_accepted_runtime_entity_matching(
         &self,
         registered_store_path: &'static str,
-        mut predicate: impl FnMut(&str, &str) -> bool,
+        predicate: impl FnMut(&str, &str) -> bool,
     ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
         let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
+        Self::runtime_entity_matching_in_bundle(&bundle, registered_store_path, predicate)
+    }
+
+    // Reject ambiguous matches in the selected bundle rather than letting
+    // current and canonical path/name readers choose different snapshots.
+    fn runtime_entity_matching_in_bundle(
+        bundle: &AcceptedSchemaRevisionBundle,
+        registered_store_path: &'static str,
+        mut predicate: impl FnMut(&str, &str) -> bool,
+    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
         if bundle.store_path() != registered_store_path {
             return Err(InternalError::store_corruption());
         }
@@ -2239,7 +2229,7 @@ impl SchemaStore {
                 continue;
             }
             let entity = AcceptedRuntimeEntity::from_accepted_snapshot(
-                &bundle,
+                bundle,
                 *entity_tag,
                 snapshot,
                 registered_store_path,

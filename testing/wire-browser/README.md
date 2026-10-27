@@ -65,10 +65,19 @@ The second installed subject reuses the maintained source/successor checked-cast
 migration fixture. Chromium reads a real rejected migration, verifies its nonempty
 byte-buffer key and identical retry frames, and Rust re-decodes both replies and
 compares their complete status with the native fixture's retained finding.
-`make test-wire-browser` runs both subjects. Populated physical-integrity findings
-still need a disposable corruption fixture
-([#448](https://github.com/dragginzgame/icydb/issues/448)); generated/native vectors
-alone do not qualify that installed path.
+The third installed subject uses the same SQL actor's trusted catalogue seed and
+bounded update endpoint. It drains fixture maintenance and requires a clean Deep
+inspection before taking a Platform canister snapshot. A bounded search changes
+one byte of known fixture text per restored snapshot; only a native physical
+`InvalidFieldValue` finding for that field selects the corrupted instance. This
+avoids hard-coded allocator/B-tree offsets, journal corruption and a production
+corruption endpoint. The browser reads the retained page twice, checks nonempty
+physical and optional primary-key `Uint8Array` values and exact retry frames;
+Rust re-decodes every actual frame and compares the complete native page. An
+absent-primary-key codec control is reported separately from installed replies
+and checked natively; it does not claim an installed malformed-key finding.
+`make test-wire-browser` runs all three subjects
+([#448 — Qualify populated integrity and migration findings in Chromium](https://github.com/dragginzgame/icydb/issues/448)).
 
 ## Synchronous reply failures
 

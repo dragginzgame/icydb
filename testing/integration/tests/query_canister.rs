@@ -452,13 +452,8 @@ fn native_wire_browser_qualifies_the_installed_endpoint_roster() {
             vec![Principal::anonymous(), caller],
         )
         .unwrap();
-    let (instance, canister) = fixture.into_parts();
-    let (client, server) = instance.into_parts();
-    // Gateway setup needs mutable client ownership. Retain the server before
-    // declaring the client so return and unwinding delete the client first.
-    let _server = server;
-    let mut client = client;
-    let gateway = client.make_live(None);
+    let (mut instance, canister) = fixture.into_parts();
+    let gateway = instance.instance_mut().make_live(None);
     let report = root.join("target/wire-browser/installed-report.json");
     let status = Command::new("node")
         .arg(browser.join("installed.mjs"))
@@ -478,6 +473,217 @@ fn native_wire_browser_qualifies_the_installed_endpoint_roster() {
         let response: Vec<u8> = serde_json::from_value(frame["response"].clone()).unwrap();
         qualify_native_browser_frame(endpoint, &request, &response);
     }
+}
+
+#[test]
+#[ignore = "requires prepared pinned Node/browser dependencies and the governed PocketIC server"]
+fn native_wire_browser_qualifies_physical_integrity_findings() {
+    use icydb::db::{IntegrityCheckResult, IntegrityJobReceipt, SqlIntegrityError};
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let browser = root.join("testing/wire-browser");
+    let identity = Command::new("node")
+        .arg(browser.join("installed.mjs"))
+        .arg("--identity")
+        .output()
+        .unwrap();
+    assert!(identity.status.success());
+    let caller = Principal::from_text(String::from_utf8(identity.stdout).unwrap().trim()).unwrap();
+    let (fixture, sql, expected) = physical_integrity_fixture(caller);
+    let (mut instance, canister) = fixture.into_parts();
+    let gateway = instance.instance_mut().make_live(None);
+    let report = root.join("target/wire-browser/integrity-findings-report.json");
+    let status = Command::new("node")
+        .arg(browser.join("installed.mjs"))
+        .arg(gateway.as_str())
+        .arg(canister.to_text())
+        .arg(&report)
+        .arg("integrity-findings")
+        .arg(&sql)
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "installed Chromium physical finding caller"
+    );
+    let report: serde_json::Value = serde_json::from_slice(&fs::read(report).unwrap()).unwrap();
+    let frames = report["frames"].as_array().unwrap();
+    assert_eq!(frames.len(), 2);
+    for frame in frames {
+        assert_eq!(frame["method"], "icydb_integrity");
+        let request: Vec<u8> = serde_json::from_value(frame["request"].clone()).unwrap();
+        let response: Vec<u8> = serde_json::from_value(frame["response"].clone()).unwrap();
+        qualify_native_browser_frame(Endpoint::Integrity, &request, &response);
+        let decoded: String = Endpoint::Integrity
+            .decode_request(
+                &request,
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .unwrap();
+        assert_eq!(decoded, sql);
+        let decoded: Result<IntegrityCheckResult, SqlIntegrityError> = Endpoint::Integrity
+            .decode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+            .unwrap();
+        assert_eq!(
+            decoded.unwrap(),
+            IntegrityCheckResult::Deep(IntegrityJobReceipt::Page(expected.clone()))
+        );
+    }
+    // This is a codec control, not a third installed reply: only optional-byte
+    // presence differs from the actual retained page above.
+    let absent: Vec<u8> =
+        serde_json::from_value(report["absentPrimaryKeyResponse"].clone()).unwrap();
+    let request: Vec<u8> = serde_json::from_value(frames[0]["request"].clone()).unwrap();
+    qualify_native_browser_frame(Endpoint::Integrity, &request, &absent);
+    let decoded: Result<IntegrityCheckResult, SqlIntegrityError> = Endpoint::Integrity
+        .decode_response(&absent, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
+        .unwrap();
+    let IntegrityCheckResult::Deep(IntegrityJobReceipt::Page(page)) = decoded.unwrap() else {
+        panic!("optional-byte control must retain the Deep page");
+    };
+    let mut expected = serde_json::to_value(expected).unwrap();
+    expected["findings"][0]["primary_key"] = serde_json::Value::Null;
+    assert_eq!(serde_json::to_value(page).unwrap(), expected);
+}
+
+/// Own the disposable fault and require its native finding before browser access.
+fn physical_integrity_fixture(
+    caller: Principal,
+) -> (
+    StandaloneCanisterFixture,
+    String,
+    icydb::db::DeepIntegrityPage,
+) {
+    use ic_platform::pocket_ic::common::rest::BlobCompression;
+    use icydb::db::{
+        IntegrityCheckError, IntegrityFindingKind, IntegrityVerifierFamily, SqlIntegrityError,
+        sql::SqlQueryResult,
+    };
+
+    let wasm = icydb_testing_build::build_fixture_variant_wasm_with_profile(
+        "canister_test_sql",
+        "local-sql-query,test-admin-api,schema-migration-api",
+        "wire-browser",
+        CanisterWasmProfile::WasmRelease,
+    )
+    .unwrap();
+    let fixture = install_prebuilt_fixture_canister("sql", wasm);
+    let pic = fixture.pocket_ic();
+    let canister = fixture.canister_id();
+    pic.set_controllers(canister, None, vec![Principal::anonymous(), caller])
+        .unwrap();
+    let seeded: Result<(), icydb::Error> = pic
+        .update_wire(canister, "seed_catalog_workload", (0_u32, 16_u32))
+        .unwrap();
+    seeded.unwrap();
+    let marker = "browser-integrity-description-448";
+    let updated: Result<SqlQueryResult, icydb::Error> = pic
+        .update_wire(
+            canister,
+            "icydb_update",
+            format!("UPDATE SqlTestCatalogItem SET description = '{marker}' WHERE id = 1"),
+        )
+        .unwrap();
+    updated.unwrap();
+    // Seeding publishes separate journal batches. Finish the bounded fixture
+    // backlog before capturing a proof that must remain unchanged across calls.
+    for _ in 0..2 {
+        icydb_testing_integration::deliver_fixture_startup_watchdog(pic);
+    }
+    let (_, clean) = physical_integrity_observation(&fixture, caller, "browser-clean-448").unwrap();
+    assert!(clean.findings().is_empty());
+    assert_eq!(
+        clean.status(),
+        &icydb::db::DeepIntegrityPageStatus::Terminal(
+            icydb::db::IntegrityTerminalOutcome::DeepCompleteClean,
+        )
+    );
+
+    // The opaque stable image includes retired/journal copies of the marker.
+    // Restore the same heap and stable state before each bounded, single-byte
+    // trial. Only native proof of the intended physical finding selects a trial;
+    // this fixture never interprets allocator, journal or B-tree layouts.
+    pic.stop_canister(canister, None).unwrap();
+    let snapshot = pic.take_canister_snapshot(canister, None, None).unwrap();
+    let stable = pic.get_stable_memory(canister);
+    let offsets: Vec<_> = stable
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, bytes)| (bytes == marker.as_bytes()).then_some(offset))
+        .collect();
+    assert!(
+        !offsets.is_empty() && offsets.len() <= 16,
+        "bounded fixture marker copies"
+    );
+    let mut selected = None;
+    for offset in offsets {
+        pic.load_canister_snapshot(canister, None, snapshot.id.clone())
+            .unwrap();
+        let mut corrupt = stable.clone();
+        corrupt[offset] = 0xff;
+        pic.set_stable_memory(canister, corrupt, BlobCompression::NoCompression);
+        pic.start_canister(canister, None).unwrap();
+        match physical_integrity_observation(&fixture, caller, "browser-finding-448") {
+            Ok((sql, page))
+                if page.findings().len() == 1
+                    && page.findings()[0].kind() == IntegrityFindingKind::InvalidFieldValue
+                    && page.findings()[0].verifier_family()
+                        == IntegrityVerifierFamily::FieldValue
+                    && page.findings()[0].field_paths() == ["description"] =>
+            {
+                selected = Some((sql, page));
+                break;
+            }
+            // Other copies may be retired or protected journal bytes. Neither
+            // a clean traversal nor a typed corruption refusal proves this row.
+            Ok(_) => {}
+            Err(SqlIntegrityError::Integrity(IntegrityCheckError::Database(error)))
+                if error.code() == icydb::ErrorCode::STORE_CORRUPTION => {}
+            Err(error) => panic!("unexpected fixture inspection error: {error:?}"),
+        }
+        pic.stop_canister(canister, None).unwrap();
+    }
+    let (sql, expected) = selected.expect("one single-byte trial must identify the physical row");
+    pic.delete_canister_snapshot(canister, None, snapshot.id)
+        .unwrap();
+    let finding = &expected.findings()[0];
+    assert!(!finding.physical_key().is_empty());
+    assert!(!finding.primary_key().unwrap().is_empty());
+
+    (fixture, sql, expected)
+}
+
+/// Advance to the first populated physical page or a terminal control result.
+fn physical_integrity_observation(
+    fixture: &StandaloneCanisterFixture,
+    caller: Principal,
+    submission: &str,
+) -> Result<(String, icydb::db::DeepIntegrityPage), icydb::db::SqlIntegrityError> {
+    use icydb::db::{
+        DeepIntegrityPageStatus, IntegrityCheckResult, IntegrityJobReceipt, SqlIntegrityError,
+    };
+
+    let mut sql = format!("CHECK INTEGRITY SqlTestCatalogItem DEEP START '{submission}'");
+    for _ in 0..32 {
+        let result: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
+            .pocket_ic()
+            .update_wire_as(fixture.canister_id(), caller, "icydb_integrity", &sql)
+            .unwrap();
+        let IntegrityCheckResult::Deep(IntegrityJobReceipt::Page(page)) = result? else {
+            panic!("Deep inspection page");
+        };
+        if !page.findings().is_empty()
+            || matches!(page.status(), DeepIntegrityPageStatus::Terminal(_))
+        {
+            return Ok((sql, page));
+        }
+        sql = format!(
+            "CHECK INTEGRITY DEEP CONTINUE '{}' AFTER {}",
+            page.job_id().to_hex(),
+            page.page_sequence(),
+        );
+    }
+    panic!("bounded fixture inspection must produce a finding or finish");
 }
 
 fn qualify_native_browser_frame(

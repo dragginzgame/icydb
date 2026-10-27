@@ -5,6 +5,51 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.286.2]
+
+### 🔧 Changed
+
+- Adopt published IC Build/Host/Testkit 0.69.3 and Shared Tooling 0.27.2;
+  retain portable scanner and formatting qualification
+  ([#476](https://github.com/dragginzgame/icydb/issues/476)).
+
+### 🩹 Fixed
+
+- Qualify populated physical-integrity finding bytes and exact retained-page
+  retries through installed Chromium and native decoding
+  ([#448 — Qualify populated integrity and migration findings in Chromium](https://github.com/dragginzgame/icydb/issues/448)).
+
+- Reject malformed ICP inventories and principal IDs, bound read-only command
+  capture and escape external terminal diagnostics
+  ([PR #471](https://github.com/dragginzgame/icydb/pull/471)).
+
+- Bound update RPC capture with supervised cleanup and a five-minute deadline;
+  report interrupted or undecodable replies as uncertain without retrying
+  ([#472](https://github.com/dragginzgame/icydb/issues/472)).
+
+- Charge filtered-index DDL normalization to the existing mutation construction
+  budget and retain typed exhaustion diagnostics
+  ([#76](https://github.com/dragginzgame/icydb/issues/76), partial).
+
+### 🧹 Cleanup
+
+- Consolidate duplicated parsing, validation, entity-routing, index membership,
+  range-bound and storage-overlay logic, stream collection and store-cell templates
+  ([individual issue notes](docs/changelog/0.286.md)).
+
+- Consolidate observability RPC request/reply handling while preserving distinct
+  query/update dispatch and uncertain update outcomes
+  ([#500 — Observatory calls repeat the same request](https://github.com/dragginzgame/icydb/issues/500)).
+
+- Keep the generic GitHub CI-inspection regression matrix with Shared Tooling;
+  retain IcyDB's actual workflow and release-adapter checks
+  ([#474](https://github.com/dragginzgame/icydb/issues/474)).
+- Use an IC Tooling-generated gzip fixture for Wasm report custody checks,
+  removing the test's independent encoder invocation
+  ([#475](https://github.com/dragginzgame/icydb/issues/475)).
+
+See [detailed notes](docs/changelog/0.286.md).
+
 ## [0.286.1] - 2026-10-27
 
 ### 🔧 Changed

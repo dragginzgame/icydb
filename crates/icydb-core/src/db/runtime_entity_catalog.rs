@@ -18,6 +18,7 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
         registry::{StoreHandle, StoreRecoveryCapability},
         relation::RelationCommitBudget,
+        schema::SchemaStore,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -283,19 +284,9 @@ fn find_canonical_runtime_entity_for_tag<C: CanisterKind>(
     db: &Db<C>,
     entity_tag: EntityTag,
 ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
-    let mut matched = None;
-    for (store_path, store) in sorted_registered_stores(db) {
-        if store.storage_capabilities().recovery()
-            != StoreRecoveryCapability::StableBasePlusJournalReplay
-        {
-            continue;
-        }
-        let entity = store.with_schema(|schema| {
-            schema.current_canonical_accepted_runtime_entity_for_tag(store_path, entity_tag)
-        })?;
-        merge_unique_entity_match(&mut matched, entity)?;
-    }
-    Ok(matched)
+    find_canonical_runtime_entity(db, |schema, store_path| {
+        schema.current_canonical_accepted_runtime_entity_for_tag(store_path, entity_tag)
+    })
 }
 
 pub(in crate::db) fn accepted_runtime_entity_for_path<C: CanisterKind>(
@@ -318,6 +309,17 @@ fn find_canonical_runtime_entity_for_path<C: CanisterKind>(
     db: &Db<C>,
     entity_path: &str,
 ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
+    find_canonical_runtime_entity(db, |schema, store_path| {
+        schema.current_canonical_accepted_runtime_entity_for_path(store_path, entity_path)
+    })
+}
+
+// Only canonical predecessor reads exclude non-journaled stores. Keep the
+// effective accepted lookup separate so its store visibility cannot narrow.
+fn find_canonical_runtime_entity<C: CanisterKind>(
+    db: &Db<C>,
+    lookup: impl Fn(&SchemaStore, &'static str) -> Result<Option<AcceptedRuntimeEntity>, InternalError>,
+) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
     let mut matched = None;
     for (store_path, store) in sorted_registered_stores(db) {
         if store.storage_capabilities().recovery()
@@ -325,9 +327,7 @@ fn find_canonical_runtime_entity_for_path<C: CanisterKind>(
         {
             continue;
         }
-        let entity = store.with_schema(|schema| {
-            schema.current_canonical_accepted_runtime_entity_for_path(store_path, entity_path)
-        })?;
+        let entity = store.with_schema(|schema| lookup(schema, store_path))?;
         merge_unique_entity_match(&mut matched, entity)?;
     }
     Ok(matched)
@@ -602,5 +602,16 @@ mod tests {
         assert_eq!(by_tag.entity_path(), ENTITY_PATH);
         assert_eq!(by_tag.store_path(), STORE_PATH);
         assert_eq!(enumerated, vec![by_tag]);
+        // Effective routing includes this heap-backed store; canonical replay
+        // routing must continue to exclude it for both lookup identities.
+        for result in [
+            super::canonical_runtime_entity_for_tag(&db, entity_tag),
+            super::canonical_runtime_entity_for_path(&db, ENTITY_PATH),
+        ] {
+            assert_eq!(
+                result.unwrap_err().class(),
+                crate::error::ErrorClass::Corruption
+            );
+        }
     }
 }

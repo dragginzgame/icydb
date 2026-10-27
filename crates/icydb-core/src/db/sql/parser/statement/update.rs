@@ -18,21 +18,7 @@ impl Parser {
         self.expect_identifier_keyword("SET")?;
         let assignments = self.parse_update_assignments()?;
 
-        // Phase 1: parse the reduced predicate before any bounded windowing.
-        let predicate = if self.eat_keyword(Keyword::Where) {
-            Some(self.parse_where_expr()?)
-        } else {
-            None
-        };
-
-        // Phase 2: parse the bounded ordered window admitted on the narrowed
-        // SQL UPDATE lane.
-        let window = self.parse_order_limit_offset_clauses()?;
-        let returning = if self.eat_keyword(Keyword::Returning) {
-            Some(self.parse_returning_projection()?)
-        } else {
-            None
-        };
+        let (predicate, window, returning) = self.parse_write_tail()?;
 
         Ok(SqlUpdateStatement {
             entity,

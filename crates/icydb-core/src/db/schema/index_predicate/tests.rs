@@ -71,7 +71,13 @@ fn issue_field_ordering_parsed_predicates_survive_codec_and_nulls() {
             ("left BETWEEN left AND right", true),
             ("left NOT BETWEEN left AND right", false),
         ] {
-            let predicate = P::bind(&parse_sql_predicate(sql).unwrap(), &base, &catalog()).unwrap();
+            let predicate = P::bind(
+                &parse_sql_predicate(sql).unwrap(),
+                &base,
+                &catalog(),
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+            )
+            .unwrap();
             let stored = with_predicate(&base, predicate.clone());
             let bytes = encode_persisted_schema_snapshot(&stored).unwrap();
             let decoded = decode_persisted_schema_snapshot(&bytes).unwrap();
@@ -147,7 +153,13 @@ fn issue_field_ordering_rejects_unsupported_pairs_and_coercions() {
             "right",
             coercion,
         ));
-        let bound = P::bind(&predicate, &base, &catalog()).unwrap();
+        let bound = P::bind(
+            &predicate,
+            &base,
+            &catalog(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+        )
+        .unwrap();
         let executable = bound.to_predicate(base.fields(), &catalog()).unwrap();
         assert!(matches!(
             crate::db::query::predicate::validate_predicate(&schema, &executable),
@@ -277,7 +289,13 @@ fn frontend_numeric_admission_preserves_strict_types_and_widened_operands() {
         ("left > -1", Value::Null, false),
         ("left NOT IN (3, NULL)", Value::Nat64(4), true),
     ] {
-        let predicate = P::bind(&parse_sql_predicate(sql).unwrap(), &base, &catalog()).unwrap();
+        let predicate = P::bind(
+            &parse_sql_predicate(sql).unwrap(),
+            &base,
+            &catalog(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+        )
+        .unwrap();
         assert_eq!(
             evaluate(&with_predicate(&base, predicate), &value),
             expected,
@@ -289,6 +307,7 @@ fn frontend_numeric_admission_preserves_strict_types_and_widened_operands() {
         &parse_sql_predicate("left < 1000").unwrap(),
         &base,
         &catalog(),
+        &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
     )
     .unwrap();
     assert!(evaluate(
@@ -304,6 +323,7 @@ fn accepted_identity_survives_unrelated_chained_and_swapped_renames() {
         &parse_sql_predicate("left = right").unwrap(),
         &base,
         &catalog(),
+        &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
     )
     .unwrap();
     let original = predicate.canonical_bytes().unwrap();
@@ -328,10 +348,15 @@ fn accepted_identity_survives_unrelated_chained_and_swapped_renames() {
             fields,
         );
         assert_eq!(
-            P::bind(&projected, &renamed, &catalog())
-                .unwrap()
-                .canonical_bytes()
-                .unwrap(),
+            P::bind(
+                &projected,
+                &renamed,
+                &catalog(),
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new()
+            )
+            .unwrap()
+            .canonical_bytes()
+            .unwrap(),
             original
         );
         assert_ne!(
@@ -346,7 +371,13 @@ fn accepted_identity_survives_unrelated_chained_and_swapped_renames() {
         "left = right AND left = right",
     ] {
         assert_eq!(
-            P::bind(&parse_sql_predicate(sql).unwrap(), &base, &catalog()).unwrap(),
+            P::bind(
+                &parse_sql_predicate(sql).unwrap(),
+                &base,
+                &catalog(),
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new()
+            )
+            .unwrap(),
             predicate
         );
     }
@@ -361,7 +392,13 @@ fn frontend_rejects_bad_roots_before_simplification_and_preserves_casefold_polic
         "left = 'a' AND left = 'b' AND missing IS NULL",
     ] {
         assert!(
-            P::bind(&parse_sql_predicate(sql).unwrap(), &base, &catalog()).is_err(),
+            P::bind(
+                &parse_sql_predicate(sql).unwrap(),
+                &base,
+                &catalog(),
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new()
+            )
+            .is_err(),
             "{sql}"
         );
     }
@@ -370,7 +407,13 @@ fn frontend_rejects_bad_roots_before_simplification_and_preserves_casefold_polic
         ("left ILIKE 'Al%'", "alice", true),
         ("left ILIKE 'Al%'", "bob", false),
     ] {
-        let predicate = P::bind(&parse_sql_predicate(sql).unwrap(), &base, &catalog()).unwrap();
+        let predicate = P::bind(
+            &parse_sql_predicate(sql).unwrap(),
+            &base,
+            &catalog(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+        )
+        .unwrap();
         let decoded = decode_persisted_schema_snapshot(
             &encode_persisted_schema_snapshot(&with_predicate(&base, predicate)).unwrap(),
         )
@@ -383,7 +426,13 @@ fn frontend_rejects_bad_roots_before_simplification_and_preserves_casefold_polic
         Value::Text("AL".into()),
         CoercionId::TextCasefold,
     ));
-    let bound = P::bind(&compare, &base, &catalog()).unwrap();
+    let bound = P::bind(
+        &compare,
+        &base,
+        &catalog(),
+        &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+    )
+    .unwrap();
     assert!(evaluate(
         &with_predicate(&base, bound),
         &Value::Text("al".into())
@@ -405,7 +454,13 @@ fn accepted_predicate_codec_rejects_excess_depth_and_noncanonical_children() {
         value.clone(),
         CoercionId::Strict,
     ));
-    let bound = P::bind(&predicate, &base, &catalog()).unwrap();
+    let bound = P::bind(
+        &predicate,
+        &base,
+        &catalog(),
+        &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+    )
+    .unwrap();
     let encoded = encode_persisted_schema_snapshot(&with_predicate(&base, bound)).unwrap();
     assert!(evaluate(
         &decode_persisted_schema_snapshot(&encoded).unwrap(),
@@ -444,6 +499,7 @@ fn enum_literal_identity_uses_variant_ids_through_renames() {
         &parse_sql_predicate("left = 'Queued'").unwrap(),
         &base,
         &catalog,
+        &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
     )
     .unwrap();
     let renamed = enums
@@ -462,7 +518,8 @@ fn enum_literal_identity_uses_variant_ids_through_renames() {
         P::bind(
             &parse_sql_predicate("left = 'Waiting'").unwrap(),
             &base,
-            &renamed_catalog
+            &renamed_catalog,
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new()
         )
         .unwrap(),
         bound
@@ -583,6 +640,7 @@ fn catalog_candidates_share_generated_and_parsed_predicate_type_admission() {
             &parse_sql_predicate("left >= right").unwrap(),
             &base,
             &catalog,
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .unwrap();
         for predicate in [generated, parsed] {
@@ -597,8 +655,13 @@ fn catalog_candidates_share_generated_and_parsed_predicate_type_admission() {
             right: FieldId::new(1),
             coercion: CoercionId::Strict,
         };
-        let parsed_mismatch =
-            P::bind(&parse_sql_predicate("left = id").unwrap(), &base, &catalog).unwrap();
+        let parsed_mismatch = P::bind(
+            &parse_sql_predicate("left = id").unwrap(),
+            &base,
+            &catalog,
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+        )
+        .unwrap();
         for predicate in [generated_mismatch, parsed_mismatch] {
             assert_eq!(
                 candidate(predicate).unwrap_err().class(),

@@ -218,12 +218,8 @@ fn native_wire_browser_qualifies_rejected_migration_findings() {
             vec![Principal::anonymous(), caller],
         )
         .unwrap();
-    let (instance, canister) = fixture.into_parts();
-    let (client, server) = instance.into_parts();
-    // Retain Testkit's server until its client and gateway have been dropped.
-    let _server = server;
-    let mut client = client;
-    let gateway = client.make_live(None);
+    let (mut instance, canister) = fixture.into_parts();
+    let gateway = instance.instance_mut().make_live(None);
     let report = root.join("target/wire-browser/rejected-migration-report.json");
     assert!(
         Command::new("node")

@@ -306,41 +306,19 @@ fn store_cell_ident(store_ordinal: usize, role: &str) -> Ident {
     format_ident!("__ICYDB_STORE_{store_ordinal}_{role}")
 }
 
-fn stable_store_cell_tokens(
+fn store_cell_tokens(
     icydb: &TokenStream,
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
+    initializer: Ident,
 ) -> TokenStream {
     quote! {
         thread_local! {
             static #cell_ident: ::std::cell::RefCell<
                 #store_ty
             > = ::std::cell::RefCell::new(
-                #store_ty::init(
-                    #icydb::__macro::open_memory(#stable_key)
-                    .expect(concat!(
-                        "ic-memory committed allocation unavailable: ",
-                        #stable_key
-                    ))
-                )
-            );
-        }
-    }
-}
-
-fn journaled_store_cell_tokens(
-    icydb: &TokenStream,
-    cell_ident: &Ident,
-    store_ty: TokenStream,
-    stable_key: &str,
-) -> TokenStream {
-    quote! {
-        thread_local! {
-            static #cell_ident: ::std::cell::RefCell<
-                #store_ty
-            > = ::std::cell::RefCell::new(
-                #store_ty::init_journaled(
+                #store_ty::#initializer(
                     #icydb::__macro::open_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
@@ -439,29 +417,33 @@ fn journaled_store_registry_entry_tokens(
     let journal_stable_key = journal_allocation.stable_key();
 
     let journal_cell_ident = store_cell_ident(store_ordinal, "JOURNAL");
-    let journal_def = stable_store_cell_tokens(
+    let journal_def = store_cell_tokens(
         icydb,
         &journal_cell_ident,
         quote!(#icydb::__macro::JournalTailStore),
         journal_stable_key,
+        format_ident!("init"),
     );
-    let data_def = journaled_store_cell_tokens(
+    let data_def = store_cell_tokens(
         icydb,
         &data_cell_ident,
         quote!(#icydb::__macro::DataStore),
         data_stable_key,
+        format_ident!("init_journaled"),
     );
-    let index_def = journaled_store_cell_tokens(
+    let index_def = store_cell_tokens(
         icydb,
         &index_cell_ident,
         quote!(#icydb::__macro::IndexStore),
         index_stable_key,
+        format_ident!("init_journaled"),
     );
-    let schema_def = journaled_store_cell_tokens(
+    let schema_def = store_cell_tokens(
         icydb,
         &schema_cell_ident,
         quote!(#icydb::__macro::SchemaStore),
         schema_stable_key,
+        format_ident!("init_journaled"),
     );
     let store_init = quote! {
         reg.register_journaled_store(

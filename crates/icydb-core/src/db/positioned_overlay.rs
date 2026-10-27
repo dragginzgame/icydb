@@ -11,7 +11,7 @@ use crate::{
     },
     error::InternalError,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One complete-batch position that owns a live overlay effect.
 ///
@@ -129,6 +129,23 @@ impl<K: Ord> PositionedOverlayMetadata<K> {
     #[must_use]
     pub(in crate::db) fn is_positioned(&self, key: &K) -> bool {
         self.positions.contains_key(key)
+    }
+
+    /// Remove exact live values, tombstones and provenance after retirement preflight.
+    /// Superseded entries retain all newer overlay authority.
+    pub(in crate::db) fn retire_overlays_preflighted<V>(
+        &mut self,
+        entries: impl IntoIterator<Item = (K, PositionedOverlayRetirement)>,
+        live: &mut BTreeMap<K, V>,
+        tombstones: &mut BTreeSet<K>,
+    ) {
+        for (key, retirement) in entries {
+            if retirement == PositionedOverlayRetirement::Exact {
+                live.remove(&key);
+                tombstones.remove(&key);
+                self.retire_preflighted(&key, retirement);
+            }
+        }
     }
 
     /// Remove an exact position after retirement preflight has succeeded.

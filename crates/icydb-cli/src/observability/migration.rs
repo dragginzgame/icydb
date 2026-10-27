@@ -8,8 +8,8 @@ use icydb::db::{
 
 use crate::{
     cli::{CanisterTarget, ConfirmedMigrationTarget, SchemaMigrationCommand},
-    icp::require_created_canister,
-    observability::{call_query, call_update},
+    icp::{IcpCallKind, require_created_canister},
+    observability::call_endpoint,
 };
 
 // Public status omits private migration and cleanup cursors, so identical pages
@@ -153,12 +153,13 @@ const fn terminal(phase: SchemaMigrationPhase) -> bool {
 
 fn load_status(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    call_query(
+    call_endpoint(
         target.environment(),
         target.canister_name(),
         Endpoint::SchemaMigration,
         SchemaMigrationStatusRequest::default(),
         "schema migration status",
+        IcpCallKind::Query,
     )
 }
 
@@ -212,12 +213,13 @@ fn call_command(
     target: &CanisterTarget,
     command: &RuntimeMigrationCommand,
 ) -> Result<SchemaMigrationStatusPage, String> {
-    call_update(
+    call_endpoint(
         target.environment(),
         target.canister_name(),
         Endpoint::SchemaMigrate,
         command,
         "schema migration",
+        IcpCallKind::Update,
     )
 }
 

@@ -17,7 +17,7 @@ use icydb::db::sql::SqlQueryResult;
 use crate::{
     cli::{SqlArgs, SqlShellFields},
     diagnostic::render_error,
-    icp::require_created_canister,
+    icp::{IcpCallKind, require_created_canister},
 };
 
 ///
@@ -80,14 +80,18 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     let endpoint = sql_endpoint(call_kind);
     require_created_canister(environment, canister)?;
 
-    let wire_bytes = match call_kind {
-        route::SqlShellCallKind::Query => call::icp_query(environment, canister, endpoint, sql)?,
-        route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            call::icp_update(environment, canister, endpoint, sql)?
-        }
+    let (wire_bytes, kind) = match call_kind {
+        route::SqlShellCallKind::Query => (
+            call::icp_query(environment, canister, endpoint, sql)?,
+            IcpCallKind::Query,
+        ),
+        route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => (
+            call::icp_update(environment, canister, endpoint, sql)?,
+            IcpCallKind::Update,
+        ),
     };
 
-    render_sql_response(endpoint, wire_bytes.as_slice())
+    render_sql_response(endpoint, wire_bytes.as_slice(), kind)
 }
 
 const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
@@ -100,13 +104,19 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
 
 // Both call lanes decode the same public envelope and retain typed values until
 // the CLI composes a terminal report from SQL display cells.
-fn render_sql_response(endpoint: Endpoint, wire_bytes: &[u8]) -> Result<String, String> {
+fn render_sql_response(
+    endpoint: Endpoint,
+    wire_bytes: &[u8],
+    kind: IcpCallKind,
+) -> Result<String, String> {
     let response = endpoint
         .decode_response::<Result<SqlQueryResult, icydb::Error>>(
             wire_bytes,
             icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES),
         )
-        .map_err(|error| crate::diagnostic::render_wire_decode_error(endpoint, error))?;
+        .map_err(|error| {
+            kind.reply_error(crate::diagnostic::render_wire_decode_error(endpoint, error))
+        })?;
 
     match response {
         Ok(result) => Ok(render::render_text(&result)),
@@ -153,7 +163,11 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn render_sql_response(wire_bytes: &[u8]) -> Result<String, String> {
-        super::render_sql_response(super::Endpoint::Query, wire_bytes)
+        super::render_sql_response(
+            super::Endpoint::Query,
+            wire_bytes,
+            super::IcpCallKind::Query,
+        )
     }
 
     pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {

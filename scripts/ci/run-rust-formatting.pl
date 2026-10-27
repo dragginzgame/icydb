@@ -1,4 +1,5 @@
 #!/usr/bin/env perl
+# Shared companions: scripts/ci/RustSource.pm
 use strict;
 use warnings;
 use Cwd qw(abs_path getcwd);
@@ -12,6 +13,9 @@ use File::Temp qw(tempfile);
 use Getopt::Long qw(GetOptionsFromArray);
 use JSON::PP;
 use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+use FindBin qw($RealBin);
+use lib $RealBin;
+use RustSource qw(has_module_path_attribute);
 
 sub now { return clock_gettime(CLOCK_MONOTONIC); }
 
@@ -19,6 +23,8 @@ sub now { return clock_gettime(CLOCK_MONOTONIC); }
 my $mode = shift(@ARGV) // '';
 my ($cargo, $derives, $no_cache, $order, $extra_order) = ('cargo', 0, 0, '', '');
 my @extra;
+my (@standalone, $edition);
+my $rustfmt = 'rustfmt';
 Getopt::Long::Configure(qw(no_auto_abbrev no_ignore_case));
 my $cargo_options = 0;
 my $valid = GetOptionsFromArray(\@ARGV,
@@ -26,14 +32,21 @@ my $valid = GetOptionsFromArray(\@ARGV,
     'sort-derives' => \$derives, 'no-cache' => \$no_cache,
     'manifest-order=s' => \$order, 'extra-manifest-order=s' => \$extra_order,
     'extra-workspace=s@' => \@extra,
+    'rustfmt-source=s@' => \@standalone, 'rustfmt-edition=s' => \$edition,
+    'rustfmt=s' => \$rustfmt,
 );
 if (!$valid || @ARGV || $cargo_options > 1 || $mode !~ /\A--(?:write|check)\z/ || !length($cargo)) {
-    die "usage: run-rust-formatting.pl --write|--check [--cargo PATH] [--sort-derives] [--extra-workspace PATH ...] [--manifest-order ORDER] [--extra-manifest-order ORDER] [--no-cache]\n";
+    die "usage: run-rust-formatting.pl --write|--check [--cargo PATH] [--sort-derives] [--extra-workspace PATH ...] [--manifest-order ORDER] [--extra-manifest-order ORDER] [--rustfmt-source PATH --rustfmt-edition EDITION [--rustfmt PATH]] [--no-cache]\n";
+}
+if (@standalone ? (!defined($edition) || $edition !~ /\A(?:2015|2018|2021|2024)\z/ || !length($rustfmt))
+                : (defined($edition) || $rustfmt ne 'rustfmt')) {
+    die "standalone Rustfmt sources require an explicit supported edition and one Rustfmt executable\n";
 }
 $ENV{CARGO_NET_OFFLINE} = 'true';
 $ENV{RUSTUP_AUTO_INSTALL} = '0';
 my $root = getcwd();
 $cargo = File::Spec->rel2abs($cargo, $root) if $cargo =~ m{/};
+$rustfmt = File::Spec->rel2abs($rustfmt, $root) if $rustfmt =~ m{/};
 my @workspaces = ($root);
 my %seen = ($root => 1);
 for my $path (@extra) {
@@ -43,6 +56,14 @@ for my $path (@extra) {
     !$seen{$absolute}++ or die "duplicate formatting workspace\n";
     push @workspaces, $absolute;
 }
+my %sources;
+@standalone = map {
+    my $absolute = abs_path($_);
+    defined($absolute) && -f $absolute && !-l $_ && index($absolute, "$root/") == 0
+        or die "standalone formatting source must be a regular file inside this checkout\n";
+    !$sources{$absolute}++ or die "duplicate standalone formatting source\n";
+    $absolute;
+} @standalone;
 my $script = abs_path($0);
 my $receipt = "$root/target/shared-tooling/formatting.receipt";
 my @check = $mode eq '--check' ? ('--check') : ();
@@ -120,6 +141,7 @@ sub fingerprint {
     !length($ENV{RUSTFMT} // '') or die "custom rustfmt selection\n";
     my (%files, %exclude, %scanned, @selection, @metadata);
     $files{$script} = 1;
+    $files{"$RealBin/RustSource.pm"} = 1;
     for my $workspace (@workspaces) {
         chdir $workspace or die "enter formatting workspace: $!\n";
         my $raw_metadata = execute('', 1, $cargo, 'metadata', '--locked', '--offline', '--no-deps', '--format-version', '1');
@@ -206,10 +228,9 @@ sub fingerprint {
     my @contents;
     for my $path (sort keys %files) {
         my $bytes = read_bytes($path);
-        # External Rust module paths are outside the standard input contract.
-        # Conditional path attributes can also redirect a module. A conservative
-        # match may reject a comment/string; that costs reuse, never coverage.
-        $path =~ /[.]rs\z/ && $bytes =~ /(?:#\s*\[\s*path\b|\bcfg_attr\b[\s\S]*?\bpath\b)/
+        # Explicit module paths are outside the standard input contract. Restrict
+        # inspection to balanced attributes, not unrelated later source text.
+        $path =~ /[.]rs\z/ && has_module_path_attribute(decode('UTF-8', $bytes, FB_CROAK | LEAVE_SRC))
             and die "explicit module path disables reuse\n";
         push @contents, [$path, sha256_hex($bytes)];
     }
@@ -221,7 +242,8 @@ sub fingerprint {
 }
 
 my ($before, $started) = (undef, now());
-my $reuse = !$no_cache && !length($ENV{SHARED_TOOLING_FORMAT_WORKTREE} // '');
+my $reuse = !$no_cache && !@standalone && !length($ENV{SHARED_TOOLING_FORMAT_WORKTREE} // '');
+print "Standalone Rust sources selected; running without shortcut\n" if @standalone;
 if ($reuse) {
     print "Checking formatting inputs... ";
     $before = eval { fingerprint() };
@@ -234,6 +256,7 @@ if ($reuse) {
     printf "%s (%.2fs)\n", defined($before) ? 'changed' : 'running without shortcut', now() - $started;
 }
 execute('Checking derive formatter', 0, $cargo, 'sort-derives', '--version') if $derives;
+execute('Checking standalone Rustfmt', 0, $rustfmt, '--version') if @standalone;
 for my $index (0 .. $#workspaces) {
     my $workspace = $workspaces[$index];
     chdir $workspace or die "enter formatting workspace: $!\n";
@@ -245,6 +268,8 @@ for my $index (0 .. $#workspaces) {
     execute("Rust formatting [$label]", 0, $cargo, 'fmt', '--all', @fmt_check);
 }
 chdir $root or die "return to formatting root: $!\n";
+execute('Standalone Rust formatting', 0, $rustfmt, '--edition', $edition, @check, @standalone)
+    if @standalone;
 if (defined $before) {
     my $recording = now();
     print 'Recording formatting result... ';

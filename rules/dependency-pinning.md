@@ -1,4 +1,5 @@
 # Dependency and repository pinning
+<!-- Shared companions: docs/node-tools.md -->
 
 These rules are part of the [engineering baseline](../DRAGGINZGAME.md).
 Use one consistent selection method across repositories; consumers still own

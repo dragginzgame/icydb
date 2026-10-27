@@ -10,8 +10,8 @@ use canic_icydb::wire::Endpoint;
 use crate::{
     cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},
     diagnostic::artifact::DiagnosticSchemaArtifact,
-    icp::require_created_canister,
-    observability::call_query,
+    icp::{IcpCallKind, require_created_canister},
+    observability::call_endpoint,
 };
 
 /// Read and print the generated accepted-schema endpoint.
@@ -49,7 +49,14 @@ pub(super) fn load_schema_report(
     canister: &str,
 ) -> Result<Vec<icydb::db::EntitySchemaDescription>, String> {
     require_created_canister(environment, canister)?;
-    call_query(environment, canister, Endpoint::Schema, (), "schema")
+    call_endpoint(
+        environment,
+        canister,
+        Endpoint::Schema,
+        (),
+        "schema",
+        IcpCallKind::Query,
+    )
 }
 
 pub(super) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {

@@ -235,6 +235,10 @@ Limits do not imply every implementation step has complete accounting.
   operand copies and bound construction. Optional compilation preserves the
   distinction between unsupported input and resource exhaustion. Successful
   cache/memo reuse skips work it no longer performs, not work still required.
+- New SQL DDL preparation holds one volatile mutation-construction allowance.
+  Filtered-index binding charges every visited conjunction comparison pair and
+  preserves typed exhaustion through the SQL error boundary. This does not meter
+  retained-schema projection, commit preparation or recovery normalization.
 - Cold accepted-runtime and inspection-plan construction has its own admitted
   boundaries. A shared request profile is not proof of complete schema compilation,
   journal replay or publication accounting. Atomic candidate publication and

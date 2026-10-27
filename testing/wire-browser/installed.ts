@@ -118,3 +118,37 @@ export async function qualifyRejectedMigration(host: string, canisterId: string)
   require(frames[0].request.length === frames[1].request.length && frames[0].request.every((b, i) => b === frames[1].request[i]), 'exact migration retry request');
   return { frames, browser: navigator.userAgent };
 }
+
+// Rust supplies the exact request for a retained, populated physical page. It
+// shares this authenticated fixture identity; the browser never authors a job ID.
+export async function qualifyIntegrityFindings(host: string, canisterId: string, sql: string) {
+  require(typeof sql === 'string' && sql.length > 0, 'native retained-page request');
+  const { frames, invoke } = await installedCaller(host, canisterId);
+  const result = await invoke(contracts.icydb_integrity, sql);
+  require('ok' in result && result.ok.tag === 'Deep' && result.ok.value.tag === 'Page', 'physical Deep page');
+  const page = result.ok.value.value;
+  require(page.findings.length === 1, 'one controlled physical finding');
+  for (const finding of page.findings) {
+    require(finding.physical_key instanceof Uint8Array && finding.physical_key.length > 0, 'physical key is a nonempty byte buffer');
+  }
+  const field = page.findings.find(f => f.kind.tag === 'InvalidFieldValue');
+  require(field !== undefined && field.verifier_family.tag === 'FieldValue', 'invalid field finding');
+  require(field.field_paths.length === 1 && field.field_paths[0] === 'description', 'nonindexed fixture field');
+  require(field.primary_key !== null && field.primary_key.some instanceof Uint8Array && field.primary_key.some.length > 0, 'decoded primary key is a nonempty optional byte buffer');
+  await invoke(contracts.icydb_integrity, sql);
+  require(frames.length === 2, 'two retained-page calls');
+  for (const direction of ['request', 'response'] as const) {
+    require(frames[0][direction].length === frames[1][direction].length && frames[0][direction].every((b, i) => b === frames[1][direction][i]), `exact integrity retry ${direction}`);
+  }
+  // A separate codec control covers absent optional bytes. This is deliberately
+  // outside the actual-call frame log: the installed fault has a decoded key.
+  const absent: ReturnType<typeof contracts.icydb_integrity.decodeResponse> = {
+    ok: { tag: 'Deep', value: { tag: 'Page', value: {
+      ...page, findings: page.findings.map(f => ({ ...f, primary_key: null })),
+    } } },
+  };
+  const absentPrimaryKeyResponse = contracts.icydb_integrity.encodeResponse(absent);
+  const decoded = contracts.icydb_integrity.decodeResponse(absentPrimaryKeyResponse);
+  require('ok' in decoded && decoded.ok.tag === 'Deep' && decoded.ok.value.tag === 'Page' && decoded.ok.value.value.findings[0].primary_key === null, 'absent optional primary key codec control');
+  return { frames, absentPrimaryKeyResponse: Array.from(absentPrimaryKeyResponse), browser: navigator.userAgent };
+}

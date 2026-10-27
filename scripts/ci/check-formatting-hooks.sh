@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/select-rust-formatting-sources.sh scripts/ci/fixture-lifecycle.sh
+# Shared companions: scripts/ci/select-rust-formatting-sources.sh scripts/ci/fixture-lifecycle.sh scripts/ci/prepare-script-fixture.sh
 set -euo pipefail
 
 # Consumer-owned Make code is reviewed executable input, not sandboxed code.
@@ -73,10 +73,10 @@ perl -e '$p = $ARGV[0]; $p =~ s/([\\"])/\\$1/g; $p =~ s/\n/\\n/g;
     "$objects" > .git/objects/info/alternates
 git update-ref HEAD "$(git -C "$root" rev-parse HEAD)"
 git read-tree HEAD
-# The shared hook supports only regular tracked files. Reject before export.
+# Export regular files and opaque gitlinks, never symlink target bytes.
 git ls-files --stage > "$fixture/entries"
-if LC_ALL=C grep -Ev '^100(644|755) ' "$fixture/entries" > "$fixture/unsupported"; then
-    echo 'formatting adoption requires regular tracked files' >&2; exit 1
+if LC_ALL=C grep -Ev '^(100(644|755)|160000) ' "$fixture/entries" > "$fixture/unsupported"; then
+    echo 'formatting adoption requires regular tracked files or opaque submodules' >&2; exit 1
 fi
 git checkout-index --all
 if [[ "$rust_sources" == true ]]; then
@@ -93,13 +93,16 @@ if [[ "$rust_sources" == true ]]; then
         fi
     done < "$fixture/rust-sources"
 fi
-for path in "$rust" "$manifest" Makefile .githooks/pre-commit scripts/dev/install-git-hooks.sh scripts/ci/check-make-execution.sh "$@"; do
-    parent=.
-    [[ "$path" != */* ]] || parent="${path%/*}"
-    mkdir -p "$parent"
-    cp -p "$root/$path" "$path"
+bash "$script_dir/prepare-script-fixture.sh" "$root" "$PWD" \
+    "$rust" "$manifest" Makefile .githooks/pre-commit \
+    scripts/dev/install-git-hooks.sh scripts/ci/check-make-execution.sh "$@"
+# Stage the copied closure, including new companions. Opaque gitlinks from
+# HEAD have no worktree here and must not be staged as removals.
+git ls-files --modified --others --exclude-standard -z > "$fixture/stage-inputs"
+while IFS= read -r -d '' path; do
+    [[ -f "$path" && ! -L "$path" ]] || continue
     git --literal-pathspecs add -- "$path"
-done
+done < "$fixture/stage-inputs"
 make --no-print-directory fmt-check > "$fixture/baseline.log" 2>&1
 cp "$manifest" "$fixture/sorted-manifest"
 if [[ "$perturb_manifest" == true ]]; then

@@ -10,6 +10,8 @@ mod project;
 
 use std::path::Path;
 
+pub(crate) use call::IcpCallKind;
+
 pub(crate) fn call_query_hex(
     environment: &str,
     canister: &str,

@@ -3,7 +3,7 @@
 //! Does not own: ICP process commands or SQL shell routing.
 //! Boundary: test-only assertions over generated canister response shapes and reports.
 
-use crate::observability::decode_endpoint_result;
+use crate::{icp::IcpCallKind, observability::decode_endpoint_result};
 
 use icydb::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
@@ -28,6 +28,7 @@ fn decode_metrics_report_accepts_generated_response_shape() {
         "demo",
         "demo_rpg",
         canic_icydb::wire::Endpoint::Metrics,
+        IcpCallKind::Query,
     )
     .expect("metrics response should be ok");
 
@@ -47,6 +48,7 @@ fn decode_metrics_reset_response_accepts_generated_response_shape() {
         "demo",
         "demo_rpg",
         canic_icydb::wire::Endpoint::MetricsReset,
+        IcpCallKind::Update,
     )
     .expect("metrics reset response should be ok");
 }
@@ -64,6 +66,7 @@ fn decode_snapshot_report_accepts_generated_response_shape() {
         "demo",
         "demo_rpg",
         canic_icydb::wire::Endpoint::Snapshot,
+        IcpCallKind::Query,
     )
     .expect("snapshot response should be ok");
 
@@ -83,6 +86,7 @@ fn decode_schema_report_accepts_generated_response_shape() {
         "demo",
         "demo_rpg",
         canic_icydb::wire::Endpoint::Schema,
+        IcpCallKind::Query,
     )
     .expect("schema response should be ok");
 
@@ -124,6 +128,7 @@ fn endpoint_decoder_rejects_malformed_wrong_shape_and_application_errors() {
                 "demo",
                 "demo_rpg",
                 canic_icydb::wire::Endpoint::Snapshot,
+                IcpCallKind::Query
             )
             .is_err()
         );

@@ -187,6 +187,11 @@ preserving required hosts on the retained run.
 
 ## Feedback and handoff
 
+Shared dependency defects and advisories have one remediation issue at the
+supplying owner. Do not create a waiting issue in every consumer; separate
+consumer issues need distinct actionable work. Apply the
+[dependency finding rule](rules/engineering-details.md#shared-dependency-findings).
+
 Use owning GitHub issues for follow-up; no parallel local trackers. CI/issue
 maintenance and scheduled work run only when activated. Read [feedback details](rules/engineering-details.md#feedback-and-handoff)
 when reporting findings across repositories or maintaining issues.

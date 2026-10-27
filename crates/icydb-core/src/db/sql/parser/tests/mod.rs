@@ -5717,3 +5717,67 @@ fn quoted_identifier_segments_preserve_statement_semantics() {
         }
     );
 }
+
+#[test]
+fn integer_clause_widths_preserve_bounds_and_typed_refusals() {
+    use crate::db::sql_shared::{SqlExpectedToken, SqlIntegerLiteralClause, TokenKind};
+
+    for (prefix, clause, max, overflow_value, overflow) in [
+        (
+            "SELECT id FROM users LIMIT ",
+            SqlIntegerLiteralClause::Limit,
+            u32::MAX.to_string(),
+            (u64::from(u32::MAX) + 1).to_string(),
+            SqlSyntaxErrorKind::IntegerLiteralU32Overflow {
+                clause: SqlIntegerLiteralClause::Limit,
+            },
+        ),
+        (
+            "CHECK INTEGRITY DEEP CONTINUE '000102' AFTER ",
+            SqlIntegerLiteralClause::IntegrityPageSequence,
+            u64::MAX.to_string(),
+            (u128::from(u64::MAX) + 1).to_string(),
+            SqlSyntaxErrorKind::IntegerLiteralU64Overflow {
+                clause: SqlIntegerLiteralClause::IntegrityPageSequence,
+            },
+        ),
+    ] {
+        let parse = |value: &str| {
+            let sql = format!("{prefix}{value}");
+            if clause == SqlIntegerLiteralClause::Limit {
+                parse_sql(&sql).map(|_| ())
+            } else {
+                parse_integrity_sql(&sql).map(|_| ())
+            }
+        };
+        for value in ["0", max.as_str()] {
+            assert_eq!(parse(value), Ok(()));
+        }
+        assert_eq!(
+            parse(""),
+            Err(SqlParseError::expected(
+                SqlExpectedToken::IntegerLiteral { clause },
+                None
+            ))
+        );
+        // The lexer keeps a leading minus as its own token. Preserve that
+        // existing token diagnostic rather than treating it as a signed number.
+        assert_eq!(
+            parse("-1"),
+            Err(SqlParseError::expected(
+                SqlExpectedToken::IntegerLiteral { clause },
+                Some(&TokenKind::Minus),
+            ))
+        );
+        assert_eq!(
+            parse("1.5"),
+            Err(SqlParseError::InvalidSyntax {
+                kind: SqlSyntaxErrorKind::IntegerLiteralRequiresNonNegative { clause },
+            })
+        );
+        assert_eq!(
+            parse(&overflow_value),
+            Err(SqlParseError::InvalidSyntax { kind: overflow })
+        );
+    }
+}

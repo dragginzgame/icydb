@@ -345,3 +345,18 @@ fn hex_response_bytes_rejects_malformed_icp_hex_output() {
         );
     }
 }
+
+#[test]
+fn hex_response_diagnostics_are_control_free() {
+    for byte in (0_u8..=31).chain([127]) {
+        let character = char::from(byte);
+        if character.is_whitespace() {
+            continue;
+        }
+        // Keep an even-length body so the invalid byte reaches the shared
+        // decoder rather than the earlier odd-length refusal.
+        let response = format!("00{character}x");
+        let error = hex_response_bytes(&response).unwrap_err();
+        assert!(!error.chars().any(char::is_control), "byte {byte}");
+    }
+}

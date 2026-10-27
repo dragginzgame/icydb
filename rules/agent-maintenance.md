@@ -148,7 +148,8 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   and supporting evidence before asking; an unattended pass reports the proposal
   and missing authorization without posting. Carry existing explicit authority
   forward rather than requesting it again. Search for duplicates and base status
-  changes on evidence, keeping unresolved consumer work in its own tracker.
+  changes on evidence, keeping distinct actionable consumer work in its own
+  tracker under the [shared dependency finding rule](engineering-details.md#shared-dependency-findings).
   Distinguish committed and dirty source, local checks and native qualification,
   upstream acceptance and consumer adoption. Keep immutable snapshots intact.
 - After an adoption is delivered or the user reports its push, reconcile its
@@ -180,6 +181,8 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   requirements and owner links before closing the duplicate. Do not erase
   unresolved requirements to reduce the count. Downstream automatic closing
   references must not close Shared issues with unmet producer criteria.
+  Apply the [shared dependency finding rule](engineering-details.md#shared-dependency-findings)
+  to advisory and supplier defects instead of filing a waiting mirror per consumer.
 - Issue-posting authority and source-contribution authority are separate.
   Relevant sibling repairs use the standing
   [isolated PR workflow](contributions.md#cross-repository-pull-requests), including

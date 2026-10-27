@@ -5,6 +5,7 @@ use super::{
 use crate::db::{
     predicate::parse_sql_predicate,
     query::predicate::validate_predicate,
+    resource::construction::ConstructionBudget,
     schema::{
         AcceptedSchemaSnapshot, ConstraintId, PersistedIndexSnapshot,
         SchemaDdlIndexDropCandidateError, SchemaDdlSecondaryIndexAdditionCandidate,
@@ -167,6 +168,7 @@ pub(super) fn bind_create_index_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
     index_store_path: &'static str,
+    work: &dyn ConstructionBudget,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
     crate::db::schema::validate_authored_constraint_name(&statement.name).map_err(|_| {
@@ -181,8 +183,12 @@ pub(super) fn bind_create_index_statement(
         .map(|key_item| bind_create_index_key_item(key_item, entity_name, schema))
         .collect::<Result<Vec<_>, _>>()?;
     let field_paths = create_index_field_path_report_items(key_items.as_slice());
-    let predicate_sql =
-        bind_create_index_predicate(statement.predicate_sql.as_deref(), accepted_before, schema)?;
+    let predicate_sql = bind_create_index_predicate(
+        statement.predicate_sql.as_deref(),
+        accepted_before,
+        schema,
+        work,
+    )?;
     let candidate_index = candidate_index_snapshot(
         accepted_before,
         statement.name.as_str(),
@@ -542,6 +548,7 @@ fn bind_create_index_predicate(
     predicate_sql: Option<&str>,
     accepted: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
+    work: &dyn ConstructionBudget,
 ) -> Result<Option<crate::db::schema::AcceptedIndexPredicate>, SqlDdlBindError> {
     let Some(predicate_sql) = predicate_sql else {
         return Ok(None);
@@ -554,6 +561,7 @@ fn bind_create_index_predicate(
         &predicate,
         accepted.persisted_snapshot(),
         schema.value_catalog_handle(),
+        work,
     )
     .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
     let predicate = bound
@@ -698,6 +706,7 @@ mod tests {
             &accepted,
             &schema,
             "entities::Account::account_email",
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .expect("guarded nullable unique index should bind")
         .statement()
@@ -750,7 +759,7 @@ mod tests {
                     "CREATE {unique}INDEX {name} ON Account (email) WHERE email IS NOT NULL"
                 ));
                 assert!(matches!(
-                    bind_create_index_statement(&statement, &accepted, &schema, "index-store"),
+                    bind_create_index_statement(&statement, &accepted, &schema, "index-store", &crate::db::resource::budget::MaintenanceConstructionBudget::new()),
                     Err(SqlDdlBindError::InvalidConstraintName { constraint_name }) if constraint_name == name
                 ));
             }
@@ -772,7 +781,14 @@ mod tests {
         for name in ["__icydb", "_icydb_user", "__ICYDB_user", "user__icydb_name"] {
             let statement =
                 create_index_statement(&format!("CREATE INDEX {name} ON Account (email)"));
-            bind_create_index_statement(&statement, &accepted, &schema, "index-store").unwrap();
+            bind_create_index_statement(
+                &statement,
+                &accepted,
+                &schema,
+                "index-store",
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+            )
+            .unwrap();
         }
     }
 
@@ -787,6 +803,7 @@ mod tests {
             &accepted,
             &schema,
             "entities::Account::account_email",
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .expect_err("unmatched nullable guard must reject during binding");
         assert!(matches!(
@@ -807,6 +824,7 @@ mod tests {
             &accepted,
             &schema,
             "entities::Account::account_email",
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .expect("exact nullable guard should bind");
         assert!(matches!(
@@ -825,8 +843,7 @@ mod tests {
                 &create,
                 &accepted,
                 &schema,
-                "entities::Account::account_email",
-            ),
+                "entities::Account::account_email", &crate::db::resource::budget::MaintenanceConstructionBudget::new()),
             Err(SqlDdlBindError::EntityMismatch { sql_entity, expected_entity })
                 if sql_entity == "Other" && expected_entity == "Account"
         ));
@@ -848,6 +865,55 @@ mod tests {
     }
 
     #[test]
+    fn filtered_index_normalization_shares_one_allowance_and_preserves_budget_facts() {
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag as Fact,
+        };
+
+        use crate::db::{
+            resource::budget::MaintenanceConstructionBudget, sql::ddl::SqlDdlPrepareError,
+        };
+
+        let (accepted, schema) = nullable_email_schema();
+        let sql = "(email != 'a' AND email != 'b' AND email != 'c') OR \
+                   (email != 'd' AND email != 'e' AND email != 'f')";
+        let expected = crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+            sql,
+            accepted.persisted_snapshot().fields(),
+        );
+        // Three non-reducing pairs in each conjunction share one statement's
+        // allowance, including across disjunction branches.
+        for limit in [5, 6, 7] {
+            let work = MaintenanceConstructionBudget::with_limit_for_tests(
+                Resource::PredicateExpressionSteps,
+                limit,
+            );
+            let result = work.run(
+                |work| {
+                    bind_create_index_predicate(Some(sql), &accepted, &schema, work)
+                        .map_err(SqlDdlPrepareError::from)
+                },
+                SqlDdlPrepareError::Construction,
+            );
+            if limit < 6 {
+                let error = crate::db::QueryError::from_sql_ddl_prepare_error(result.unwrap_err());
+                for fact in [
+                    (
+                        Fact::BudgetResource,
+                        Resource::PredicateExpressionSteps.raw(),
+                    ),
+                    (Fact::Limit, limit),
+                    (Fact::Actual, 6),
+                ] {
+                    assert!(error.diagnostic_facts().contains(&fact));
+                }
+            } else {
+                assert_eq!(result.unwrap().as_ref(), Some(&expected));
+            }
+        }
+    }
+
+    #[test]
     fn sql_index_binding_rejects_unbound_eliminated_branches() {
         let (accepted, schema) = nullable_email_schema();
         for sql in [
@@ -861,6 +927,7 @@ mod tests {
                 &accepted,
                 &schema,
                 "entities::Account::account_email",
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
             )
             .unwrap_err();
             assert!(
@@ -882,6 +949,7 @@ mod tests {
                 &active,
                 &active_schema,
                 "entities::Account::account_email",
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new()
             )
             .expect("exact active IF NOT EXISTS should bind")
             .statement(),
@@ -894,6 +962,7 @@ mod tests {
                 &pending,
                 &pending_schema,
                 "entities::Account::account_email",
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new()
             )
             .expect("exact candidate IF NOT EXISTS should bind")
             .statement(),
@@ -911,7 +980,8 @@ mod tests {
                         &equivalent,
                         accepted,
                         schema,
-                        "entities::Account::account_email"
+                        "entities::Account::account_email",
+                        &crate::db::resource::budget::MaintenanceConstructionBudget::new()
                     )
                     .unwrap()
                     .statement(),
@@ -928,8 +998,7 @@ mod tests {
                 &same_name_conflict,
                 &active,
                 &active_schema,
-                "entities::Account::account_email",
-            ),
+                "entities::Account::account_email", &crate::db::resource::budget::MaintenanceConstructionBudget::new()),
             Err(SqlDdlBindError::DuplicateIndexName { index_name })
                 if index_name == "account_email"
         ));
@@ -938,8 +1007,7 @@ mod tests {
                 &same_name_conflict,
                 &pending,
                 &pending_schema,
-                "entities::Account::account_email",
-            ),
+                "entities::Account::account_email", &crate::db::resource::budget::MaintenanceConstructionBudget::new()),
             Err(SqlDdlBindError::DuplicateIndexName { index_name })
                 if index_name == "account_email"
         ));
@@ -952,8 +1020,7 @@ mod tests {
                 &new_name_same_contract,
                 &active,
                 &active_schema,
-                "entities::Account::account_email_copy",
-            ),
+                "entities::Account::account_email_copy", &crate::db::resource::budget::MaintenanceConstructionBudget::new()),
             Err(SqlDdlBindError::DuplicateFieldPathIndex { existing_index, .. })
                 if existing_index == "account_email"
         ));
@@ -962,8 +1029,7 @@ mod tests {
                 &new_name_same_contract,
                 &pending,
                 &pending_schema,
-                "entities::Account::account_email_copy",
-            ),
+                "entities::Account::account_email_copy", &crate::db::resource::budget::MaintenanceConstructionBudget::new()),
             Err(SqlDdlBindError::DuplicateFieldPathIndex { existing_index, .. })
                 if existing_index == "account_email"
         ));

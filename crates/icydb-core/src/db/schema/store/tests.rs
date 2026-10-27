@@ -1105,6 +1105,17 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
         .expect("active accepted state should open a statement cursor");
     assert_eq!(cursor.owner(), state.owner());
     assert_eq!(cursor.expected_high_water(), 0);
+    assert_eq!(
+        store
+            .identity_high_water_for_integrity(
+                test_database_incarnation(),
+                entity_tag,
+                field_id,
+                &AcceptedFieldKind::Nat64
+            )
+            .unwrap(),
+        0
+    );
     for (incarnation, kind) in [
         (
             DatabaseIncarnationId::for_tests(0xFF),
@@ -1115,6 +1126,11 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
         let error = store
             .identity_statement_cursor(incarnation, entity_tag, field_id, &kind)
             .expect_err("a mismatched owner or kind must reject");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
+        let error = store
+            .identity_high_water_for_integrity(incarnation, entity_tag, field_id, &kind)
+            .unwrap_err();
         assert_eq!(error.class(), ErrorClass::Corruption);
         assert_eq!(error.origin(), ErrorOrigin::Identity);
     }
@@ -1138,6 +1154,16 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
             &AcceptedFieldKind::Nat64,
         )
         .expect_err("a missing active state must not synthesize zero");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+    let error = store
+        .identity_high_water_for_integrity(
+            test_database_incarnation(),
+            entity_tag,
+            field_id,
+            &AcceptedFieldKind::Nat64,
+        )
+        .unwrap_err();
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Identity);
     let error = store
@@ -1593,6 +1619,86 @@ fn catalog_selection_fixture() -> (EntityTag, CandidateSchemaRevision, SchemaSto
         .expect("accepted candidate should publish");
 
     (entity, candidate, store)
+}
+
+#[test]
+fn runtime_entity_lookups_preserve_effective_and_canonical_bundles() {
+    let (entity, initial, _) = catalog_selection_fixture();
+    let path = "test::CachedCatalogSelectionStore";
+    let initial = accepted_schema_candidate_for_tests(
+        path,
+        AcceptedSchemaRevision::INITIAL,
+        initial.bundle().entity_snapshots().clone(),
+    );
+    let empty = SchemaStore::init_heap();
+    assert!(
+        empty
+            .current_accepted_runtime_entity_for_tag(path, entity)
+            .unwrap()
+            .is_none()
+    );
+    let memory = crate::testing::test_memory_owner(237);
+    let mut store = SchemaStore::init_journaled(memory.open());
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .unwrap();
+    let accepted = store
+        .current_accepted_runtime_entity_for_tag(path, entity)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        store
+            .current_canonical_accepted_runtime_entity_for_path(path, "entities::CachedEntity")
+            .unwrap(),
+        Some(accepted.clone())
+    );
+    let second = empty_accepted_schema_candidate_for_tests(path, AcceptedSchemaRevision::new(2));
+    store
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &second,
+        )
+        .unwrap();
+    assert!(
+        store
+            .current_accepted_runtime_entity_for_tag(path, entity)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .current_accepted_runtime_entity_for_path(path, "entities::CachedEntity")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .current_canonical_accepted_runtime_entity_for_tag(path, entity)
+            .unwrap(),
+        Some(accepted.clone())
+    );
+    assert_eq!(
+        store
+            .current_canonical_accepted_runtime_entity_for_path(path, "entities::CachedEntity")
+            .unwrap(),
+        Some(accepted)
+    );
+    for result in [
+        store.current_accepted_runtime_entity_for_tag("wrong::Store", entity),
+        store.current_accepted_runtime_entity_for_path("wrong::Store", "entities::CachedEntity"),
+        store.current_canonical_accepted_runtime_entity_for_tag("wrong::Store", entity),
+        store.current_canonical_accepted_runtime_entity_for_path(
+            "wrong::Store",
+            "entities::CachedEntity",
+        ),
+    ] {
+        assert_eq!(result.unwrap_err().class(), ErrorClass::Corruption);
+    }
 }
 
 #[test]

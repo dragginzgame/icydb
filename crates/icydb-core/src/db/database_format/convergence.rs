@@ -235,41 +235,14 @@ fn generated_store_proposals<C: CanisterKind>(
     if proposals.len() > MAX_PERSISTED_STORE_ALLOCATIONS {
         return Err(InternalError::store_unsupported());
     }
-    validate_allocation_set::<C>(&proposals)?;
+    validate_persisted_allocation_set::<C>(proposals.iter().map(|proposal| &proposal.persisted))?;
     proposals.sort_by(|left, right| left.persisted.roles().cmp(right.persisted.roles()));
     Ok(proposals)
 }
 
-fn validate_allocation_set<C: CanisterKind>(
-    proposals: &[GeneratedStoreProposal],
-) -> Result<(), InternalError> {
-    let mut memory_ids = vec![
-        C::commit_memory_id().map_err(|_| InternalError::store_internal())?,
-        C::startup_memory_id().map_err(|_| InternalError::store_internal())?,
-        C::integrity_progress_memory_id().map_err(|_| InternalError::store_internal())?,
-    ];
-    let mut stable_keys = vec![
-        C::COMMIT_STABLE_KEY,
-        C::STARTUP_STABLE_KEY,
-        C::INTEGRITY_PROGRESS_STABLE_KEY,
-    ];
-    for proposal in proposals {
-        for role in proposal.persisted.roles() {
-            if !(ALLOCATABLE_MEMORY_ID_MIN..=ALLOCATABLE_MEMORY_ID_MAX).contains(&role.memory_id())
-                || memory_ids.contains(&role.memory_id())
-                || stable_keys.contains(&role.stable_key())
-            {
-                return Err(InternalError::store_unsupported());
-            }
-            memory_ids.push(role.memory_id());
-            stable_keys.push(role.stable_key());
-        }
-    }
-    Ok(())
-}
-
-fn validate_persisted_allocation_set<C: CanisterKind>(
-    registry: &[PersistedStoreAllocation],
+// Both authored proposals and retained records expose the same persisted roles.
+fn validate_persisted_allocation_set<'a, C: CanisterKind>(
+    registry: impl IntoIterator<Item = &'a PersistedStoreAllocation>,
 ) -> Result<(), InternalError> {
     let mut memory_ids = vec![
         C::commit_memory_id().map_err(|_| InternalError::store_internal())?,

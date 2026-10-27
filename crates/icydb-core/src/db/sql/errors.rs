@@ -118,9 +118,7 @@ impl QueryError {
 
     /// Construct one query-origin unsupported SQL DDL admission error.
     pub(in crate::db) fn from_sql_ddl_prepare_error(err: SqlDdlPrepareError) -> Self {
-        let reason = err.admission_error();
-
-        Self::execute(InternalError::query_schema_ddl_admission(reason))
+        Self::execute(err.into_internal_error())
     }
 
     /// Construct one query error from one SQL DDL execution failure.

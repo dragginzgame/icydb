@@ -11,7 +11,7 @@ use crate::db::{
     },
     sql::parser::{SqlDdlSchemaVersionContract, SqlDdlStatement},
 };
-use crate::error::SchemaDdlAdmissionError;
+use crate::error::{InternalError, SchemaDdlAdmissionError};
 
 ///
 /// BoundSqlDdlSchemaVersionContract
@@ -40,10 +40,13 @@ impl BoundSqlDdlSchemaVersionContract {
 }
 
 impl SqlDdlPrepareError {
-    pub(in crate::db) fn admission_error(&self) -> SchemaDdlAdmissionError {
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::Bind(error) => error.admission_error(),
-            Self::Lowering(error) => error.admission_error(),
+            Self::Construction(error) => error,
+            Self::Bind(error) => InternalError::query_schema_ddl_admission(error.admission_error()),
+            Self::Lowering(error) => {
+                InternalError::query_schema_ddl_admission(error.admission_error())
+            }
         }
     }
 }

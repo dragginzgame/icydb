@@ -154,7 +154,9 @@ MANIFEST
 newline_path=$'src/staged\nnewline.rs'
 printf 'fn main() {}\n' > 'src/staged [1].rs'
 printf 'fn main() {}\n' > "$newline_path"
-printf '#[derive(Clone, Copy, Eq, PartialEq)]\nstruct Flag;\n' > src/lib.rs
+# Exercise reuse through the actual consumer formatter with an ordinary
+# conditional attribute and an unrelated later identifier named path.
+printf '#[cfg_attr(any(), allow(dead_code))]\n#[derive(Clone, Copy, Eq, PartialEq)]\nstruct Flag;\nfn path() {}\n' > src/lib.rs
 cargo generate-lockfile --offline > "$fixture/lock-preparation.log" 2>&1
 cp Cargo.lock "$fixture/product-lock-before"
 make --no-print-directory fmt > "$fixture/product-baseline.log" 2>&1

@@ -298,6 +298,9 @@ test-wire-browser:
 	+$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
 		--test schema_migration_closeout native_wire_browser_qualifies_rejected_migration_findings \
 		-- --ignored --exact --nocapture
+	+$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+		--test query_canister native_wire_browser_qualifies_physical_integrity_findings \
+		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
 	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
@@ -439,7 +442,6 @@ check-dependency-pins:
 # fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
 check-portable-automation: shared-tooling-check
 	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-lock-selection.sh
-	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh

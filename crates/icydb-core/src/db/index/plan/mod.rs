@@ -102,22 +102,30 @@ impl<'a> AcceptedIndexKeyAuthority<'a> {
         primary_key: &PrimaryKeyValue,
         row_fields: &dyn CanonicalSlotReader,
     ) -> Result<Option<IndexKey>, InternalError> {
+        let predicate_program = match self {
+            Self::AcceptedFieldPath(_, program) | Self::AcceptedExpression(_, program) => *program,
+        };
+        // Membership admission precedes either specialized constructor. A
+        // rejected row must not read/encode index components on either route.
+        if let Some(program) = predicate_program
+            && !program.eval_with_structural_slot_reader(row_fields)?
+        {
+            return Ok(None);
+        }
         match self {
-            Self::AcceptedFieldPath(index, predicate_program) => {
-                accepted_field_path_index_key_for_slot_reader_with_membership_structural(
+            Self::AcceptedFieldPath(index, _) => {
+                IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
                     entity_tag,
-                    index,
-                    *predicate_program,
                     primary_key,
+                    index,
                     row_fields,
                 )
             }
-            Self::AcceptedExpression(index, predicate_program) => {
-                accepted_expression_index_key_for_slot_reader_with_membership_structural(
+            Self::AcceptedExpression(index, _) => {
+                IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value(
                     entity_tag,
-                    index,
-                    *predicate_program,
                     primary_key,
+                    index,
                     row_fields,
                 )
             }
@@ -153,19 +161,8 @@ pub(in crate::db::index::plan) fn accepted_field_path_index_key_for_slot_reader_
     primary_key: &PrimaryKeyValue,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
-    if let Some(predicate_program) = predicate_program {
-        let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
-        if !keep_row {
-            return Ok(None);
-        }
-    }
-
-    IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
-        entity_tag,
-        primary_key,
-        accepted_index,
-        slots,
-    )
+    AcceptedIndexKeyAuthority::AcceptedFieldPath(accepted_index, predicate_program)
+        .build_index_key_from_row_slots(entity_tag, primary_key, slots)
 }
 
 pub(in crate::db::index::plan) fn accepted_expression_index_key_for_slot_reader_with_membership_structural(
@@ -175,19 +172,8 @@ pub(in crate::db::index::plan) fn accepted_expression_index_key_for_slot_reader_
     primary_key: &PrimaryKeyValue,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
-    if let Some(predicate_program) = predicate_program {
-        let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
-        if !keep_row {
-            return Ok(None);
-        }
-    }
-
-    IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value(
-        entity_tag,
-        primary_key,
-        accepted_index,
-        slots,
-    )
+    AcceptedIndexKeyAuthority::AcceptedExpression(accepted_index, predicate_program)
+        .build_index_key_from_row_slots(entity_tag, primary_key, slots)
 }
 
 // Prove that the pre-existing old index entry still contains the expected row

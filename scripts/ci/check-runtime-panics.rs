@@ -1,8 +1,9 @@
 // Development-only structural check for caller-selected Rust source files.
 // Consumers own source discovery and policy scope; Syn owns item boundaries.
 
-use std::{env, fs, process::ExitCode};
+use std::{fs, path::PathBuf, process::ExitCode};
 
+use clap::{Arg, Command, error::ErrorKind, value_parser};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use syn::{
     Attribute, Expr, ImplItem, Item, Meta, Token, TraitItem, Type,
@@ -218,13 +219,29 @@ fn simple_assertion_tokens(tokens: TokenStream) -> bool {
 }
 
 fn main() -> ExitCode {
-    let files: Vec<_> = env::args_os().skip(1).collect();
-    if files.is_empty() {
-        eprintln!("runtime panic checker requires a nonempty source inventory");
-        return ExitCode::from(2);
-    }
+    let matches = match Command::new("runtime-panic-checker")
+        .about("Check selected Rust production sources for forbidden panic constructs")
+        .arg(
+            Arg::new("sources")
+                .value_name("SOURCE")
+                .num_args(1..)
+                .required(true)
+                .value_parser(value_parser!(PathBuf)),
+        )
+        .try_get_matches()
+    {
+        Ok(matches) => matches,
+        Err(error) => {
+            if error.kind() == ErrorKind::MissingRequiredArgument {
+                eprintln!("runtime panic checker requires a nonempty source inventory");
+            }
+            let status = if error.use_stderr() { 2 } else { 0 };
+            let _ = error.print();
+            return ExitCode::from(status);
+        }
+    };
     let mut failed = false;
-    for file in files {
+    for file in matches.get_many::<PathBuf>("sources").into_iter().flatten() {
         let path = std::path::Path::new(&file);
         let parsed = fs::read_to_string(path)
             .map_err(|error| error.to_string())

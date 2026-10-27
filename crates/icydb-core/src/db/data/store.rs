@@ -448,13 +448,7 @@ impl DataStore {
             );
             return;
         };
-        for (key, retirement) in prepared.entries {
-            if retirement == PositionedOverlayRetirement::Exact {
-                live.remove(&key);
-                tombstones.remove(&key);
-                positions.retire_preflighted(&key, retirement);
-            }
-        }
+        positions.retire_overlays_preflighted(prepared.entries, live, tombstones);
     }
 
     /// Apply one folded journal row put into the canonical stable base.
