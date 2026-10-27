@@ -6,7 +6,6 @@
 
 use crate::value::Value;
 use std::cmp::Ordering;
-use std::fmt;
 
 ///
 /// MapValueError
@@ -16,7 +15,8 @@ use std::fmt;
 /// possible so callers can diagnose duplicate-key collisions deterministically.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
+#[error("map value error")]
 pub enum MapValueError {
     EmptyKey {
         index: usize,
@@ -35,14 +35,6 @@ pub enum MapValueError {
     },
 }
 
-impl fmt::Display for MapValueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("map value error")
-    }
-}
-
-impl std::error::Error for MapValueError {}
-
 ///
 /// SchemaInvariantError
 ///
@@ -51,18 +43,11 @@ impl std::error::Error for MapValueError {}
 /// while preserving the existing `TryFrom` error boundary for `Value`.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
+#[error("schema invariant error")]
 pub enum SchemaInvariantError {
     InvalidMapValue(MapValueError),
 }
-
-impl fmt::Display for SchemaInvariantError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("schema invariant error")
-    }
-}
-
-impl std::error::Error for SchemaInvariantError {}
 
 impl From<MapValueError> for SchemaInvariantError {
     fn from(value: MapValueError) -> Self {

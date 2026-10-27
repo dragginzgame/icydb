@@ -14,16 +14,9 @@ const DECIMAL_BUFFER_LEN: usize = 80;
 const U128_LOW_U32_MASK: u128 = 0xffff_ffff;
 
 /// Error returned when decimal text is outside the unsigned 256-bit domain.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, thiserror::Error, PartialEq)]
+#[error("value is not an unsigned 256-bit integer")]
 pub struct ParseU256Error;
-
-impl fmt::Display for ParseU256Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("value is not an unsigned 256-bit integer")
-    }
-}
-
-impl std::error::Error for ParseU256Error {}
 
 /// IcyDB-owned fixed-width unsigned 256-bit scalar.
 ///

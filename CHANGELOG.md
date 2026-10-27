@@ -5,6 +5,51 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.286.1]
+
+### 🔧 Changed
+
+- Adopt IC Host/Build/Testkit 0.69.0, Platform 0.7.0, Memory/Storage 0.51.10
+  and Shared Tooling 0.26.23. The compatible graph selects Timers 0.31.10;
+  Wire remains at 0.7.18 and Metrics at 0.16.3.
+- Delegate manifest, derive and Rust formatting to Shared Tooling's driver,
+  preserving offline tool admission and staged-file isolation
+  ([#473](https://github.com/dragginzgame/icydb/issues/473)).
+- Add matched installed-canister evidence for secondary-index continuation:
+  the delivered resume fix reduces measured traversal costs, with a 4,008-byte
+  raw Wasm increase in the audit actor
+  ([#25](https://github.com/dragginzgame/icydb/issues/25)).
+
+### 🩹 Fixed
+
+- Keep grouped `FIRST`/`LAST` identities stable across scan direction, index
+  choice and continuation pages ([#52](https://github.com/dragginzgame/icydb/issues/52)).
+- Admit text transforms before allocation during execution and literal folding,
+  preserving typed budget facts through projections, filters and aggregate inputs
+  ([#75](https://github.com/dragginzgame/icydb/issues/75)).
+- Keep large admitted relation rows updatable by separating before/final-image
+  allowances, while retaining target validation and shared reverse-delta limits
+  ([#61](https://github.com/dragginzgame/icydb/issues/61)).
+- Expose wrapped causes from typed and exhaustive-read errors through Rust's
+  `Error::source()` ([#255](https://github.com/dragginzgame/icydb/issues/255), partial).
+- Repair standalone facade install/upgrade qualification with retained actor
+  builds and Canic Wire lifecycle arguments.
+
+### 🧹 Cleanup
+
+- Reuse primary-iterator payloads for unbounded full-row loads on single-backing
+  stores. Finite pages and mixed overlays retain their existing traversal;
+  row admission and accounting stay shared
+  ([#261](https://github.com/dragginzgame/icydb/issues/261), partial).
+- Defer row-reader value-cache allocation until cached decoding is requested;
+  encoded-byte reads and direct scalar projections avoid allocating cache cells,
+  and invalid slots reject before cache allocation. Envelope validation stays eager ([#257](https://github.com/dragginzgame/icydb/issues/257), partial).
+- Replace nine mechanical error implementations with existing error derives,
+  preserving compact messages, typed diagnostics, conversions and source chains
+  ([#470](https://github.com/dragginzgame/icydb/issues/470)).
+
+Detailed notes: [0.286](docs/changelog/0.286.md).
+
 ## [0.286.0] - 2026-10-27
 
 ### ⚠️ Breaking

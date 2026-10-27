@@ -107,6 +107,9 @@ Candid facade. Owned application endpoints use `ic-wire`, including public
 endpoints with third-party callers. `ic-platform` supplies the explicit adapter
 for independently defined protocols that require Candid and existing checkpoint
 compatibility; dependency isolation does not make Candid an application-codec choice.
+Deriving or implementing `CandidType` through Platform is still forbidden on
+owned application types. Keep unavoidable external wire projections separate
+from domain, persistence and RPC models under that encoding contract.
 
 ## Dependency roles and deployment checks
 

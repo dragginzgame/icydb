@@ -16,22 +16,43 @@ use crate::{
         },
     },
     types::Decimal,
-    value::{Value, lower_text, upper_text},
+    value::{
+        Value, lower_text, lower_text_construction_allowance, upper_text,
+        upper_text_construction_allowance,
+    },
 };
-
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::borrow::Borrow;
 
 impl UnaryTextFunctionKind {
     /// Evaluate one admitted unary text transform against one text input.
-    #[must_use]
-    pub(in crate::db::query::plan::expr) fn eval_text(self, text: &str) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_text<E>(
+        self,
+        text: &str,
+        mut charge: impl FnMut(Resource, u64) -> Result<(), E>,
+    ) -> Result<Value, E> {
+        let casing = match self {
+            Self::Lower => Some(lower_text_construction_allowance(text.len())),
+            Self::Upper => Some(upper_text_construction_allowance(text.len())),
+            Self::Trim | Self::Ltrim | Self::Rtrim | Self::Length => None,
+        };
+        if let Some((backing, work)) = casing {
+            charge(Resource::PredicateExpressionSteps, work)?;
+            charge(Resource::TemporaryBytes, backing)?;
+        } else {
+            // Admit every input walk before inspecting UTF-8 boundaries. The
+            // caller supplies its existing runtime or preparation authority.
+            charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
+        }
         match self {
-            Self::Trim => Value::Text(text.trim().to_string()),
-            Self::Ltrim => Value::Text(text.trim_start().to_string()),
-            Self::Rtrim => Value::Text(text.trim_end().to_string()),
-            Self::Lower => Value::Text(lower_text(text)),
-            Self::Upper => Value::Text(upper_text(text)),
-            Self::Length => Value::Nat64(u64::try_from(text.chars().count()).unwrap_or(u64::MAX)),
+            Self::Trim => construct_text_slice(text.trim(), &mut charge),
+            Self::Ltrim => construct_text_slice(text.trim_start(), &mut charge),
+            Self::Rtrim => construct_text_slice(text.trim_end(), &mut charge),
+            Self::Length => Ok(Value::Nat64(
+                u64::try_from(text.chars().count()).unwrap_or(u64::MAX),
+            )),
+            Self::Lower => Ok(Value::Text(lower_text(text))),
+            Self::Upper => Ok(Value::Text(upper_text(text))),
         }
     }
 }
@@ -118,38 +139,49 @@ impl NumericScaleFunctionKind {
 
 impl LeftRightTextFunctionKind {
     /// Evaluate one admitted LEFT/RIGHT transform against one text input.
-    #[must_use]
-    pub(in crate::db::query::plan::expr) fn eval_text(self, text: &str, count: i64) -> Value {
-        Value::Text(match self {
+    pub(in crate::db::query::plan::expr) fn eval_text<E>(
+        self,
+        text: &str,
+        count: i64,
+        mut charge: impl FnMut(Resource, u64) -> Result<(), E>,
+    ) -> Result<Value, E> {
+        if count <= 0 {
+            return Ok(Value::Text(String::new()));
+        }
+        charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
+        let output = match self {
             Self::Left => Self::left_chars(text, count),
             Self::Right => Self::right_chars(text, count),
-        })
+        };
+        construct_text_slice(output, &mut charge)
     }
 
     /// Return the first N chars from one text input while keeping
     /// negative/zero lengths on the empty-string SQL boundary.
-    fn left_chars(text: &str, count: i64) -> String {
+    fn left_chars(text: &str, count: i64) -> &str {
         if count <= 0 {
-            return String::new();
+            return "";
         }
-
-        text.chars()
-            .take(usize::try_from(count).unwrap_or(usize::MAX))
-            .collect()
+        let end = text
+            .char_indices()
+            .nth(usize::try_from(count).unwrap_or(usize::MAX))
+            .map_or(text.len(), |(index, _)| index);
+        &text[..end]
     }
 
     /// Return the last N chars from one text input while keeping
     /// negative/zero lengths on the empty-string SQL boundary.
-    fn right_chars(text: &str, count: i64) -> String {
+    fn right_chars(text: &str, count: i64) -> &str {
         if count <= 0 {
-            return String::new();
+            return "";
         }
-
         let count = usize::try_from(count).unwrap_or(usize::MAX);
-        let total = text.chars().count();
-        let skip = total.saturating_sub(count);
-
-        text.chars().skip(skip).collect()
+        let start = text
+            .char_indices()
+            .rev()
+            .nth(count - 1)
+            .map_or(0, |(index, _)| index);
+        &text[start..]
     }
 }
 
@@ -200,38 +232,68 @@ impl Function {
         Value::Nat64(Self::text_position_1_based(text, needle))
     }
 
-    /// Evaluate one admitted REPLACE call after the caller has already
-    /// validated all text operands.
+    /// Compute exact UTF-8 output bytes using the same nonoverlapping match
+    /// boundaries as construction. Saturation lets finite budgets reject an
+    /// unrepresentable output before any allocation.
+    #[must_use]
+    pub(in crate::db::query::plan::expr) fn replace_text_output_len(
+        text: &str,
+        from: &str,
+        to: &str,
+    ) -> usize {
+        if from.is_empty() || from == to {
+            return text.len();
+        }
+        let count = text.matches(from).count();
+        text.len()
+            .saturating_sub(count.saturating_mul(from.len()))
+            .saturating_add(count.saturating_mul(to.len()))
+    }
+
+    /// Construct REPLACE after text validation and exact output-size admission.
     #[must_use]
     pub(in crate::db::query::plan::expr) fn eval_replace_text(
         self,
         text: &str,
         from: &str,
         to: &str,
+        output_len: usize,
     ) -> Value {
         debug_assert!(matches!(self, Self::Replace));
-
-        // SQL treats an empty search as no match; Rust's replace would insert
-        // the replacement at every character boundary instead.
-        Value::Text(if from.is_empty() {
-            text.to_owned()
+        let mut output = String::with_capacity(output_len);
+        // Empty SQL searches and identity substitutions preserve the input.
+        if from.is_empty() || from == to {
+            output.push_str(text);
         } else {
-            text.replace(from, to)
-        })
+            let mut copied = 0;
+            for (start, matched) in text.match_indices(from) {
+                // match_indices guarantees ascending UTF-8 boundaries within
+                // this exact input, including nonoverlapping adjacent matches.
+                output.push_str(&text[copied..start]);
+                output.push_str(to);
+                copied = start + matched.len();
+            }
+            output.push_str(&text[copied..]);
+        }
+        Value::Text(output)
     }
 
     /// Evaluate one admitted SUBSTRING call after the caller has already
     /// validated the text and integer operands.
-    #[must_use]
-    pub(in crate::db::query::plan::expr) fn eval_substring_text(
+    pub(in crate::db::query::plan::expr) fn eval_substring_text<E>(
         self,
         text: &str,
         start: i64,
         length: Option<i64>,
-    ) -> Value {
+        mut charge: impl FnMut(Resource, u64) -> Result<(), E>,
+    ) -> Result<Value, E> {
         debug_assert!(matches!(self, Self::Substring));
 
-        Value::Text(Self::substring_1_based(text, start, length))
+        if start <= 0 || length.is_some_and(|length| length <= 0) {
+            return Ok(Value::Text(String::new()));
+        }
+        charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
+        construct_text_slice(Self::substring_1_based(text, start, length), &mut charge)
     }
 
     /// Evaluate one admitted scale-taking numeric call after the caller has
@@ -266,22 +328,36 @@ impl Function {
     }
 
     /// Slice one text input using SQL-style 1-based substring coordinates.
-    fn substring_1_based(text: &str, start: i64, length: Option<i64>) -> String {
+    fn substring_1_based(text: &str, start: i64, length: Option<i64>) -> &str {
         if start <= 0 {
-            return String::new();
+            return "";
         }
         if matches!(length, Some(inner) if inner <= 0) {
-            return String::new();
+            return "";
         }
 
         let start_index = usize::try_from(start.saturating_sub(1)).unwrap_or(usize::MAX);
-        let chars = text.chars().skip(start_index);
-
-        match length {
-            Some(length) => chars
-                .take(usize::try_from(length).unwrap_or(usize::MAX))
-                .collect(),
-            None => chars.collect(),
-        }
+        let Some((start, _)) = text.char_indices().nth(start_index) else {
+            return "";
+        };
+        let suffix = &text[start..];
+        let end = length.map_or(suffix.len(), |length| {
+            suffix
+                .char_indices()
+                .nth(usize::try_from(length).unwrap_or(usize::MAX))
+                .map_or(suffix.len(), |(index, _)| index)
+        });
+        &suffix[..end]
     }
+}
+
+// Slicing performs no allocation. Admit exact requested backing and copy work
+// before constructing the selected bytes, sharing one policy across evaluators.
+fn construct_text_slice<E>(
+    text: &str,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<Value, E> {
+    charge(Resource::TemporaryBytes, text.len() as u64)?;
+    charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
+    Ok(Value::Text(text.to_owned()))
 }

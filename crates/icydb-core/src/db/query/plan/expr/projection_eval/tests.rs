@@ -1,3 +1,6 @@
+mod replace_budget;
+mod text_budget;
+
 use super::{eval_builder_expr_for_value_preview, eval_projection_function_call};
 use crate::{
     db::{

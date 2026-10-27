@@ -349,7 +349,14 @@ impl fmt::Display for TypedOperationError {
     }
 }
 
-impl StdError for TypedOperationError {}
+impl StdError for TypedOperationError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(match self {
+            Self::Adapter(error) => error,
+            Self::Database(error) => error,
+        })
+    }
+}
 
 impl From<Error> for TypedOperationError {
     fn from(error: Error) -> Self {

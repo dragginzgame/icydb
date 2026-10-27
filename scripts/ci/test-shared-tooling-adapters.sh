@@ -508,8 +508,9 @@ printf '%s\n' 'locate-project default' 'locate-project default' \
   'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
   'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
   'locate-project default' 'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
-  'metadata default' 'sort default' 'fmt default' 'sort-derives default' \
-  'sort default' 'fmt default' 'locate-project default' 'sort default' 'metadata default' \
+  'metadata default' 'sort default' 'fmt default' 'metadata default' \
+  'sort-derives default' 'sort default' 'sort-derives default' 'fmt default' \
+  'locate-project default' 'sort default' 'metadata default' \
   'locate-project default' 'locate-project default' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 for failure in early metadata; do

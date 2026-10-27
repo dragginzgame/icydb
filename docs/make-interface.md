@@ -94,10 +94,53 @@ installations, logs and build artifacts during adoption.
 ## Custom formatting without replacement recipes
 
 By default Rust formatting sorts the root Cargo workspace with `--grouped` and
-runs rustfmt. Blank-separated dependency sections are preserved without local
-command overrides. Remove overrides that only repeat that standard sequence.
-Repositories with independent workspaces, derive policies or frontend formatting
-set **both** complete commands before the include:
+runs rustfmt through `scripts/ci/run-rust-formatting.pl`. Each pass shows progress
+and elapsed time while its verbose output stays in a private log; failures retain
+the log and exact exit status. Blank-separated dependency sections are preserved.
+Use reviewed literal `FORMAT_RUST_ARGS` for extra workspaces, optional derive
+sorting and root/extra manifest order, instead of copying the orchestration:
+
+```make
+FORMAT_RUST_ARGS = --sort-derives \
+    --extra-workspace integrations/consumer \
+    --extra-workspace 'integrations/embedded consumer' \
+    --extra-manifest-order workspace,package,lib,dependencies,dev-dependencies,build-dependencies,profile
+include make/consumer.mk
+```
+
+The root sequence is grouped manifest sorting, optional derive sorting, then
+Rustfmt. Each extra workspace gets grouped manifest sorting and Rustfmt, in the
+declared order. Derive sorting runs once at the checkout root, preserving the
+sorter's ignore-aware traversal. `--manifest-order` selects root ordering;
+`--extra-manifest-order` selects ordering for extra roots. Extra roots must be
+distinct directories inside this checkout. Reuse a consumer's existing roster
+when constructing these arguments; do not create another workspace registry.
+
+Before running passes, the driver can reuse a successful result for identical
+workspace/source/manifests/lock/configuration, formatter identities and policy.
+It observes Cargo metadata and hashes source bytes; Git cleanliness or mtimes
+alone do not establish an unchanged input set. Input observation and result
+recording have their own timings, so shortcut overhead remains visible.
+The local receipt is `target/shared-tooling/formatting.receipt`. Missing, corrupt
+or unreadable bookkeeping is a miss. Incomplete discovery, custom `RUSTFMT`,
+explicit module paths, external target paths or non-workspace path dependencies disable reuse;
+normal formatting still runs. Optional derive reuse also needs `rg`; no tool is
+installed implicitly. Standard Cargo package sources, root/ancestor Cargo and
+Rustfmt configuration, toolchain inputs and derive configuration are covered.
+
+Only a successful check or write with unchanged observed inputs records a
+reusable result. A write that changes files needs a later check or unchanged
+write before reuse; it does not run a second check-before-write sequence.
+Failed or interrupted runs never publish a receipt. Keep source stable during
+formatting, as with other working-tree checks. Isolated staged-hook worktrees
+always run their formatters; developer receipts do not qualify staged inputs.
+Use `FORMAT_RUST_ARGS += --no-cache` to force all passes for explicit qualification.
+Prepared-tool checks still run before a cache hit. This is local result reuse,
+not a replacement for release source/evidence admission or native qualification.
+
+For genuinely different policies or additional frontend formatting, the existing
+paired command interface remains available. Those opaque commands are uncached
+and use the compact `run-formatting.sh` log wrapper:
 
 ```make
 FORMAT_WRITE_COMMAND = bash scripts/dev/format-workspaces.sh --write
@@ -108,13 +151,23 @@ fmt fmt-check format-tools-check: export RUSTUP_TOOLCHAIN := $(VALIDATION_TOOLCH
 fmt fmt-check format-tools-check: export CARGO_HOME := $(LOCAL_CARGO_HOME)
 ```
 
-Keep the existing formatter adapter and its complete sequence. Do not wrap it in
+Keep all required formatter coverage in a custom adapter. Do not wrap it in
 `run-formatting.sh` again: the shared targets own that wrapper. A fixed
 `bash -ec '...'` command is also supported; these values are reviewed Makefile
 commands, not untrusted strings. Quote paths and use Make's `$$` escaping for
 shell variables. Supplying only one command or an empty command is rejected.
-`FORMAT_CARGO` still selects the executable used for Rust prerequisite checks;
+`FORMAT_CARGO` selects the executable used for Rust prerequisite checks and the
+standard driver;
 target-specific environment applies to those checks and the formatter.
+
+A snapshot refresh preserves explicit command overrides; migrating a supported
+Rust-only adapter requires removing both overrides and selecting its inputs with
+`FORMAT_RUST_ARGS`. Update the actual caller and hook fixtures, including manual
+shared-file copies and aggregate-output assertions. The standard driver does not
+yet accept standalone Rustfmt file lists or their edition settings. Keep adapters
+that cover those files until an equivalent shared interface is qualified. Nesting
+the driver inside a custom command still captures its progress in the aggregate
+log; it does not provide live per-pass output.
 
 The shared recipes preserve jobserver descriptors, prepared-tool/offline policy,
 failure status and retained logs. Custom commands own extra prerequisites and

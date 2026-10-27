@@ -7,7 +7,7 @@ use crate::{
     db::{numeric::NumericArithmeticOp, query::builder::aggregate::AggregateExpr},
     value::Value,
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, convert::Infallible};
 
 ///
 /// FieldId
@@ -471,15 +471,27 @@ pub(in crate::db) fn collect_scalar_expr_field_roots(
 impl Expr {
     /// Rewrite immediate scalar children in place; aggregate scope stays opaque.
     pub(in crate::db) fn map_scalar_children(&mut self, mut map: impl FnMut(Self) -> Self) {
+        match self.try_map_scalar_children(|child| Ok::<_, Infallible>(map(child))) {
+            Ok(()) => (),
+            Err(never) => match never {},
+        }
+    }
+
+    /// Rewrite immediate children fallibly in source order. On error, callers
+    /// must discard the partially rewritten expression; no later child is visited.
+    pub(in crate::db) fn try_map_scalar_children<E>(
+        &mut self,
+        mut map: impl FnMut(Self) -> Result<Self, E>,
+    ) -> Result<(), E> {
         match self {
-            Self::Unary { expr, .. } => **expr = map(expr.take()),
+            Self::Unary { expr, .. } => **expr = map(expr.take())?,
             Self::Binary { left, right, .. } => {
-                **left = map(left.take());
-                **right = map(right.take());
+                **left = map(left.take())?;
+                **right = map(right.take())?;
             }
             Self::FunctionCall { args, .. } => {
                 for arg in args {
-                    *arg = map(arg.take());
+                    *arg = map(arg.take())?;
                 }
             }
             Self::Case {
@@ -488,13 +500,14 @@ impl Expr {
             } => {
                 for arm in when_then_arms {
                     for child in arm.children_mut() {
-                        *child = map(child.take());
+                        *child = map(child.take())?;
                     }
                 }
-                **else_expr = map(else_expr.take());
+                **else_expr = map(else_expr.take())?;
             }
             Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {}
         }
+        Ok(())
     }
 
     /// Transfer this expression, leaving a shallow inert leaf for its owner.

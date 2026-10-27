@@ -87,6 +87,15 @@ grouping with no matching rows produces no groups. These result guarantees do
 not widen aggregate-shape admission or add implicit grouped execution to scalar
 APIs.
 
+### 2.7 Grouped Identity Terminals
+
+Grouped `FIRST` and `LAST` select the minimum and maximum canonical primary key
+within each group. Group-result ordering, insertion order and access-path choice
+must not change the selected identities. These reducers inspect every admitted
+key in their group; the first encountered key does not prove an extremum.
+An empty aggregate input, including one excluded by an aggregate filter, produces
+`NULL`. Scalar query `FIRST`/`LAST` retain their ordered-query semantics.
+
 ## 3. Ordering Semantics
 
 ### 3.1 GROUP BY Without ORDER BY

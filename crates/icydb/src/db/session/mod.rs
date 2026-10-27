@@ -56,7 +56,14 @@ impl fmt::Display for ExhaustiveReadError {
     }
 }
 
-impl StdError for ExhaustiveReadError {}
+impl StdError for ExhaustiveReadError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(match self {
+            Self::Database(error) => error,
+            Self::Revision(error) => error,
+        })
+    }
+}
 
 impl From<crate::Error> for ExhaustiveReadError {
     fn from(error: crate::Error) -> Self {

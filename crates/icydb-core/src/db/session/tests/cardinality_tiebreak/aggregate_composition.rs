@@ -4,6 +4,84 @@ use super::{OutputValue, SqlStatementResult, initialize, seed_rows};
 use crate::types::Decimal;
 
 #[test]
+fn grouped_key_terminals_are_invariant_under_access_order_and_continuation() {
+    use super::{DynamicQuery, ENTITY_NAME, FieldRef, InputValue, insert_row};
+    use crate::db::{asc, desc, first, last};
+
+    let session = initialize();
+    // Insertion, primary and secondary orders deliberately disagree.
+    for (id, group) in [
+        (9, "group-a"),
+        (4, "group-b"),
+        (2, "group-a"),
+        (7, "group-b"),
+    ] {
+        insert_row(&session, id, "everyone", group);
+    }
+    for capacity in [0, 4 * 1024 * 1024] {
+        session.clear_shared_query_cache_for_tests(capacity);
+        for _ in 0..2 {
+            for route in 0..3 {
+                let filter = match route {
+                    0 => FieldRef::new("id").gte(InputValue::nat64(0)),
+                    1 => FieldRef::new("common").eq(InputValue::text("everyone".into())),
+                    _ => FieldRef::new("rare").gte(InputValue::text("group-a".into())),
+                };
+                for descending in [false, true] {
+                    for limit in [None, Some(1)] {
+                        let mut query = DynamicQuery::new(ENTITY_NAME)
+                            .filter(filter.clone())
+                            .group_by("rare")
+                            .aggregate(first())
+                            .aggregate(last())
+                            .order_by(if descending {
+                                desc("rare")
+                            } else {
+                                asc("rare")
+                            })
+                            .grouped_limits(4, 16 * 1024);
+                        if let Some(limit) = limit {
+                            query = query.limit(limit);
+                        }
+                        let mut next = Some(query.clone());
+                        let mut observed = Vec::new();
+                        let mut pages = 0;
+                        while let Some(current) = next.take() {
+                            let page = if route == 0 {
+                                session.execute_trusted_dynamic_grouped_query(&current)
+                            } else {
+                                session.execute_public_dynamic_grouped_query(&current)
+                            }
+                            .unwrap();
+                            observed.extend(page.rows.iter().map(|row| {
+                                (row.group_key().to_vec(), row.aggregate_values().to_vec())
+                            }));
+                            next = page.next_cursor.map(|cursor| query.clone().cursor(cursor));
+                            pages += 1;
+                            assert!(pages <= 2, "grouped continuation must advance");
+                        }
+                        let mut expected = vec![
+                            (
+                                vec![OutputValue::text("group-a".into())],
+                                vec![OutputValue::nat64(2), OutputValue::nat64(9)],
+                            ),
+                            (
+                                vec![OutputValue::text("group-b".into())],
+                                vec![OutputValue::nat64(4), OutputValue::nat64(7)],
+                            ),
+                        ];
+                        if descending {
+                            expected.reverse();
+                        }
+                        assert_eq!(observed, expected, "route {route}, descending {descending}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn nullable_global_distinct_public_exact_reads_preserve_null_and_empty_results() {
     use super::{DynamicQuery, ENTITY_NAME, FieldRef, InputValue};
     use crate::db::{avg, count_by, sum};

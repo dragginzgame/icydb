@@ -73,7 +73,9 @@ fn profile_rank() -> Result<Option<u64>, String> {
 
 #[cfg(test)]
 mod tests {
-    use runtime_api::db::{TypedAdapterError, TypedEntityDescriptor, TypedOperationError};
+    use std::error::Error as _;
+
+    use runtime_api::db::{TypedAdapterError, TypedEntityDescriptor};
     use runtime_api::model::{TypedInputValue, TypedNamedType, TypedOutputValue};
     use runtime_api::traits::EntitySource;
 
@@ -131,8 +133,10 @@ mod tests {
                 ),
             ] {
                 let error = session.bind_typed_entity(&descriptor).unwrap_err();
-                let TypedOperationError::Adapter(TypedAdapterError::BindingUnavailable(context)) =
-                    error
+                let TypedAdapterError::BindingUnavailable(context) = error
+                    .source()
+                    .and_then(|cause| cause.downcast_ref::<TypedAdapterError>())
+                    .expect("typed binding failures retain their adapter source")
                 else {
                     panic!("expected generated binding source context");
                 };

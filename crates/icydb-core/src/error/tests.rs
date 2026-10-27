@@ -1069,3 +1069,55 @@ fn stale_accepted_authority_projects_expected_and_optional_current_revision() {
         vec![(Tag::ExpectedRevision, 7)],
     );
 }
+
+// Error derives must preserve redaction and must not expose wrapped details as
+// a source chain: diagnostics remain available only through their typed owners.
+#[test]
+fn derived_errors_preserve_display_and_source_contracts() {
+    use crate::{
+        db::{QueryError, QueryExecutionError},
+        value::{MapValueError, SchemaInvariantError},
+    };
+    use std::error::Error;
+
+    let map = MapValueError::EmptyKey { index: 7 };
+    let schema = SchemaInvariantError::from(map.clone());
+    assert!(matches!(
+        schema,
+        SchemaInvariantError::InvalidMapValue(MapValueError::EmptyKey { index: 7 })
+    ));
+    let internal = InternalError::classified(ErrorClass::Corruption, ErrorOrigin::Serialize);
+    let internal_message = internal.message();
+    let execution = QueryExecutionError::from(InternalError::classified(
+        ErrorClass::Corruption,
+        ErrorOrigin::Serialize,
+    ));
+    assert_eq!(execution.as_internal().class, ErrorClass::Corruption);
+    let query = QueryError::from(QueryExecutionError::from(InternalError::classified(
+        ErrorClass::Corruption,
+        ErrorOrigin::Serialize,
+    )));
+    let decimal = "invalid".parse::<icydb_schema::Decimal>().unwrap_err();
+    let u256 = "invalid".parse::<icydb_schema::U256>().unwrap_err();
+    let cases: [(&dyn Error, &str); 9] = [
+        (&map, "map value error"),
+        (&schema, "schema invariant error"),
+        (&decimal, "decimal parse error"),
+        (&u256, "value is not an unsigned 256-bit integer"),
+        (&internal, internal_message),
+        (&execution, COMPACT_QUERY_DIAGNOSTIC_MESSAGE),
+        (&query, COMPACT_QUERY_DIAGNOSTIC_MESSAGE),
+        (
+            &QueryErrorDetail::NumericOverflow,
+            COMPACT_QUERY_DIAGNOSTIC_MESSAGE,
+        ),
+        (
+            &SchemaDdlAdmissionError::MissingExpectedSchemaVersion,
+            COMPACT_QUERY_DIAGNOSTIC_MESSAGE,
+        ),
+    ];
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+        assert!(error.source().is_none());
+    }
+}

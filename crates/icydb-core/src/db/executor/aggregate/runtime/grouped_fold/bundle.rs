@@ -1003,8 +1003,8 @@ mod tests {
             (AggregateKind::Max, Some(CompiledExpr::Slot { slot: 0 }), 9),
             (AggregateKind::Min, None, 1),
             (AggregateKind::Max, None, 9),
-            (AggregateKind::First, None, 4),
-            (AggregateKind::Last, None, 6),
+            (AggregateKind::First, None, 1),
+            (AggregateKind::Last, None, 9),
         ] {
             let needs_row = input_expr.is_some();
             let spec = GroupedAggregateBundleSpec::new(
@@ -1023,11 +1023,10 @@ mod tests {
                 let control = state
                     .apply_with_row_view(&data_key(value), needs_row.then_some(&row), &mut context)
                     .unwrap();
-                let stopped = matches!(control, crate::db::executor::aggregate::FoldControl::Break);
-                assert_eq!(stopped, matches!(kind, AggregateKind::First));
-                if stopped {
-                    break;
-                }
+                assert!(matches!(
+                    control,
+                    crate::db::executor::aggregate::FoldControl::Continue
+                ));
             }
             assert_eq!(state.finalize().unwrap(), Value::Nat64(expected));
         }

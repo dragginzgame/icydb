@@ -8,6 +8,7 @@ mod casefold_filters;
 mod catalogue_ranges;
 mod composite_primary_keys;
 mod cursor_entropy;
+mod full_row_traversal;
 mod historical_field_paths;
 mod hybrid_components;
 mod index_metadata;

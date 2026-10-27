@@ -50,10 +50,18 @@ use std::{borrow::Cow, cell::OnceCell};
 pub(in crate::db) struct StructuralSlotReader<'a> {
     contract: Cow<'a, StructuralRowContract>,
     field_bytes: StructuralRowFieldBytes<'a>,
-    pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue<'a>>,
+    pub(in crate::db::data::persisted_row) cached_values: OnceCell<Vec<CachedSlotValue<'a>>>,
 }
 
 impl<'a> StructuralSlotReader<'a> {
+    // Raw-byte and direct scalar consumers need no per-field value cells.
+    // Allocate the existing dense cache only when a caller needs cached decoding;
+    // row-envelope and field-contract admission remain independent of this cache.
+    fn cached_values(&self) -> &[CachedSlotValue<'a>] {
+        self.cached_values
+            .get_or_init(|| build_initial_slot_cache(self.contract.field_count()))
+    }
+
     /// Build one slot reader over one persisted row using one frozen
     /// structural row contract without retaining the full entity model.
     pub(in crate::db) fn from_raw_row_with_contract(
@@ -78,7 +86,7 @@ impl<'a> StructuralSlotReader<'a> {
     ) -> Result<Self, InternalError> {
         let field_bytes =
             StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())?;
-        let cached_values = build_initial_slot_cache(contract.field_count());
+        let cached_values = OnceCell::new();
         let reader = Self {
             contract,
             field_bytes,
@@ -175,7 +183,7 @@ impl<'a> StructuralSlotReader<'a> {
 
         // Each cell is populated above. Consuming the cache avoids duplicating
         // heap-owning payloads and cannot expose emptied cells to later readers.
-        for cached in self.cached_values {
+        for cached in self.cached_values.into_inner().unwrap_or_default() {
             values.push(
                 cached
                     .materialized
@@ -281,8 +289,12 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         slot: usize,
     ) -> Result<&Value, InternalError> {
+        // Reject invalid slots before allocating the dense cache.
+        if slot >= self.contract.field_count() {
+            return Err(InternalError::index_invariant());
+        }
         let cached = self
-            .cached_values
+            .cached_values()
             .get(slot)
             .ok_or_else(InternalError::index_invariant)?;
 
@@ -343,7 +355,8 @@ impl<'a> StructuralSlotReader<'a> {
         self.required_cached_value(slot)?;
         let cached = self
             .cached_values
-            .get_mut(slot)
+            .get_mut()
+            .and_then(|cache| cache.get_mut(slot))
             .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         cached
             .materialized
@@ -467,7 +480,7 @@ impl<'a> StructuralSlotReader<'a> {
             match self.contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => {
                     let cached = self
-                        .cached_values
+                        .cached_values()
                         .get(slot)
                         .ok_or_else(InternalError::persisted_row_decode_corruption)?;
                     self.required_validated_scalar_slot_value_for_slot(slot, &cached.validated)?;
@@ -514,9 +527,10 @@ impl SlotReader for StructuralSlotReader<'_> {
         match self.contract.field_leaf_codec(slot)? {
             LeafCodec::Scalar(codec) => {
                 let cached = self
-                    .cached_values
+                    .cached_values()
                     .get(slot)
                     .ok_or_else(InternalError::index_invariant)?;
+
                 if self.field_bytes.field(slot).is_none() {
                     return self.required_historical_scalar(slot, codec).map(Some);
                 }
@@ -597,6 +611,7 @@ mod tests {
             data::{
                 StructuralRowContract,
                 canonical_row_from_runtime_value_source_with_accepted_contract,
+                persisted_row::types::SlotReader,
             },
             schema::{
                 AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
@@ -832,7 +847,10 @@ mod tests {
         let reader = StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
             .expect("large-payload fixture row should open lazily");
 
-        assert!(scalar_slot_is_untouched(&reader.cached_values[2]));
+        assert!(reader.cached_values.get().is_none());
+        assert!(reader.get_bytes(2).is_some());
+        assert!(reader.get_bytes(0).is_some());
+        assert!(reader.cached_values.get().is_none());
         assert_eq!(
             reader
                 .required_cached_value(1)
@@ -840,7 +858,7 @@ mod tests {
             &Value::Bool(false),
         );
         assert!(
-            scalar_slot_is_untouched(&reader.cached_values[2]),
+            scalar_slot_is_untouched(&reader.cached_values()[2]),
             "rejecting on small metadata must not validate or materialize the unrelated snapshot",
         );
     }

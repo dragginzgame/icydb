@@ -56,11 +56,11 @@ the independent, non-mutating formatting gate.
   metadata must also be consistently formatted before staging. A release must
   not rely on a commit hook to repair its saved staged payload; retain the
   release runner's exact commit-tree check.
-- Keep routine formatting output concise across all repositories. `make fmt-check`
-  reports `Checking formatting... ok` on success; `make fmt` reports
-  `Formatting... ok`. Use the shared `scripts/ci/run-formatting.sh` wrapper to
-  capture formatter stdout/stderr. Failures produce a short failure line and a
-  second line pointing to the complete retained log; preserve the command's
+- Keep routine formatting output concise and observable. Standard Rust passes
+  show their type, workspace, progress and elapsed time; unchanged-input reuse
+  must identify an identical successful selection, with prepared tools still
+  admitted. Custom commands use the compact shared log wrapper. Failures produce
+  a short failure line and a pointer to the retained log; preserve the command's
   failing exit status. Make may add its own error diagnostic. Do not hide
   failures, discard diffs or remove workspace/derive/frontend checks to reduce
   output. Retain failure logs in CI artifacts too.
@@ -80,8 +80,10 @@ disables automatic rustup installation. `FORMAT_CARGO` selects one executable
 name or path, not a command string; export `RUSTUP_TOOLCHAIN` to select a compiler.
 The include preserves the default goal and never activates hooks or installs
 tools. Keep setup explicit and retain stronger consumer admission checks.
-Its `run-formatting.sh` companion owns the compact output and retained logs;
-include it in snapshots and isolated hook/adoption fixture inputs.
+Its `run-rust-formatting.pl` companion owns standard Rust workspace orchestration,
+input reuse, pass timings and retained logs. `run-formatting.sh` preserves compact
+presentation for custom commands. Include the declared closure in snapshots and
+isolated hook/adoption fixture inputs.
 The adjacent `make/execution.mk` companion uses the existing execution probe to
 reject Make ignore-errors and non-executing modes before recipes run. Select its
 declared companion when exporting; a failing prerequisite alone cannot enforce
@@ -90,8 +92,10 @@ Admission checks both `MAKEFLAGS` and Make's retained `MFLAGS`, including when
 `MAKEFLAGS` is cleared or replaced. Do not assign `MFLAGS` on the command line or
 in a Makefile; the guard requires GNU Make's generated invocation flags.
 
-Keep local adapters for multiple independent workspaces, sort-derives, custom
-manifest ordering or frontend formatting. Set both `FORMAT_WRITE_COMMAND` and
+Use the [declarative formatting inputs](../docs/make-interface.md#custom-formatting-without-replacement-recipes)
+for independent workspaces, derive sorting and manifest order. Retire adapters
+that only repeat that sequence after qualifying their actual callers. Keep local
+adapters for additional policies such as frontend formatting; set both `FORMAT_WRITE_COMMAND` and
 `FORMAT_CHECK_COMMAND` to their complete sequences before the include; add any
 extra prerequisite checks to `format-tools-check`. Do not accidentally replace
 existing coverage with the root-workspace defaults. Qualify the actual formatting

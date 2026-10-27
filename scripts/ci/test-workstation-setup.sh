@@ -148,7 +148,7 @@ bash "$FIXTURE/scripts/dev/workstation-setup.sh" update extra > "$FIXTURE/invali
 unset -f make
 cp "$ROOT/Makefile" "$FIXTURE/Makefile"
 cp "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$FIXTURE/make/"
-cp "$ROOT/scripts/ci/check-make-execution.sh" "$ROOT/scripts/ci/run-formatting.sh" "$FIXTURE/scripts/ci/"
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$FIXTURE" make/rust-format.mk
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
 for tool in rust host ic; do
   cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'

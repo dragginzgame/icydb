@@ -357,6 +357,25 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         self.state.row_layout.clone()
     }
 
+    /// Retain a primary-iterator payload under the ordinary owned-row charges.
+    pub(in crate::db::executor) fn read_borrowed_data_row(
+        &self,
+        key: DecodedDataStoreKey,
+        row: &RawRow,
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
+    ) -> Result<Option<DataRow>, InternalError> {
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+        charge_materialized_data_row(row.len())?;
+        if let Some(filter_program) = filter_program
+            && !self
+                .state
+                .raw_row_matches_filter_program(row, filter_program)?
+        {
+            return Ok(None);
+        }
+        Ok(Some((key, row.clone())))
+    }
+
     /// Read one structural data row without decoding any slot payload.
     pub(in crate::db::executor) fn read_data_row_only(
         &self,

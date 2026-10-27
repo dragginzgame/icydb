@@ -58,7 +58,7 @@ use target_keys::RelationTargetKeys;
 const RELATION_SYSTEM_INDEX_ORDINAL: u16 = u16::MAX;
 
 const MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK: u64 = 349_440;
-const MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES: u64 = 5_460;
+const MAX_RELATION_IMAGE_RAW_REFERENCES: u64 = 5_460;
 const MAX_RELATION_BATCH_TRAVERSAL_WORK: u64 = 349_440;
 const MAX_RELATION_BATCH_RAW_REFERENCES: u64 = 5_460;
 const MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS: u64 = 3_276;
@@ -67,13 +67,20 @@ const MAX_RELATION_BATCH_REVERSE_DELTAS: u64 = 5_460;
 /// Per-row-image counters shared by every nested relation projected in scope.
 #[derive(Default)]
 pub(in crate::db) struct RelationProjectionBudget {
+    // This is the existing transition's image side, not a configurable policy.
+    // Every before image shares one batch allowance; final images share another.
+    before_image: bool,
     traversal_work: u64,
     raw_references: u64,
 }
 
 /// Cumulative relation counters shared by one complete atomic batch.
+/// Before/final projection allowances are separate; target and delta allowances
+/// remain shared. Neither side resets when preparation moves to another row.
 #[derive(Default)]
 pub(in crate::db) struct RelationCommitBudget {
+    before_image_traversal_work: u64,
+    before_image_raw_references: u64,
     traversal_work: u64,
     raw_references: u64,
     // One immutable final-row view per batch: cache misses as misses, while
@@ -85,6 +92,14 @@ pub(in crate::db) struct RelationCommitBudget {
 }
 
 impl RelationProjectionBudget {
+    /// Use the batch's fixed before-image allowance for old-row projection.
+    pub(in crate::db) fn before_image() -> Self {
+        Self {
+            before_image: true,
+            ..Self::default()
+        }
+    }
+
     fn charge_traversal(
         &mut self,
         batch: &mut RelationCommitBudget,
@@ -103,8 +118,13 @@ impl RelationProjectionBudget {
             MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK,
             icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
         )?;
-        batch.traversal_work = charge_relation_counter(
-            batch.traversal_work,
+        let batch_traversal = if self.before_image {
+            &mut batch.before_image_traversal_work
+        } else {
+            &mut batch.traversal_work
+        };
+        *batch_traversal = charge_relation_counter(
+            *batch_traversal,
             amount,
             MAX_RELATION_BATCH_TRAVERSAL_WORK,
             icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
@@ -112,7 +132,7 @@ impl RelationProjectionBudget {
         Ok(())
     }
 
-    fn charge_nested_references(
+    fn charge_raw_references(
         &mut self,
         batch: &mut RelationCommitBudget,
         amount: usize,
@@ -120,17 +140,17 @@ impl RelationProjectionBudget {
         let amount = u64::try_from(amount).map_err(|_| {
             relation_budget_error(
                 icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
-                MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES,
+                MAX_RELATION_IMAGE_RAW_REFERENCES,
                 u64::MAX,
             )
         })?;
         self.raw_references = charge_relation_counter(
             self.raw_references,
             amount,
-            MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES,
+            MAX_RELATION_IMAGE_RAW_REFERENCES,
             icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
         )?;
-        batch.charge_raw_references_u64(amount)
+        batch.charge_raw_references_u64(amount, self.before_image)
     }
 }
 
@@ -161,20 +181,18 @@ impl RelationCommitBudget {
         Ok(())
     }
 
-    fn charge_raw_references(&mut self, amount: usize) -> Result<(), InternalError> {
-        let amount = u64::try_from(amount).map_err(|_| {
-            relation_budget_error(
-                icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
-                MAX_RELATION_BATCH_RAW_REFERENCES,
-                u64::MAX,
-            )
-        })?;
-        self.charge_raw_references_u64(amount)
-    }
-
-    fn charge_raw_references_u64(&mut self, amount: u64) -> Result<(), InternalError> {
-        self.raw_references = charge_relation_counter(
-            self.raw_references,
+    fn charge_raw_references_u64(
+        &mut self,
+        amount: u64,
+        before_image: bool,
+    ) -> Result<(), InternalError> {
+        let references = if before_image {
+            &mut self.before_image_raw_references
+        } else {
+            &mut self.raw_references
+        };
+        *references = charge_relation_counter(
+            *references,
             amount,
             MAX_RELATION_BATCH_RAW_REFERENCES,
             icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
@@ -1672,7 +1690,7 @@ fn relation_target_keys_for_source_slots(
         // without rebuilding a runtime `Value` container.
         relation_target_keys_from_field_bytes(row_fields, relation)?
     };
-    commit_budget.charge_raw_references(keys.len())?;
+    projection_budget.charge_raw_references(commit_budget, keys.len())?;
     Ok(keys)
 }
 
@@ -1773,7 +1791,7 @@ fn relation_target_keys_from_nested_source(
             }
         }
     }
-    projection_budget.charge_nested_references(commit_budget, values.len())?;
+    projection_budget.charge_raw_references(commit_budget, values.len())?;
     let mut components = Vec::with_capacity(values.len());
     for value in values {
         components.push(

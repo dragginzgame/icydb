@@ -230,6 +230,8 @@ pub struct DiagnosticFactDetail {
 /// Not a stable API; intended for internal use and may change without notice.
 ///
 
+#[derive(thiserror::Error)]
+#[error("{}", self.message())]
 pub struct InternalError {
     pub(crate) class: ErrorClass,
     pub(crate) origin: ErrorOrigin,
@@ -1936,14 +1938,6 @@ impl fmt::Debug for InternalError {
     }
 }
 
-impl fmt::Display for InternalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.message())
-    }
-}
-
-impl std::error::Error for InternalError {}
-
 ///
 /// ConstraintValuePathComponent
 ///
@@ -2430,6 +2424,8 @@ pub enum StoreError {
 /// Query-origin structured error detail payload.
 ///
 
+#[derive(thiserror::Error)]
+#[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum QueryErrorDetail {
     /// The exact-count shape is supported, but its metadata is unavailable.
     ExactCountMetadataUnavailable,
@@ -2471,14 +2467,6 @@ pub enum QueryErrorDetail {
     StaleSchemaRevision,
 }
 
-impl fmt::Display for QueryErrorDetail {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
-    }
-}
-
-impl std::error::Error for QueryErrorDetail {}
-
 ///
 /// SchemaTransitionBudgetResource
 ///
@@ -2510,7 +2498,8 @@ pub enum SchemaTransitionBudgetResource {
 /// variant.
 ///
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, thiserror::Error, PartialEq)]
+#[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum SchemaDdlAdmissionError {
     MissingExpectedSchemaVersion,
 
@@ -2558,14 +2547,6 @@ pub enum SchemaDdlAdmissionError {
 
     GeneratedFieldNullabilityChangeRejected,
 }
-
-impl fmt::Display for SchemaDdlAdmissionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
-    }
-}
-
-impl std::error::Error for SchemaDdlAdmissionError {}
 
 impl fmt::Debug for ErrorDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

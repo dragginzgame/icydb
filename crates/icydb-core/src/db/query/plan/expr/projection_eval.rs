@@ -26,10 +26,11 @@ use crate::{
             BinaryOp, CompiledExprValueReader, Expr, Function, ScalarEvalFunctionShape,
             compiled_expr::compile_builder_preview_expr,
         },
+        resource::budget::{ExecutionBudgetChargeError, charge_current_execution_budget_typed},
     },
     value::Value,
 };
-use icydb_diagnostic_code::QueryProjectionCode;
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, QueryProjectionCode};
 use std::{
     borrow::{Borrow, Cow},
     cmp::Ordering,
@@ -68,6 +69,7 @@ pub(in crate::db) enum ProjectionFunctionEvalError {
     InvalidCall,
     InvalidProjection(QueryProjectionCode),
     Numeric(NumericEvalError),
+    Budget(ExecutionBudgetChargeError),
 }
 
 impl ProjectionFunctionEvalError {
@@ -79,6 +81,7 @@ impl ProjectionFunctionEvalError {
             Self::InvalidCall => QueryError::invariant(),
             Self::InvalidProjection(reason) => QueryError::unsupported_projection(reason),
             Self::Numeric(err) => QueryError::execute(err.into_internal_error()),
+            Self::Budget(err) => QueryError::execute(err.into()),
         }
     }
 }
@@ -188,7 +191,8 @@ fn eval_unary_text_function_call(
                 .unary_text_function_kind()
                 .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
-            Ok(kind.eval_text(text.as_str()))
+            kind.eval_text(text.as_str(), charge_current_execution_budget_typed)
+                .map_err(ProjectionFunctionEvalError::Budget)
         }
         _ => Err(text_input_error()),
     }
@@ -311,7 +315,8 @@ fn eval_left_right_text_function_call(
                 .left_right_text_function_kind()
                 .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
-            Ok(kind.eval_text(text.as_str(), length))
+            kind.eval_text(text.as_str(), length, charge_current_execution_budget_typed)
+                .map_err(ProjectionFunctionEvalError::Budget)
         }
         _ => Err(text_input_error()),
     }
@@ -362,10 +367,32 @@ fn eval_replace_text_function_call(
     match (input, from, to) {
         (Value::Null, _, _) | (_, None, _) | (_, _, None) => Ok(Value::Null),
         (Value::Text(text), Some(from), Some(to)) => {
-            Ok(function.eval_replace_text(text.as_str(), from, to))
+            let output_len =
+                admit_replace_text(text, from, to, charge_current_execution_budget_typed)
+                    .map_err(ProjectionFunctionEvalError::Budget)?;
+            Ok(function.eval_replace_text(text, from, to, output_len))
         }
         _ => Err(text_input_error()),
     }
+}
+
+// One construction policy serves runtime and literal folding; each caller
+// retains its own error carrier and existing budget scope.
+pub(in crate::db::query::plan::expr) fn admit_replace_text<E>(
+    text: &str,
+    from: &str,
+    to: &str,
+    mut charge: impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<usize, E> {
+    let scan_bytes = (text.len() as u64).saturating_add(from.len() as u64);
+    charge(Resource::PredicateExpressionSteps, scan_bytes)?;
+    let output_len = Function::replace_text_output_len(text, from, to);
+    charge(Resource::TemporaryBytes, output_len as u64)?;
+    charge(
+        Resource::PredicateExpressionSteps,
+        scan_bytes.saturating_add(output_len as u64),
+    )?;
+    Ok(output_len)
 }
 
 fn eval_substring_text_function_call(
@@ -378,9 +405,14 @@ fn eval_substring_text_function_call(
 
     match (input, start) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
-        (Value::Text(text), Some(start)) => {
-            Ok(function.eval_substring_text(text.as_str(), start, length))
-        }
+        (Value::Text(text), Some(start)) => function
+            .eval_substring_text(
+                text.as_str(),
+                start,
+                length,
+                charge_current_execution_budget_typed,
+            )
+            .map_err(ProjectionFunctionEvalError::Budget),
         _ => Err(text_input_error()),
     }
 }

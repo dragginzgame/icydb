@@ -27,7 +27,6 @@ use crate::{
             pipeline::runtime::RowView,
             projection::ProjectionEvalError,
         },
-        key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
     value::Value,
@@ -125,14 +124,14 @@ impl GroupedTerminalAggregateState {
         }
     }
 
-    // Preserve numeric failures and classify invalid grouped input or filter
-    // expressions through one shared evaluator boundary.
+    // Preserve numeric and budget failures; classify invalid grouped input or
+    // filter expressions through one shared evaluator boundary.
     fn expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
-        if let ProjectionEvalError::Numeric(err) = err {
-            return err.into_internal_error();
+        match err {
+            ProjectionEvalError::Numeric(err) => err.into_internal_error(),
+            ProjectionEvalError::Budget(err) => err.into(),
+            _ => InternalError::query_invalid_logical_plan(),
         }
-
-        InternalError::query_invalid_logical_plan()
     }
 
     // Evaluate one row-backed grouped expression through the shared
@@ -315,8 +314,17 @@ impl GroupedTerminalAggregateState {
                 has_expression,
                 input,
             ),
-            AggregateKind::First => Self::apply_first(reducer, &key.primary_key_value()),
-            AggregateKind::Last => Self::apply_last(reducer, &key.primary_key_value()),
+            // Group ordering and access-path choice cannot select a different
+            // identity within a group. Inspect all admitted keys through the
+            // same canonical extrema owner as key-only MIN/MAX.
+            AggregateKind::First => {
+                reducer.update_min_value(key.primary_key_runtime_value())?;
+                Ok(FoldControl::Continue)
+            }
+            AggregateKind::Last => {
+                reducer.update_max_value(key.primary_key_runtime_value())?;
+                Ok(FoldControl::Continue)
+            }
         }
     }
 
@@ -408,24 +416,6 @@ impl GroupedTerminalAggregateState {
         }
         Ok(FoldControl::Continue)
     }
-
-    // Apply one FIRST grouped terminal update.
-    fn apply_first(
-        reducer: &mut GroupedAggregateReducerState,
-        key: &PrimaryKeyValue,
-    ) -> Result<FoldControl, InternalError> {
-        reducer.set_first(key)?;
-        Ok(FoldControl::Break)
-    }
-
-    // Apply one LAST grouped terminal update.
-    fn apply_last(
-        reducer: &mut GroupedAggregateReducerState,
-        key: &PrimaryKeyValue,
-    ) -> Result<FoldControl, InternalError> {
-        reducer.set_last(key)?;
-        Ok(FoldControl::Continue)
-    }
 }
 
 #[cfg(test)]
@@ -436,12 +426,112 @@ mod tests {
             executor::aggregate::{
                 ExecutionConfig, field::resolve_aggregate_target_slot_from_planner_slot,
             },
-            key_taxonomy::PrimaryKeyComponent,
+            key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
             query::plan::FieldSlot,
             schema::AcceptedFieldKind,
         },
-        types::{Decimal, EntityTag},
+        types::{Account, Decimal, EntityTag, Principal, Subaccount, Timestamp, U256, Ulid},
     };
+
+    #[test]
+    fn grouped_identity_extrema_preserve_all_key_kinds_duplicates_and_empty_input() {
+        use PrimaryKeyComponent as Component;
+
+        let owner = Principal::from_slice(&[1]);
+        let pairs = [
+            (Component::Unit, Component::Unit),
+            (Component::Nat64(0), Component::Nat64(u64::MAX)),
+            (Component::Int64(i64::MIN), Component::Int64(i64::MAX)),
+            (Component::Nat128(1 << 127), Component::Nat128(u128::MAX)),
+            (Component::Int128(i128::MIN), Component::Int128(i128::MAX)),
+            (
+                Component::Timestamp(Timestamp::from_millis(-1)),
+                Component::Timestamp(Timestamp::from_millis(1)),
+            ),
+            (
+                Component::Ulid(Ulid::from_u128(1)),
+                Component::Ulid(Ulid::from_u128(2)),
+            ),
+            (
+                Component::Principal(owner),
+                Component::Principal(Principal::from_slice(&[0, 0])),
+            ),
+            (
+                Component::Subaccount(Subaccount::MIN),
+                Component::Subaccount(Subaccount::MAX),
+            ),
+            (
+                Component::Account(Account::from_owner_and_subaccount(owner, None)),
+                Component::Account(Account::from_owner_and_subaccount(
+                    owner,
+                    Some(Subaccount::MIN),
+                )),
+            ),
+            (
+                Component::U256(U256::from(1_u64)),
+                Component::U256(U256::MAX),
+            ),
+        ];
+        let scalar_pairs = pairs.map(|(left, right)| (left.into(), right.into()));
+        let composite = |first, second| {
+            PrimaryKeyValue::Composite(
+                CompositePrimaryKeyValue::try_from_components(&[
+                    Component::Nat64(first),
+                    Component::Int64(second),
+                ])
+                .unwrap(),
+            )
+        };
+        for (left, right) in scalar_pairs.into_iter().chain([
+            (composite(1, 9), composite(2, -9)),
+            (composite(1, -9), composite(1, 9)),
+        ]) {
+            for kind in [AggregateKind::First, AggregateKind::Last] {
+                for keys in [[left, right, left], [right, left, right]] {
+                    let mut state = GroupedTerminalAggregateState::new(
+                        kind,
+                        GroupedDistinctExecutionMode::new(false, false),
+                        None,
+                        None,
+                        None,
+                        u64::MAX,
+                    );
+                    let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+                    for key in keys {
+                        let key = DecodedDataStoreKey::new(EntityTag::new(1), &key);
+                        assert!(matches!(
+                            state.apply_with_row_view(&key, None, &mut context).unwrap(),
+                            FoldControl::Continue
+                        ));
+                    }
+                    let expected = if matches!(kind, AggregateKind::First) {
+                        left.min(right)
+                    } else {
+                        left.max(right)
+                    };
+                    assert_eq!(state.finalize().unwrap(), expected.as_runtime_value());
+                }
+                for filtered in [false, true] {
+                    let mut state = GroupedTerminalAggregateState::new(
+                        kind,
+                        GroupedDistinctExecutionMode::new(false, false),
+                        None,
+                        None,
+                        filtered.then(|| Rc::new(CompiledExpr::Literal(Value::Bool(false)))),
+                        u64::MAX,
+                    );
+                    if filtered {
+                        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+                        let key = DecodedDataStoreKey::new(EntityTag::new(1), &left);
+                        state
+                            .apply_with_row_view(&key, Some(&RowView::new(vec![])), &mut context)
+                            .unwrap();
+                    }
+                    assert_eq!(state.finalize().unwrap(), Value::Null);
+                }
+            }
+        }
+    }
 
     #[test]
     fn grouped_expression_extrema_preserve_borrowed_and_owned_selection() {

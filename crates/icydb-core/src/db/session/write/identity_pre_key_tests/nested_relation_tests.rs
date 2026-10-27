@@ -2,6 +2,7 @@
 //! Reuses the session boundary's accepted-catalog and stable-store fixtures.
 
 mod delete_batch;
+mod image_budgets;
 
 use super::*;
 use crate::db::{

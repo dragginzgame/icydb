@@ -48,12 +48,48 @@ or section banners.
 
 - Prefer typed errors over panics for invalid input, persisted data, external
   state, and recoverable invariant failures.
+- For native/`std` error types, use `thiserror::Error` for mechanical message
+  formatting and ordinary source forwarding when the package already uses
+  `thiserror`. Review handwritten `Display`/`Error` pairs type by type; custom
+  behavior elsewhere does not justify retaining unrelated boilerplate.
+- Preserve variants, field types, display text, source identity/chaining and
+  conversion behavior when replacing manual implementations. Do not introduce
+  automatic `From` conversions or transparent forwarding that changes the
+  existing error boundary merely to shorten a declaration.
+- Retain explicit implementations where recovery-source selection, conditional
+  source projection, redaction or computed formatting has a real contract that
+  the derive cannot express faithfully. Preserve those projections and qualify
+  their actual callers; do not flatten them into strings or discard evidence.
+  This rule does not require a new dependency for a minimal or `no_std` crate,
+  or an `Error` implementation on a passive wire enum that does not need one.
 - Do not match rendered error strings in code or tests when a variant, kind, or
   observable state is available.
 - Persisted decoding is bounded and fallible. Validate before publishing data
   into runtime authority.
 - Keep defensive validation at independent trust boundaries even when semantic
   decisions are carried from an upstream owner.
+
+## External inputs and native tools
+
+- Admit machine output from its original bytes with strict encoding and the
+  required response shape. Reject invalid entries and missing required fields;
+  do not silently turn them into empty or partial success with lossy decoding,
+  defaults or filtering. Optional fields and forward-compatible unknown fields
+  remain protocol choices. Lossy text is for diagnostic presentation, with raw
+  evidence retained separately when required.
+- Production subprocess capture needs explicit stdout/stderr bounds and a
+  deliberate deadline or cancellation policy. Reuse an existing qualified
+  process owner where available. Reject truncated machine output before parsing;
+  bounded diagnostic tails may be intentional. Preserve process/descendant
+  custody, original failures and uncertain external effects; termination does
+  not prove rollback or authorize retry. Interactive/inherited streams and
+  deliberately long-running services retain their own lifecycle contracts.
+- Escape untrusted text fields when rendering application-owned terminal
+  diagnostics or reports. Preserve raw evidence and machine-readable output;
+  presentation escaping must not become identity normalization. Keep trusted
+  application layout, intentional colour and explicit interactive passthrough
+  distinct from captured external text. Prefer the existing text owner's escape
+  function over another private implementation.
 
 ## Tests
 
@@ -63,6 +99,15 @@ or section banners.
 - Test maintained contracts rather than private implementation layout.
 - Prefer fixtures and deterministic substitutes over live network calls in
   unit tests.
+- Required source inspections must report traversal, entry, metadata and
+  decoding failures instead of passing after skipping inputs. Verify that the
+  intended source set was inspected; declare optional inputs and exclusions
+  explicitly. Do not use `flatten()` or `filter_map(Result::ok)` to erase scan
+  failures. Scope this to required current inputs, not retired files or history.
+- Repairs at inspection, decoding, capture and rendering boundaries need focused
+  negative regression cases selected by the owning normal test/CI path. Cover
+  the failure that escaped, not just a successful fixture. Shared rules guide
+  review; adopting prose alone does not install executable enforcement.
 
 ## Tooling
 

@@ -1,10 +1,10 @@
-//! Bounded live-intersection qualification using the maintained streaming entity.
+//! Bounded live-index qualification using the maintained audit entities.
 
 use crate::{db, insert_fixture_rows, query_validate_error, reset_perf_fixtures};
 use icydb::{
     Error,
     db::{
-        DynamicQuery, ScalarPageWork,
+        DynamicQuery, LiveQueryPageOutput, ScalarPageWork,
         query::{FieldRef, FilterExpr, asc, desc},
     },
     types::{Blob, Timestamp},
@@ -145,10 +145,48 @@ fn measure_seek_intersection_page(
     if let Some(limit) = limit {
         request = request.limit(limit);
     }
+    measure_page(|| db()?.execute_trusted_live_page(&request, continuation.as_deref()))
+}
+icydb_testing_wasm_helpers::export_wire!(update, "measure_seek_intersection_page", MeasureSeekIntersectionPage, measure_seek_intersection_page, (children: u8, descending: bool, residual: bool, wide: bool, limit: Option<u32>, continuation: Option<String>), Result<IntersectionPageSample, Error>);
+
+/// Exercise the public 100-row envelope over an ordered secondary range.
+/// No authored total limit is used: every engine-issued page must be traversable.
+fn measure_secondary_resume_page(
+    descending: bool,
+    residual: bool,
+    row_backed: bool,
+    continuation: Option<String>,
+) -> Result<IntersectionPageSample, Error> {
+    let mut filters = vec![
+        FieldRef::new("name").gte("scale-group-001"),
+        FieldRef::new("name").lte("scale-group-100"),
+    ];
+    if residual {
+        filters.push(FieldRef::new("active").eq(true));
+    }
+    let request = DynamicQuery::new("PerfAuditUser")
+        .filter(FilterExpr::and(filters))
+        .order_by(if descending {
+            desc("name")
+        } else {
+            asc("name")
+        })
+        .order_by(if descending { desc("id") } else { asc("id") })
+        .select(if row_backed {
+            vec!["id", "age"]
+        } else {
+            vec!["id"]
+        });
+    measure_page(|| db()?.execute_live_page(&request, continuation.as_deref()))
+}
+icydb_testing_wasm_helpers::export_wire!(update, "measure_secondary_resume_page", MeasureSecondaryResumePage, measure_secondary_resume_page, (descending: bool, residual: bool, row_backed: bool, continuation: Option<String>), Result<IntersectionPageSample, Error>);
+
+// Keep the same request boundary and instruction interval for both probes.
+fn measure_page(
+    execute: impl FnOnce() -> Result<LiveQueryPageOutput, Error>,
+) -> Result<IntersectionPageSample, Error> {
     let start = ic_platform::ic0::performance_counter(1);
-    let page = icydb::db::with_request_execution(|| {
-        db()?.execute_trusted_live_page(&request, continuation.as_deref())
-    })?;
+    let page = icydb::db::with_request_execution(execute)?;
     let instructions = ic_platform::ic0::performance_counter(1).saturating_sub(start);
     let ids = page
         .rows
@@ -167,4 +205,3 @@ fn measure_seek_intersection_page(
         instructions,
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_seek_intersection_page", MeasureSeekIntersectionPage, measure_seek_intersection_page, (children: u8, descending: bool, residual: bool, wide: bool, limit: Option<u32>, continuation: Option<String>), Result<IntersectionPageSample, Error>);

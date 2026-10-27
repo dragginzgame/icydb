@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::db::query::plan::expr::{
     Expr, canonicalize_scalar_where_bool_expr, eval_literal_only_expr_value, normalize_bool_expr,
     rewrite_affine_numeric_compare_expr, simplify_bool_expr_constants,
@@ -9,7 +12,7 @@ pub(super) fn normalize_where_bool_expr(
     work: &PreparationWork<'_>,
 ) -> Result<Expr, crate::db::QueryError> {
     let expr = rewrite_affine_numeric_compare_expr(expr);
-    let expr = fold_literal_only_where_expr(expr);
+    let expr = fold_literal_only_where_expr(expr, work)?;
     let expr = simplify_bool_expr_constants(expr);
 
     normalize_bool_expr(expr, work)
@@ -19,7 +22,7 @@ pub(super) fn normalize_scalar_where_bool_expr(
     expr: Expr,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, crate::db::QueryError> {
-    let expr = fold_literal_only_where_expr(expr);
+    let expr = fold_literal_only_where_expr(expr, work)?;
     let expr = simplify_bool_expr_constants(expr);
 
     canonicalize_scalar_where_bool_expr(expr, work)
@@ -28,26 +31,31 @@ pub(super) fn normalize_scalar_where_bool_expr(
 // Fold literal-only scalar subtrees inside WHERE before normalization so the
 // conservative predicate compiler can still reuse its existing field-vs-literal
 // fast paths when the right-hand side is just a wrapped constant expression.
-fn fold_literal_only_where_expr(mut expr: Expr) -> Expr {
-    expr.map_scalar_children(fold_literal_only_where_expr);
+fn fold_literal_only_where_expr(
+    mut expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, crate::db::QueryError> {
+    expr.try_map_scalar_children(|child| fold_literal_only_where_expr(child, work))?;
     if matches!(
         expr,
         Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_)
     ) {
-        return expr;
+        return Ok(expr);
     }
-
-    fold_literal_only_where_leaf(expr)
+    fold_literal_only_where_leaf(expr, work)
 }
 
-fn fold_literal_only_where_leaf(expr: Expr) -> Expr {
+fn fold_literal_only_where_leaf(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, crate::db::QueryError> {
     if !where_expr_is_literal_only(&expr) {
-        return expr;
+        return Ok(expr);
     }
-
-    eval_literal_only_expr_value(&expr)
+    Ok(eval_literal_only_expr_value(&expr, work)
+        .map_err(crate::db::QueryError::execute)?
         .map(Expr::Literal)
-        .unwrap_or(expr)
+        .unwrap_or(expr))
 }
 
 fn where_expr_is_literal_only(expr: &Expr) -> bool {

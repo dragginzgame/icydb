@@ -5,6 +5,7 @@
 //! Boundary: verifies facade contracts through local module behavior.
 
 mod bootstrap;
+mod typed_adapter;
 
 use super::*;
 

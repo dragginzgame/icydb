@@ -186,11 +186,12 @@ fn nested_root_projection_preserves_null_empty_and_budget_rejection() {
         StructuralSlotReader::from_raw_row_with_borrowed_contract(&raw, &contract).unwrap();
     for (traversal_work, raw_references) in [
         (MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK, 0),
-        (0, MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES - 2),
+        (0, MAX_RELATION_IMAGE_RAW_REFERENCES - 2),
     ] {
         let mut projection = RelationProjectionBudget {
             traversal_work,
             raw_references,
+            ..RelationProjectionBudget::default()
         };
         assert!(
             relation_target_identities_for_source_slots(

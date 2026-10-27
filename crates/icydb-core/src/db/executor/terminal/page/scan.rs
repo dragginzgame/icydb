@@ -418,14 +418,50 @@ fn try_scan_borrowed_primary_rows(
         }));
     }
 
-    let rows_scanned = std::cell::Cell::new(0usize);
-    let rows_matched = std::cell::Cell::new(0usize);
-    let envelope_stopped = std::cell::Cell::new(false);
-    let active_unit = std::cell::Cell::new(ScanPageUnit::Untracked);
     let mut plain_rows = Vec::with_capacity(staged_row_capacity(key_stream, None, 0));
     let mut window = bounds
         .order_window
         .map(|order| BoundedOrderWindow::new(order.keep_count, order.resolved_order));
+    let visited = try_visit_borrowed_primary_rows(
+        key_stream,
+        |key, row| read_row(&key, row),
+        |decoded| {
+            if !decoded.has_materialized_slots() {
+                return Err(InternalError::query_executor_invariant());
+            }
+            if let Some(window) = window.as_mut() {
+                window.push(decoded)?;
+            } else {
+                plain_rows.push(decoded);
+            }
+            Ok(())
+        },
+    )?;
+    let Some(visited) = visited else {
+        return Ok(None);
+    };
+    let rows = window.map_or_else(
+        || PendingOrderRows::plain(plain_rows),
+        BoundedOrderWindow::into_pending_rows,
+    );
+    Ok(Some(RowScanResult {
+        rows,
+        rows_scanned: visited.rows_scanned,
+        rows_matched: visited.rows_matched,
+    }))
+}
+
+// The physical traversal owns one candidate's preflight, decode and receipt.
+// Payload consumers differ only in how they retain an accepted borrowed row.
+fn try_visit_borrowed_primary_rows<T>(
+    key_stream: &mut OrderedKeyStreamBox,
+    mut read_row: impl FnMut(DecodedDataStoreKey, &RawRow) -> Result<Option<T>, InternalError>,
+    mut retain_row: impl FnMut(T) -> Result<(), InternalError>,
+) -> Result<Option<RowScanResult<()>>, InternalError> {
+    let rows_scanned = std::cell::Cell::new(0usize);
+    let mut rows_matched = 0usize;
+    let envelope_stopped = std::cell::Cell::new(false);
+    let active_unit = std::cell::Cell::new(ScanPageUnit::Untracked);
     let mut begin_row = || {
         let page_unit = begin_direct_row_scan_page_unit()?;
         if matches!(page_unit, ScanPageUnit::EnvelopeFull) {
@@ -435,25 +471,16 @@ fn try_scan_borrowed_primary_rows(
         active_unit.set(page_unit);
         Ok(true)
     };
-    let mut visit_row = |key: DecodedDataStoreKey, row: &RawRow| {
+    let mut visit_row = |key, row: &RawRow| {
         rows_scanned.set(rows_scanned.get().saturating_add(1));
-        let decoded = read_row(&key, row)?;
+        let decoded = read_row(key, row)?;
         finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
         if let Some(decoded) = decoded {
-            rows_matched.set(rows_matched.get().saturating_add(1));
-            if !decoded.has_materialized_slots() {
-                return Err(InternalError::query_executor_invariant());
-            }
-            if let Some(window) = window.as_mut() {
-                window.push(decoded)?;
-            } else {
-                plain_rows.push(decoded);
-            }
+            rows_matched = rows_matched.saturating_add(1);
+            retain_row(decoded)?;
         }
-
         Ok(StoreVisit::Continue)
     };
-
     let Some(()) = key_stream.try_visit_primary_rows_direct(&mut begin_row, &mut visit_row)? else {
         return Ok(None);
     };
@@ -465,16 +492,10 @@ fn try_scan_borrowed_primary_rows(
             observed.saturating_add(1),
         ));
     }
-
-    let rows = window.map_or_else(
-        || PendingOrderRows::plain(plain_rows),
-        BoundedOrderWindow::into_pending_rows,
-    );
-
     Ok(Some(RowScanResult {
-        rows,
+        rows: (),
         rows_scanned: rows_scanned.get(),
-        rows_matched: rows_matched.get(),
+        rows_matched,
     }))
 }
 
@@ -643,9 +664,13 @@ fn scan_data_rows_direct(
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
-    scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
-        row_runtime.read_data_row(consistency, key)
-    })
+    scan_data_rows_direct_with_reader(
+        key_stream,
+        row_keep_cap,
+        row_skip_count,
+        |key| row_runtime.read_data_row(consistency, key),
+        |key, row| row_runtime.read_borrowed_data_row(key, row, None),
+    )
 }
 
 // Scan one ordered key stream directly into canonical data rows through one
@@ -656,7 +681,29 @@ fn scan_data_rows_direct_with_reader(
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
+    mut read_borrowed_row: impl FnMut(
+        DecodedDataStoreKey,
+        &RawRow,
+    ) -> Result<Option<DataRow>, InternalError>,
 ) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
+    // Unbounded full-row collection can retain the payload already visited by
+    // the primary iterator. Finite page windows keep their existing skip/keep
+    // and continuation owner; unsupported store/stream shapes fall through.
+    // Page-progress executions must keep their existing partial-stop semantics.
+    if row_keep_cap.is_none() && row_skip_count == 0 && !production_scalar_page_work_is_active()? {
+        let mut rows = Vec::with_capacity(staged_row_capacity(key_stream, None, 0));
+        let visited = try_visit_borrowed_primary_rows(key_stream, &mut read_borrowed_row, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        if let Some(visited) = visited {
+            return Ok(RowScanResult {
+                rows,
+                rows_scanned: visited.rows_scanned,
+                rows_matched: visited.rows_matched,
+            });
+        }
+    }
     scan_rows_with(
         key_stream,
         row_keep_cap,
@@ -682,9 +729,13 @@ fn scan_data_rows_direct_with_filter_program(
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     filter_program: &EffectiveRuntimeFilterProgram,
 ) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
-    scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
-        row_runtime.read_data_row_with_filter_program(consistency, key, filter_program)
-    })
+    scan_data_rows_direct_with_reader(
+        key_stream,
+        row_keep_cap,
+        row_skip_count,
+        |key| row_runtime.read_data_row_with_filter_program(consistency, key, filter_program),
+        |key, row| row_runtime.read_borrowed_data_row(key, row, Some(filter_program)),
+    )
 }
 
 // Let the ordering window consume the residual filter while its reader is

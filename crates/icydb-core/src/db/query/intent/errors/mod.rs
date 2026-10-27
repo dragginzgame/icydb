@@ -12,13 +12,13 @@ use crate::{
     error::{COMPACT_QUERY_DIAGNOSTIC_MESSAGE, ErrorClass, InternalError},
 };
 use icydb_diagnostic_code as diagnostic_code;
-use std::fmt;
 
 ///
 /// QueryError
 ///
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum QueryError {
     Validate(Box<ValidateError>),
 
@@ -193,19 +193,12 @@ impl From<ValidateError> for QueryError {
     }
 }
 
-impl fmt::Display for QueryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
-    }
-}
-
-impl std::error::Error for QueryError {}
-
 ///
 /// QueryExecutionError
 ///
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum QueryExecutionError {
     Corruption(InternalError),
 
@@ -263,14 +256,6 @@ impl From<InternalError> for QueryExecutionError {
         }
     }
 }
-
-impl fmt::Display for QueryExecutionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(COMPACT_QUERY_DIAGNOSTIC_MESSAGE)
-    }
-}
-
-impl std::error::Error for QueryExecutionError {}
 
 impl From<PlannerError> for QueryError {
     fn from(err: PlannerError) -> Self {

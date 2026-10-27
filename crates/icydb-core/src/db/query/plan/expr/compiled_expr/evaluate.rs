@@ -463,6 +463,7 @@ fn eval_grouped_function_call(
 ) -> Result<Value, ProjectionEvalError> {
     eval_projection_function_call_checked(function, args).map_err(|err| match err {
         ProjectionFunctionEvalError::Numeric(err) => ProjectionEvalError::Numeric(err),
+        ProjectionFunctionEvalError::Budget(err) => ProjectionEvalError::Budget(err),
         ProjectionFunctionEvalError::InvalidProjection(reason) => {
             ProjectionEvalError::invalid_projection(reason)
         }

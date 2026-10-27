@@ -1,18 +1,39 @@
 //! Shared-source model generation must survive real install and upgrade.
 
 use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
+use icydb_testing_build::{CanisterWasmProfile, build_fixture_variant_wasm_with_profile};
 use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::deliver_fixture_startup_watchdog;
 
+// The ordinary retained build owner binds the actor to current source/features
+// and applies the canonical post-link pipeline before either scenario installs it.
+fn model_facade_wasm() -> Vec<u8> {
+    build_fixture_variant_wasm_with_profile(
+        "icydb-testing-model-facade-only",
+        "",
+        "model-facade",
+        CanisterWasmProfile::WasmRelease,
+    )
+    .expect("standalone facade actor should build")
+}
+
+fn init_arguments() -> Vec<u8> {
+    canic_icydb::wire::encode_init_arguments(
+        (),
+        icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+    )
+    .expect("unit init arguments should encode")
+}
+
 #[test]
-#[ignore = "requires ICYDB_MODEL_FACADE_WASM built from icydb-testing-model-facade-only"]
+#[ignore = "manual standalone facade install/write/upgrade qualification"]
 fn single_package_model_survives_install_write_and_upgrade() {
-    let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
+    let wasm = model_facade_wasm();
     let fixture = StandaloneCanisterFixture::try_install(
         icydb_testing_integration::start_fixture_pocket_ic(),
         InstallSpec {
             wasm: wasm.clone(),
-            init_bytes: Vec::new(),
+            init_bytes: init_arguments(),
             cycles: 10_000_000_000_000,
             install_sender: None,
             label: Some("model_facade".to_string()),
@@ -65,7 +86,16 @@ fn single_package_model_survives_install_write_and_upgrade() {
     let before_upgrade = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     fixture
         .pocket_ic()
-        .upgrade_canister(fixture.canister_id(), wasm, Vec::new(), None)
+        .upgrade_canister(
+            fixture.canister_id(),
+            wasm,
+            canic_icydb::wire::encode_post_upgrade_arguments(
+                (),
+                icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
+            )
+            .expect("unit post-upgrade arguments should encode"),
+            None,
+        )
         .unwrap();
     println!(
         "upgrade_cycles={}",
@@ -85,15 +115,15 @@ fn single_package_model_survives_install_write_and_upgrade() {
 }
 
 #[test]
-#[ignore = "requires ICYDB_MODEL_FACADE_WASM built from icydb-testing-model-facade-only"]
+#[ignore = "manual standalone facade installation cycle measurement"]
 fn single_package_install_cycle_cost() {
-    let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
+    let wasm = model_facade_wasm();
     let instance = icydb_testing_integration::start_fixture_pocket_ic();
     let pic = instance.instance();
     let canister = pic.create_canister();
     pic.add_cycles(canister, 10_000_000_000_000);
     // PocketIC also supplies an initial balance: do not infer it from funding.
     let before = pic.cycle_balance(canister);
-    pic.install_canister(canister, wasm, Vec::new(), None);
+    pic.install_canister(canister, wasm, init_arguments(), None);
     println!("install_cycles={}", before - pic.cycle_balance(canister));
 }

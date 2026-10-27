@@ -88,7 +88,14 @@ impl fmt::Display for TypedExhaustiveQueryError {
     }
 }
 
-impl StdError for TypedExhaustiveQueryError {}
+impl StdError for TypedExhaustiveQueryError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(match self {
+            Self::Exhaustive(error) => error,
+            Self::Operation(error) => error,
+        })
+    }
+}
 
 impl From<crate::Error> for TypedExhaustiveQueryError {
     fn from(error: crate::Error) -> Self {

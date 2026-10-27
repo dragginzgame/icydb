@@ -4,10 +4,7 @@
 //! Boundary: stores and finalizes aggregate terminal values.
 
 use crate::{
-    db::{
-        executor::aggregate::{contracts::AggregateKind, value_reducer::ValueReducerState},
-        key_taxonomy::PrimaryKeyValue,
-    },
+    db::executor::aggregate::{contracts::AggregateKind, value_reducer::ValueReducerState},
     error::InternalError,
     value::Value,
 };
@@ -28,8 +25,8 @@ pub(in crate::db::executor::aggregate::contracts::state) enum GroupedAggregateRe
     Exists(bool),
     Min(ValueReducerState),
     Max(ValueReducerState),
-    First(Option<Value>),
-    Last(Option<Value>),
+    First(ValueReducerState),
+    Last(ValueReducerState),
 }
 
 impl GroupedAggregateReducerState {
@@ -45,8 +42,8 @@ impl GroupedAggregateReducerState {
             AggregateKind::Exists => Self::Exists(false),
             AggregateKind::Min => Self::Min(ValueReducerState::min()),
             AggregateKind::Max => Self::Max(ValueReducerState::max()),
-            AggregateKind::First => Self::First(None),
-            AggregateKind::Last => Self::Last(None),
+            AggregateKind::First => Self::First(ValueReducerState::min()),
+            AggregateKind::Last => Self::Last(ValueReducerState::max()),
         }
     }
 
@@ -101,7 +98,9 @@ impl GroupedAggregateReducerState {
         value: Value,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Min(reducer) => reducer.ingest_canonical_ordered_owned(value),
+            Self::Min(reducer) | Self::First(reducer) => {
+                reducer.ingest_canonical_ordered_owned(value)
+            }
             _ => Err(InternalError::query_executor_invariant()),
         }
     }
@@ -112,7 +111,9 @@ impl GroupedAggregateReducerState {
         value: Value,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Max(reducer) => reducer.ingest_canonical_ordered_owned(value),
+            Self::Max(reducer) | Self::Last(reducer) => {
+                reducer.ingest_canonical_ordered_owned(value)
+            }
             _ => Err(InternalError::query_executor_invariant()),
         }
     }
@@ -187,34 +188,6 @@ impl GroupedAggregateReducerState {
         }
     }
 
-    // Apply one FIRST reducer update.
-    pub(in crate::db::executor::aggregate::contracts::state) fn set_first(
-        &mut self,
-        key: &PrimaryKeyValue,
-    ) -> Result<(), InternalError> {
-        match self {
-            Self::First(first_key) => {
-                *first_key = Some(key.as_runtime_value());
-                Ok(())
-            }
-            _ => Err(InternalError::query_executor_invariant()),
-        }
-    }
-
-    // Apply one LAST reducer update.
-    pub(in crate::db::executor::aggregate::contracts::state) fn set_last(
-        &mut self,
-        key: &PrimaryKeyValue,
-    ) -> Result<(), InternalError> {
-        match self {
-            Self::Last(last_key) => {
-                *last_key = Some(key.as_runtime_value());
-                Ok(())
-            }
-            _ => Err(InternalError::query_executor_invariant()),
-        }
-    }
-
     /// Convert reducer state into the grouped aggregate terminal output value.
     pub(in crate::db::executor::aggregate::contracts::state) fn into_value(
         self,
@@ -224,9 +197,10 @@ impl GroupedAggregateReducerState {
             | Self::Sum(reducer)
             | Self::Avg(reducer)
             | Self::Min(reducer)
-            | Self::Max(reducer) => reducer.into_final_value(),
+            | Self::Max(reducer)
+            | Self::First(reducer)
+            | Self::Last(reducer) => reducer.into_final_value(),
             Self::Exists(value) => Ok(Value::Bool(value)),
-            Self::First(value) | Self::Last(value) => Ok(value.unwrap_or(Value::Null)),
         }
     }
 }

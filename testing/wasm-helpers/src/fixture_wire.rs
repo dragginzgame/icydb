@@ -236,6 +236,7 @@ contracts! {
     MeasureRepeatedScanQueries => ("measure_repeated_scan_queries", true),
     MeasureSchemaApplicationQuery => ("measure_schema_application_query", true),
     MeasureSchemaApplicationUpdate => ("measure_schema_application_update", false),
+    MeasureSecondaryResumePage => ("measure_secondary_resume_page", false),
     MeasureSeekIntersectionPage => ("measure_seek_intersection_page", false),
     MeasureSqlDdlAdmissionInstructions => ("measure_sql_ddl_admission_instructions", false),
     MeasureSqlExplain => ("measure_sql_explain", true),

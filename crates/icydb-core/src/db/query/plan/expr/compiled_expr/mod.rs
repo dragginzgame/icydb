@@ -23,6 +23,7 @@ use crate::{
             AggregateKind,
             expr::{BinaryOp, Function, UnaryOp},
         },
+        resource::budget::ExecutionBudgetChargeError,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     value::{Value, ValueTag},
@@ -114,6 +115,8 @@ pub(in crate::db) enum ProjectionEvalError {
     },
 
     Numeric(NumericEvalError),
+
+    Budget(ExecutionBudgetChargeError),
 
     InvalidGroupedHavingResult {
         found: ValueTag,
@@ -226,6 +229,7 @@ impl ProjectionEvalError {
     pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
             Self::Numeric(err) => err.into_internal_error(),
+            Self::Budget(err) => err.into(),
             // Data-dependent operand errors have the same typed projection
             // meaning in preview, aggregate inputs, grouped output and HAVING.
             Self::InvalidProjection { reason } => {

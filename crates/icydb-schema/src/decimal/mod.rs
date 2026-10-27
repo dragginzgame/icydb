@@ -11,7 +11,6 @@ mod wire;
 mod tests;
 
 use crate::NumericValue;
-use std::fmt::{Display, Formatter};
 
 // We cap scale at 28 to keep i128 intermediate math practical while still
 // covering common fixed-point workloads (including e8/e18 compatibility).
@@ -57,7 +56,8 @@ impl DecimalParts {
 /// arithmetic semantics into the error surface.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, thiserror::Error, PartialEq)]
+#[error("decimal parse error")]
 pub struct ParseDecimalError {
     reason: ParseDecimalErrorReason,
 }
@@ -71,14 +71,6 @@ impl ParseDecimalError {
     #[must_use]
     pub const fn reason(&self) -> ParseDecimalErrorReason {
         self.reason
-    }
-}
-
-impl std::error::Error for ParseDecimalError {}
-
-impl Display for ParseDecimalError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("decimal parse error")
     }
 }
 

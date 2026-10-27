@@ -31,9 +31,8 @@ LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check release-editor-check
 # IC executables are an explicit IcyDB selection under the shared baseline.
 IC_TOOLS ?= icp ic-wasm wasm-opt
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
-# IcyDB owns derive ordering; shared targets own admission and formatter output.
-FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace --grouped; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
-FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --grouped --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
+# Include derive sorting in the shared manifest/derive/Rustfmt flow.
+FORMAT_RUST_ARGS := --sort-derives
 include $(ROOT_DIR)/make/consumer.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same

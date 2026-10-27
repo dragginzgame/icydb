@@ -54,6 +54,25 @@ pub(crate) fn upper_text(input: &str) -> String {
     input.to_uppercase()
 }
 
+/// Conservative cumulative backing and byte-work allowance for `upper_text`.
+///
+/// Rust's scalar mappings expand to at most three input byte lengths. Starting
+/// at the input capacity therefore needs at most two geometric growths; include
+/// both old and new requested backing rather than treating output length as
+/// allocator telemetry. The mapping and capacity controls below pin this bound.
+#[must_use]
+pub(crate) fn upper_text_construction_allowance(input_len: usize) -> (u64, u64) {
+    let len = input_len as u64;
+    if len <= 1 {
+        return (len, len.saturating_mul(3));
+    }
+    let first_growth = len.saturating_mul(2).max(8);
+    let backing = len
+        .saturating_add(first_growth)
+        .saturating_add(first_growth.saturating_mul(2));
+    (backing, len.saturating_mul(4).saturating_add(backing))
+}
+
 fn lowercase_text(input: &str) -> String {
     if input.is_ascii() {
         return input.to_ascii_lowercase();
@@ -151,7 +170,39 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{casefold_text, lower_text, lower_text_construction_allowance, upper_text};
+    use super::{
+        casefold_text, lower_text, lower_text_construction_allowance, upper_text,
+        upper_text_construction_allowance,
+    };
+
+    #[test]
+    fn uppercase_allowance_covers_unicode_expansion_and_cumulative_growth() {
+        for scalar in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            let output_bytes: usize = scalar.to_uppercase().map(char::len_utf8).sum();
+            assert!(output_bytes <= 3 * scalar.len_utf8(), "{scalar:?}");
+        }
+        for text in ["", "a", "ß", "ΐ", "aΐ", "ﬃ", "é🍋", "ASCII"] {
+            for repeats in [1, 2, 16, 1024] {
+                let input = text.repeat(repeats);
+                let output = upper_text(&input);
+                let initial = input.len();
+                let first_growth = (2 * initial).max(8);
+                let requested = if output.capacity() > first_growth {
+                    initial + first_growth + output.capacity()
+                } else if output.capacity() > initial {
+                    initial + output.capacity()
+                } else {
+                    initial
+                };
+                let (backing, work) = upper_text_construction_allowance(input.len());
+                assert!(requested as u64 <= backing, "{input:?}");
+                assert!(output.len() as u64 <= work);
+                assert_eq!(output, input.to_uppercase());
+            }
+        }
+        assert_eq!(upper_text_construction_allowance(0), (0, 0));
+        assert!(upper_text_construction_allowance(usize::MAX).0 >= usize::MAX as u64);
+    }
 
     #[test]
     fn lowercase_allowance_covers_unicode_expansion_and_output_growth() {

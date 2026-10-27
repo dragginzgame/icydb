@@ -46,7 +46,10 @@ pub(crate) use hash::{
 pub(crate) use hash::{test_hash_budget_error, with_test_hash_override};
 pub use input::InputValue;
 pub use map::{MapValueError, SchemaInvariantError};
-pub(crate) use ops::{casefold_text, lower_text, lower_text_construction_allowance, upper_text};
+pub(crate) use ops::{
+    casefold_text, lower_text, lower_text_construction_allowance, upper_text,
+    upper_text_construction_allowance,
+};
 pub use output::{OutputValue, render_output_value_text};
 pub use public::{PublicEnumValue, PublicValue};
 pub use tag::ValueTag;

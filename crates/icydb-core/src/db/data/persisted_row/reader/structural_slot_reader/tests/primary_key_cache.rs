@@ -166,7 +166,7 @@ fn key_validation_retains_each_admitted_value_for_projection_and_rereads() {
                         reader.validate_primary_key_value(&expected).unwrap();
                     }
                     for &slot in contract.primary_key_slot_indices() {
-                        let cached = &reader.cached_values[slot];
+                        let cached = &reader.cached_values()[slot];
                         assert!(
                             cached.validated.get().is_some() || cached.materialized.get().is_some()
                         );

@@ -7,9 +7,9 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.26.20 at published revision
-`a7f85d45d4212d4c39225f58597580560a333550`. The canonical exporter owns the
-129 selected payloads and their hashes/modes. Refresh them canonically; a
+IcyDB selects Shared Tooling 0.26.23 at published revision
+`48ec9794892da6f8e2812653ec16c5e8ea23df47`. The canonical exporter owns the
+130 selected payloads and their hashes/modes. Refresh them canonically; a
 sibling checkout's uncommitted changes are not part of this snapshot.
 
 The complete pre-cleanup record remains in Git at commit
@@ -88,27 +88,93 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Current minimums and lock selections are IC Build/Host/Testkit 0.68.8,
-Platform 0.6.19, Wire 0.7.17, Memory/Storage 0.51.4, Metrics 0.16.3 and Timers
-0.31.5. Registry availability was verified before locked cache preparation.
-The browser Platform package remains at its latest published 0.1.0. Canic stays
-at the explicit adapter revision in Cargo.toml: upstream main does not contain
-that package and is not a substitutable dependency.
+Current direct minimums are IC Build/Host/Testkit 0.69.0, Platform 0.7.0,
+Wire 0.7.18, Memory/Storage 0.51.8 and Metrics 0.16.3. Timers' minimum remains
+0.31.7; the compatible lock selects Memory/Storage 0.51.10 and Timers 0.31.10.
+Registry availability was verified before locked cache preparation. Canic stays at its explicit adapter
+revision in Cargo.toml; endpoint and lifecycle ownership are unchanged.
 
-Shared Tooling 0.26.20 changes the selected governance payloads; selected
-executable helpers and IC tool catalogs are unchanged, except for adoption of
-the shared SDK boundary checker. The browser harness delegates source and
-generated-binding declaration/import checks to that canonical checker. Consumer qualification
-uses snapshot integrity, dependency boundaries, shared-adapter and release
-routing fixtures plus focused Rust consumers. These fixtures perform no release
-or delivery effects. Native macOS, installed IC and the full release gate remain
-separate qualification obligations.
-Current focused checks pass strict facade/CLI/build Clippy, Testkit consumer
-compilation, facade Wire tests, and Rust 1.91 facade Wasm compilation. Native
-TypeScript qualification passes 90 exact frames across 12 methods plus 3,108
-truncations and malformed/value/limit controls; it is not installed Chromium or
-IC qualification. Deployment artifact dependency exclusion enforcement remains
+Platform 0.7.0 removes Candid frontend compiler exports that this workspace does
+not use. Its Principal, Account, executor, ic0 and CDK entry modules match the
+published 0.6.21 sources. Both runtime adapters use the same registry
+`ic-cdk-executor` 2.0.0 identity. Memory/Storage 0.51.9, Timers 0.31.9 and
+Tooling 0.69 select Platform 0.7.0. Canic still selects Platform 0.6.21
+transitively; the two package identities are explicit in the lockfile.
+The selected Core Wasm normal graph has no Candid; the existing adapter's external
+entropy boundary and host Testkit graphs retain their upstream Candid selection.
+
+Tooling 0.69.0 is published from
+`f268aef5d205e51811e934648afcd13f026635f1`. Its seven consumed package archives
+contain unchanged Rust sources relative to 0.68.12; the coordinated release
+aligns their Platform-owned Principal identity with IcyDB's existing 0.7
+selection. Shared Tooling 0.26.23 and Platform 0.7.0 are the latest verified
+releases for this adoption.
+
+Shared Tooling 0.26.23 owns Rust formatting orchestration. IcyDB selects
+`FORMAT_RUST_ARGS := --sort-derives`, replacing its paired shell commands with
+the shared grouped-manifest, derive and Rustfmt sequence
+([#473](https://github.com/dragginzgame/icydb/issues/473)). The selected compiler,
+repo-local Cargo home/target and prepared offline admission remain unchanged.
+Manifest sorting now precedes derive sorting. Ordinary write mode retains
+successful earlier writes on a later failure; the index-export hook isolates
+those writes and refreshes selected files only after every pass succeeds.
+The shared driver owns per-pass progress, retained failure logs and exact-input
+success receipts; hook exports always run the passes. Progress durations are
+informational, not performance qualification.
+
+Focused Linux checks pass snapshot integrity, actual consumer formatting and
+hook preservation, shared/release adapter dispatch, selected-source release
+metadata, workstation orchestration and shell/Perl validation. The formatter
+fixture qualifies retained exit-43
+failure logs, manifest-before-derive partial writes, real-tool input reuse,
+source invalidation and forced execution. The hook checks reject partial staging
+and preserve role groups, lockfiles and unrelated edits, including unusual paths.
+These results do not qualify native macOS, installed IC/browser behavior or the
+full release gate. Cargo dependency and package-version selections are unchanged.
+
+The new gzip ownership rule is already met by the production report writer,
+which delegates encoding to IC Tooling. One shell report fixture still constructs
+its gzip member with the system encoder; its independent follow-through is
+tracked in [#475](https://github.com/dragginzgame/icydb/issues/475).
+
+The earlier Shared Tooling 0.26.22 adoption changed governance payloads, including
+owned-type Candid restrictions and mechanical error-derive guidance. Its
+executable helpers and tool catalogs were unchanged. Snapshot integrity,
+dependency pins and the canonical Cargo dependency boundary pass. The owned
+Rust sources use no CandidType derives
+or retired Platform Candid compiler APIs. The Tooling 0.69 / Memory 0.51.9 /
+Timers 0.31.9 graph passed strict
+core/schema/CLI/build/integration all-target Clippy, 21 build-tool consumer tests,
+18 CLI process-boundary tests and Rust 1.91 facade SQL/migration Wasm compilation.
+Selected Core and audit-actor normal/build graph checks retain host-tool/parser
+exclusions, one Core Platform identity and one actor executor identity.
+
+The installed deterministic post-link/upgrade contract passed on that graph
+under Testkit-managed PocketIC. Its compiler artifact was 4,736,891 raw bytes
+and its final deployable was 4,168,823 bytes. The test checks retained rows
+and query results across upgrade from the compiler artifact to its transformed
+artifact on this same dependency graph. It does not qualify an upgrade from an
+older dependency release or establish matched dependency-adoption savings.
+Testkit 0.69's CLI and server admission were prepared through the normal setup
+target; Testkit retained all local server startup and cleanup ownership.
+
+Memory/Storage 0.51.10 and Timers 0.31.10 were selected concurrently during
+the subsequent text-construction correction. Those locked inputs were fetched
+without editing their selections. Focused Core SQL/migration Clippy and Rust
+1.91 facade Wasm compilation pass on that graph; the earlier installed result
+does not qualify these later runtime package selections.
+
+Earlier scalar/Wire and focused Core budget/traversal/memory-diagnostic results
+belong to their recorded dependency graphs. This tooling adoption does not
+claim those complete test families were rerun.
+Native macOS, browser and full release gates remain separate qualification
+obligations. Deployment artifact dependency exclusion enforcement remains
 tracked separately in #378.
+
+Earlier browser qualification covered 90 exact frames across 12 methods plus
+3,108 truncations and malformed/value/limit controls. That evidence belongs to
+its recorded dependency selections; this adoption does not rerun or claim
+installed Chromium qualification.
 
 The new [RPC-budget rule](../../rules/rpc-budgets.md) applies to browser contracts.
 IcyDB already projects schema-owned policy through Wire generation and checks

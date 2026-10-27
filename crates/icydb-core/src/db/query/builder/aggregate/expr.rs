@@ -163,12 +163,18 @@ pub const fn exists() -> AggregateExpr {
 }
 
 /// Build `first`.
+///
+/// In grouped execution, selects the minimum primary key within each group,
+/// independently of scan direction and access path.
 #[must_use]
 pub const fn first() -> AggregateExpr {
     AggregateExpr::terminal(AggregateKind::First)
 }
 
 /// Build `last`.
+///
+/// In grouped execution, selects the maximum primary key within each group,
+/// independently of scan direction and access path.
 #[must_use]
 pub const fn last() -> AggregateExpr {
     AggregateExpr::terminal(AggregateKind::Last)

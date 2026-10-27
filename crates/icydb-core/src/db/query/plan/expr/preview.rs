@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         numeric::{
@@ -6,11 +9,14 @@ use crate::{
         },
         query::plan::expr::{
             BinaryOp, CaseWhenArm, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
-            collapse_true_only_boolean_admission,
+            collapse_true_only_boolean_admission, projection_eval::admit_replace_text,
         },
+        resource::construction::ConstructionBudget,
     },
+    error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::cmp::Ordering;
 
 ///
@@ -50,51 +56,78 @@ enum NullableIntegerArg {
 /// Lowering uses this bounded preview to collapse wrapped constant helper
 /// expressions inside scalar `WHERE` before the later planner normalization
 /// passes try to recover predicate-shaped fast paths.
-pub(in crate::db) fn eval_literal_only_expr_value(expr: &Expr) -> Option<Value> {
-    match expr {
-        Expr::Literal(value) => Some(value.clone()),
+pub(in crate::db) fn eval_literal_only_expr_value(
+    expr: &Expr,
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
+    Ok(match expr {
+        Expr::Literal(value) => Some(work.copy_value(value)?),
         Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => None,
-        Expr::FunctionCall { function, args } => eval_literal_only_function_call(*function, args),
+        Expr::FunctionCall { function, args } => {
+            return eval_literal_only_function_call(*function, args, work);
+        }
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => eval_literal_only_case_expr(when_then_arms, else_expr.as_ref()),
+        } => {
+            return eval_literal_only_case_expr(when_then_arms, else_expr.as_ref(), work);
+        }
         Expr::Binary { op, left, right } => {
-            let left = eval_literal_only_expr_value(left.as_ref())?;
-            let right = eval_literal_only_expr_value(right.as_ref())?;
-
+            let Some(left) = eval_literal_only_expr_value(left.as_ref(), work)? else {
+                return Ok(None);
+            };
+            let Some(right) = eval_literal_only_expr_value(right.as_ref(), work)? else {
+                return Ok(None);
+            };
             eval_literal_only_binary_expr(*op, &left, &right)
         }
         Expr::Unary { op, expr } => {
-            let value = eval_literal_only_expr_value(expr.as_ref())?;
-
+            let Some(value) = eval_literal_only_expr_value(expr.as_ref(), work)? else {
+                return Ok(None);
+            };
             eval_literal_only_unary_expr(*op, &value)
         }
-    }
+    })
 }
 
-// Evaluate one literal-only CASE expression through the shared TRUE-only
-// boolean admission boundary used elsewhere in planner-owned boolean semantics.
-fn eval_literal_only_case_expr(when_then_arms: &[CaseWhenArm], else_expr: &Expr) -> Option<Value> {
+// Evaluate one literal-only CASE through the same TRUE-only admission owner,
+// retaining short circuiting and typed construction failures.
+fn eval_literal_only_case_expr(
+    when_then_arms: &[CaseWhenArm],
+    else_expr: &Expr,
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
     for arm in when_then_arms {
-        let condition = eval_literal_only_expr_value(arm.condition())?;
-        if collapse_true_only_boolean_admission(condition, |_| ()).ok()? {
-            return eval_literal_only_expr_value(arm.result());
+        let Some(condition) = eval_literal_only_expr_value(arm.condition(), work)? else {
+            return Ok(None);
+        };
+        let Some(selected) = collapse_true_only_boolean_admission(condition, |_| ()).ok() else {
+            return Ok(None);
+        };
+        if selected {
+            return eval_literal_only_expr_value(arm.result(), work);
         }
     }
-
-    eval_literal_only_expr_value(else_expr)
+    eval_literal_only_expr_value(else_expr, work)
 }
 
 // Evaluate one literal-only function call through the bounded planner helper
 // surface currently exercised by scalar WHERE constant-folding.
-fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<Value> {
-    let evaluated_args = args
-        .iter()
-        .map(eval_literal_only_expr_value)
-        .collect::<Option<Vec<_>>>()?;
+fn eval_literal_only_function_call(
+    function: Function,
+    args: &[Expr],
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
+    let mut evaluated_args = work.vec_with_capacity(args.len())?;
+    for arg in args {
+        let Some(value) = eval_literal_only_expr_value(arg, work)? else {
+            return Ok(None);
+        };
+        evaluated_args.push(value);
+    }
 
-    match function.scalar_eval_shape() {
+    Ok(match function.scalar_eval_shape() {
         ScalarEvalFunctionShape::NullTest => {
             eval_null_test_function_call(function, &evaluated_args)
         }
@@ -102,7 +135,7 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
             None
         }
         ScalarEvalFunctionShape::UnaryText => {
-            eval_unary_text_function_call(function, &evaluated_args)
+            return eval_unary_text_function_call(function, &evaluated_args, work);
         }
         ScalarEvalFunctionShape::DynamicCoalesce => {
             eval_coalesce_function_call(function, &evaluated_args)
@@ -117,7 +150,7 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
             eval_binary_numeric_function_call(function, &evaluated_args)
         }
         ScalarEvalFunctionShape::LeftRightText => {
-            eval_left_right_text_function_call(function, &evaluated_args)
+            return eval_left_right_text_function_call(function, &evaluated_args, work);
         }
         ScalarEvalFunctionShape::TextPredicate => {
             eval_text_predicate_function_call(function, &evaluated_args)
@@ -126,16 +159,16 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
             eval_position_text_function_call(function, &evaluated_args)
         }
         ScalarEvalFunctionShape::ReplaceText => {
-            eval_replace_text_function_call(function, &evaluated_args)
+            return eval_replace_text_function_call(function, &evaluated_args, work);
         }
         ScalarEvalFunctionShape::SubstringText => {
-            eval_substring_text_function_call(function, &evaluated_args)
+            return eval_substring_text_function_call(function, &evaluated_args, work);
         }
         ScalarEvalFunctionShape::NumericScale => {
             eval_numeric_scale_function_call(function, &evaluated_args)
         }
         ScalarEvalFunctionShape::OctetLength => eval_octet_length_function_call(&evaluated_args),
-    }
+    })
 }
 
 // Evaluate one literal-only unary expression without touching executor-owned
@@ -250,20 +283,25 @@ fn eval_null_test_function_call(function: Function, args: &[Value]) -> Option<Va
 }
 
 // Evaluate one text wrapper over a literal-owned text input.
-fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
+fn eval_unary_text_function_call(
+    function: Function,
+    args: &[Value],
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
     let [input] = args else {
-        return None;
+        return Ok(None);
     };
 
-    match input {
+    Ok(match input {
         Value::Null => Some(Value::Null),
-        Value::Text(text) => Some(
-            function
-                .unary_text_function_kind()?
-                .eval_text(text.as_str()),
-        ),
+        Value::Text(text) => {
+            let Some(kind) = function.unary_text_function_kind() else {
+                return Ok(None);
+            };
+            Some(kind.eval_text(text, |resource, amount| work.charge(resource, amount))?)
+        }
         _ => None,
-    }
+    })
 }
 
 // Evaluate one numeric wrapper over a literal-owned numeric input.
@@ -340,21 +378,30 @@ fn eval_nullif_function_call(function: Function, args: &[Value]) -> Option<Value
 
 // Evaluate one literal-only LEFT/RIGHT helper with the same integer coercion
 // boundary already used by runtime projection evaluation.
-fn eval_left_right_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
+fn eval_left_right_text_function_call(
+    function: Function,
+    args: &[Value],
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
     let [input, length] = args else {
-        return None;
+        return Ok(None);
     };
-    let length = integer_value(length)?;
+    let Some(length) = integer_value(length) else {
+        return Ok(None);
+    };
 
-    match (input, length) {
+    Ok(match (input, length) {
         (Value::Null, _) | (_, NullableIntegerArg::Null) => Some(Value::Null),
-        (Value::Text(text), NullableIntegerArg::Integer(length)) => Some(
-            function
-                .left_right_text_function_kind()?
-                .eval_text(text.as_str(), length),
-        ),
+        (Value::Text(text), NullableIntegerArg::Integer(length)) => {
+            let Some(kind) = function.left_right_text_function_kind() else {
+                return Ok(None);
+            };
+            Some(kind.eval_text(text, length, |resource, amount| {
+                work.charge(resource, amount)
+            })?)
+        }
         _ => None,
-    }
+    })
 }
 
 // Evaluate one literal-only text predicate helper.
@@ -392,46 +439,64 @@ fn eval_position_text_function_call(function: Function, args: &[Value]) -> Optio
 }
 
 // Evaluate one literal-only REPLACE helper.
-fn eval_replace_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
+fn eval_replace_text_function_call(
+    function: Function,
+    args: &[Value],
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
     let [input, from, to] = args else {
-        return None;
+        return Ok(None);
     };
-    let from = text_value(from)?;
-    let to = text_value(to)?;
-
-    match (input, from, to) {
+    let (Some(from), Some(to)) = (text_value(from), text_value(to)) else {
+        return Ok(None);
+    };
+    Ok(match (input, from, to) {
         (Value::Null, _, _) | (_, NullableTextArg::Null, _) | (_, _, NullableTextArg::Null) => {
             Some(Value::Null)
         }
         (Value::Text(text), NullableTextArg::Text(from), NullableTextArg::Text(to)) => {
-            Some(function.eval_replace_text(text, from, to))
+            let size = admit_replace_text(text, from, to, |resource, amount| {
+                work.charge(resource, amount)
+            })?;
+            Some(function.eval_replace_text(text, from, to, size))
         }
         _ => None,
-    }
+    })
 }
 
 // Evaluate one literal-only SUBSTRING helper.
-fn eval_substring_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
+fn eval_substring_text_function_call(
+    function: Function,
+    args: &[Value],
+    work: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
     let [input, start, rest @ ..] = args else {
-        return None;
+        return Ok(None);
     };
-    let start = integer_value(start)?;
+    let Some(start) = integer_value(start) else {
+        return Ok(None);
+    };
     let length = match rest {
         [] => Some(None),
-        [length] => Some(match integer_value(length)? {
+        [length] => integer_value(length).map(|length| match length {
             NullableIntegerArg::Null => None,
             NullableIntegerArg::Integer(value) => Some(value),
         }),
         _ => None,
-    }?;
+    };
+    let Some(length) = length else {
+        return Ok(None);
+    };
 
-    match (input, start) {
+    Ok(match (input, start) {
         (Value::Null, _) | (_, NullableIntegerArg::Null) => Some(Value::Null),
-        (Value::Text(text), NullableIntegerArg::Integer(start)) => {
-            Some(function.eval_substring_text(text, start, length))
-        }
+        (Value::Text(text), NullableIntegerArg::Integer(start)) => Some(
+            function.eval_substring_text(text, start, length, |resource, amount| {
+                work.charge(resource, amount)
+            })?,
+        ),
         _ => None,
-    }
+    })
 }
 
 // Evaluate one literal-only ROUND helper.

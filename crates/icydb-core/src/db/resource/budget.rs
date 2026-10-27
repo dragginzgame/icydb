@@ -655,20 +655,46 @@ pub(in crate::db) fn charge_current_execution_budget(
     resource: DiagnosticExecutionBudgetResource,
     amount: u64,
 ) -> Result<(), InternalError> {
+    charge_current_execution_budget_typed(resource, amount).map_err(InternalError::from)
+}
+
+/// Existing active-budget failure cases retained by expression-layer carriers.
+/// This adds no budget scope or policy; invariant failures stay distinct from
+/// the exact exhaustion facts already owned by `ExecutionBudgetExceeded`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum ExecutionBudgetChargeError {
+    Invariant,
+    Exceeded(ExecutionBudgetExceeded),
+}
+
+impl From<ExecutionBudgetChargeError> for InternalError {
+    fn from(error: ExecutionBudgetChargeError) -> Self {
+        match error {
+            ExecutionBudgetChargeError::Invariant => Self::query_executor_invariant(),
+            ExecutionBudgetChargeError::Exceeded(error) => error.into(),
+        }
+    }
+}
+
+/// Charge the same active execution while retaining typed exhaustion for
+/// expression errors that must be cloneable without flattening numeric facts.
+pub(in crate::db) fn charge_current_execution_budget_typed(
+    resource: DiagnosticExecutionBudgetResource,
+    amount: u64,
+) -> Result<(), ExecutionBudgetChargeError> {
     if amount == 0 {
         return Ok(());
     }
     ACTIVE_EXECUTION_BUDGET.with(|budget| {
         let mut budget = budget
             .try_borrow_mut()
-            .map_err(|_| InternalError::query_executor_invariant())?;
+            .map_err(|_| ExecutionBudgetChargeError::Invariant)?;
         let Some(budget) = budget.as_mut() else {
             return Ok(());
         };
-
         budget
             .charge_periodic(resource, amount)
-            .map_err(InternalError::from)
+            .map_err(ExecutionBudgetChargeError::Exceeded)
     })
 }
 

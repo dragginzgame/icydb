@@ -287,7 +287,7 @@ fn by_kind_full_rows_retain_one_materialization_and_move_container_backing() {
                 .into_raw_row();
             let reader =
                 StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
-            let materialized = &reader.cached_values[2].materialized;
+            let materialized = &reader.cached_values()[2].materialized;
             assert!(materialized.get().is_none());
             reader.materialize_all_values().unwrap();
             assert_eq!(materialized.get(), Some(&values[2]));

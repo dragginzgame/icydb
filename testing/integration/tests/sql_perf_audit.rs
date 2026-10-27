@@ -1,5 +1,6 @@
 //! Total-only instruction coverage for the SQL performance actor.
 
+mod secondary_resume;
 mod seek_intersection;
 
 use icydb::{Error, db::sql::SqlQueryResult};

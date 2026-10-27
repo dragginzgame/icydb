@@ -9,6 +9,7 @@ mod direct_projection;
 mod input_admission;
 mod membership;
 mod planner_watermark;
+mod replace_budget;
 mod sql_cache_accounting;
 mod sql_construction;
 mod sql_text_cache;

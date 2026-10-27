@@ -21,10 +21,10 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   maintainer explicitly requests a release note. Meaningful coverage or test
   tooling changes may be noted; a `Testing` section describes those changes,
   rather than listing validation commands.
-- Use only relevant sections, such as `Added`, `Changed`, `Fixed`, `Removed`
-  and `Breaking`. Small entries may use a brief summary without subsections.
-  Preserve the established heading style; emojis and descriptive release titles
-  are consumer presentation choices.
+- Root release entries use the [emoji section format](#root-emoji-sections)
+  established by IcyDB. Include only relevant categories; even a small entry
+  has one section rather than an unlabelled bullet list. Repository titles,
+  audience and detailed-note presentation remain consumer choices.
 - Keep implementation inventories, internal paths, test names, footprint tables
   and long examples out of root summaries unless needed to explain a public
   contract or required action. Move useful detail to the linked minor-line notes.
@@ -47,8 +47,8 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   Split independent changes into separate bullets even when they belong to the
   same release or hard cut. Wrapping source lines does not split a rendered
   paragraph; review the Markdown as readers will see it.
-- Group larger releases under relevant headings such as `Breaking`, `Changed`
-  and `Fixed`. Use short bold topic labels within bullets when they help readers
+- Group larger releases under the relevant emoji category headings below.
+  Use short bold topic labels within bullets when they help readers
   distinguish areas, for example **Build inputs**, **Restore** or **Initialization**.
   Avoid deep nesting or creating a heading for every small change.
 - Put required upgrade actions in a distinct, easy-to-find bullet or paragraph.
@@ -65,6 +65,42 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   breaking contract and required actions there, then link to grouped detailed
   notes. Do not compress a large release into one giant bullet to meet a summary
   convention, or remove meaningful issue coverage just to shorten the text.
+
+## Root emoji sections
+
+Keep release/version headings and dates unchanged, such as `## [0.26.20]` or
+`## [0.26.19] - 2026-10-26`. Use emoji-labelled category headings beneath each
+root release entry, following IcyDB's format:
+
+| Category | Standard root heading |
+| --- | --- |
+| Breaking changes | `### ⚠️ Breaking` |
+| Additions | `### ➕ Added` |
+| Changed behavior | `### 🔧 Changed` |
+| Fixes | `### 🩹 Fixed` |
+| Removals | `### 🗑️ Removed` |
+| Internal simplification | `### 🧹 Cleanup` |
+| Test tooling or coverage | `### 🧪 Testing` |
+| Documentation | `### 📚 Documentation` |
+| Migration instructions | `### 🧭 Migration Notes` |
+| Audit findings | `### 📊 Audit` |
+| Governance | `### 🥾 Governance` |
+| Small or mixed release overview | `### 📝 Summary` |
+
+For new entries, put breaking changes first when present. Omit empty or irrelevant
+categories; one `📝 Summary` section is sufficient for a small patch. Product-specific
+categories may keep a descriptive name with an appropriate emoji. Preserve an
+existing minor-line index's version/link hierarchy and place category headings
+at the next level beneath its release entry. This style does not require an
+audit, line statistics, new release gate or a fixed roster of sections.
+
+Apply this format to latest/current entries and future notes. Leave older
+historical entries alone unless their reformatting is explicitly requested.
+Presentation-only adoption need not regroup existing content; preserve release
+versions, dates, ordering, bullet text, issue/detail links and code blocks.
+Do not copy IcyDB's product-specific
+audit or release policies into consumers. Keep explanatory formatting out of
+release/deployment admission, as required by the finalization rules below.
 
 ## Issue links and compatibility
 

@@ -105,6 +105,11 @@ prefixes of at most the schema's 128-byte source-key limit. Display escapes the
 keys. Applications should inspect the typed variant/accessors, not parse text.
 Later value/row projection failures keep their own adapter classifications.
 
+`TypedOperationError`, `ExhaustiveReadError` and `TypedExhaustiveQueryError`
+expose their wrapped causes through Rust's `Error::source()`. Error handlers can
+inspect and downcast that chain without parsing display text or losing the
+underlying database diagnostic.
+
 This adapter error is not an `icydb::Error` JSON payload and cannot be submitted
 to `diagnostic --error-json`. Compare the identified generated declaration with
 the accepted schema and regenerate the current artefacts when they disagree;

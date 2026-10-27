@@ -929,7 +929,13 @@ unsupported Make modes cannot turn failures into success. The complete
 `test-git-hooks.sh` fixture exercises `make/consumer.mk`; the exporter includes
 that declared dependency automatically. `test-make-consumer.sh` tests common routing
 with substitute format/release commands; native consumer qualification remains separate.
-Refresh the failure collector to retain `formatting.*` logs in CI. Replace local
+Refresh the failure collector to retain `formatting.*` logs in CI. Standard Rust
+formatting now uses the declared `run-rust-formatting.pl` companion for visible
+per-pass timings and exact-input reuse; refresh its complete export/fixture closure.
+Replace workspace/derive/order-only adapters with `FORMAT_RUST_ARGS` under the
+[formatting interface](make-interface.md#custom-formatting-without-replacement-recipes),
+retaining the actual root/extra workspace order and manifest policy. Opaque
+frontend/custom commands remain paired and uncached. Replace local
 recipes only after testing their actual callers and hook, following the
 [adoption checklist](make-interface.md#adoption).
 

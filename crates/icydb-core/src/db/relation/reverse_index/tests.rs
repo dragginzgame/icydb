@@ -6,9 +6,9 @@ mod raw_key_framing;
 use super::{
     AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
     AcceptedRelationReverseIdentity, AcceptedRelationSource, AcceptedRelationTargetIdentity,
-    MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES, MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK,
-    MAX_RELATION_BATCH_RAW_REFERENCES, MAX_RELATION_BATCH_REVERSE_DELTAS,
-    MAX_RELATION_BATCH_TRAVERSAL_WORK, MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS,
+    MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK, MAX_RELATION_BATCH_RAW_REFERENCES,
+    MAX_RELATION_BATCH_REVERSE_DELTAS, MAX_RELATION_BATCH_TRAVERSAL_WORK,
+    MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS, MAX_RELATION_IMAGE_RAW_REFERENCES,
     RelationCommitBudget, RelationProjectionBudget, RelationTargetKeys, ReverseRelationSourceInfo,
     relation_scalar_slot_fast_path_key_kind_supported,
     reverse_index_key_bounds_for_target_primary_key_value,
@@ -684,14 +684,76 @@ fn relation_projection_and_batch_counters_accept_exact_limits_and_reject_next_un
     let mut projection = RelationProjectionBudget::default();
     let mut batch = RelationCommitBudget::default();
     projection
-        .charge_nested_references(
+        .charge_raw_references(
             &mut batch,
-            usize::try_from(MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES)
-                .expect("reference limit fits usize"),
+            usize::try_from(MAX_RELATION_IMAGE_RAW_REFERENCES).expect("reference limit fits usize"),
         )
         .expect("exact image and batch reference limit should pass");
     assert_eq!(batch.raw_references, MAX_RELATION_BATCH_RAW_REFERENCES);
-    assert!(projection.charge_nested_references(&mut batch, 1).is_err());
+    assert!(projection.charge_raw_references(&mut batch, 1).is_err());
+}
+
+#[test]
+fn relation_before_and_final_images_have_independent_cumulative_allowances() {
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+    let mut batch = RelationCommitBudget::default();
+    for before in [true, false] {
+        let mut image = if before {
+            RelationProjectionBudget::before_image()
+        } else {
+            RelationProjectionBudget::default()
+        };
+        image
+            .charge_traversal(
+                &mut batch,
+                usize::try_from(MAX_RELATION_BATCH_TRAVERSAL_WORK).unwrap(),
+            )
+            .unwrap();
+        image
+            .charge_raw_references(
+                &mut batch,
+                usize::try_from(MAX_RELATION_BATCH_RAW_REFERENCES).unwrap(),
+            )
+            .unwrap();
+        // A fresh row-image budget must not reset either batch-side allowance.
+        let mut next = if before {
+            RelationProjectionBudget::before_image()
+        } else {
+            RelationProjectionBudget::default()
+        };
+        for (error, resource, limit) in [
+            (
+                next.charge_traversal(&mut batch, 1).unwrap_err(),
+                Resource::NestedValueSteps,
+                MAX_RELATION_BATCH_TRAVERSAL_WORK,
+            ),
+            (
+                next.charge_raw_references(&mut batch, 1).unwrap_err(),
+                Resource::ResultRows,
+                MAX_RELATION_BATCH_RAW_REFERENCES,
+            ),
+        ] {
+            assert_eq!(
+                error.diagnostic().error_code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED
+            );
+            let facts = error.diagnostic_facts();
+            assert!(facts.contains(&(DiagnosticFactTag::BudgetResource, resource.raw())));
+            assert!(facts.contains(&(DiagnosticFactTag::Limit, limit)));
+            assert!(facts.contains(&(DiagnosticFactTag::Actual, limit + 1)));
+        }
+    }
+    assert_eq!(batch.traversal_work, MAX_RELATION_BATCH_TRAVERSAL_WORK);
+    assert_eq!(
+        batch.before_image_traversal_work,
+        MAX_RELATION_BATCH_TRAVERSAL_WORK
+    );
+    assert_eq!(batch.raw_references, MAX_RELATION_BATCH_RAW_REFERENCES);
+    assert_eq!(
+        batch.before_image_raw_references,
+        MAX_RELATION_BATCH_RAW_REFERENCES
+    );
 }
 
 #[test]

@@ -153,6 +153,16 @@ existing reverse-effect allowance. Reverse witnesses are still decoded before
 reuse; source corruption and any surviving reference reject the batch. Save-time
 target admission and before/after relation accounting retain their own checks.
 
+Before-image and final-image relation projection each have a fixed cumulative
+batch allowance: 5,460 raw references and 349,440 nested traversal steps per
+side. Every row image also retains its own projection limits. This permits a
+previously admitted large relation row to change references without charging
+both images against one image's allowance. Allowances are shared across all
+rows and relations in the batch, not reset per operation. Final target existence,
+the 3,276 unique-target lookup limit and the shared 5,460 reverse-delta limit
+still apply. A large disjoint replacement may therefore require smaller edits;
+separate image allowances do not grant an unlimited transition.
+
 Supported relation shapes in the current contract:
 
 * `Id<T>`

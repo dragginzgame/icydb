@@ -481,7 +481,7 @@ fn prepare_admitted_row_commit<C: CanisterKind>(
 
     let source_primary_key = structural.data_key.primary_key_value();
     let mut reverse_index_ops = Vec::new();
-    let mut old_relation_budget = RelationProjectionBudget::default();
+    let mut old_relation_budget = RelationProjectionBudget::before_image();
     let mut new_relation_budget = RelationProjectionBudget::default();
     let (old_slots, new_slots) = decoded.as_refs();
     for relation in &constraint_schedule.relations {
