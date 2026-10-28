@@ -13,7 +13,7 @@ use icydb_testing_audit_sql_perf_fixtures::contracts::{
 };
 use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{
-    deliver_startup_watchdog_message,
+    MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
         DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING, DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING,
         DURABLE_MUTATION_JOB_FIXTURE_ROWS, DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT,
@@ -21,12 +21,14 @@ use icydb_testing_integration::{
         DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING, minimum_forward_advances,
         minimum_verify_advances,
     },
-    install_fixture_canister, upgrade_fixture_canister,
+    install_fixture_canister, startup_watchdog_armed, startup_watchdog_perf_snapshot,
+    upgrade_fixture_canister,
 };
 
 use std::time::Duration;
 
-const LOAD_PAGE_ROWS: u32 = 1_024;
+// Keep each journal batch foldable within one callback; the total scale stays fixed.
+const LOAD_PAGE_ROWS: u32 = 256;
 const UNRELATED_ROWS: u32 = 17;
 const MAX_JOB_ADVANCES: usize = 256;
 
@@ -252,13 +254,21 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
             evidence.unrelated_rows_loaded,
             if first_id == 1 { UNRELATED_ROWS } else { 0 },
         );
-        // The first page publishes both matching and unrelated rows for two
-        // journaled families; later pages publish only the two matching
-        // families. Four rounds therefore drain every page completely, with
-        // inactive extra rounds becoming no-ops after later pages quiesce.
-        for _ in 0..4 {
+        // Wait for the production owner to finish folding this page. Callback
+        // counts depend on bounded work and must not be inferred from row families.
+        // Permit the normal retry cadence when dependencies report no work.
+        for _ in 0..MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
+            fixture.pocket_ic().advance_time(Duration::from_secs(1));
             deliver_startup_watchdog_message(fixture.pocket_ic());
+            if !startup_watchdog_armed(fixture) {
+                break;
+            }
         }
+        assert!(
+            !startup_watchdog_armed(fixture),
+            "scale page {first_id} journal debt must drain within the normal convergence bound: {:?}",
+            startup_watchdog_perf_snapshot(fixture),
+        );
         loaded = loaded.saturating_add(row_count);
         first_id = first_id.saturating_add(row_count);
     }

@@ -91,12 +91,18 @@ are separate obligations; artifact transformation remains explicitly qualified.
 ## Consumer tooling qualification
 
 Current direct minimums are IC Build/Host/Testkit 0.69.5, Platform 0.7.0,
-Wire 0.7.18, Memory/Storage 0.52.0, Metrics 0.16.3 and Timers 0.31.14.
-The current lock selects those versions with Platform 0.7.1; the pinned Canic
+Wire 0.7.19, Memory/Storage 0.53.0, Metrics 0.16.3 and Timers 0.31.15.
+The current lock selects those versions with Platform 0.7.3; the pinned Canic
 adapter still selects Platform 0.6.21 separately. Registry releases were verified
 before locked cache preparation. Endpoint and lifecycle ownership are unchanged.
-Memory 0.52 requires one runtime per physical backing and coordinated consumer
-dependency identities; see the pending [adoption notes](../changelog/0.287.md).
+Memory 0.53 requires one runtime per physical backing and coordinated consumer
+dependency identities. Full manager checks occur at construction, initial
+bootstrap, lease opening and growth; ordinary IO trusts exclusive custody.
+Published 0.53.0 passes 16 host admission cases, all nine installed grouping
+cases and the full collection/upgrade case with unchanged budgets on Linux.
+Focused strict lint, dependency policy and the public Rust 1.91 check also pass.
+See the pending [adoption notes](../changelog/0.287.md) for source provenance
+and the narrowed raw-alias detection contract.
 
 Tooling 0.69.5 registry archives all identify source commit
 `c5b6fae87c6785e831509667ca71617953174604`. Focused Linux qualification passes

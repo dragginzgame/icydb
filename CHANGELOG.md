@@ -9,13 +9,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### ⚠️ Breaking
 
-- Adopt published IC Memory/Storage 0.52.0 and Timers 0.31.14. Hosts must align
+- Adopt published IC Memory/Storage 0.53.0 and Timers 0.31.15. Hosts must align
   Memory dependencies and share one runtime per backing; custom backings now
   provide physical identity. Stable formats remain unchanged.
 
 ### 🔧 Changed
 
-- Adopt published IC Build/Host/Testkit 0.69.5 with unchanged feature selections.
+- Adopt published IC Wire 0.7.19, Timers 0.31.15 and IC Build/Host/Testkit 0.69.5
+  with unchanged feature selections.
+
+### 🩹 Fixed
+
+- Bound collection-scale fixture loading and wait for watchdog completion before
+  admitting more rows. Memory/Storage 0.53 restores the affected grouping and
+  collection/upgrade tests within their unchanged instruction limits.
 
 ### 🧹 Cleanup
 
