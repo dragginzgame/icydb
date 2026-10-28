@@ -26,12 +26,10 @@ pub(in crate::db) use bind::{CheckExprV1Input, CheckValueExprV1Input, bind_check
 pub(in crate::db::schema) use bind::{
     bind_source_check_expr, bind_source_rule_literal, source_literal_input,
 };
-#[cfg(test)]
-pub(in crate::db) use compile::AcceptedRowConstraintViolationKind;
 pub(in crate::db::schema) use compile::decode_literal;
 pub(in crate::db) use compile::{
-    AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
-    accepted_row_constraint_write_error,
+    AcceptedRowConstraintEvaluationError, AcceptedRowConstraintViolationKind,
+    CompiledAcceptedRowConstraints, accepted_row_constraint_write_error,
 };
 pub(in crate::db::schema) use compile::{
     validate_accepted_check_literals, validate_accepted_rule_operation_literals,

@@ -57,7 +57,7 @@ fn seeded_rows() -> Vec<(RawDataStoreKey, RawRow)> {
 fn full_row_primary_ranges_preserve_backing_order_payloads_and_read_admission() {
     let rows = seeded_rows();
     // Heap, live-only journal, canonical-only journal and mixed journal use
-    // identical rows. Only the mixed overlay must use the point-read route.
+    // identical rows through one traversal without per-row point reads.
     for backing in 0..4_u8 {
         if backing != 0 {
             let mut store = DataStore::init_journaled(test_memory(190 + backing));
@@ -92,7 +92,7 @@ fn full_row_primary_ranges_preserve_backing_order_payloads_and_read_admission() 
             let read = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
             assert_eq!(projection_rows(&read, &sql), expected);
             let point_reads = DataStore::current_get_call_count() - before;
-            assert_eq!(point_reads == 0, backing != 3);
+            assert_eq!(point_reads, 0);
             assert!(
                 projection_rows(
                     &read,
@@ -100,9 +100,22 @@ fn full_row_primary_ranges_preserve_backing_order_payloads_and_read_admission() 
                 )
                 .is_empty()
             );
-            assert_eq!(
-                projection_rows(&read, &format!("{sql} LIMIT 3")),
-                expected[..3]
+            assert_collection_windows(&read, &sql, &expected);
+            assert_cursor_pages(descending, &expected);
+            let filtered_sql = format!(
+                "SELECT * FROM PlannerRow WHERE id >= 3 AND id < 127 AND MOD(id, 2) = 0 ORDER BY id {direction}"
+            );
+            let filtered = expected
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| index % 2 == usize::from(!descending))
+                .map(|(_, row)| row.clone())
+                .collect::<Vec<_>>();
+            assert_collection_windows(&read, &filtered_sql, &filtered);
+            assert_collection_windows(
+                &read,
+                &filtered_sql.replace("MOD(id, 2) = 0", "MOD(id, 2) = 3"),
+                &[],
             );
 
             let root = crate::db::RequestExecutionRoot::new_for_tests(
@@ -127,6 +140,27 @@ fn full_row_primary_ranges_preserve_backing_order_payloads_and_read_admission() 
     }
 }
 
+fn assert_collection_windows(
+    read: &DbSession<TestCanister>,
+    sql: &str,
+    expected: &[Vec<OutputValue>],
+) {
+    for (limit, offset) in [(0, 0), (1, 0), (3, 2), (128, 120), (3, 130)] {
+        let before = DataStore::current_get_call_count();
+        let actual = projection_rows(read, &format!("{sql} LIMIT {limit} OFFSET {offset}"));
+        assert_eq!(
+            actual,
+            expected
+                .iter()
+                .skip(offset)
+                .take(limit)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(DataStore::current_get_call_count(), before);
+    }
+}
+
 fn assert_malformed_row_refused(backing: u8, original: &(RawDataStoreKey, RawRow)) {
     let replace = |row: RawRow| {
         DATA_STORE.with_borrow_mut(|store| {
@@ -142,6 +176,11 @@ fn assert_malformed_row_refused(backing: u8, original: &(RawDataStoreKey, RawRow
     replace(RawRow::try_new(vec![0]).unwrap());
     for direction in ["ASC", "DESC"] {
         let read = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
+        // The malformed payload is beyond the first row in both directions;
+        // a satisfied finite window must not decode it.
+        assert_eq!(projection_rows(&read, &format!(
+            "SELECT * FROM PlannerRow WHERE id >= 3 AND id < 127 ORDER BY id {direction} LIMIT 1"
+        )).len(), 1);
         let error = read
             .execute_trusted_sql_query(&format!(
                 "SELECT * FROM PlannerRow WHERE id >= 3 AND id < 127 ORDER BY id {direction}"
@@ -153,4 +192,58 @@ fn assert_malformed_row_refused(backing: u8, original: &(RawDataStoreKey, RawRow
         );
     }
     replace(original.1.clone());
+}
+
+// Full payload projection forces the full-row reader. Resume through small
+// physical pages, including empty residual-filtered pages, on every backing.
+fn assert_cursor_pages(descending: bool, expected: &[Vec<OutputValue>]) {
+    for selective in [false, true] {
+        let mut filters = vec![
+            FieldRef::new("id").gte(InputValue::nat64(3)),
+            FieldRef::new("id").lt(InputValue::nat64(127)),
+        ];
+        if selective {
+            filters.push(FieldRef::new("payload").eq(InputValue::blob(vec![64; 256])));
+        }
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id", "payload"])
+            .filter(FilterExpr::and(filters))
+            .order_by(if descending {
+                crate::db::desc("id")
+            } else {
+                asc("id")
+            });
+        let mut continuation = None;
+        let mut actual = Vec::new();
+        let mut empty_pages = 0;
+        let before = DataStore::current_get_call_count();
+        for _ in 0..132 {
+            let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+            let page = new_request_session(&root)
+                .execute_trusted_live_page(&query, continuation.as_deref())
+                .unwrap();
+            if page.rows.is_empty() && page.continuation.is_some() {
+                empty_pages += 1;
+            }
+            actual.extend(page.rows);
+            if page.continuation.is_some() {
+                assert_ne!(page.continuation, continuation);
+            }
+            continuation = page.continuation;
+            if continuation.is_none() {
+                break;
+            }
+        }
+        assert!(continuation.is_none());
+        let expected = expected
+            .iter()
+            .filter(|row| !selective || row[0] == OutputValue::nat64(64))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+        assert_eq!(DataStore::current_get_call_count(), before);
+        if selective {
+            assert!(empty_pages > 0);
+        }
+    }
 }

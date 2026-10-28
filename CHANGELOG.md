@@ -5,6 +5,32 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.286.3]
+
+### 🧹 Cleanup
+
+- Reuse primary-iterator payloads for full-row collections and cursor pages,
+  including mixed journal overlays, while preserving limits and filtering
+  ([#261 — Primary-range full-row scans repeat point lookups](https://github.com/dragginzgame/icydb/issues/261), partial).
+
+- Reuse ordered budget-pair charging in index scans and aggregates, preserving resource order
+  and partial accounting when a charge fails
+  ([#293 — Per-row budget accounting repeats constant work](https://github.com/dragginzgame/icydb/issues/293), partial).
+
+- Consolidate grouped aggregate row reading, filtering and counting while retaining
+  borrowed, owned and nested-path ingest behavior
+  ([#477 — Grouped fold repeats the same row loop](https://github.com/dragginzgame/icydb/issues/477)).
+
+- Consolidate CHECK and NOT NULL activation compilation while retaining exact
+  constraint identities, isolated historical gates and typed rejection errors
+  ([#479 — Constraint activation compiles repeat the same lookup](https://github.com/dragginzgame/icydb/issues/479)).
+
+- Share enum admission for ordinary and expression-index components while
+  preserving scalar encoding and exact catalog authority
+  ([#491 — Index component encodes repeat the same enum gate](https://github.com/dragginzgame/icydb/issues/491)).
+
+See [detailed notes](docs/changelog/0.286.md).
+
 ## [0.286.2] - 2026-10-27
 
 ### 🔧 Changed

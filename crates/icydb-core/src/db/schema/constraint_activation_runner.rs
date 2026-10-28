@@ -38,10 +38,10 @@ use crate::{
         registry::{StoreHandle, StoreRecoveryCapability},
         schema::{
             AcceptedConstraintCatalog, AcceptedRowConstraintEvaluationError,
-            AcceptedSchemaSnapshot, CandidateSchemaRevision, CompiledAcceptedRowConstraints,
-            ConstraintActivationKind, ConstraintActivationState, ConstraintId,
-            ConstraintStoreRevision, ConstraintValidationFinding, ConstraintValidationJob,
-            ConstraintValidationPhase, ConstraintValidationReceipt,
+            AcceptedRowConstraintViolationKind, AcceptedSchemaSnapshot, CandidateSchemaRevision,
+            CompiledAcceptedRowConstraints, ConstraintActivationKind, ConstraintActivationState,
+            ConstraintId, ConstraintStoreRevision, ConstraintValidationFinding,
+            ConstraintValidationJob, ConstraintValidationPhase, ConstraintValidationReceipt,
         },
     },
     error::InternalError,
@@ -881,30 +881,26 @@ fn compile_row_local_activation(
     constraint_id: ConstraintId,
     required_kind: RowLocalActivationKind,
 ) -> Result<CompiledAcceptedRowConstraints, InternalError> {
-    match required_kind {
-        RowLocalActivationKind::Check => CompiledAcceptedRowConstraints::compile_check_activation(
-            accepted,
-            value_catalog,
-            fingerprint,
-            constraint_id,
-        ),
-        RowLocalActivationKind::NotNull => {
-            CompiledAcceptedRowConstraints::compile_not_null_activation(
-                accepted,
-                value_catalog,
-                fingerprint,
-                constraint_id,
-            )
-        }
+    let kind = match required_kind {
+        RowLocalActivationKind::Check => AcceptedRowConstraintViolationKind::Check,
+        RowLocalActivationKind::NotNull => AcceptedRowConstraintViolationKind::NotNull,
         RowLocalActivationKind::TargetedRule => {
-            CompiledAcceptedRowConstraints::compile_targeted_rule_activation(
+            return CompiledAcceptedRowConstraints::compile_targeted_rule_activation(
                 accepted,
                 value_catalog,
                 fingerprint,
                 constraint_id,
             )
+            .map_err(map_row_constraint_program_error);
         }
-    }
+    };
+    CompiledAcceptedRowConstraints::compile_activation(
+        accepted,
+        value_catalog,
+        fingerprint,
+        constraint_id,
+        kind,
+    )
     .map_err(map_row_constraint_program_error)
 }
 

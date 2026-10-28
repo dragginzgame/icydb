@@ -486,7 +486,7 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
             let mut visited = Vec::new();
 
             let exhausted = store
-                .try_visit_range_with_row_preflight(
+                .visit_range_with_row_preflight(
                     (
                         Bound::Included(raw_key(1, 1)),
                         Bound::Included(raw_key(1, 3)),
@@ -507,7 +507,7 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
                 )
                 .expect("single-backing range should use the fused visitor");
 
-            assert_eq!(exhausted, Some(false));
+            assert!(!exhausted);
             let first = if matches!(direction, Direction::Asc) {
                 1
             } else {
@@ -953,6 +953,89 @@ fn canonical_page_checkpoint_excludes_the_unconsumed_row() {
                         .collect::<Vec<_>>()
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn mixed_row_preflight_preserves_overlay_precedence_and_stopping() {
+    let mut store = DataStore::init_journaled(test_memory(229));
+    for id in 1..=4 {
+        store
+            .fold_recovered_journal_put(raw_key(1, id), raw_row(10 + u8::try_from(id).unwrap()))
+            .unwrap();
+    }
+    store.insert_raw_for_test(raw_key(1, 2), raw_row(22));
+    store.insert_raw_for_test(raw_key(1, 5), raw_row(15));
+    assert!(store.remove(&raw_key(1, 3)).is_some());
+    for direction in [Direction::Asc, Direction::Desc] {
+        let mut expected = [
+            (raw_key(1, 1), 11),
+            (raw_key(1, 2), 22),
+            (raw_key(1, 4), 14),
+        ];
+        if direction == Direction::Desc {
+            expected.reverse();
+        }
+        for (stop_before, stop_after, fail) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, false, true),
+            (false, true, true),
+        ] {
+            let mut preflighted = Vec::new();
+            let mut visited = Vec::new();
+            let result = store.visit_range_with_row_preflight(
+                (
+                    Bound::Included(raw_key(1, 1)),
+                    Bound::Included(raw_key(1, 4)),
+                ),
+                direction,
+                |key| {
+                    preflighted.push(key.clone());
+                    if stop_before && key == &raw_key(1, 2) {
+                        if fail {
+                            return Err(31_u8);
+                        }
+                        return Ok(StoreVisit::Stop);
+                    }
+                    Ok(StoreVisit::Continue)
+                },
+                |key, row| {
+                    visited.push((key.clone(), row.as_bytes()[0]));
+                    if stop_after && key == &raw_key(1, 2) {
+                        if fail {
+                            return Err(47_u8);
+                        }
+                        return Ok(StoreVisit::Stop);
+                    }
+                    Ok(StoreVisit::Continue)
+                },
+            );
+            let stopping = stop_before || stop_after;
+            let expected_result = if fail {
+                Err(if stop_before { 31 } else { 47 })
+            } else {
+                Ok(!stopping)
+            };
+            assert_eq!(result, expected_result);
+            let expected_visits = if stop_before {
+                1
+            } else if stop_after {
+                2
+            } else {
+                3
+            };
+            assert_eq!(visited, expected[..expected_visits]);
+            let expected_preflights = if stopping { 2 } else { 3 };
+            assert_eq!(
+                preflighted,
+                expected[..expected_preflights]
+                    .iter()
+                    .map(|(key, _)| key.clone())
+                    .collect::<Vec<_>>()
+            );
         }
     }
 }

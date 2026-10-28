@@ -228,34 +228,22 @@ fn accepted_field_path_component_bytes_from_slots(
         return Ok(None);
     };
 
-    encode_accepted_field_path_index_component(accepted_index, field, source)
+    encode_accepted_index_component(field.persisted_kind(), source, || {
+        accepted_index.accepted_field_contract(field)
+    })
 }
 
-fn encode_accepted_field_path_index_component(
-    accepted_index: &SchemaIndexInfo,
-    field: &SchemaIndexFieldPathInfo,
+fn encode_accepted_index_component<'a>(
+    kind: Option<&AcceptedFieldKind>,
     source: &Value,
+    contract: impl FnOnce() -> Option<AcceptedValueAdmissionContract<'a>>,
 ) -> Result<Option<Vec<u8>>, InternalError> {
-    if !matches!(field.persisted_kind(), Some(AcceptedFieldKind::Enum { .. })) {
+    if !matches!(kind, Some(AcceptedFieldKind::Enum { .. })) {
         return encode_value_index_component_ref(source);
     }
-    let contract = accepted_index
-        .accepted_field_contract(field)
-        .ok_or_else(InternalError::index_unsupported)?;
-    encode_admitted_unit_enum_index_component(&contract, source)
-}
-
-fn encode_accepted_expression_field_path_index_component(
-    accepted_index: &SchemaExpressionIndexInfo,
-    field: &SchemaIndexFieldPathInfo,
-    source: &Value,
-) -> Result<Option<Vec<u8>>, InternalError> {
-    if !matches!(field.persisted_kind(), Some(AcceptedFieldKind::Enum { .. })) {
-        return encode_value_index_component_ref(source);
-    }
-    let contract = accepted_index
-        .accepted_field_contract(field)
-        .ok_or_else(InternalError::index_unsupported)?;
+    // Scalar components must not perform the index's catalog/ownership lookup.
+    // Enum components still require that exact index's admitted field contract.
+    let contract = contract().ok_or_else(InternalError::index_unsupported)?;
     encode_admitted_unit_enum_index_component(&contract, source)
 }
 
@@ -276,7 +264,9 @@ pub(in crate::db) fn encode_accepted_index_literal_component(
             .fields()
             .get(component_index)
             .ok_or_else(InternalError::query_executor_invariant)?;
-        return encode_accepted_field_path_index_component(index, field, value);
+        return encode_accepted_index_component(field.persisted_kind(), value, || {
+            index.accepted_field_contract(field)
+        });
     }
 
     if let Some(index) = schema_info
@@ -290,7 +280,9 @@ pub(in crate::db) fn encode_accepted_index_literal_component(
             .ok_or_else(InternalError::query_executor_invariant)?;
         return match key_item {
             SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
-                encode_accepted_expression_field_path_index_component(index, field, value)
+                encode_accepted_index_component(field.persisted_kind(), value, || {
+                    index.accepted_field_contract(field)
+                })
             }
             SchemaExpressionIndexKeyItemInfo::Expression(_) => {
                 encode_value_index_component_ref(value)
@@ -331,7 +323,9 @@ fn accepted_expression_component_bytes_from_slots(
                 return Ok(None);
             };
 
-            encode_accepted_expression_field_path_index_component(accepted_index, field, source)
+            encode_accepted_index_component(field.persisted_kind(), source, || {
+                accepted_index.accepted_field_contract(field)
+            })
         }
         SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
             expression_component_bytes_from_slots(
@@ -777,6 +771,22 @@ mod accepted_enum_tests {
     }
 
     #[test]
+    fn scalar_index_components_do_not_request_enum_authority() {
+        for kind in [None, Some(&AcceptedFieldKind::Nat64)] {
+            for value in [Value::Nat64(7), Value::Null] {
+                let mut lookups = 0;
+                let encoded = encode_accepted_index_component(kind, &value, || {
+                    lookups += 1;
+                    None
+                })
+                .unwrap();
+                assert_eq!(encoded, encode_value_index_component_ref(&value).unwrap());
+                assert_eq!(lookups, 0);
+            }
+        }
+    }
+
+    #[test]
     fn accepted_index_leaf_uses_catalog_ids_for_unit_enum_key() {
         let catalog = build_accepted_enum_catalog_for_tests(&[unit_definition()])
             .expect("unit enum catalog should build");
@@ -800,9 +810,20 @@ mod accepted_enum_tests {
             .expect("accepted index field should match the catalog");
         let value = Value::Enum(ValueEnum::test_unit(1, 1));
 
+        // Even NULL must not bypass a missing enum ownership contract.
+        for source in [&value, &Value::Null] {
+            let error = encode_accepted_index_component(Some(&kind), source, || None).unwrap_err();
+            let expected = InternalError::index_unsupported();
+            assert_eq!(error.class(), expected.class());
+            assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+            assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+        }
+
         assert_eq!(
-            encode_admitted_unit_enum_index_component(persistence.admission_contract(), &value)
-                .expect("accepted unit enum should produce an index component"),
+            encode_accepted_index_component(Some(&kind), &value, || {
+                Some(persistence.admission_contract().clone())
+            })
+            .expect("accepted unit enum should produce an index component"),
             Some(vec![ValueTag::Enum.to_u8(), 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]),
         );
     }
@@ -835,8 +856,10 @@ mod accepted_enum_tests {
             Value::Enum(ValueEnum::test_payload(1, 2, Value::Nat64(7))),
         ] {
             assert!(
-                encode_admitted_unit_enum_index_component(persistence.admission_contract(), &value)
-                    .is_err(),
+                encode_accepted_index_component(Some(&kind), &value, || {
+                    Some(persistence.admission_contract().clone())
+                })
+                .is_err(),
                 "payload enums must remain outside canonical index-key capability",
             );
         }

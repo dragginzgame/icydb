@@ -72,6 +72,7 @@ fn assert_owned_group_results(values: &[(InputValue, OutputValue)]) {
         // SUM selects the generic bundle; COUNT alone is the maintained
         // dedicated-fold control. An unrelated index admits the public lane.
         let generic = base.clone().aggregate(sum("id"));
+        assert_group_filters(&session, &generic, values.len());
         for _ in 0..2 {
             let counts = session
                 .execute_trusted_dynamic_grouped_query(&base)
@@ -138,6 +139,76 @@ fn assert_owned_group_results(values: &[(InputValue, OutputValue)]) {
     }
 }
 
+fn assert_group_filters(
+    session: &DbSession<TestCanister>,
+    generic: &DynamicQuery,
+    expected_groups: usize,
+) {
+    // Residual filtering must precede borrowed and owned direct key
+    // admission, including an entirely rejected input with a tiny budget.
+    for (label, expected_rows) in [("row", expected_groups), ("absent", 0)] {
+        let filtered = generic.clone().filter(FilterExpr::and(vec![
+            FieldRef::new("category").eq(InputValue::nat64(3)),
+            FieldRef::new("label").eq(InputValue::text(label.into())),
+        ]));
+        let grouped = session
+            .execute_trusted_dynamic_grouped_query(&filtered)
+            .unwrap();
+        assert_eq!(grouped.rows.len(), expected_rows);
+        if expected_rows == 0 {
+            assert!(
+                session
+                    .execute_trusted_dynamic_grouped_query(&filtered.grouped_limits(1, 1))
+                    .unwrap()
+                    .rows
+                    .is_empty()
+            );
+        }
+    }
+}
+
+fn assert_group_missing_rows() {
+    let session = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
+    let store = session.db.store_handle(STORE_PATH).unwrap();
+    for id in 1..=5 {
+        let key = crate::db::data::DecodedDataStoreKey::try_from_structural_key(
+            ENTITY_TAG,
+            &Value::Nat64(id),
+        )
+        .unwrap()
+        .to_raw()
+        .unwrap();
+        assert!(store.with_data_mut(|data| data.remove(&key)).is_some());
+    }
+    let grouped = DynamicQuery::new(ENTITY_NAME)
+        .group_by("operand")
+        .aggregate(count())
+        .aggregate(sum("id"))
+        .grouped_limits(8, 64 * 1024);
+    // Missing exact primary keys are ordinary absence; accepted-index
+    // references to the same absent rows must retain typed corruption.
+    assert!(
+        session
+            .execute_trusted_dynamic_grouped_query(
+                &grouped
+                    .clone()
+                    .filter(FieldRef::new("id").eq(InputValue::nat64(1))),
+            )
+            .unwrap()
+            .rows
+            .is_empty()
+    );
+    let error = session
+        .execute_trusted_dynamic_grouped_query(
+            &grouped.filter(FieldRef::new("category").eq(InputValue::nat64(3))),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        QueryError::Execute(crate::db::QueryExecutionError::Corruption(_))
+    ));
+}
+
 fn assert_group_kind(kind: AcceptedFieldKind, values: Vec<Value>) {
     initialize_group_schema(kind);
     let values = values
@@ -145,6 +216,7 @@ fn assert_group_kind(kind: AcceptedFieldKind, values: Vec<Value>) {
         .map(|value| (InputValue::from(value.clone()), OutputValue::from(value)))
         .collect::<Vec<_>>();
     assert_owned_group_results(&values);
+    assert_group_missing_rows();
 }
 
 #[test]
@@ -214,6 +286,7 @@ fn owned_group_enum_uses_accepted_catalog_identity() {
         )
     });
     assert_owned_group_results(&values);
+    assert_group_missing_rows();
 }
 
 #[test]

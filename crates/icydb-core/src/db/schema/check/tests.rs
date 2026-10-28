@@ -1882,6 +1882,125 @@ fn compiled_checks_include_pending_check_activation_gates() {
     );
 }
 
+fn pending_row_local_activations() -> (
+    AcceptedSchemaSnapshot,
+    AcceptedValueCatalogHandle,
+    ConstraintId,
+    ConstraintId,
+) {
+    let snapshot = snapshot();
+    let catalog = value_catalog();
+    let expression = bind_check_expr_v1(
+        CheckExprV1Input::Compare {
+            left: CheckValueExprV1Input::Field("score".to_string()),
+            op: AcceptedCheckCompareOpV1::Gte,
+            right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
+        },
+        &snapshot,
+        catalog.enum_catalog(),
+        catalog.composite_catalog(),
+    )
+    .unwrap();
+    let nickname = snapshot
+        .fields()
+        .iter()
+        .find(|field| field.name() == "nickname")
+        .unwrap();
+    let constraints = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_check_activation(
+            "score_policy".to_string(),
+            ConstraintOrigin::Generated,
+            expression,
+            AcceptedSchemaFingerprint::new([0xA5; 32]),
+            2,
+        )
+        .unwrap()
+        .with_added_not_null_activation(nickname, AcceptedSchemaFingerprint::new([0xA5; 32]), 2)
+        .unwrap();
+    let check_id = constraints.activations()[0].id();
+    let not_null_id = constraints.activations()[1].id();
+    let accepted =
+        AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints)).unwrap();
+    (accepted, catalog, check_id, not_null_id)
+}
+
+#[test]
+fn activation_compilation_selects_only_the_requested_row_local_gate() {
+    let (accepted, catalog, check_id, not_null_id) = pending_row_local_activations();
+    for (id, kind, passing, failing) in [
+        (
+            check_id,
+            AcceptedRowConstraintViolationKind::Check,
+            values(1, Value::Null, Vec::new()),
+            values(-1, Value::Text("Ada".to_string()), Vec::new()),
+        ),
+        (
+            not_null_id,
+            AcceptedRowConstraintViolationKind::NotNull,
+            values(-1, Value::Text("Ada".to_string()), Vec::new()),
+            values(1, Value::Null, Vec::new()),
+        ),
+    ] {
+        let program = CompiledAcceptedRowConstraints::compile_activation(
+            &accepted,
+            &catalog,
+            FINGERPRINT,
+            id,
+            kind,
+        )
+        .unwrap();
+        // The other pending activation deliberately rejects the passing row.
+        program
+            .evaluate(FINGERPRINT, &borrowed_values(&passing))
+            .unwrap();
+        assert_eq!(
+            program.evaluate(FINGERPRINT, &borrowed_values(&failing)),
+            Err(AcceptedRowConstraintEvaluationError::Violation {
+                constraint_id: id,
+                kind
+            }),
+        );
+    }
+}
+
+#[test]
+fn activation_compilation_preserves_unknown_id_and_wrong_kind_errors() {
+    let (accepted, catalog, check_id, not_null_id) = pending_row_local_activations();
+    for (id, kind) in [
+        (check_id, AcceptedRowConstraintViolationKind::NotNull),
+        (not_null_id, AcceptedRowConstraintViolationKind::Check),
+    ] {
+        assert_eq!(
+            CompiledAcceptedRowConstraints::compile_activation(
+                &accepted,
+                &catalog,
+                FINGERPRINT,
+                id,
+                kind,
+            )
+            .unwrap_err(),
+            AcceptedRowConstraintEvaluationError::InvalidExpression(
+                AcceptedCheckExprV1Error::OperandKindMismatch
+            ),
+        );
+        assert_eq!(
+            CompiledAcceptedRowConstraints::compile_activation(
+                &accepted,
+                &catalog,
+                FINGERPRINT,
+                ConstraintId::new(u32::MAX).unwrap(),
+                kind,
+            )
+            .unwrap_err(),
+            AcceptedRowConstraintEvaluationError::InvalidExpression(
+                AcceptedCheckExprV1Error::UnknownField
+            ),
+        );
+    }
+}
+
 #[test]
 fn integrity_check_program_excludes_pending_activation_semantics() {
     let snapshot = snapshot();

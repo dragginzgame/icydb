@@ -364,6 +364,48 @@ fn missing_path_filters_preserve_grouped_counts_and_continuation() {
 }
 
 #[test]
+fn path_grouped_bundle_filters_before_group_admission() {
+    let session = initialize_profiles();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    for name in ["alice", "absent"] {
+        let query = structural_select(&session, &format!(
+            "SELECT profile.rank, COUNT(*), SUM(id) FROM PlannerRow WHERE id IN (1,2,3,4,5,6) AND common = '{name}' GROUP BY profile.rank"
+        ))
+        .grouped_limits(4, 16 * 1024);
+        for _ in 0..2 {
+            let page = session
+                .execute_structural_grouped_from_query(&query, &catalog, None, None)
+                .unwrap();
+            assert!(page.next_cursor.is_none());
+            if name == "absent" {
+                assert!(page.rows.is_empty());
+                continue;
+            }
+            assert_eq!(page.rows.len(), 2);
+            for (key, count, sum) in [
+                (OutputValue::null(), 2, 11_u64),
+                (OutputValue::nat64(5), 1, 2),
+            ] {
+                let row = page
+                    .rows
+                    .iter()
+                    .find(|row| row.group_key() == [key.clone()])
+                    .unwrap();
+                assert_eq!(
+                    row.aggregate_values(),
+                    &[
+                        OutputValue::nat64(count),
+                        OutputValue::decimal(crate::types::Decimal::from(sum)),
+                    ]
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn missing_path_filters_preserve_update_and_delete_scopes() {
     let session = initialize_profiles();
     let condition = "common = 'bob' OR profile.rank = 5";

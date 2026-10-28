@@ -14,7 +14,9 @@ use crate::db::{
             validate_borrowed_canonical_value,
         },
     },
-    resource::budget::{charge_current_execution_budget, runtime_value_work},
+    resource::budget::{
+        charge_current_execution_budget, charge_current_execution_budget_pair, runtime_value_work,
+    },
 };
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
@@ -160,14 +162,12 @@ impl ExecutionBudget {
         }
 
         if new_group_key {
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::GroupDistinctEntries,
-                1,
-            )
-            .map_err(GroupError::from)?;
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::NestedValueSteps,
-                key_work.1,
+            charge_current_execution_budget_pair(
+                (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
+                (
+                    DiagnosticExecutionBudgetResource::NestedValueSteps,
+                    key_work.1,
+                ),
             )
             .map_err(GroupError::from)?;
         }
@@ -224,11 +224,12 @@ impl ExecutionBudget {
             ));
         }
 
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1)
-            .map_err(GroupError::from)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::NestedValueSteps,
-            key_work.1,
+        charge_current_execution_budget_pair(
+            (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
+            (
+                DiagnosticExecutionBudgetResource::NestedValueSteps,
+                key_work.1,
+            ),
         )
         .map_err(GroupError::from)?;
         charge_current_execution_budget(
@@ -302,11 +303,12 @@ impl ExecutionBudget {
                 config.max_group_bytes(),
             ));
         }
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1)
-            .map_err(GroupError::from)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
-            bytes_delta,
+        charge_current_execution_budget_pair(
+            (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
+            (
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                bytes_delta,
+            ),
         )
         .map_err(GroupError::from)?;
         charge_current_execution_budget(

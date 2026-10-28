@@ -749,16 +749,16 @@ impl DataStore {
     /// Visit one directed row range while allowing the caller to stop after
     /// seeing the key but before a stable row payload is materialized.
     ///
-    /// Mixed journal overlays retain the ordinary key-then-point-read path;
-    /// one physical backing can keep the range iterator open for the complete
-    /// scan and avoid a second tree lookup per row.
-    pub(in crate::db) fn try_visit_range_with_row_preflight<E>(
+    /// Journaled rows use the canonical ordered-overlay merge, selecting live
+    /// overrides and skipping tombstones before preflight. Stable payloads are
+    /// materialized only after their visible key is admitted.
+    pub(in crate::db) fn visit_range_with_row_preflight<E>(
         &self,
         key_range: impl RangeBounds<RawDataStoreKey>,
         direction: Direction,
         mut preflight: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
-    ) -> Result<Option<bool>, E> {
+    ) -> Result<bool, E> {
         let bounds = (key_range.start_bound(), key_range.end_bound());
         let mut stopped = false;
         match &self.backend {
@@ -783,50 +783,48 @@ impl DataStore {
                 live,
                 tombstones,
                 ..
-            } if canonical.is_empty() => {
-                let mut entries = live.range(bounds);
-                while let Some((key, row)) = match direction {
-                    Direction::Asc => entries.next(),
-                    Direction::Desc => entries.next_back(),
-                } {
-                    if tombstones.contains(key) {
-                        continue;
-                    }
+            } => {
+                let mut canonical_entries = canonical.range(bounds);
+                let mut live_entries = live.range(bounds);
+                let canonical_entries = std::iter::from_fn(|| match direction {
+                    Direction::Asc => canonical_entries.next(),
+                    Direction::Desc => canonical_entries.next_back(),
+                });
+                let live_entries = std::iter::from_fn(|| match direction {
+                    Direction::Asc => live_entries.next(),
+                    Direction::Desc => live_entries.next_back(),
+                });
+                for entry in ordered_overlay_entries(
+                    canonical_entries,
+                    live_entries,
+                    direction,
+                    |entry| entry.key(),
+                    |entry| entry.0,
+                    tombstones,
+                ) {
+                    let key = match &entry {
+                        OrderedOverlayEntry::Canonical(entry) => entry.key(),
+                        OrderedOverlayEntry::Live((key, _)) => key,
+                    };
                     if preflight(key)?.should_stop() {
                         stopped = true;
                         break;
                     }
-                    if visitor(key, row)?.should_stop() {
+                    let result = match entry {
+                        OrderedOverlayEntry::Canonical(entry) => {
+                            visitor(entry.key(), &entry.value())?
+                        }
+                        OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
+                    };
+                    if result.should_stop() {
                         stopped = true;
                         break;
                     }
                 }
             }
-            DataStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-                ..
-            } if live.is_empty() && tombstones.is_empty() => {
-                let mut entries = canonical.range(bounds);
-                while let Some(entry) = match direction {
-                    Direction::Asc => entries.next(),
-                    Direction::Desc => entries.next_back(),
-                } {
-                    if preflight(entry.key())?.should_stop() {
-                        stopped = true;
-                        break;
-                    }
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
-                        stopped = true;
-                        break;
-                    }
-                }
-            }
-            DataStoreBackend::Journaled { .. } => return Ok(None),
         }
 
-        Ok(Some(!stopped))
+        Ok(!stopped)
     }
 
     /// Visit only raw keys in storage order without fetching row payloads.

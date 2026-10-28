@@ -131,10 +131,10 @@ pub(in crate::db) use application_store::{
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};
 pub(in crate::db) use check::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
-    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError, AcceptedTargetPath,
-    AcceptedTargetPathComponent, CompiledAcceptedRowConstraints,
-    MAX_ACCEPTED_TARGET_PATH_COMPONENTS, accepted_row_constraint_write_error,
-    render_accepted_check_expr_sql,
+    AcceptedCheckValueExprV1, AcceptedRowConstraintEvaluationError,
+    AcceptedRowConstraintViolationKind, AcceptedTargetPath, AcceptedTargetPathComponent,
+    CompiledAcceptedRowConstraints, MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
+    accepted_row_constraint_write_error, render_accepted_check_expr_sql,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use check::{

@@ -153,23 +153,10 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
-        let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
-            &self.row_layout,
-            &key,
-            &row,
-            retained_slot_layout,
-        )?;
-        let data_row = (key, row);
-
-        Ok(Some(KernelRow::new_with_retained_slots(
-            data_row,
-            retained_slots,
-        )))
+        self.retain_full_row(key, row, None, retained_slot_layout)
     }
 
-    // Decode one retained full structural row and drop it early when the
-    // residual filter rejects the retained slot values.
+    // Decode one retained full structural row and apply its canonical filter.
     fn read_full_row_retained_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
@@ -180,16 +167,37 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        let Some(retained_slots) = self.retained_slots_from_filtered_row(
-            &key,
-            &row,
-            filter_program,
-            retained_slot_layout,
-        )?
-        else {
-            return Ok(None);
-        };
+        self.retain_full_row(key, row, Some(filter_program), retained_slot_layout)
+    }
 
+    // Both storage readers settle owned-row admission before retained decoding.
+    fn retain_full_row(
+        &self,
+        key: DecodedDataStoreKey,
+        row: RawRow,
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        let retained_slots = if let Some(filter_program) = filter_program {
+            let Some(slots) = self.retained_slots_from_filtered_row(
+                &key,
+                &row,
+                filter_program,
+                retained_slot_layout,
+            )?
+            else {
+                return Ok(None);
+            };
+            slots
+        } else {
+            charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
+            RowDecoder::decode_retained_slots_from_data_key(
+                &self.row_layout,
+                &key,
+                &row,
+                retained_slot_layout,
+            )?
+        };
         Ok(Some(KernelRow::new_with_retained_slots(
             (key, row),
             retained_slots,
@@ -374,6 +382,20 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
             return Ok(None);
         }
         Ok(Some((key, row.clone())))
+    }
+
+    /// Retain an iterator payload through the canonical full-row slot decoder.
+    pub(in crate::db::executor) fn read_borrowed_full_row_retained(
+        &self,
+        key: DecodedDataStoreKey,
+        row: &RawRow,
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+        charge_materialized_data_row(row.len())?;
+        self.state
+            .retain_full_row(key, row.clone(), filter_program, retained_slot_layout)
     }
 
     /// Read one structural data row without decoding any slot payload.

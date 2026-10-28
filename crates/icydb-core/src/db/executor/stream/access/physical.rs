@@ -951,8 +951,8 @@ impl PrimaryRangeKeyStream {
         })
     }
 
-    /// Visit primary rows in either direction through one open range when the store
-    /// has a single visible backing and this leaf has not otherwise advanced.
+    /// Visit visible primary rows in either direction through the store's open
+    /// range traversal when this leaf has not otherwise advanced.
     pub(in crate::db::executor) fn try_visit_rows_direct(
         &mut self,
         begin_row: &mut dyn FnMut() -> Result<bool, InternalError>,
@@ -972,8 +972,8 @@ impl PrimaryRangeKeyStream {
         let row_limit = self.remaining;
         let visited = Cell::new(0usize);
         let mut last_primary_key = None;
-        let outcome = self.store.with_data(|store| {
-            store.try_visit_range_with_row_preflight(
+        let naturally_exhausted = self.store.with_data(|store| {
+            store.visit_range_with_row_preflight(
                 (self.lower_bound.as_ref(), self.upper_bound.as_ref()),
                 self.direction,
                 |_raw_key| {
@@ -998,9 +998,6 @@ impl PrimaryRangeKeyStream {
                 },
             )
         })?;
-        let Some(naturally_exhausted) = outcome else {
-            return Ok(None);
-        };
 
         // The visitor consumes decoded keys. Retain their compact identity
         // and encode only the final resume boundary after traversal.

@@ -127,12 +127,18 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             let row_runtime = &*row_runtime;
             let mut read_row = |key| row_runtime.read_data_row_only(consistency, key);
 
+            let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
+                row_runtime
+                    .read_borrowed_data_row(key.clone(), row, None)
+                    .map(|row| row.map(KernelRow::new_data_row_only))
+            };
+
             execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
                 scan_bounds,
                 &mut read_row,
-                None,
+                &mut read_borrowed_row,
             )
         }
         KernelRowScanStrategy::DataRowsFiltered { filter_program } => {
@@ -143,12 +149,18 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                     .map(|row| row.map(KernelRow::new_data_row_only))
             };
 
+            let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
+                row_runtime
+                    .read_borrowed_data_row(key.clone(), row, Some(filter_program))
+                    .map(|row| row.map(KernelRow::new_data_row_only))
+            };
+
             execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
                 scan_bounds,
                 &mut read_row,
-                None,
+                &mut read_borrowed_row,
             )
         }
         KernelRowScanStrategy::RetainedFullRows {
@@ -158,12 +170,21 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             let mut read_row =
                 |key| row_runtime.read_full_row_retained(consistency, key, retained_slot_layout);
 
+            let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
+                row_runtime.read_borrowed_full_row_retained(
+                    key.clone(),
+                    row,
+                    None,
+                    retained_slot_layout,
+                )
+            };
+
             execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
                 scan_bounds,
                 &mut read_row,
-                None,
+                &mut read_borrowed_row,
             )
         }
         KernelRowScanStrategy::RetainedFullRowsFiltered {
@@ -180,12 +201,21 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 )
             };
 
+            let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
+                row_runtime.read_borrowed_full_row_retained(
+                    key.clone(),
+                    row,
+                    Some(filter_program),
+                    retained_slot_layout,
+                )
+            };
+
             execute_kernel_row_scan_with_readers(
                 key_stream,
                 scan_budget_hint,
                 scan_bounds,
                 &mut read_row,
-                None,
+                &mut read_borrowed_row,
             )
         }
         KernelRowScanStrategy::SlotOnlyRows {
@@ -205,7 +235,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 scan_budget_hint,
                 scan_bounds,
                 &mut read_row,
-                Some(&mut read_borrowed_row),
+                &mut read_borrowed_row,
             )
         }
         KernelRowScanStrategy::SlotOnlyRowsFiltered {
@@ -235,27 +265,24 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 scan_budget_hint,
                 scan_bounds,
                 &mut read_row,
-                Some(&mut read_borrowed_row),
+                &mut read_borrowed_row,
             )
         }
     }
 }
 
-// Run all kernel-row strategies through one concrete scan body. Slot-only
-// primary traversals may supply a borrowed reader; every other strategy uses
-// the same owned reader path without specializing the loop for its closure.
+// Run all kernel-row strategies through one concrete scan body. Primary
+// traversals reuse iterator payloads; other streams use the same point reader
+// without specializing the loop for its closure.
 fn execute_kernel_row_scan_with_readers(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     bounds: KernelRowScanBounds<'_>,
     read_row: &mut KernelRowReader<'_>,
-    mut read_borrowed_row: Option<&mut BorrowedKernelRowReader<'_>>,
+    read_borrowed_row: &mut BorrowedKernelRowReader<'_>,
 ) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {
     execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
-        if let Some(read_borrowed_row) = read_borrowed_row.as_deref_mut()
-            && let Some(rows) =
-                try_scan_borrowed_primary_rows(key_stream, bounds, read_borrowed_row)?
-        {
+        if let Some(rows) = try_scan_borrowed_primary_rows(key_stream, bounds, read_borrowed_row)? {
             return Ok(rows);
         }
 
@@ -400,12 +427,17 @@ fn try_scan_borrowed_primary_rows(
     bounds: KernelRowScanBounds<'_>,
     read_row: &mut BorrowedKernelRowReader<'_>,
 ) -> Result<Option<RowScanResult<PendingOrderRows<KernelRow>>>, InternalError> {
-    if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
-        return if bounds.order_window.is_some() {
-            Err(InternalError::query_executor_invariant())
-        } else {
-            Ok(None)
-        };
+    if bounds.order_window.is_some()
+        && (bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0)
+    {
+        return Err(InternalError::query_executor_invariant());
+    }
+    if bounds.row_keep_cap == Some(0) {
+        return Ok(Some(RowScanResult {
+            rows: PendingOrderRows::plain(Vec::new()),
+            rows_scanned: 0,
+            rows_matched: 0,
+        }));
     }
     if bounds
         .order_window
@@ -425,21 +457,45 @@ fn try_scan_borrowed_primary_rows(
     let visited = try_visit_borrowed_primary_rows(
         key_stream,
         |key, row| read_row(&key, row),
-        |decoded| {
-            if !decoded.has_materialized_slots() {
-                return Err(InternalError::query_executor_invariant());
-            }
+        |decoded, prior_matches| {
             if let Some(window) = window.as_mut() {
+                if !decoded.has_materialized_slots() {
+                    return Err(InternalError::query_executor_invariant());
+                }
                 window.push(decoded)?;
             } else {
-                plain_rows.push(decoded);
+                retain_scanned_row(
+                    decoded,
+                    bounds.row_skip_count,
+                    prior_matches,
+                    &mut plain_rows,
+                );
             }
-            Ok(())
+            Ok(
+                if bounds
+                    .row_keep_cap
+                    .is_some_and(|cap| prior_matches.saturating_add(1) >= cap)
+                {
+                    StoreVisit::Stop
+                } else {
+                    StoreVisit::Continue
+                },
+            )
         },
     )?;
-    let Some(visited) = visited else {
+    let Some((visited, envelope_stopped)) = visited else {
         return Ok(None);
     };
+    // Only a proven finite ordered window can publish a partial page. Keep
+    // the existing complete-input refusal for unbounded and sorted scans.
+    if envelope_stopped && bounds.row_keep_cap.is_none() {
+        let observed = u64::try_from(visited.rows_scanned).unwrap_or(u64::MAX);
+        return Err(InternalError::page_unit_too_large(
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            observed,
+            observed.saturating_add(1),
+        ));
+    }
     let rows = window.map_or_else(
         || PendingOrderRows::plain(plain_rows),
         BoundedOrderWindow::into_pending_rows,
@@ -456,8 +512,8 @@ fn try_scan_borrowed_primary_rows(
 fn try_visit_borrowed_primary_rows<T>(
     key_stream: &mut OrderedKeyStreamBox,
     mut read_row: impl FnMut(DecodedDataStoreKey, &RawRow) -> Result<Option<T>, InternalError>,
-    mut retain_row: impl FnMut(T) -> Result<(), InternalError>,
-) -> Result<Option<RowScanResult<()>>, InternalError> {
+    mut retain_row: impl FnMut(T, usize) -> Result<StoreVisit, InternalError>,
+) -> Result<Option<(RowScanResult<()>, bool)>, InternalError> {
     let rows_scanned = std::cell::Cell::new(0usize);
     let mut rows_matched = 0usize;
     let envelope_stopped = std::cell::Cell::new(false);
@@ -476,27 +532,25 @@ fn try_visit_borrowed_primary_rows<T>(
         let decoded = read_row(key, row)?;
         finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
         if let Some(decoded) = decoded {
+            let prior_matches = rows_matched;
             rows_matched = rows_matched.saturating_add(1);
-            retain_row(decoded)?;
+            return retain_row(decoded, prior_matches);
         }
         Ok(StoreVisit::Continue)
     };
     let Some(()) = key_stream.try_visit_primary_rows_direct(&mut begin_row, &mut visit_row)? else {
         return Ok(None);
     };
-    if envelope_stopped.get() {
-        let observed = u64::try_from(rows_scanned.get()).unwrap_or(u64::MAX);
-        return Err(InternalError::page_unit_too_large(
-            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-            observed,
-            observed.saturating_add(1),
-        ));
-    }
-    Ok(Some(RowScanResult {
-        rows: (),
-        rows_scanned: rows_scanned.get(),
-        rows_matched,
-    }))
+    // The coordinator already records the stop and owns page continuation.
+    // Return that fact so complete-input collectors can retain their refusal.
+    Ok(Some((
+        RowScanResult {
+            rows: (),
+            rows_scanned: rows_scanned.get(),
+            rows_matched,
+        },
+        envelope_stopped.get(),
+    )))
 }
 
 // Scan one ordered key stream into caller-owned row payloads while preserving
@@ -686,17 +740,30 @@ fn scan_data_rows_direct_with_reader(
         &RawRow,
     ) -> Result<Option<DataRow>, InternalError>,
 ) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
-    // Unbounded full-row collection can retain the payload already visited by
-    // the primary iterator. Finite page windows keep their existing skip/keep
-    // and continuation owner; unsupported store/stream shapes fall through.
-    // Page-progress executions must keep their existing partial-stop semantics.
-    if row_keep_cap.is_none() && row_skip_count == 0 && !production_scalar_page_work_is_active()? {
-        let mut rows = Vec::with_capacity(staged_row_capacity(key_stream, None, 0));
-        let visited = try_visit_borrowed_primary_rows(key_stream, &mut read_borrowed_row, |row| {
-            rows.push(row);
-            Ok(())
-        })?;
-        if let Some(visited) = visited {
+    // Reuse iterator payloads for collection and cursor pages. The existing
+    // page coordinator owns envelope stops and the observed stream owns the
+    // last consumed key. Unsupported streams fall through without consumption.
+    if row_keep_cap != Some(0) {
+        let mut rows = Vec::with_capacity(staged_row_capacity(
+            key_stream,
+            row_keep_cap,
+            row_skip_count,
+        ));
+        let visited = try_visit_borrowed_primary_rows(
+            key_stream,
+            &mut read_borrowed_row,
+            |row, prior_matches| {
+                retain_scanned_row(row, row_skip_count, prior_matches, &mut rows);
+                Ok(
+                    if row_keep_cap.is_some_and(|cap| prior_matches.saturating_add(1) >= cap) {
+                        StoreVisit::Stop
+                    } else {
+                        StoreVisit::Continue
+                    },
+                )
+            },
+        )?;
+        if let Some((visited, _)) = visited {
             return Ok(RowScanResult {
                 rows,
                 rows_scanned: visited.rows_scanned,

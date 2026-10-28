@@ -418,13 +418,9 @@ impl IndexScan {
                 |raw_key, entry| {
                     let exceeds_cardinality_proof = keys.len() >= expected;
                     if exceeds_cardinality_proof {
-                        charge_current_execution_budget(
-                            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-                            1,
-                        )?;
-                        charge_current_execution_budget(
-                            DiagnosticExecutionBudgetResource::CursorSteps,
-                            1,
+                        charge_current_execution_budget_pair(
+                            (DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1),
+                            (DiagnosticExecutionBudgetResource::CursorSteps, 1),
                         )?;
                     }
                     let raw_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
@@ -615,21 +611,25 @@ impl IndexScan {
                 },
             )
         });
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-            entries_visited,
+        charge_current_execution_budget_pair(
+            (
+                DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                entries_visited,
+            ),
+            (
+                DiagnosticExecutionBudgetResource::StoredBytesRead,
+                raw_bytes_read,
+            ),
         )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::StoredBytesRead,
-            raw_bytes_read,
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::CursorSteps,
-            entries_visited,
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::DecodedBytes,
-            raw_bytes_read,
+        charge_current_execution_budget_pair(
+            (
+                DiagnosticExecutionBudgetResource::CursorSteps,
+                entries_visited,
+            ),
+            (
+                DiagnosticExecutionBudgetResource::DecodedBytes,
+                raw_bytes_read,
+            ),
         )?;
         let supported = scan_result?;
 
@@ -931,13 +931,12 @@ impl IndexScan {
         continuation: &ContinuationRuntime<'_>,
         raw_key: &RawIndexStoreKey,
     ) -> Result<(), InternalError> {
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-            1,
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::StoredBytesRead,
-            u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
+        charge_current_execution_budget_pair(
+            (DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1),
+            (
+                DiagnosticExecutionBudgetResource::StoredBytesRead,
+                u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
+            ),
         )?;
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
         continuation.accept_key(ContinuationKeyRef::scan(raw_key))

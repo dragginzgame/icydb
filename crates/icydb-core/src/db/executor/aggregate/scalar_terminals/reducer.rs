@@ -23,7 +23,10 @@ use crate::{
             projection::ProjectionEvalError,
             terminal::KernelRow,
         },
-        resource::budget::{charge_current_execution_budget, runtime_value_work},
+        resource::budget::{
+            charge_current_execution_budget, charge_current_execution_budget_pair,
+            runtime_value_work,
+        },
     },
     error::InternalError,
     value::Value,
@@ -216,13 +219,12 @@ impl ScalarAggregateReducerState {
             return Ok(());
         }
         let value_work = runtime_value_work(value);
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::GroupDistinctEntries,
-            1,
-        )?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
-            value_work.0,
+        charge_current_execution_budget_pair(
+            (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
+            (
+                DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+                value_work.0,
+            ),
         )?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::NestedValueSteps,

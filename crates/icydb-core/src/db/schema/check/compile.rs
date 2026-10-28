@@ -249,62 +249,47 @@ impl CompiledAcceptedRowConstraints {
         Ok(compiled)
     }
 
-    /// Compile exactly one pending check for historical activation validation.
-    pub(in crate::db) fn compile_check_activation(
+    /// Compile one pending CHECK or NOT NULL gate for historical validation.
+    /// The caller's expected kind must agree with the accepted activation.
+    pub(in crate::db) fn compile_activation(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
         fingerprint: CommitSchemaFingerprint,
         activation_id: ConstraintId,
+        required_kind: AcceptedRowConstraintViolationKind,
     ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
-        let snapshot = schema.persisted_snapshot();
-        let activation = snapshot
+        let activation = schema
+            .persisted_snapshot()
             .constraint_activations()
             .iter()
             .find(|activation| activation.id() == activation_id)
             .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
                 AcceptedCheckExprV1Error::UnknownField,
             ))?;
-        let ConstraintActivationKind::Check { expression } = activation.kind() else {
-            return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                AcceptedCheckExprV1Error::OperandKindMismatch,
-            ));
+        let (checks, not_null) = match (required_kind, activation.kind()) {
+            (
+                AcceptedRowConstraintViolationKind::Check,
+                ConstraintActivationKind::Check { expression },
+            ) => (
+                vec![(activation.id(), expression.as_ref(), false)],
+                Vec::new(),
+            ),
+            (
+                AcceptedRowConstraintViolationKind::NotNull,
+                ConstraintActivationKind::NotNull { field_id },
+            ) => (Vec::new(), vec![(activation.id(), *field_id, false)]),
+            _ => {
+                return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
+                    AcceptedCheckExprV1Error::OperandKindMismatch,
+                ));
+            }
         };
         Self::compile_sources(
             schema,
             value_catalog,
             fingerprint,
-            vec![(activation.id(), expression.as_ref(), false)],
-            Vec::new(),
-            CompiledAcceptedTargetedRules::empty(),
-        )
-    }
-
-    /// Compile exactly one pending not-null gate for historical validation.
-    pub(in crate::db) fn compile_not_null_activation(
-        schema: &AcceptedSchemaSnapshot,
-        value_catalog: &AcceptedValueCatalogHandle,
-        fingerprint: CommitSchemaFingerprint,
-        activation_id: ConstraintId,
-    ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
-        let snapshot = schema.persisted_snapshot();
-        let activation = snapshot
-            .constraint_activations()
-            .iter()
-            .find(|activation| activation.id() == activation_id)
-            .ok_or(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                AcceptedCheckExprV1Error::UnknownField,
-            ))?;
-        let ConstraintActivationKind::NotNull { field_id } = activation.kind() else {
-            return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                AcceptedCheckExprV1Error::OperandKindMismatch,
-            ));
-        };
-        Self::compile_sources(
-            schema,
-            value_catalog,
-            fingerprint,
-            Vec::new(),
-            vec![(activation.id(), *field_id, false)],
+            checks,
+            not_null,
             CompiledAcceptedTargetedRules::empty(),
         )
     }
