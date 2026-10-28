@@ -1532,8 +1532,8 @@ fn assert_primary_range_materialization_fetches_once<C: CanisterKind>(
     assert_eq!(scalar_page.row_count, 1);
     assert_eq!(
         DataStore::current_get_call_count().saturating_sub(gets_before),
-        1,
-        "scalar primary traversal should fetch its emitted row exactly once",
+        0,
+        "scalar primary traversal should reuse its iterator payload without a point lookup",
     );
 
     let grouped = DynamicQuery::new(ENTITY_NAME)

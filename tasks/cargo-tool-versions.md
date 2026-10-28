@@ -35,3 +35,41 @@ preserving applicable features and prior evidence. Common tools use
 `make install-rust-tools`, followed by offline `make rust-tools-check`; other
 installations retain their owning setup route. Checking does not install, update
 pins, raise library MSRVs, enable a schedule or edit sibling repositories.
+
+## Optional sccache selection
+
+Latest stable is the default update policy for governed tools. Keep exact pins
+and checksums; resolve latest only during authorized maintenance, never during
+builds. An older selection needs a concrete compatibility blocker, evidence and
+an owning follow-up issue. A newer release is a review candidate, not permission
+to silently update consumers.
+
+Inspect the optional sccache pin through the same checker:
+
+```bash
+perl scripts/dev/check-cargo-tool-versions.pl --tool sccache --json
+```
+
+This compares the selected catalog pin and any Cargo receipt against non-yanked
+stable crates.io releases. It does not infer installation from a binary download
+or require sccache in the common tool bundle. Compare that result with Mozilla's
+[stable release](https://github.com/mozilla/sccache/releases/latest); review the
+release notes, archive asset and upstream checksum before updating the catalog.
+If registry and GitHub disagree, report the observation for review rather than
+changing release admission or waiting in a build.
+
+The existing binary installer now accepts the optional catalog selection:
+
+```bash
+bash scripts/ci/install-ci-tool.sh sccache --install-dir /selected/bin
+```
+
+The reviewed binary mapping remains Linux x86-64 musl. Other supported hosts
+retain their explicit qualified Cargo setup or existing owner; no new binary
+matrix or wrapper is introduced. Qualify server start/stats/stop with isolated
+sockets, compiler errors without retry, connection-failure fallback and actual
+Rust compilation in consumers that use wrappers. Installer fixtures prove pin,
+checksum and failure-retention behavior, not server or macOS compatibility.
+Consumers using explicit old pins must adopt the catalog or update their owned
+exception deliberately; refreshing snapshot bytes alone does not change those
+callers. No manual environment exports or second installer are needed.

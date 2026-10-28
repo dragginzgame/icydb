@@ -476,6 +476,11 @@ contracts; ordinary development does not require rereading these mechanics.
 
 ## Rust workspaces and portable tooling
 
+- Governed tools target latest stable during authorized maintenance, while
+  builds keep exact reviewed versions and checksums. Retaining an older version
+  needs a documented compatibility blocker and owning follow-up. Use the
+  [tool freshness workflow](../tasks/cargo-tool-versions.md), including optional
+  sccache; never resolve latest dynamically in builds or create a second installer.
 - Directory names for repositories, workspaces, tooling and operational inputs
   must not contain line-feed (LF) or carriage-return (CR) characters, including
   ancestor directories and resolved symlink destinations. Do not create or select

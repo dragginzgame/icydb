@@ -7,9 +7,11 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.27.2 at published revision
-`7efce1e36275ff9e4bbbdd9ccab9a8d94520fd98`. The canonical exporter owns the
-130 selected payloads and their hashes/modes. Refresh them canonically; a
+IcyDB selects Shared Tooling 0.27.3 at published revision
+`cc81a58a5b2dd287c577cbffd2c576c178b6785c`. The canonical exporter owns the
+130 selected payloads and their hashes/modes. Adoption also verifies every
+payload and mode against that independently selected source commit; ordinary
+checks remain offline local-integrity checks. Refresh them canonically; a
 sibling checkout's uncommitted changes are not part of this snapshot.
 
 The complete pre-cleanup record remains in Git at commit
@@ -118,7 +120,14 @@ Its Testkit exposes mutable client access while retaining instance/server custod
 The three installed browser fixtures consume that API directly, removing local
 client/server splitting. Platform 0.7.0 remains the registry selection.
 
-Shared Tooling 0.27.2 retains the structured runtime-scanner CLI
+Shared Tooling 0.27.3 adds independently selected source-commit verification,
+report-only unattended maintenance with restricted permissions, and an optional
+sccache 0.19.0 catalog entry. IcyDB does not enable sccache or start scheduled
+maintenance through this adoption. Any installed maintenance schedule requires
+the upstream host-qualification procedure before resumption; snapshot checks
+alone do not qualify an installed schedule.
+
+The snapshot retains the structured runtime-scanner CLI
 ([#476](https://github.com/dragginzgame/icydb/issues/476)). The existing private
 compiler package adds the inherited Clap dependency; its locked version and
 features were already selected elsewhere in this workspace. No deployed package

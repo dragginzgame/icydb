@@ -33,18 +33,31 @@ ROOT="$0"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
+projects_root="$(cd -P "$projects_root" && pwd)"
+[[ "$projects_root" != / && "$projects_root" != "$HOME" ]] || {
+    echo 'projects-root must select source checkouts, not a home or filesystem root' >&2; exit 2;
+}
 [[ -f "$ROOT/tasks/README.md" && -f "$ROOT/tasks/maintenance-prompt.md" ]] || {
     echo 'maintenance catalog or prompt is missing' >&2; exit 1;
 }
 codex_bin="${CODEX_BIN:-codex}"
 
+# Do not inherit publish tokens, SSH agents, credential helpers, shell startup
+# hooks or the user's connector configuration into unattended execution.
+# The harness retains its own login; model-generated commands get only the
+# explicitly selected read surface below, never the harness credential store.
+codex_clean() {
+    env -i HOME="$HOME" PATH="$PATH" CODEX_HOME="${CODEX_HOME:-$HOME/.codex}" \
+        LANG=C.UTF-8 "$codex_bin" "$@"
+}
+
 if [[ "$mode" == --check ]]; then
-    "$codex_bin" --version
-    cli_help="$("$codex_bin" exec --help)"
-    [[ "$cli_help" == *--approve-for-me* ]] || {
-        echo 'this runner requires Codex exec automatic approval review' >&2; exit 1;
+    codex_clean --version
+    cli_help="$(codex_clean exec --help)"
+    [[ "$cli_help" == *--ignore-user-config* && "$cli_help" == *--strict-config* ]] || {
+        echo 'this runner requires Codex isolated configuration support' >&2; exit 1;
     }
-    "$codex_bin" login status
+    codex_clean login status
     echo 'Maintenance prerequisites checked; no agent or schedule started.'
     exit 0
 fi
@@ -70,6 +83,9 @@ printf 'Maintenance evidence: %s\n' "$run_dir"
 trap 'printf "%s\n" "$?" > "$run_dir/exit-status"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if git -C "$run_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    echo 'maintenance state must be outside Git repositories to exclude project configuration' >&2; exit 1;
+fi
 printf '%s\n' "$now" > "$run_dir/started-at"
 {
     printf 'Shared Tooling checkout: %s\nProjects directory: %s\nRun directory: %s\n' "$ROOT" "$projects_root" "$run_dir"
@@ -83,9 +99,51 @@ mv -f "$run_dir/next-attempt" "$stamp"
 {
     git -C "$ROOT" rev-parse HEAD
     git -C "$ROOT" status --short
-    "$codex_bin" --version
+    codex_clean --version
 } > "$run_dir/inputs.txt" 2>&1
-"$codex_bin" exec --approve-for-me --cd "$ROOT" --json \
+
+# Work from the evidence directory, outside project config discovery. A named
+# profile allows only runtime prerequisites, selected source reads and evidence
+# writes. Never combine it with --sandbox (which overrides named profiles).
+permissions=(
+    --ignore-user-config --ignore-rules --strict-config --skip-git-repo-check
+    -c 'approval_policy="never"'
+    -c 'default_permissions="maintenance"'
+    -c 'permissions.maintenance.filesystem={":minimal"="read"}'
+    -c 'permissions.maintenance.network.enabled=false'
+    -c 'allow_login_shell=false'
+    -c 'shell_environment_policy.inherit="core"'
+    -c 'shell_environment_policy.filters={"PATH"="include","HOME"="include","LANG"="include"}'
+    -c 'apps._default.enabled=false'
+    -c 'features.apps=false'
+    -c 'web_search="disabled"'
+)
+permission_path() {
+    local path="$1" access="$2" quoted
+    quoted="$(perl -MJSON::PP -e 'print encode_json($ARGV[0])' "$path")"
+    permissions+=(-c "permissions.maintenance.filesystem.$quoted=\"$access\"")
+}
+run_dir="$(cd -P "$run_dir" && pwd)"
+permission_path "$ROOT" read
+permission_path "$projects_root" read
+permission_path "$run_dir" write
+# Non-system Codex installations may need their bundled sandbox executable.
+# Grant that installation only, never its containing home or node_modules tree.
+if [[ -n "${MAINTENANCE_CODEX_RUNTIME_ROOT:-}" ]]; then
+    runtime_root="$(cd -P "$MAINTENANCE_CODEX_RUNTIME_ROOT" && pwd)"
+    [[ "$runtime_root" != / && "$runtime_root" != "$HOME" ]] || {
+        echo 'select only the Codex installation directory as runtime root' >&2; exit 1;
+    }
+    permission_path "$runtime_root" read
+fi
+# Explicit denials also cover a mistakenly broad projects selection.
+for private in "$HOME/.ssh" "$HOME/.aws" "$HOME/.config/gh" "$HOME/.git-credentials" \
+    "${CARGO_HOME:-$HOME/.cargo}/credentials" "${CARGO_HOME:-$HOME/.cargo}/credentials.toml" \
+    "${CODEX_HOME:-$HOME/.codex}"; do
+    permission_path "$private" deny
+done
+printf '%s\n' "${permissions[@]}" > "$run_dir/permissions.txt"
+codex_clean exec "${permissions[@]}" --cd "$run_dir" --json \
     --output-last-message "$run_dir/report.md" - \
     < "$run_dir/prompt.txt" > "$run_dir/events.jsonl" 2> "$run_dir/stderr.log"
 [[ -s "$run_dir/report.md" ]] || { echo 'Codex returned no maintenance report' >&2; exit 1; }

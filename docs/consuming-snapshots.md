@@ -535,6 +535,27 @@ verifier; this is local integrity checking, not signed provenance or protection
 against replacement of the verifier and manifest themselves. The source commit
 and normal review establish provenance.
 
+At adoption, independently select the reviewed full commit from the trusted
+Shared Tooling repository. Do not take that trust decision from the consumer's
+manifest or its `source` URL. Use a trusted verifier to compare every declared
+payload's bytes and executable mode against that commit:
+
+```bash
+/trusted/shared-tooling/scripts/ci/verify-shared-tooling-snapshot.sh \
+  --consumer /path/to/consumer --source /trusted/shared-tooling \
+  --revision FULL_REVIEWED_COMMIT_ID
+```
+
+Both options are required together. This reads existing Git objects without
+fetching, executing payloads or consulting CI; dirty source files do not supply
+the evidence. A locally rewritten payload and matching manifest digest can pass
+ordinary integrity checking but fail this source comparison. A changed manifest
+revision also fails against the independently selected commit. The caller still
+owns trust in the source checkout, verifier and selected commit. This does not
+prove signatures, completeness of the consumer's selected entrypoints, product
+behavior or producer CI qualification. Review the selection/companion closure
+through the exporter and consumer diff; ordinary builds retain offline checks.
+
 ## Shared baseline and local instructions
 
 [`DRAGGINZGAME.md`](../DRAGGINZGAME.md) is the reusable engineering baseline.

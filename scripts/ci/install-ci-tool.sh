@@ -37,8 +37,6 @@ if [[ -n "$version" || -n "$checksum" ]]; then
     [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || { usage; exit 2; }
     [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || { echo 'invalid SHA-256 digest' >&2; exit 2; }
     explicit_pins=true
-elif [[ "$tool" == sccache ]]; then
-    echo 'sccache requires explicit version and SHA-256 pins' >&2; exit 2
 fi
 platform="$(bash "$SCRIPT_DIR/../dev/host-platform.sh")"
 case "$platform" in
@@ -52,6 +50,7 @@ if [[ "$explicit_pins" == false ]]; then
         actionlint) catalog_tool=ACTIONLINT ;;
         gitleaks) catalog_tool=GITLEAKS ;;
         shellcheck) catalog_tool=SHELLCHECK ;;
+        sccache) catalog_tool=SCCACHE ;;
     esac
     record="$(perl "$SCRIPT_DIR/tool-catalog-records.pl" ci "$catalog" "$catalog_tool")"
     IFS=$'\t' read -r _ version selected_host checksum <<< "$record"

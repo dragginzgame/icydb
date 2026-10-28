@@ -11,15 +11,20 @@ CONSUMER_ROOT="$DEFAULT_ROOT"
 MANIFEST_PATH=".shared-tooling.snapshot"
 read_manifest=''
 verify_options=false
+source_root=''
+expected_revision=''
 
 usage() {
     cat >&2 <<'USAGE'
 usage: verify-shared-tooling-snapshot.sh [--consumer <repository>] [--manifest <relative-path>]
+       [--source <trusted-checkout> --revision <reviewed-full-commit>]
        verify-shared-tooling-snapshot.sh --read-manifest <file>
 
 --read-manifest validates manifest syntax and emits its records, preserving order
 and literal field bytes. No output is emitted on malformed input. It does not
 inspect payloads or establish integrity, ownership or source trust.
+--source and --revision additionally compare every declared payload with an
+independently selected commit. They never fetch or execute source payloads.
 USAGE
 }
 
@@ -74,6 +79,12 @@ while [[ $# -gt 0 ]]; do
         read_manifest="$2"
         shift 2
         ;;
+    --source|--revision)
+        [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+        if [[ "$1" == --source ]]; then source_root="$2"; else expected_revision="$2"; fi
+        verify_options=true
+        shift 2
+        ;;
     -h | --help)
         usage
         exit 0
@@ -86,6 +97,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$read_manifest" || "$verify_options" == false ]] || { usage; exit 2; }
+[[ -z "$source_root" && -z "$expected_revision" || -n "$source_root" && -n "$expected_revision" ]] || { usage; exit 2; }
+if [[ -n "$source_root" ]]; then
+    source_root="$(resolve_directory "$source_root")"
+    [[ "$expected_revision" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'reviewed revision must be a full commit ID'
+    [[ "$(git --no-replace-objects -C "$source_root" cat-file -t "$expected_revision")" == commit ]] ||
+        fail 'reviewed revision is not an available commit'
+fi
 SCRIPT_DIR="$(resolve_directory "$SCRIPT_DIR")"
 if [[ -n "$read_manifest" ]]; then
     manifest="$read_manifest"
@@ -96,6 +114,7 @@ else
     [[ "$CONSUMER_ROOT" != "/" ]] || fail "consumer repository may not be the filesystem root"
     manifest="$CONSUMER_ROOT/$MANIFEST_PATH"
 fi
+
 [[ -f "$manifest" && ! -L "$manifest" ]] || fail "manifest is missing or symlinked: $manifest"
 manifest_parent="$(resolve_directory "${manifest%/*}")"
 if [[ -z "$read_manifest" ]]; then
@@ -195,6 +214,8 @@ if [[ -n "$read_manifest" ]]; then
     exit 0
 fi
 
+[[ -z "$expected_revision" || "$snapshot_revision" == "$expected_revision" ]] ||
+    fail 'manifest revision differs from independently reviewed revision'
 [[ "$checksum_tool_declared" == "true" ]] || fail "manifest does not declare the checksum verifier"
 [[ "$snapshot_verifier_declared" == "true" ]] || fail "manifest does not declare the snapshot verifier"
 # This is the integrity bootstrap: never execute code from the snapshot being
@@ -225,6 +246,21 @@ for index in "${!declared_files[@]}"; do
     checksum_output="$(LC_ALL=C "${checksum_command[@]}" < "$target")" || fail "checksum backend failed: $path"
     [[ "$checksum_output" =~ $checksum_pattern ]] || fail "malformed checksum output: $path"
     [[ "${BASH_REMATCH[1]}" == "${declared_digests[$index]}" ]] || fail "declared file differs from the snapshot: $path"
+    if [[ -n "$source_root" ]]; then
+        # Literal paths and disabled replacement objects bind this observation
+        # to the reviewed tree, not working files or consumer-supplied hashes.
+        source_entry="$(git --no-replace-objects -C "$source_root" --literal-pathspecs ls-tree "$expected_revision" -- "$path")" || fail "cannot inspect reviewed path: $path"
+        source_mode="${source_entry%% *}"
+        expected_mode=100644
+        [[ "${declared_modes[$index]}" != x ]] || expected_mode=100755
+        [[ "$source_mode" == "$expected_mode" ]] || fail "reviewed source mode differs: $path"
+        checksum_output="$(git --no-replace-objects -C "$source_root" show "$expected_revision:$path" | LC_ALL=C "${checksum_command[@]}")" || fail "cannot hash reviewed source: $path"
+        [[ "$checksum_output" =~ $checksum_pattern ]] || fail "malformed source checksum: $path"
+        [[ "${BASH_REMATCH[1]}" == "${declared_digests[$index]}" ]] || fail "manifest payload differs from reviewed source: $path"
+    fi
 done
 
 echo "shared-tooling snapshot verified: $file_count file(s), version $snapshot_version ($snapshot_revision)"
+if [[ -n "$source_root" ]]; then
+    echo "Declared payloads match independently selected source commit: $expected_revision"
+fi

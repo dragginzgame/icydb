@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.286.3]
 
+### 🔧 Changed
+
+- Adopt Shared Tooling 0.27.3 with source-commit snapshot verification,
+  restricted report-only maintenance and optional sccache catalog support.
+
 ### 🧹 Cleanup
 
 - Reuse primary-iterator payloads for full-row collections and cursor pages,

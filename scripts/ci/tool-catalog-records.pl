@@ -34,6 +34,8 @@ for my $line (split /\n/, $bytes) {
 my @rust = qw(CARGO_SORT CARGO_SORT_DERIVES);
 die "unresolved nonliteral/duplicate catalog: $path\n" if $invalid;
 my %ci_hosts = (ACTIONLINT => 'LINUX_AMD64', SHELLCHECK => 'LINUX_X86_64', GITLEAKS => 'LINUX_X64');
+# Optional tools do not enlarge the common installation or admission roster.
+$ci_hosts{SCCACHE} = 'LINUX_AMD64' if defined($selected) && $selected eq 'SCCACHE';
 my @records;
 for my $tool ($kind eq 'rust' ? @rust : $kind eq 'ci' ? sort keys %ci_hosts : qw(JQ YQ RIPGREP CLOC)) {
     my $version = $pins{"SHARED_TOOLING_${tool}_VERSION"};
