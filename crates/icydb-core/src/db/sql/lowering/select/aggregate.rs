@@ -220,13 +220,7 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     let expr = canonicalize_grouped_having_expr(schema, clause.into_expr(), work)?;
     let canonical = canonicalize_grouped_having_bool_expr(expr, work)?;
 
-    if contains_omitted_else_case
-        && !case_expansions_are_bounded(&canonical, work).map_err(SqlLoweringError::from)?
-    {
-        return Err(SqlLoweringError::unsupported_select_having());
-    }
-
-    Ok(canonical)
+    admit_canonical_having_clause(canonical, contains_omitted_else_case, work)
 }
 
 // Global aggregate HAVING has no grouped-key field literal canonicalization
@@ -241,6 +235,15 @@ fn canonicalize_grouped_global_having_clause(
     let contains_omitted_else_case = clause.contains_omitted_else_case;
     let canonical = canonicalize_grouped_having_bool_expr(clause.into_expr(), work)?;
 
+    admit_canonical_having_clause(canonical, contains_omitted_else_case, work)
+}
+
+// Keep omitted-ELSE expansion admission identical after each caller's canonicalization.
+fn admit_canonical_having_clause(
+    canonical: Expr,
+    contains_omitted_else_case: bool,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, SqlLoweringError> {
     if contains_omitted_else_case
         && !case_expansions_are_bounded(&canonical, work).map_err(SqlLoweringError::from)?
     {

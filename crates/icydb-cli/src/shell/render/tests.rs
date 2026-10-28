@@ -1007,6 +1007,33 @@ fn sql_query_result_grouped_render_lines_output_contract_vector_is_stable() {
 }
 
 #[test]
+fn sql_query_result_empty_columns_preserve_labels_and_grouped_cursor() {
+    let projection = SqlQueryResult::Projection(RowProjectionOutput {
+        entity: "User".to_string(),
+        columns: Vec::new(),
+        rows: Vec::new(),
+        row_count: 0,
+    });
+    assert_eq!(render_lines(&projection), vec!["(no projected columns)"]);
+
+    for next_cursor in [None, Some("next-page".to_string())] {
+        let mut expected = Vec::new();
+        if next_cursor.is_some() {
+            expected.push("next_cursor=next-page");
+        }
+        expected.push("(no grouped columns)");
+        let grouped = SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+            entity: "User".to_string(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            row_count: 0,
+            next_cursor,
+        });
+        assert_eq!(render_lines(&grouped), expected);
+    }
+}
+
+#[test]
 fn sql_query_result_row_count_footer_uses_grouped_decimal_formatting() {
     let projection = RowProjectionOutput {
         entity: "User".to_string(),

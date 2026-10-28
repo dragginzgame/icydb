@@ -95,7 +95,7 @@ ic-memory = "0.53.0"
 ic-metrics = "0.16.3"
 ic-platform = { version = "0.7.0", default-features = false }
 ic-storage = "0.53.0"
-ic-wire = "0.7.19"
+ic-wire = "0.7.21"
 icydb = { path = "crates/icydb", version = "=0.287.0", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.287.0" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.287.0" }
@@ -128,7 +128,7 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "45db926a326712f402fa639e0ca2888031988973" }
 ic-build = "0.69.5"
 ic-testkit = "0.69.5"
-ic-timers = "0.31.15"
+ic-timers = "0.31.16"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }

@@ -1648,19 +1648,9 @@ impl JournalTailStore {
     ) -> Result<Option<Vec<u8>>, InternalError> {
         let mut bytes = Vec::new();
         let mut expected_len = None;
-        let mut expected_chunk = 0u32;
-
-        for entry in self.map.range((
-            Included(JournalTailKey::new(sequence, 0)),
-            Included(JournalTailKey::new(sequence, u32::MAX)),
-        )) {
-            let key = entry.key();
-            if key.chunk_index != expected_chunk {
-                return Err(journal_tail_corruption());
-            }
+        let has_chunks = self.visit_raw_batch_chunks(sequence, |expected_chunk, chunk| {
             if expected_chunk == 0 {
-                let fixed_header =
-                    inspect_raw_journal_batch_fixed_header(entry.value().as_bytes())?;
+                let fixed_header = inspect_raw_journal_batch_fixed_header(chunk)?;
                 if fixed_header.journal_sequence() != sequence {
                     return Err(journal_tail_corruption());
                 }
@@ -1671,18 +1661,16 @@ impl JournalTailStore {
             let total_len = expected_len.ok_or_else(journal_tail_corruption)?;
             let next_len = bytes
                 .len()
-                .checked_add(entry.value().as_bytes().len())
+                .checked_add(chunk.len())
                 .ok_or_else(journal_tail_corruption)?;
             if next_len > total_len {
                 return Err(journal_tail_corruption());
             }
-            bytes.extend_from_slice(entry.value().as_bytes());
-            expected_chunk = expected_chunk
-                .checked_add(1)
-                .ok_or_else(journal_tail_corruption)?;
-        }
+            bytes.extend_from_slice(chunk);
+            Ok(())
+        })?;
 
-        if expected_chunk == 0 {
+        if !has_chunks {
             return Ok(None);
         }
         if bytes.len() != expected_len.ok_or_else(journal_tail_corruption)? {
@@ -1697,34 +1685,46 @@ impl JournalTailStore {
         sequence: JournalSequence,
     ) -> Result<Option<Vec<u8>>, InternalError> {
         let mut bytes = Vec::new();
-        let mut expected_chunk = 0u32;
-
-        for entry in self.map.range((
-            Included(JournalTailKey::new(sequence, 0)),
-            Included(JournalTailKey::new(sequence, u32::MAX)),
-        )) {
-            let key = entry.key();
-            if key.chunk_index != expected_chunk {
-                return Err(journal_tail_corruption());
-            }
+        let has_chunks = self.visit_raw_batch_chunks(sequence, |_, chunk| {
             let next_len = bytes
                 .len()
-                .checked_add(entry.value().as_bytes().len())
+                .checked_add(chunk.len())
                 .ok_or_else(journal_tail_corruption)?;
             if next_len > MAX_JOURNAL_BATCH_BYTES as usize {
                 return Err(journal_tail_corruption());
             }
-            bytes.extend_from_slice(entry.value().as_bytes());
-            expected_chunk = expected_chunk
-                .checked_add(1)
-                .ok_or_else(journal_tail_corruption)?;
-        }
+            bytes.extend_from_slice(chunk);
+            Ok(())
+        })?;
 
-        if expected_chunk == 0 {
+        if !has_chunks {
             return Ok(None);
         }
 
         Ok(Some(bytes))
+    }
+
+    // Both complete and prefix reads require contiguous chunks starting at zero.
+    // Payload/header admission stays with the reader, before advancing the ordinal.
+    fn visit_raw_batch_chunks(
+        &self,
+        sequence: JournalSequence,
+        mut visit: impl FnMut(u32, &[u8]) -> Result<(), InternalError>,
+    ) -> Result<bool, InternalError> {
+        let mut expected_chunk = 0u32;
+        for entry in self.map.range((
+            Included(JournalTailKey::new(sequence, 0)),
+            Included(JournalTailKey::new(sequence, u32::MAX)),
+        )) {
+            if entry.key().chunk_index != expected_chunk {
+                return Err(journal_tail_corruption());
+            }
+            visit(expected_chunk, entry.value().as_bytes())?;
+            expected_chunk = expected_chunk
+                .checked_add(1)
+                .ok_or_else(journal_tail_corruption)?;
+        }
+        Ok(expected_chunk != 0)
     }
 
     fn start_inspection_batch(
@@ -2443,6 +2443,68 @@ mod convergence_control_tests {
             Vec::new(),
         )
         .expect("test journal batch should build")
+    }
+
+    #[test]
+    fn full_and_prefix_reads_share_chunk_order_but_keep_distinct_completeness_rules() {
+        let sequence = JournalSequence::new(1);
+        let encoded = encode_journal_batch(&multi_chunk_batch(1, 1)).unwrap();
+        for missing_chunk in [0, 1] {
+            let mut store = JournalTailStore::init(test_memory(241));
+            assert!(
+                store
+                    .raw_batch_bytes_for_sequence(sequence)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                store
+                    .raw_batch_prefix_bytes_for_sequence(sequence)
+                    .unwrap()
+                    .is_none()
+            );
+            store
+                .insert_raw_batch_for_tests(sequence, encoded.clone())
+                .unwrap();
+            assert_eq!(
+                store.raw_batch_bytes_for_sequence(sequence).unwrap(),
+                Some(encoded.clone())
+            );
+            assert_eq!(
+                store.raw_batch_prefix_bytes_for_sequence(sequence).unwrap(),
+                Some(encoded.clone())
+            );
+            assert!(
+                store
+                    .map
+                    .remove(&JournalTailKey::new(sequence, missing_chunk))
+                    .is_some()
+            );
+            for result in [
+                store.raw_batch_bytes_for_sequence(sequence),
+                store.raw_batch_prefix_bytes_for_sequence(sequence),
+            ] {
+                let error = result.unwrap_err();
+                assert_eq!(error.class(), ErrorClass::Corruption);
+                assert_eq!(error.origin(), ErrorOrigin::Store);
+            }
+        }
+        let mut store = JournalTailStore::init(test_memory(241));
+        let prefix = encoded[..JOURNAL_TAIL_CHUNK_BYTES as usize].to_vec();
+        store
+            .insert_raw_batch_for_tests(sequence, prefix.clone())
+            .unwrap();
+        assert_eq!(
+            store.raw_batch_prefix_bytes_for_sequence(sequence).unwrap(),
+            Some(prefix)
+        );
+        assert_eq!(
+            store
+                .raw_batch_bytes_for_sequence(sequence)
+                .unwrap_err()
+                .class(),
+            ErrorClass::Corruption
+        );
     }
 
     fn set_control(store: &mut JournalTailStore, control: JournalTailControl) {

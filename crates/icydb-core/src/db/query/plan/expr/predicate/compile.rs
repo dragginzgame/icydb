@@ -922,16 +922,10 @@ const fn compile_bool_membership_target(expr: &Expr) -> Option<(&str, Option<Coe
 // Project one canonical text target wrapper onto the runtime field/coercion
 // pair consumed by text predicate shells.
 const fn compile_bool_text_target(expr: &Expr) -> Option<(&str, CoercionId)> {
-    match expr {
-        Expr::Field(field) => Some((field.as_str(), CoercionId::Strict)),
-        Expr::FunctionCall {
-            function: Function::Lower,
-            args,
-        } => match args.as_slice() {
-            [Expr::Field(field)] => Some((field.as_str(), CoercionId::TextCasefold)),
-            _ => None,
-        },
-        _ => None,
+    match compile_bool_membership_target(expr) {
+        Some((field, Some(coercion))) => Some((field, coercion)),
+        Some((field, None)) => Some((field, CoercionId::Strict)),
+        None => None,
     }
 }
 

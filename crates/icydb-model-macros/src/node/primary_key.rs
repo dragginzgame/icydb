@@ -6,11 +6,11 @@
 use crate::{
     node::field_list_arg::{
         field_or_fields_duplicate_message, parse_field_list_arg, parse_scalar_field_arg,
+        reject_duplicate_fields,
     },
     prelude::*,
 };
 use darling::ast::NestedMeta;
-use std::collections::HashSet;
 
 const MAX_PRIMARY_KEY_FIELDS: usize = 4;
 
@@ -113,7 +113,7 @@ impl FromMeta for PrimaryKey {
             .iter()
             .map(parse_primary_key_field)
             .collect::<Result<Vec<_>, _>>()?;
-        reject_duplicate_primary_key_fields(&fields)?;
+        reject_duplicate_fields(&fields, ToString::to_string, "primary key")?;
         let source = match (source, fields.len()) {
             (Some(PrimaryKeySource::Internal), len) if len > 1 => {
                 return Err(DarlingError::custom(
@@ -128,21 +128,6 @@ impl FromMeta for PrimaryKey {
 
         Ok(Self { fields, source })
     }
-}
-
-fn reject_duplicate_primary_key_fields(fields: &[Ident]) -> Result<(), DarlingError> {
-    let mut seen = HashSet::new();
-    for field in fields {
-        let field_name = field.to_string();
-        if !seen.insert(field_name.clone()) {
-            return Err(DarlingError::custom(format!(
-                "primary key field '{field_name}' is declared more than once"
-            ))
-            .with_span(field));
-        }
-    }
-
-    Ok(())
 }
 
 impl HasSchemaPart for PrimaryKey {

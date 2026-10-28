@@ -858,11 +858,7 @@ fn terminalize<C: CanisterKind>(
     acknowledged_sequence: u64,
     findings: Vec<IntegrityFinding>,
 ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
-    let sequence = next_page_sequence(job)?;
-    job.pages_completed = job
-        .pages_completed
-        .checked_add(1)
-        .ok_or(IntegrityJobError::CounterExhausted)?;
+    let sequence = next_terminal_page_sequence(job)?;
     terminalize_at_sequence::<C>(job, outcome, acknowledged_sequence, sequence, findings)
 }
 
@@ -883,19 +879,7 @@ fn terminalize_at_sequence<C: CanisterKind>(
         findings,
         blocked_verifier_families: job.blocked_verifier_families.clone(),
     });
-    job.state = IntegrityJobState::Terminal {
-        outcome,
-        receipt_acknowledged: false,
-    };
-    job.lease_deadline_nanos = terminal_retention_deadline(now_nanos()?)?;
-    job.last_receipt = IntegrityReceiptEnvelope {
-        replay_key: IntegrityReceiptReplayKey::Continue {
-            acknowledged_sequence,
-        },
-        receipt: receipt.clone(),
-    };
-    with_progress_store::<C, _>(|store| store.replace(job))?;
-    Ok(receipt)
+    persist_terminal_receipt::<C>(job, outcome, acknowledged_sequence, receipt)
 }
 
 fn terminalize_pending<C: CanisterKind>(
@@ -907,16 +891,34 @@ fn terminalize_pending<C: CanisterKind>(
         IntegrityPendingTerminal::Expired => IntegrityTerminalOutcome::Expired,
         IntegrityPendingTerminal::Aborted => IntegrityTerminalOutcome::Aborted,
     };
-    let sequence = next_page_sequence(job)?;
-    job.pages_completed = job
-        .pages_completed
-        .checked_add(1)
-        .ok_or(IntegrityJobError::CounterExhausted)?;
+    let sequence = next_terminal_page_sequence(job)?;
     let receipt = IntegrityJobReceipt::Abort(IntegrityAbortReceipt {
         job_id: job.id,
         page_sequence: sequence,
         status: IntegrityAbortStatus::Terminal(outcome.clone()),
     });
+    persist_terminal_receipt::<C>(job, outcome, acknowledged_sequence, receipt)
+}
+
+// Candidate pages already account their count before terminalization; only
+// standalone terminal and abort receipts allocate another completed page here.
+fn next_terminal_page_sequence(job: &mut IntegrityJob) -> Result<u64, IntegrityDeepError> {
+    let sequence = next_page_sequence(job)?;
+    job.pages_completed = job
+        .pages_completed
+        .checked_add(1)
+        .ok_or(IntegrityJobError::CounterExhausted)?;
+    Ok(sequence)
+}
+
+// Receipt shape stays with the caller; durable terminal state and replay
+// retention have one writer for page and abort outcomes.
+fn persist_terminal_receipt<C: CanisterKind>(
+    job: &mut IntegrityJob,
+    outcome: IntegrityTerminalOutcome,
+    acknowledged_sequence: u64,
+    receipt: IntegrityJobReceipt,
+) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
     job.state = IntegrityJobState::Terminal {
         outcome,
         receipt_acknowledged: false,
@@ -1036,4 +1038,28 @@ fn now_nanos() -> Result<u64, IntegrityJobError> {
         .map_err(|_| IntegrityJobError::Internal)?
         .as_nanos();
     u64::try_from(nanos).map_err(|_| IntegrityJobError::CounterExhausted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::integrity::progress_codec::current_job_codec_fixture;
+
+    #[test]
+    fn terminal_page_counters_refuse_overflow_without_partial_advance() {
+        let mut job = current_job_codec_fixture();
+        let sequence = job.last_receipt.receipt.page_sequence();
+        let pages = job.pages_completed;
+        assert_eq!(next_terminal_page_sequence(&mut job).unwrap(), sequence + 1);
+        assert_eq!(job.pages_completed, pages + 1);
+        assert_eq!(job.last_receipt.receipt.page_sequence(), sequence);
+
+        job.pages_completed = u64::MAX;
+        assert!(matches!(
+            next_terminal_page_sequence(&mut job),
+            Err(IntegrityDeepError::Job(IntegrityJobError::CounterExhausted))
+        ));
+        assert_eq!(job.pages_completed, u64::MAX);
+        assert_eq!(job.last_receipt.receipt.page_sequence(), sequence);
+    }
 }

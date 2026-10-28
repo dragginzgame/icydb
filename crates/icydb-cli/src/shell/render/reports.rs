@@ -489,38 +489,7 @@ pub(crate) fn render_show_relations_lines(output: &SqlShowRelationsOutput) -> Ve
 )]
 #[must_use]
 pub(crate) fn render_show_entities_lines(entities: &[EntityCatalogDescription]) -> Vec<String> {
-    let rows = entities
-        .iter()
-        .map(|entity| {
-            vec![
-                entity.entity_name().to_string(),
-                render_catalog_path_tail(entity.store_path()).to_string(),
-                entity.storage().to_string(),
-                entity.columns().to_string(),
-                entity.indexes().to_string(),
-                entity.relations().to_string(),
-                entity.schema_version().to_string(),
-            ]
-        })
-        .collect::<Vec<_>>();
-    let mut lines = Vec::new();
-    render_table_section(
-        &mut lines,
-        &[
-            "name".to_string(),
-            "store".to_string(),
-            "storage".to_string(),
-            "cols".to_string(),
-            "indexes".to_string(),
-            "relations".to_string(),
-            "sv".to_string(),
-        ],
-        rows.as_slice(),
-    );
-    lines.push(String::new());
-    lines.push(render_result_entity_count_line(entities.len()));
-
-    lines
+    render_entity_catalog_lines(entities, false)
 }
 
 #[cfg_attr(
@@ -531,36 +500,44 @@ pub(crate) fn render_show_entities_lines(entities: &[EntityCatalogDescription]) 
 pub(crate) fn render_show_entities_verbose_lines(
     entities: &[EntityCatalogDescription],
 ) -> Vec<String> {
+    render_entity_catalog_lines(entities, true)
+}
+
+// Compact and verbose paths are existing presentation choices; all catalog
+// counts, column ordering and footer formatting have one owner.
+fn render_entity_catalog_lines(
+    entities: &[EntityCatalogDescription],
+    verbose: bool,
+) -> Vec<String> {
+    let mut columns = vec!["name".to_string()];
+    if verbose {
+        columns.push("path".to_string());
+    }
+    columns.extend(["store", "storage", "cols", "indexes", "relations", "sv"].map(str::to_string));
     let rows = entities
         .iter()
         .map(|entity| {
-            vec![
-                entity.entity_name().to_string(),
-                entity.entity_path().to_string(),
-                entity.store_path().to_string(),
+            let mut row = vec![entity.entity_name().to_string()];
+            if verbose {
+                row.push(entity.entity_path().to_string());
+            }
+            row.push(if verbose {
+                entity.store_path().to_string()
+            } else {
+                render_catalog_path_tail(entity.store_path()).to_string()
+            });
+            row.extend([
                 entity.storage().to_string(),
                 entity.columns().to_string(),
                 entity.indexes().to_string(),
                 entity.relations().to_string(),
                 entity.schema_version().to_string(),
-            ]
+            ]);
+            row
         })
         .collect::<Vec<_>>();
     let mut lines = Vec::new();
-    render_table_section(
-        &mut lines,
-        &[
-            "name".to_string(),
-            "path".to_string(),
-            "store".to_string(),
-            "storage".to_string(),
-            "cols".to_string(),
-            "indexes".to_string(),
-            "relations".to_string(),
-            "sv".to_string(),
-        ],
-        rows.as_slice(),
-    );
+    render_table_section(&mut lines, &columns, &rows);
     lines.push(String::new());
     lines.push(render_result_entity_count_line(entities.len()));
 
@@ -674,19 +651,34 @@ pub(crate) fn render_projection_display_rows_lines(
     rows: &[Vec<String>],
     row_count: u32,
 ) -> Vec<String> {
-    // Phase 1: handle empty-projection output before table layout.
     let mut lines = Vec::new();
-    if columns.is_empty() {
-        lines.push("(no projected columns)".to_string());
-        return lines;
-    }
-
-    // Phase 2: render deterministic ASCII table surface.
-    render_table_section(&mut lines, columns, rows);
-    lines.push(String::new());
-    lines.push(render_result_row_count_line(row_count));
+    render_result_page(
+        &mut lines,
+        columns,
+        rows,
+        row_count,
+        "(no projected columns)",
+    );
 
     lines
+}
+
+// Both result shapes share table/spacing/count policy; callers own prefixes
+// and the label for an empty column set.
+fn render_result_page(
+    lines: &mut Vec<String>,
+    columns: &[String],
+    rows: &[Vec<String>],
+    row_count: u32,
+    empty_columns: &str,
+) {
+    if columns.is_empty() {
+        lines.push(empty_columns.to_string());
+        return;
+    }
+    render_table_section(lines, columns, rows);
+    lines.push(String::new());
+    lines.push(render_result_row_count_line(row_count));
 }
 
 #[cfg_attr(
@@ -701,20 +693,13 @@ pub(crate) fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String
     if let Some(next_cursor) = &grouped.next_cursor {
         lines.push(format!("next_cursor={next_cursor}"));
     }
-    if grouped.columns.is_empty() {
-        lines.push("(no grouped columns)".to_string());
-        return lines;
-    }
-
-    // Phase 2: render the grouped page as the same deterministic ASCII table
-    // shape used by projection payloads.
-    render_table_section(
+    render_result_page(
         &mut lines,
         grouped.columns.as_slice(),
         grouped.rows.as_slice(),
+        grouped.row_count,
+        "(no grouped columns)",
     );
-    lines.push(String::new());
-    lines.push(render_result_row_count_line(grouped.row_count));
 
     lines
 }

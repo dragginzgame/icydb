@@ -613,25 +613,13 @@ fn entity_named_types<'schema>(
     entity: &'schema EntityFragment,
     types: &BTreeMap<TypeSourceKey, &'schema NamedTypeFragment>,
 ) -> BTreeSet<&'schema TypeSourceKey> {
-    let mut pending: Vec<_> = entity
+    let pending = entity
         .fields()
         .iter()
         .map(FieldFragment::field_type)
         .collect();
     let mut reachable = BTreeSet::new();
-    while let Some(field_type) = pending.pop() {
-        match field_type {
-            FieldType::Scalar(_) => {}
-            FieldType::List(item) => pending.push(item),
-            FieldType::Named(source) => {
-                if reachable.insert(source)
-                    && let Some(definition) = types.get(source)
-                {
-                    push_named_type_field_types(definition, &mut pending);
-                }
-            }
-        }
-    }
+    walk_named_field_types(pending, types, &mut reachable, |_| false);
     // Targeted rules contribute their exact target, not its dependency closure.
     // This preserves migration ownership independently of field-local rule checks.
     for constraint in entity.constraints() {
@@ -848,18 +836,29 @@ fn field_type_reaches_target(
     target: &TypeSourceKey,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
 ) -> bool {
-    let mut pending = vec![root];
-    let mut visited = BTreeSet::new();
+    walk_named_field_types(vec![root], types, &mut BTreeSet::new(), |source| {
+        source == target
+    })
+}
+
+// Visit each named source once and permit target searches to stop before
+// expanding it. Collection callers retain the same visited set as their result.
+fn walk_named_field_types<'a>(
+    mut pending: Vec<&'a FieldType>,
+    types: &BTreeMap<TypeSourceKey, &'a NamedTypeFragment>,
+    visited: &mut BTreeSet<&'a TypeSourceKey>,
+    mut stop_at: impl FnMut(&'a TypeSourceKey) -> bool,
+) -> bool {
     while let Some(field_type) = pending.pop() {
         match field_type {
             FieldType::Scalar(_) => {}
             FieldType::List(item) => pending.push(item),
             FieldType::Named(source) => {
-                if source == target {
-                    return true;
-                }
                 if !visited.insert(source) {
                     continue;
+                }
+                if stop_at(source) {
+                    return true;
                 }
                 if let Some(definition) = types.get(source) {
                     push_named_type_field_types(definition, &mut pending);

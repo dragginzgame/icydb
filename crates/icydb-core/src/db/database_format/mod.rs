@@ -297,31 +297,27 @@ pub(in crate::db) fn initialize_current_database_control_for_tests(
 fn observe_registered_store_roles<C: crate::traits::CanisterKind>(
     db: &crate::db::Db<C>,
 ) -> Result<Vec<StoreRoleExtents>, InternalError> {
-    db.with_store_registry(|registry| {
-        registry
-            .iter()
-            .filter(|(_, handle)| {
-                handle.storage_capabilities().storage_mode()
-                    == crate::db::registry::StoreRuntimeStorageMode::Journaled
-            })
-            .map(|(_, handle)| StoreRoleExtents::observe(handle.allocation_identities()))
-            .collect()
-    })
+    db.with_store_registry(observe_journaled_store_roles)
 }
 
 fn observe_registered_store_roles_from_registry(
     stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
 ) -> Result<Vec<StoreRoleExtents>, InternalError> {
-    stores.with(|registry| {
-        registry
-            .iter()
-            .filter(|(_, handle)| {
-                handle.storage_capabilities().storage_mode()
-                    == crate::db::registry::StoreRuntimeStorageMode::Journaled
-            })
-            .map(|(_, handle)| StoreRoleExtents::observe(handle.allocation_identities()))
-            .collect()
-    })
+    stores.with(observe_journaled_store_roles)
+}
+
+// Both registry access paths observe exactly the journaled allocation owners.
+fn observe_journaled_store_roles(
+    registry: &crate::db::registry::StoreRegistry,
+) -> Result<Vec<StoreRoleExtents>, InternalError> {
+    registry
+        .iter()
+        .filter(|(_, handle)| {
+            handle.storage_capabilities().storage_mode()
+                == crate::db::registry::StoreRuntimeStorageMode::Journaled
+        })
+        .map(|(_, handle)| StoreRoleExtents::observe(handle.allocation_identities()))
+        .collect()
 }
 
 fn inspect_boot_record<M: Memory>(

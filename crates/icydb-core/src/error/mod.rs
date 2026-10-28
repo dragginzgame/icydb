@@ -1682,27 +1682,7 @@ impl InternalError {
         actual_length: usize,
         limit: usize,
     ) -> Self {
-        Self::with_diagnostic_facts(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Index,
-            None,
-            vec![
-                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
-                (
-                    diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
-                    physical_generation,
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ComponentKind,
-                    diagnostic_code::DiagnosticComponentKind::IndexKey.raw(),
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ActualLength,
-                    actual_length as u64,
-                ),
-                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
-            ],
-        )
+        Self::index_size_limit_error(entity_tag, physical_generation, None, actual_length, limit)
     }
 
     /// Construct the canonical index-key component size-limit unsupported error.
@@ -1713,31 +1693,52 @@ impl InternalError {
         actual_length: usize,
         limit: usize,
     ) -> Self {
-        Self::with_diagnostic_facts(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Index,
-            None,
-            vec![
-                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
-                (
-                    diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
-                    physical_generation,
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ComponentIndex,
-                    component_index as u64,
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ComponentKind,
-                    diagnostic_code::DiagnosticComponentKind::IndexKeyComponent.raw(),
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ActualLength,
-                    actual_length as u64,
-                ),
-                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
-            ],
+        Self::index_size_limit_error(
+            entity_tag,
+            physical_generation,
+            Some(component_index),
+            actual_length,
+            limit,
         )
+    }
+
+    // The optional index is the only distinction between key and component facts.
+    fn index_size_limit_error(
+        entity_tag: u64,
+        physical_generation: u64,
+        component_index: Option<usize>,
+        actual_length: usize,
+        limit: usize,
+    ) -> Self {
+        let mut facts = Vec::with_capacity(5 + usize::from(component_index.is_some()));
+        facts.extend([
+            (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+            (
+                diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
+                physical_generation,
+            ),
+        ]);
+        let component_kind = if let Some(index) = component_index {
+            facts.push((
+                diagnostic_code::DiagnosticFactTag::ComponentIndex,
+                index as u64,
+            ));
+            diagnostic_code::DiagnosticComponentKind::IndexKeyComponent
+        } else {
+            diagnostic_code::DiagnosticComponentKind::IndexKey
+        };
+        facts.extend([
+            (
+                diagnostic_code::DiagnosticFactTag::ComponentKind,
+                component_kind.raw(),
+            ),
+            (
+                diagnostic_code::DiagnosticFactTag::ActualLength,
+                actual_length as u64,
+            ),
+            (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+        ]);
+        Self::with_diagnostic_facts(ErrorClass::Unsupported, ErrorOrigin::Index, None, facts)
     }
 
     /// Construct the canonical index-key component size-limit error when the

@@ -4,6 +4,7 @@
 //! Boundary: macro metadata to node models.
 
 use crate::prelude::*;
+use std::collections::HashSet;
 
 pub(super) fn parse_scalar_field_arg(
     context: &str,
@@ -66,4 +67,23 @@ pub(super) fn field_or_fields_duplicate_message(context: &str) -> String {
     format!(
         "{context}(...) accepts either one field = \"...\" argument or one fields = [...] argument"
     )
+}
+
+// Keep the duplicate diagnostic attached to the repeated source token.
+pub(super) fn reject_duplicate_fields<T: quote::ToTokens>(
+    fields: &[T],
+    field_name: impl Fn(&T) -> String,
+    context: &str,
+) -> Result<(), DarlingError> {
+    let mut seen = HashSet::new();
+    for field in fields {
+        let name = field_name(field);
+        if !seen.insert(name.clone()) {
+            return Err(DarlingError::custom(format!(
+                "{context} field '{name}' is declared more than once"
+            ))
+            .with_span(field));
+        }
+    }
+    Ok(())
 }

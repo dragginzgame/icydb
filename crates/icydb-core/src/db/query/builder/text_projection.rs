@@ -36,15 +36,7 @@ pub struct TextProjectionExpr {
 impl TextProjectionExpr {
     // Build one field-function projection carrying only the source field.
     pub(in crate::db) fn unary(field: impl Into<String>, function: Function) -> Self {
-        let field = field.into();
-
-        Self {
-            expr: Expr::FunctionCall {
-                function,
-                args: vec![Expr::Field(FieldId::new(field.clone()))],
-            },
-            field,
-        }
+        Self::with_literals(field.into(), function, [])
     }
 
     // Build one field-function projection carrying one literal argument.
@@ -53,18 +45,7 @@ impl TextProjectionExpr {
         function: Function,
         literal: impl Into<Value>,
     ) -> Self {
-        let field = field.into();
-
-        Self {
-            expr: Expr::FunctionCall {
-                function,
-                args: vec![
-                    Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(literal.into()),
-                ],
-            },
-            field,
-        }
+        Self::with_literals(field.into(), function, [literal.into()])
     }
 
     // Build one field-function projection carrying two literal arguments.
@@ -74,17 +55,20 @@ impl TextProjectionExpr {
         literal: impl Into<Value>,
         literal2: impl Into<Value>,
     ) -> Self {
-        let field = field.into();
+        Self::with_literals(field.into(), function, [literal.into(), literal2.into()])
+    }
 
+    // Preserve field-first ordering without allocating an intermediate argument vector.
+    fn with_literals(
+        field: String,
+        function: Function,
+        literals: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        let args = std::iter::once(Expr::Field(FieldId::new(field.clone())))
+            .chain(literals.into_iter().map(Expr::Literal))
+            .collect();
         Self {
-            expr: Expr::FunctionCall {
-                function,
-                args: vec![
-                    Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(literal.into()),
-                    Expr::Literal(literal2.into()),
-                ],
-            },
+            expr: Expr::FunctionCall { function, args },
             field,
         }
     }

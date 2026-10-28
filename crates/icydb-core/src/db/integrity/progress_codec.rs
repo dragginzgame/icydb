@@ -1064,13 +1064,7 @@ fn decode_optional_bytes(
     reader: &mut ByteReader<'_>,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(None),
-        1 => Ok(Some(
-            reader.read_bounded_len_prefixed_bytes(max_bytes)?.to_vec(),
-        )),
-        _ => Err(InternalError::store_corruption()),
-    }
+    Ok(decode_optional_slice(reader, max_bytes)?.map(<[u8]>::to_vec))
 }
 
 fn encode_optional_string(
@@ -1078,23 +1072,31 @@ fn encode_optional_string(
     value: Option<&str>,
     max_bytes: usize,
 ) -> Result<(), InternalError> {
-    match value {
-        None => writer.push_u8(0),
-        Some(value) => {
-            writer.push_u8(1);
-            writer.push_bounded_string(value, max_bytes)?;
-        }
-    }
-    Ok(())
+    encode_optional_bytes(writer, value.map(str::as_bytes), max_bytes)
 }
 
 fn decode_optional_string(
     reader: &mut ByteReader<'_>,
     max_bytes: usize,
 ) -> Result<Option<String>, InternalError> {
+    decode_optional_slice(reader, max_bytes)?
+        .map(|bytes| {
+            std::str::from_utf8(bytes)
+                .map(str::to_string)
+                .map_err(|_| InternalError::store_corruption())
+        })
+        .transpose()
+}
+
+// Admit presence and bounded payload length before either caller allocates;
+// string callers additionally validate UTF-8 before constructing owned text.
+fn decode_optional_slice<'a>(
+    reader: &mut ByteReader<'a>,
+    max_bytes: usize,
+) -> Result<Option<&'a [u8]>, InternalError> {
     match reader.read_u8()? {
         0 => Ok(None),
-        1 => Ok(Some(reader.read_bounded_string(max_bytes)?)),
+        1 => Ok(Some(reader.read_bounded_len_prefixed_bytes(max_bytes)?)),
         _ => Err(InternalError::store_corruption()),
     }
 }
@@ -1308,6 +1310,71 @@ mod tests {
         ConstraintValuePath, ConstraintValuePathComponent, InternalError as RuntimeError,
     };
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn optional_payloads_preserve_bytes_and_utf8_admission() {
+        for (text, expected) in [
+            (None, vec![0]),
+            (Some(""), vec![1, 0, 0, 0, 0]),
+            (Some("é"), vec![1, 0, 0, 0, 2, 0xc3, 0xa9]),
+        ] {
+            let mut bytes = JobWriter::new();
+            encode_optional_bytes(&mut bytes, text.map(str::as_bytes), 2).unwrap();
+            assert_eq!(bytes.finish().unwrap(), expected);
+            let mut string = JobWriter::new();
+            encode_optional_string(&mut string, text, 2).unwrap();
+            assert_eq!(string.finish().unwrap(), expected);
+            let mut reader = ByteReader::new(&expected);
+            assert_eq!(
+                decode_optional_string(&mut reader, 2).unwrap(),
+                text.map(str::to_string)
+            );
+            reader.finish().unwrap();
+            let mut reader = ByteReader::new(&expected);
+            assert_eq!(
+                decode_optional_bytes(&mut reader, 2).unwrap(),
+                text.map(|value| value.as_bytes().to_vec())
+            );
+            reader.finish().unwrap();
+        }
+        let invalid_utf8 = [1, 0, 0, 0, 1, 0xff];
+        assert_eq!(
+            decode_optional_bytes(&mut ByteReader::new(&invalid_utf8), 1),
+            Ok(Some(vec![0xff]))
+        );
+        assert_eq!(
+            decode_optional_string(&mut ByteReader::new(&invalid_utf8), 1),
+            Err(InternalError)
+        );
+    }
+
+    #[test]
+    fn optional_payloads_reject_bad_tags_truncation_and_byte_limits() {
+        for input in [
+            &[][..],
+            &[2],
+            &[1],
+            &[1, 0, 0, 0, 1],
+            &[1, 0, 0, 0, 2, 1, 2],
+        ] {
+            assert_eq!(
+                decode_optional_bytes(&mut ByteReader::new(input), 1),
+                Err(InternalError)
+            );
+            assert_eq!(
+                decode_optional_string(&mut ByteReader::new(input), 1),
+                Err(InternalError)
+            );
+        }
+        assert_eq!(
+            encode_optional_bytes(&mut JobWriter::new(), Some(&[1, 2]), 1),
+            Err(InternalError)
+        );
+        assert_eq!(
+            encode_optional_string(&mut JobWriter::new(), Some("é"), 1),
+            Err(InternalError)
+        );
+    }
 
     #[test]
     fn current_job_payload_is_direct_bounded_and_has_a_fixed_golden_vector() {

@@ -78,15 +78,14 @@ impl SchemaCacheIdentity {
         }
     }
 
-    pub(super) fn from_accepted_schema_with_fingerprint(
+    pub(super) fn from_accepted_authority_with_fingerprint(
         accepted_schema: &AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
-        runtime_root: AcceptedSchemaRuntimeRootIdentity,
-        revision: AcceptedSchemaRevision,
+        authority: &EntityAuthority,
     ) -> Self {
         Self::new(
-            runtime_root,
-            revision,
+            authority.accepted_runtime_root_identity(),
+            authority.accepted_schema_authority().revision(),
             accepted_schema.persisted_snapshot().version(),
             crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
             fingerprint,

@@ -721,14 +721,9 @@ fn lower_compare(
     value: &FilterValue,
     work: &PreparationWork<'_>,
 ) -> Result<Value, QueryError> {
-    let raw = value.lower_value(work)?;
-    Ok(
-        match schema.canonicalize_filter_literal(field, &raw, work)? {
-            Some(Cow::Owned(canonical)) => canonical,
-            // Unchanged text/blob storage already belongs to this invocation.
-            Some(Cow::Borrowed(_)) | None => raw,
-        },
-    )
+    lower_canonical_filter_value(value, work, |raw| {
+        schema.canonicalize_filter_literal(field, raw, work)
+    })
 }
 
 fn lower_membership(
@@ -755,13 +750,22 @@ fn lower_collection_element(
     value: &FilterValue,
     work: &PreparationWork<'_>,
 ) -> Result<Value, QueryError> {
+    lower_canonical_filter_value(value, work, |raw| {
+        schema.canonicalize_filter_collection_element(field, raw, work)
+    })
+}
+
+// Keep already-owned storage when canonicalization borrows or declines it.
+fn lower_canonical_filter_value(
+    value: &FilterValue,
+    work: &PreparationWork<'_>,
+    canonicalize: impl for<'a> FnOnce(&'a Value) -> Result<Option<Cow<'a, Value>>, QueryError>,
+) -> Result<Value, QueryError> {
     let raw = value.lower_value(work)?;
-    Ok(
-        match schema.canonicalize_filter_collection_element(field, &raw, work)? {
-            Some(Cow::Owned(canonical)) => canonical,
-            Some(Cow::Borrowed(_)) | None => raw,
-        },
-    )
+    Ok(match canonicalize(&raw)? {
+        Some(Cow::Owned(canonical)) => canonical,
+        Some(Cow::Borrowed(_)) | None => raw,
+    })
 }
 
 fn fold_filter_bool_chain(

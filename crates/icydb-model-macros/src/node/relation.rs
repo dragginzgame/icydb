@@ -6,11 +6,11 @@
 use crate::{
     node::field_list_arg::{
         field_or_fields_duplicate_message, parse_field_list_arg, parse_scalar_field_arg,
+        reject_duplicate_fields,
     },
     prelude::*,
 };
 use darling::ast::NestedMeta;
-use std::collections::HashSet;
 
 ///
 /// Relation
@@ -109,7 +109,7 @@ impl FromMeta for Relation {
                 "relation(fields = []) must contain at least one field",
             ));
         }
-        reject_duplicate_relation_fields(fields.as_slice())?;
+        reject_duplicate_fields(fields.as_slice(), LitStr::value, "relation")?;
 
         Ok(Self {
             name,
@@ -225,21 +225,6 @@ fn parse_relation_string_arg(name: &str, expr: &syn::Expr) -> Result<LitStr, Dar
     };
 
     Ok(literal.clone())
-}
-
-fn reject_duplicate_relation_fields(fields: &[LitStr]) -> Result<(), DarlingError> {
-    let mut seen = HashSet::new();
-    for field in fields {
-        let field_name = field.value();
-        if !seen.insert(field_name.clone()) {
-            return Err(DarlingError::custom(format!(
-                "relation field '{field_name}' is declared more than once"
-            ))
-            .with_span(field));
-        }
-    }
-
-    Ok(())
 }
 
 fn relation_field_ident(field: &LitStr) -> Result<Ident, DarlingError> {

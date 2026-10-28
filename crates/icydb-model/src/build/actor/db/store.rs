@@ -330,6 +330,17 @@ fn store_cell_tokens(
     }
 }
 
+// Heap roles share const initialization but never acquire stable-memory handles.
+fn heap_store_cell_tokens(cell: &Ident, store_type: &TokenStream) -> TokenStream {
+    quote! {
+        thread_local! {
+            static #cell: ::std::cell::RefCell<#store_type> = const {
+                ::std::cell::RefCell::new(#store_type::init_heap())
+            };
+        }
+    }
+}
+
 /// Render one volatile heap store registry entry into data/index/schema cells plus registration.
 fn heap_store_registry_entry_tokens(
     icydb: &TokenStream,
@@ -347,33 +358,10 @@ fn heap_store_registry_entry_tokens(
     let index_cell_ident = store_cell_ident(store_ordinal, "INDEX");
     let schema_cell_ident = store_cell_ident(store_ordinal, "SCHEMA");
 
-    let data_def = quote! {
-        thread_local! {
-            static #data_cell_ident: ::std::cell::RefCell<
-                #icydb::__macro::DataStore
-            > = const { ::std::cell::RefCell::new(
-                #icydb::__macro::DataStore::init_heap()
-            ) };
-        }
-    };
-    let index_def = quote! {
-        thread_local! {
-            static #index_cell_ident: ::std::cell::RefCell<
-                #icydb::__macro::IndexStore
-            > = const { ::std::cell::RefCell::new(
-                #icydb::__macro::IndexStore::init_heap()
-            ) };
-        }
-    };
-    let schema_def = quote! {
-        thread_local! {
-            static #schema_cell_ident: ::std::cell::RefCell<
-                #icydb::__macro::SchemaStore
-            > = const { ::std::cell::RefCell::new(
-                #icydb::__macro::SchemaStore::init_heap()
-            ) };
-        }
-    };
+    let data_def = heap_store_cell_tokens(&data_cell_ident, &quote!(#icydb::__macro::DataStore));
+    let index_def = heap_store_cell_tokens(&index_cell_ident, &quote!(#icydb::__macro::IndexStore));
+    let schema_def =
+        heap_store_cell_tokens(&schema_cell_ident, &quote!(#icydb::__macro::SchemaStore));
     let store_init = quote! {
         reg.register_store(
             #store_path,

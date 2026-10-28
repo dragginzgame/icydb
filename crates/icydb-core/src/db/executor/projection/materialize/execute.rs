@@ -9,7 +9,7 @@ mod tests;
 use super::contracts::CompiledExpr;
 use crate::{
     db::{
-        data::DataRow,
+        data::{DataRow, StructuralSlotReader},
         executor::{
             ProjectionDataRow,
             order::ProjectionOrderValues,
@@ -239,18 +239,21 @@ fn project_data_row_from_direct_slots(
 ) -> Result<Vec<Value>, InternalError> {
     let projections = direct_slots.projections();
     let mut shaped = Vec::with_capacity(projections.len());
+    charge_projection_steps(projections.len())?;
+    let (data_key, raw_row) = row;
+    let mut row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
+    row_fields.validate_primary_key(data_key)?;
+
     if direct_slots.has_repeated_source() {
         project_repeated_data_row_from_direct_slots_into(
-            row_layout,
-            row,
+            &mut row_fields,
             projections,
             &mut shaped,
             order_values,
         )?;
     } else {
         project_data_row_from_direct_slots_into(
-            row_layout,
-            row,
+            &mut row_fields,
             projections,
             &mut shaped,
             order_values,
@@ -261,18 +264,11 @@ fn project_data_row_from_direct_slots(
 }
 
 fn project_data_row_from_direct_slots_into(
-    row_layout: &RowLayout,
-    row: &DataRow,
+    row_fields: &mut StructuralSlotReader<'_>,
     projections: &[PreparedDirectProjectionSlot],
     shaped: &mut Vec<Value>,
     mut order_values: Option<&mut ProjectionOrderValues>,
 ) -> Result<(), InternalError> {
-    charge_projection_steps(projections.len())?;
-    shaped.clear();
-    let (data_key, raw_row) = row;
-    let mut row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
-    row_fields.validate_primary_key(data_key)?;
-
     for projection in projections {
         let slot = projection.source_slot();
         let value = match order_values
@@ -289,18 +285,11 @@ fn project_data_row_from_direct_slots_into(
 }
 
 fn project_repeated_data_row_from_direct_slots_into(
-    row_layout: &RowLayout,
-    row: &DataRow,
+    row_fields: &mut StructuralSlotReader<'_>,
     projections: &[PreparedDirectProjectionSlot],
     shaped: &mut Vec<Value>,
     mut order_values: Option<&mut ProjectionOrderValues>,
 ) -> Result<(), InternalError> {
-    charge_projection_steps(projections.len())?;
-    shaped.clear();
-    let (data_key, raw_row) = row;
-    let mut row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
-    row_fields.validate_primary_key(data_key)?;
-
     for projection in projections {
         let value = if let Some(previous_projection_index) = projection.previous_projection_index()
         {

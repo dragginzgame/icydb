@@ -21,45 +21,23 @@ pub(super) fn environment_targets_local(environment: &str) -> Result<bool, Strin
 }
 
 pub(super) fn parse_canisters(contents: &str, environment: &str) -> Vec<String> {
-    let mut in_environments = false;
-    let mut in_target_environment = false;
-    for line in contents.lines().map(str::trim) {
-        if line == "environments:" {
-            in_environments = true;
-            in_target_environment = false;
-            continue;
-        }
-
-        if !in_environments {
-            continue;
-        }
-
-        if let Some(name) = environment_name(line) {
-            if in_target_environment {
-                return Vec::new();
-            }
-            in_target_environment = name == environment;
-            continue;
-        }
-
-        if !in_target_environment {
-            continue;
-        }
-
-        let Some(value) = line.strip_prefix("canisters:") else {
-            continue;
-        };
-
-        return parse_inline_canister_list(value);
-    }
-
-    Vec::new()
+    environment_value(contents, environment, "canisters:")
+        .map(parse_inline_canister_list)
+        .unwrap_or_default()
 }
 
 pub(super) fn parse_environment_network<'a>(
     contents: &'a str,
     environment: &str,
 ) -> Option<&'a str> {
+    let network = environment_value(contents, environment, "network:")?
+        .trim()
+        .trim_matches(['"', '\'']);
+    (!network.is_empty()).then_some(network)
+}
+
+// Stop at the next environment even when the requested key was absent.
+fn environment_value<'a>(contents: &'a str, environment: &str, key: &str) -> Option<&'a str> {
     let mut in_environments = false;
     let mut in_target_environment = false;
     for line in contents.lines().map(str::trim) {
@@ -68,11 +46,9 @@ pub(super) fn parse_environment_network<'a>(
             in_target_environment = false;
             continue;
         }
-
         if !in_environments {
             continue;
         }
-
         if let Some(name) = environment_name(line) {
             if in_target_environment {
                 return None;
@@ -80,19 +56,10 @@ pub(super) fn parse_environment_network<'a>(
             in_target_environment = name == environment;
             continue;
         }
-
-        if !in_target_environment {
-            continue;
+        if in_target_environment && let Some(value) = line.strip_prefix(key) {
+            return Some(value);
         }
-
-        let Some(network) = line.strip_prefix("network:") else {
-            continue;
-        };
-        let network = network.trim().trim_matches(['"', '\'']);
-
-        return (!network.is_empty()).then_some(network);
     }
-
     None
 }
 

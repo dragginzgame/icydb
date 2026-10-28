@@ -91,10 +91,19 @@ are separate obligations; artifact transformation remains explicitly qualified.
 ## Consumer tooling qualification
 
 Current direct minimums are IC Build/Host/Testkit 0.69.5, Platform 0.7.0,
-Wire 0.7.19, Memory/Storage 0.53.0, Metrics 0.16.3 and Timers 0.31.15.
-The current lock selects those versions with Platform 0.7.3; the pinned Canic
+Wire 0.7.21, Memory/Storage 0.53.0, Metrics 0.16.3 and Timers 0.31.16.
+The current lock selects Tooling 0.69.8 and Platform 0.7.4; the pinned Canic
 adapter still selects Platform 0.6.21 separately. Registry releases were verified
 before locked cache preparation. Endpoint and lifecycle ownership are unchanged.
+Wire 0.7.21 passes five endpoint/lifecycle tests, five generator tests, strict
+generator lint, dependency-boundary checks and the Rust 1.91 Wasm check with
+SQL/migration enabled. Node contract qualification preserves 90 exact frames
+across twelve endpoints and rejects 3,112 truncated frames plus malformed/value/
+limit controls. This does not qualify installed Chromium, installed IC or macOS;
+the isolated Canic composition checkout still selects Wire 0.7.20.
+Wire 0.7.20 and Timers 0.31.16 pass five generator tests and two installed
+watchdog rearm/rollback-retry cases through Testkit 0.69.6 on Linux. This focused
+consumer evidence does not qualify native macOS or the complete browser suite.
 Memory 0.53 requires one runtime per physical backing and coordinated consumer
 dependency identities. Full manager checks occur at construction, initial
 bootstrap, lease opening and growth; ordinary IO trusts exclusive custody.

@@ -124,6 +124,26 @@ fn sql_insert_columns(
         .collect()
 }
 
+// VALUES and INSERT SELECT share literal admission; defaults and expressions
+// remain decisions of the authored INSERT form.
+fn sql_insert_literal_field(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    patch: AcceptedMutationIntentPatch,
+    field: &str,
+    value: &Value,
+) -> Result<AcceptedMutationIntentPatch, QueryError> {
+    reject_explicit_sql_write_to_generated_field(descriptor, field)?;
+    reject_explicit_sql_write_to_managed_field(descriptor, field)?;
+    let input = sql_write_input_for_accepted_field(descriptor, field, value).map_err(|error| {
+        if descriptor.is_primary_key_field_name(field) {
+            QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
+        } else {
+            error
+        }
+    })?;
+    sql_write_patch_set_accepted_field(descriptor, patch, field, input)
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn sql_insert_literal_patch(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
@@ -132,19 +152,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<AcceptedMutationIntentPatch, QueryError> {
         let mut patch = AcceptedMutationIntentPatch::new();
         for (field, value) in columns.iter().zip(values.iter()) {
-            reject_explicit_sql_write_to_generated_field(descriptor, field)?;
-            reject_explicit_sql_write_to_managed_field(descriptor, field)?;
-            let input =
-                sql_write_input_for_accepted_field(descriptor, field, value).map_err(|error| {
-                    if descriptor.is_primary_key_field_name(field) {
-                        QueryError::sql_write_boundary(
-                            SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible,
-                        )
-                    } else {
-                        error
-                    }
-                })?;
-            patch = sql_write_patch_set_accepted_field(descriptor, patch, field, input)?;
+            patch = sql_insert_literal_field(descriptor, patch, field, value)?;
         }
 
         Ok(patch)
@@ -159,19 +167,7 @@ impl<C: CanisterKind> DbSession<C> {
         for (field, value) in columns.iter().zip(values.iter()) {
             patch = match value {
                 SqlWriteValue::Literal(value) => {
-                    reject_explicit_sql_write_to_generated_field(descriptor, field)?;
-                    reject_explicit_sql_write_to_managed_field(descriptor, field)?;
-                    let input = sql_write_input_for_accepted_field(descriptor, field, value)
-                        .map_err(|error| {
-                            if descriptor.is_primary_key_field_name(field) {
-                                QueryError::sql_write_boundary(
-                                    SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible,
-                                )
-                            } else {
-                                error
-                            }
-                        })?;
-                    sql_write_patch_set_accepted_field(descriptor, patch, field, input)?
+                    sql_insert_literal_field(descriptor, patch, field, value)?
                 }
                 SqlWriteValue::Default => {
                     sql_write_patch_set_insert_default(descriptor, patch, field)?

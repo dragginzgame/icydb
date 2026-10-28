@@ -482,40 +482,23 @@ impl PersistedSchemaSnapshot {
         constraint_id: ConstraintId,
         version: SchemaVersion,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
-        let activation = self
-            .payload
-            .constraint_catalog
-            .activation(constraint_id)
-            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
-        let ConstraintActivationKind::Unique { index_id } = activation.kind() else {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        };
-        let candidate = self
-            .payload
-            .candidate_indexes
-            .iter()
-            .find(|index| index.schema_id() == *index_id)
-            .cloned()
-            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
-        let constraint_catalog = match activation.state() {
-            ConstraintActivationState::EnforcingNewWrites => self
-                .payload
-                .constraint_catalog
-                .clone()
-                .with_directly_validated_activation(constraint_id),
-            ConstraintActivationState::Validating => self
-                .payload
-                .constraint_catalog
-                .clone()
-                .with_promoted_activation(constraint_id),
-        }?;
-        let mut after = self.clone();
+        let (mut after, candidate) =
+            self.prepare_structural_activation_promotion(constraint_id, version, |kind| {
+                let ConstraintActivationKind::Unique { index_id } = kind else {
+                    return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+                };
+                self.payload
+                    .candidate_indexes
+                    .iter()
+                    .find(|candidate| candidate.schema_id() == *index_id)
+                    .cloned()
+                    .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)
+            })?;
+        let index_id = candidate.schema_id();
         let payload = Rc::make_mut(&mut after.payload);
-        payload.version = version;
-        payload.constraint_catalog = constraint_catalog;
         payload
             .candidate_indexes
-            .retain(|index| index.schema_id() != *index_id);
+            .retain(|index| index.schema_id() != index_id);
         payload.indexes.push(candidate);
         icydb_schema::compact_sort_unstable_by(&mut payload.indexes, |left, right| {
             left.ordinal().cmp(&right.ordinal())
@@ -566,46 +549,61 @@ impl PersistedSchemaSnapshot {
         constraint_id: ConstraintId,
         version: SchemaVersion,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
-        let activation = self
-            .payload
-            .constraint_catalog
-            .activation(constraint_id)
-            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
-        let ConstraintActivationKind::Relation { relation_id } = activation.kind() else {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        };
-        let candidate = self
-            .payload
-            .candidate_relations
-            .iter()
-            .find(|relation| relation.id() == *relation_id)
-            .cloned()
-            .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
-        let constraint_catalog = match activation.state() {
-            ConstraintActivationState::EnforcingNewWrites => self
-                .payload
-                .constraint_catalog
-                .clone()
-                .with_directly_validated_activation(constraint_id),
-            ConstraintActivationState::Validating => self
-                .payload
-                .constraint_catalog
-                .clone()
-                .with_promoted_activation(constraint_id),
-        }?;
-        let mut after = self.clone();
+        let (mut after, candidate) =
+            self.prepare_structural_activation_promotion(constraint_id, version, |kind| {
+                let ConstraintActivationKind::Relation { relation_id } = kind else {
+                    return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+                };
+                self.payload
+                    .candidate_relations
+                    .iter()
+                    .find(|candidate| candidate.id() == *relation_id)
+                    .cloned()
+                    .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)
+            })?;
+        let relation_id = candidate.id();
         let payload = Rc::make_mut(&mut after.payload);
-        payload.version = version;
-        payload.constraint_catalog = constraint_catalog;
         payload
             .candidate_relations
-            .retain(|relation| relation.id() != *relation_id);
+            .retain(|relation| relation.id() != relation_id);
         payload.relations.push(candidate);
         icydb_schema::compact_sort_unstable_by(&mut payload.relations, |left, right| {
             left.id().cmp(&right.id())
         });
         after.validate_constraint_candidate()?;
         Ok(after)
+    }
+
+    // Resolve the exact structural owner before changing catalog state. Callers
+    // retain their type-specific move, ordering and final snapshot validation.
+    fn prepare_structural_activation_promotion<T>(
+        &self,
+        constraint_id: ConstraintId,
+        version: SchemaVersion,
+        resolve_candidate: impl FnOnce(
+            &ConstraintActivationKind,
+        ) -> Result<T, AcceptedConstraintCatalogError>,
+    ) -> Result<(Self, T), AcceptedConstraintCatalogError> {
+        let activation = self
+            .payload
+            .constraint_catalog
+            .activation(constraint_id)
+            .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
+        let candidate = resolve_candidate(activation.kind())?;
+        let catalog = self.payload.constraint_catalog.clone();
+        let constraint_catalog = match activation.state() {
+            ConstraintActivationState::EnforcingNewWrites => {
+                catalog.with_directly_validated_activation(constraint_id)
+            }
+            ConstraintActivationState::Validating => {
+                catalog.with_promoted_activation(constraint_id)
+            }
+        }?;
+        let mut after = self.clone();
+        let payload = Rc::make_mut(&mut after.payload);
+        payload.version = version;
+        payload.constraint_catalog = constraint_catalog;
+        Ok((after, candidate))
     }
 
     /// Attach accepted relation-edge contracts to this schema snapshot.

@@ -22,6 +22,12 @@ pub struct FieldList {
 }
 
 impl FieldList {
+    /// Emit a public named struct with public fields from this field list.
+    pub(crate) fn public_struct(&self, ident: &Ident, paths: &CratePaths) -> TokenStream {
+        let fields = self.iter().map(|field| field.type_expr(paths));
+        quote! { pub struct #ident { #(pub #fields),* } }
+    }
+
     pub fn get(&self, name: &Ident) -> Option<&Field> {
         self.fields.iter().find(|field| field.name == *name)
     }

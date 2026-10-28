@@ -1,7 +1,7 @@
 use super::*;
 use crate::db::schema::{
-    AcceptedRowLayoutRuntimeContract, AcceptedSchemaFingerprint, NullableUniqueIndexContractError,
-    ScalarCodec,
+    AcceptedRowLayoutRuntimeContract, AcceptedSchemaFingerprint, ConstraintOrigin,
+    NullableUniqueIndexContractError, ScalarCodec,
     codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot},
 };
 
@@ -922,6 +922,102 @@ fn shared_unique_transitions_preserve_accepted_authority() {
     for changed in [promoted, aborted] {
         assert_eq!(changed.version(), SchemaVersion::new(2));
         AcceptedSchemaSnapshot::try_new(changed).expect("transition remains acceptable");
+    }
+}
+
+#[test]
+fn structural_promotions_preserve_both_states_and_typed_owner_refusals() {
+    type Promotion = fn(
+        &PersistedSchemaSnapshot,
+        ConstraintId,
+        SchemaVersion,
+    ) -> Result<PersistedSchemaSnapshot, AcceptedConstraintCatalogError>;
+    for relation in [false, true] {
+        for state in [
+            ConstraintActivationState::EnforcingNewWrites,
+            ConstraintActivationState::Validating,
+        ] {
+            let mut pending = pending_unique_schema_fixture();
+            let original = pending.constraint_activations()[0].clone();
+            let kind = if relation {
+                let candidate = PersistedRelationEdgeSnapshot::new_direct(
+                    RelationId::new(1).unwrap(),
+                    "owner".to_string(),
+                    "test::Owner".to_string(),
+                    vec![FieldId::new(1)],
+                )
+                .clone_with_physical_generation(original.activation_epoch());
+                let kind = ConstraintActivationKind::Relation {
+                    relation_id: candidate.id(),
+                };
+                pending = pending.with_constraint_candidates(Vec::new(), vec![candidate]);
+                kind
+            } else {
+                original.kind().clone()
+            };
+            let activation = ConstraintActivationSnapshot::new(
+                original.id(),
+                if relation {
+                    "owner".to_string()
+                } else {
+                    original.name().to_string()
+                },
+                if relation {
+                    ConstraintOrigin::Generated
+                } else {
+                    original.origin()
+                },
+                kind,
+                state,
+                original.base_schema_fingerprint(),
+                original.activation_epoch(),
+            );
+            let catalog = pending.constraint_catalog();
+            let replacement = AcceptedConstraintCatalog::from_persisted_parts(
+                catalog.allocator(),
+                catalog.constraints().to_vec(),
+                vec![activation],
+            );
+            pending = pending.with_constraint_catalog(replacement);
+            AcceptedSchemaSnapshot::try_new(pending.clone()).unwrap();
+            let before = pending.clone();
+            let (promote, wrong_owner): (Promotion, Promotion) = if relation {
+                (
+                    PersistedSchemaSnapshot::with_promoted_relation_activation,
+                    PersistedSchemaSnapshot::with_promoted_unique_activation,
+                )
+            } else {
+                (
+                    PersistedSchemaSnapshot::with_promoted_unique_activation,
+                    PersistedSchemaSnapshot::with_promoted_relation_activation,
+                )
+            };
+            let version = SchemaVersion::new(2);
+            assert_eq!(
+                wrong_owner(&pending, original.id(), version),
+                Err(AcceptedConstraintCatalogError::OwnerMismatch)
+            );
+            assert_eq!(
+                promote(&pending, ConstraintId::new(u32::MAX).unwrap(), version),
+                Err(AcceptedConstraintCatalogError::ActivationNotFound)
+            );
+            let missing = pending
+                .clone()
+                .with_constraint_candidates(Vec::new(), Vec::new());
+            assert_eq!(
+                promote(&missing, original.id(), version),
+                Err(AcceptedConstraintCatalogError::OwnerMismatch)
+            );
+            let promoted = promote(&pending, original.id(), version).unwrap();
+            assert_eq!(promoted.version(), version);
+            assert!(promoted.constraint_activations().is_empty());
+            assert!(promoted.candidate_indexes().is_empty());
+            assert!(promoted.candidate_relations().is_empty());
+            assert_eq!(promoted.relations().len(), usize::from(relation));
+            assert_eq!(promoted.indexes().len(), usize::from(!relation));
+            AcceptedSchemaSnapshot::try_new(promoted).unwrap();
+            assert_eq!(pending, before);
+        }
     }
 }
 

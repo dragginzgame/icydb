@@ -94,20 +94,7 @@ pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(
     expr: Expr,
     work: &PreparationWork<'_>,
 ) -> Result<CanonicalExpr, QueryError> {
-    let expr = normalize_bool_expr(expr, work)?;
-    debug_assert!(is_normalized_bool_expr(&expr));
-
-    let expr = canonicalize_normalized_bool_case_in_bool_context(
-        expr,
-        true,
-        Some(TruthWrapperScope::ScalarWhere),
-        work,
-    )?;
-    let expr = normalize_bool_expr(expr, work)?;
-
-    debug_assert!(is_normalized_bool_expr(&expr));
-
-    Ok(CanonicalExpr::new(expr))
+    canonicalize_bool_expr_artifact(expr, TruthWrapperScope::ScalarWhere, work)
 }
 
 /// Canonicalize one scalar-WHERE boolean expression onto the current
@@ -131,20 +118,7 @@ pub(in crate::db) fn canonicalize_grouped_having_bool_expr_artifact(
     expr: Expr,
     work: &PreparationWork<'_>,
 ) -> Result<CanonicalExpr, QueryError> {
-    let expr = normalize_bool_expr(expr, work)?;
-    debug_assert!(is_normalized_bool_expr(&expr));
-
-    let expr = canonicalize_normalized_bool_case_in_bool_context(
-        expr,
-        false,
-        Some(TruthWrapperScope::GroupedHaving),
-        work,
-    )?;
-    let expr = normalize_bool_expr(expr, work)?;
-
-    debug_assert!(is_normalized_bool_expr(&expr));
-
-    Ok(CanonicalExpr::new(expr))
+    canonicalize_bool_expr_artifact(expr, TruthWrapperScope::GroupedHaving, work)
 }
 
 /// Canonicalize one grouped-HAVING boolean expression onto the bounded
@@ -155,4 +129,24 @@ pub(in crate::db) fn canonicalize_grouped_having_bool_expr(
     work: &PreparationWork<'_>,
 ) -> Result<Expr, QueryError> {
     canonicalize_grouped_having_bool_expr_artifact(expr, work).map(CanonicalExpr::into_expr)
+}
+
+// Both boolean contexts normalize around CASE expansion; the existing scope
+// also fixes whether a NULL final arm may collapse to FALSE.
+fn canonicalize_bool_expr_artifact(
+    expr: Expr,
+    scope: TruthWrapperScope,
+    work: &PreparationWork<'_>,
+) -> Result<CanonicalExpr, QueryError> {
+    let expr = normalize_bool_expr(expr, work)?;
+    debug_assert!(is_normalized_bool_expr(&expr));
+    let collapse_null = match scope {
+        TruthWrapperScope::ScalarWhere => true,
+        TruthWrapperScope::GroupedHaving => false,
+    };
+    let expr =
+        canonicalize_normalized_bool_case_in_bool_context(expr, collapse_null, Some(scope), work)?;
+    let expr = normalize_bool_expr(expr, work)?;
+    debug_assert!(is_normalized_bool_expr(&expr));
+    Ok(CanonicalExpr::new(expr))
 }

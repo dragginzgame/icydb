@@ -86,20 +86,7 @@ impl HasTraits for Record {
 
 impl HasType for Record {
     fn type_part(&self, paths: &CratePaths) -> TokenStream {
-        let ident = self.def.ident();
-        let fields = self.fields.iter().map(|field| {
-            let expr = field.type_expr(paths);
-
-            quote! {
-                pub #expr
-            }
-        });
-
-        quote! {
-            pub struct #ident {
-                #(#fields),*
-            }
-        }
+        self.fields.public_struct(&self.def.ident(), paths)
     }
 }
 

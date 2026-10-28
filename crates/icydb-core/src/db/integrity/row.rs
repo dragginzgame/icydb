@@ -1059,26 +1059,18 @@ fn physical_error_finding(
         | ErrorClass::NotFound
         | ErrorClass::Unsupported => return Err(error),
     };
-    Ok(RowAtomOutcome::Finding(IntegrityFinding {
-        diagnostic_code: error.diagnostic_code().error_code().raw(),
-        class,
-        severity: IntegritySeverity::Error,
+    let mut finding = row_finding(
+        plan,
+        raw_key,
+        decoded_key,
+        family,
         kind,
-        entity: IntegrityEntityIdentity::from_plan(plan),
-        store_path: plan.identity().store_path().to_string(),
-        phase: IntegrityPhase::Rows,
-        verifier_family: family,
-        physical_key: bounded_physical_key(raw_key)?,
-        primary_key: primary_key_bytes(decoded_key, raw_key),
-        field_paths,
-        value_path: None,
-        constraint_id: None,
-        constraint_name: None,
-        schema_index_id: None,
-        relation_id: None,
-        expected: None,
-        observed: None,
-    }))
+        error.diagnostic_code().error_code().raw(),
+    )?;
+    finding.class = class;
+    finding.field_paths = field_paths;
+
+    Ok(RowAtomOutcome::Finding(finding))
 }
 
 fn row_finding(
@@ -1119,26 +1111,19 @@ fn index_finding(
     kind: IntegrityFindingKind,
     observed: &str,
 ) -> Result<IntegrityFinding, InternalError> {
-    Ok(IntegrityFinding {
-        diagnostic_code: icydb_diagnostic_code::ErrorCode::STORE_CORRUPTION.raw(),
-        class: IntegrityFindingClass::Corruption,
-        severity: IntegritySeverity::Error,
+    let mut finding = row_finding(
+        plan,
+        raw_key,
+        Some(decoded_key),
+        IntegrityVerifierFamily::ForwardIndex,
         kind,
-        entity: IntegrityEntityIdentity::from_plan(plan),
-        store_path: plan.identity().store_path().to_string(),
-        phase: IntegrityPhase::Rows,
-        verifier_family: IntegrityVerifierFamily::ForwardIndex,
-        physical_key: bounded_physical_key(raw_key)?,
-        primary_key: primary_key_bytes(Some(decoded_key), raw_key),
-        field_paths: Vec::new(),
-        value_path: None,
-        constraint_id: None,
-        constraint_name: None,
-        schema_index_id: Some(schema_index_id),
-        relation_id: None,
-        expected: Some("present".to_string()),
-        observed: Some(observed.to_string()),
-    })
+        icydb_diagnostic_code::ErrorCode::STORE_CORRUPTION.raw(),
+    )?;
+    finding.schema_index_id = Some(schema_index_id);
+    finding.expected = Some("present".to_string());
+    finding.observed = Some(observed.to_string());
+
+    Ok(finding)
 }
 
 fn relation_finding(
@@ -1150,26 +1135,20 @@ fn relation_finding(
     observed: &str,
 ) -> Result<IntegrityFinding, InternalError> {
     let field_paths = relation_field_paths(plan, relation_id);
-    Ok(IntegrityFinding {
-        diagnostic_code: icydb_diagnostic_code::ErrorCode::STORE_CORRUPTION.raw(),
-        class: IntegrityFindingClass::Corruption,
-        severity: IntegritySeverity::Error,
+    let mut finding = row_finding(
+        plan,
+        raw_key,
+        Some(decoded_key),
+        IntegrityVerifierFamily::Relation,
         kind,
-        entity: IntegrityEntityIdentity::from_plan(plan),
-        store_path: plan.identity().store_path().to_string(),
-        phase: IntegrityPhase::Rows,
-        verifier_family: IntegrityVerifierFamily::Relation,
-        physical_key: bounded_physical_key(raw_key)?,
-        primary_key: primary_key_bytes(Some(decoded_key), raw_key),
-        field_paths,
-        value_path: None,
-        constraint_id: None,
-        constraint_name: None,
-        schema_index_id: None,
-        relation_id: Some(relation_id),
-        expected: Some("present".to_string()),
-        observed: Some(observed.to_string()),
-    })
+        icydb_diagnostic_code::ErrorCode::STORE_CORRUPTION.raw(),
+    )?;
+    finding.field_paths = field_paths;
+    finding.relation_id = Some(relation_id);
+    finding.expected = Some("present".to_string());
+    finding.observed = Some(observed.to_string());
+
+    Ok(finding)
 }
 
 fn field_paths_for_slots(

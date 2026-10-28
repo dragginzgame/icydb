@@ -548,25 +548,8 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     Ok(batch)
 }
 
-/// Preflight row ops, build marker, and persist the nongeneric delete commit window.
-pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
-    db: &Db<C>,
-    row_ops: Vec<CanonicalRowCommitOp>,
-    deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
-    identity_ranges: Vec<IdentityRangeAdvance>,
-    operation_timestamp: Timestamp,
-) -> Result<OpenCommitWindow, InternalError> {
-    open_commit_window_structural_inner(
-        db,
-        row_ops,
-        deleted_key_groups,
-        identity_ranges,
-        None,
-        operation_timestamp,
-    )
-}
-
-fn open_commit_window_structural_inner<C: CanisterKind>(
+// Preflight the complete batch before publishing its marker and commit window.
+fn open_commit_window_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CanonicalRowCommitOp>,
     deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
@@ -753,16 +736,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
     identity_ranges: Vec<IdentityRangeAdvance>,
     operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
-    let (row_ops, deleted_key_groups) = batch.into_parts();
-    let window = open_commit_window_structural(
-        db,
-        row_ops,
-        &deleted_key_groups,
-        identity_ranges,
-        operation_timestamp,
-    )?;
-
-    apply_prepared_row_ops::<C>(window)
+    commit_structural_row_ops(db, batch, identity_ranges, None, operation_timestamp)
 }
 
 /// Commit one accepted row batch and exact mutation-progress successor together.
@@ -773,13 +747,30 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
     mutation_progress: MutationProgressRecordOp,
     operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
+    commit_structural_row_ops(
+        db,
+        batch,
+        identity_ranges,
+        Some(mutation_progress),
+        operation_timestamp,
+    )
+}
+
+// Publish the row batch and its optional durable progress through the same window.
+fn commit_structural_row_ops<C: CanisterKind>(
+    db: &Db<C>,
+    batch: AcceptedMutationConstraintBatch,
+    identity_ranges: Vec<IdentityRangeAdvance>,
+    mutation_progress: Option<MutationProgressRecordOp>,
+    operation_timestamp: Timestamp,
+) -> Result<(), InternalError> {
     let (row_ops, deleted_key_groups) = batch.into_parts();
-    let window = open_commit_window_structural_inner(
+    let window = open_commit_window_structural(
         db,
         row_ops,
         &deleted_key_groups,
         identity_ranges,
-        Some(mutation_progress),
+        mutation_progress,
         operation_timestamp,
     )?;
 

@@ -944,19 +944,7 @@ impl QuickIntegrityAccumulator {
         } else {
             QuickIntegrityStatus::CompleteWithFindings
         };
-        let omitted_findings = self.omitted_findings()?;
-        let identity = plan.identity();
-
-        Ok(QuickIntegrityResult {
-            entity: IntegrityEntityIdentity::from_plan(plan),
-            database_incarnation_id: incarnation,
-            accepted_schema_version: identity.accepted_schema_version().get(),
-            accepted_schema_fingerprint: identity.accepted_schema_fingerprint(),
-            status,
-            total_findings: self.total_findings,
-            omitted_findings,
-            findings: self.findings,
-        })
+        self.finish(plan, incarnation, status)
     }
 
     fn resource_limited(
@@ -964,6 +952,20 @@ impl QuickIntegrityAccumulator {
         plan: &AcceptedInspectionPlan,
         incarnation: DatabaseIncarnationId,
         diagnostic: IntegrityResourceDiagnostic,
+    ) -> Result<QuickIntegrityResult, InternalError> {
+        self.finish(
+            plan,
+            incarnation,
+            QuickIntegrityStatus::ResourceLimited(diagnostic),
+        )
+    }
+
+    // Bind every inspected outcome to the same accepted identity and finding totals.
+    fn finish(
+        self,
+        plan: &AcceptedInspectionPlan,
+        incarnation: DatabaseIncarnationId,
+        status: QuickIntegrityStatus,
     ) -> Result<QuickIntegrityResult, InternalError> {
         let omitted_findings = self.omitted_findings()?;
         let identity = plan.identity();
@@ -973,7 +975,7 @@ impl QuickIntegrityAccumulator {
             database_incarnation_id: incarnation,
             accepted_schema_version: identity.accepted_schema_version().get(),
             accepted_schema_fingerprint: identity.accepted_schema_fingerprint(),
-            status: QuickIntegrityStatus::ResourceLimited(diagnostic),
+            status,
             total_findings: self.total_findings,
             omitted_findings,
             findings: self.findings,
@@ -1214,6 +1216,33 @@ mod tests {
         assert_eq!(result.total_findings(), 64);
         assert_eq!(result.findings().len(), MAX_QUICK_RETURNED_FINDINGS);
         assert_eq!(result.omitted_findings(), 0);
+    }
+
+    #[test]
+    fn quick_resource_limit_preserves_identity_and_accumulated_findings() {
+        let plan = plan();
+        let incarnation = DatabaseIncarnationId::for_tests(10);
+        let mut accumulator = QuickIntegrityAccumulator {
+            total_findings: u64::MAX,
+            findings: vec![finding(&plan)],
+        };
+        let diagnostic = accumulator
+            .record(finding(&plan))
+            .expect_err("counter overflow must refuse the next finding");
+        let result = accumulator
+            .resource_limited(&plan, incarnation, diagnostic.clone())
+            .expect("retained accounting should remain valid after refusal");
+
+        assert_eq!(
+            result.status(),
+            &QuickIntegrityStatus::ResourceLimited(diagnostic)
+        );
+        assert_eq!(result.database_incarnation_id(), incarnation);
+        assert_eq!(result.accepted_schema_version(), 1);
+        assert_eq!(result.accepted_schema_fingerprint(), [0x44; 16]);
+        assert_eq!(result.total_findings(), u64::MAX);
+        assert_eq!(result.omitted_findings(), u64::MAX - 1);
+        assert_eq!(result.findings(), &[finding(&plan)]);
     }
 
     #[test]

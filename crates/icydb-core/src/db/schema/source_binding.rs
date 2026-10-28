@@ -1213,13 +1213,28 @@ fn field_lineage(
 
 #[cfg(feature = "sql")]
 fn check_ids(snapshot: &PersistedSchemaSnapshot) -> BTreeSet<ConstraintId> {
+    check_ids_with_origins(snapshot).map(|(id, _)| id).collect()
+}
+
+#[cfg(feature = "sql")]
+fn sql_ddl_check_ids(snapshot: &PersistedSchemaSnapshot) -> BTreeSet<ConstraintId> {
+    check_ids_with_origins(snapshot)
+        .filter_map(|(id, origin)| (origin == ConstraintOrigin::SqlDdl).then_some(id))
+        .collect()
+}
+
+// Keep accepted and activating check identities in one catalog traversal.
+#[cfg(feature = "sql")]
+fn check_ids_with_origins(
+    snapshot: &PersistedSchemaSnapshot,
+) -> impl Iterator<Item = (ConstraintId, ConstraintOrigin)> + '_ {
     snapshot
         .constraint_catalog()
         .constraints()
         .iter()
         .filter_map(|constraint| {
             matches!(constraint.kind(), AcceptedConstraintKind::Check { .. })
-                .then_some(constraint.id())
+                .then_some((constraint.id(), constraint.origin()))
         })
         .chain(
             snapshot
@@ -1228,35 +1243,9 @@ fn check_ids(snapshot: &PersistedSchemaSnapshot) -> BTreeSet<ConstraintId> {
                 .iter()
                 .filter_map(|activation| {
                     matches!(activation.kind(), ConstraintActivationKind::Check { .. })
-                        .then_some(activation.id())
+                        .then_some((activation.id(), activation.origin()))
                 }),
         )
-        .collect()
-}
-
-#[cfg(feature = "sql")]
-fn sql_ddl_check_ids(snapshot: &PersistedSchemaSnapshot) -> BTreeSet<ConstraintId> {
-    snapshot
-        .constraint_catalog()
-        .constraints()
-        .iter()
-        .filter_map(|constraint| {
-            (constraint.origin() == ConstraintOrigin::SqlDdl
-                && matches!(constraint.kind(), AcceptedConstraintKind::Check { .. }))
-            .then_some(constraint.id())
-        })
-        .chain(
-            snapshot
-                .constraint_catalog()
-                .activations()
-                .iter()
-                .filter_map(|activation| {
-                    (activation.origin() == ConstraintOrigin::SqlDdl
-                        && matches!(activation.kind(), ConstraintActivationKind::Check { .. }))
-                    .then_some(activation.id())
-                }),
-        )
-        .collect()
 }
 
 fn unique_values<T: Ord>(values: impl Iterator<Item = T>) -> bool {

@@ -363,11 +363,10 @@ impl<C: CanisterKind> DbSession<C> {
         lane: DiagnosticExecutionLane,
     ) -> Result<SharedPreparedExecutionPlan, QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let schema = SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
+        let schema = SchemaCacheIdentity::from_accepted_authority_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
-            authority.accepted_runtime_root_identity(),
-            authority.accepted_schema_authority().revision(),
+            &authority,
         );
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query, lane,
@@ -442,11 +441,10 @@ impl<C: CanisterKind> DbSession<C> {
             }
             QueryPlanVisibility::StoreNotReady => QueryPlanVisibility::StoreNotReady,
         };
-        let schema = SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
+        let schema = SchemaCacheIdentity::from_accepted_authority_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
-            authority.accepted_runtime_root_identity(),
-            authority.accepted_schema_authority().revision(),
+            &authority,
         );
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(

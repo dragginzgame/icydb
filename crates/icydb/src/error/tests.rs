@@ -856,3 +856,14 @@ fn exhaustive_question_mark_preserves_database_diagnostics() {
         }
     }
 }
+
+#[test]
+fn public_origin_conversion_preserves_every_diagnostic_wire_code() {
+    for code in u8::MIN..=u8::MAX {
+        let diagnostic = icydb_diagnostic_code::ErrorOrigin::from_wire_code(code);
+        let public = ErrorOrigin::from(diagnostic);
+        assert_eq!(icydb_diagnostic_code::ErrorOrigin::from(public), diagnostic);
+        assert_eq!(public.wire_code(), diagnostic.wire_code());
+        assert_eq!(ErrorOrigin::from_wire_code(code), public);
+    }
+}

@@ -1486,10 +1486,6 @@ fn resolve_working_entity<'a>(
     resolved.next().is_none().then_some(first)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one pass keeps physical constraint replacement and reservation deterministic"
-)]
 fn rebuild_constraints(
     binding: &ResolvedTransition<'_>,
     store: &mut WorkingStore<'_>,
@@ -1531,25 +1527,7 @@ fn rebuild_constraints(
                     )
                 }));
             }
-            let name = match constraint.kind() {
-                AcceptedConstraintKind::Unique { index_id } => target
-                    .indexes()
-                    .iter()
-                    .find(|index| index.schema_id() == *index_id)
-                    .map(|index| index.name().to_string()),
-                AcceptedConstraintKind::Relation { relation_id } => target
-                    .relations()
-                    .iter()
-                    .find(|relation| relation.id() == *relation_id)
-                    .map(|relation| relation.name().to_string()),
-                AcceptedConstraintKind::PrimaryKey
-                | AcceptedConstraintKind::NotNull { .. }
-                | AcceptedConstraintKind::Check { .. }
-                | AcceptedConstraintKind::TargetedRule { .. } => {
-                    Some(constraint.name().to_string())
-                }
-            }
-            .ok_or(SchemaMigrationPlanningError::IdentityConflict);
+            let name = resolve_constraint_name(constraint, target);
             Some(name.map(|name| constraint.clone_with_name(name)))
         })
         .collect::<Result<Vec<AcceptedConstraintSnapshot>, SchemaMigrationPlanningError>>()?;
@@ -1603,6 +1581,32 @@ fn rebuild_constraints(
     Ok(catalog)
 }
 
+// Catalog identities own unique/relation display names in both migration paths.
+// Generated row-constraint proposal names remain the caller's responsibility.
+fn resolve_constraint_name(
+    constraint: &AcceptedConstraintSnapshot,
+    target: &PersistedSchemaSnapshot,
+) -> Result<String, SchemaMigrationPlanningError> {
+    let name = match constraint.kind() {
+        AcceptedConstraintKind::Unique { index_id } => target
+            .indexes()
+            .iter()
+            .find(|index| index.schema_id() == *index_id)
+            .map(PersistedIndexSnapshot::name),
+        AcceptedConstraintKind::Relation { relation_id } => target
+            .relations()
+            .iter()
+            .find(|relation| relation.id() == *relation_id)
+            .map(PersistedRelationEdgeSnapshot::name),
+        AcceptedConstraintKind::PrimaryKey
+        | AcceptedConstraintKind::NotNull { .. }
+        | AcceptedConstraintKind::Check { .. }
+        | AcceptedConstraintKind::TargetedRule { .. } => Some(constraint.name()),
+    };
+    name.map(str::to_string)
+        .ok_or(SchemaMigrationPlanningError::IdentityConflict)
+}
+
 fn rebuild_metadata_constraints(
     binding: &ResolvedTransition<'_>,
     store: &WorkingStore<'_>,
@@ -1621,35 +1625,17 @@ fn rebuild_metadata_constraints(
         .iter()
         .map(|constraint| {
             let name = match constraint.kind() {
-                AcceptedConstraintKind::Unique { index_id } => target
-                    .indexes()
-                    .iter()
-                    .find(|index| index.schema_id() == *index_id)
-                    .map(|index| index.name().to_string()),
-                AcceptedConstraintKind::Relation { relation_id } => target
-                    .relations()
-                    .iter()
-                    .find(|relation| relation.id() == *relation_id)
-                    .map(|relation| relation.name().to_string()),
                 AcceptedConstraintKind::Check { .. }
                 | AcceptedConstraintKind::TargetedRule { .. }
                     if constraint.origin() == ConstraintOrigin::Generated =>
                 {
-                    Some(
-                        current_row_names
-                            .get(&constraint.id())
-                            .cloned()
-                            .unwrap_or_else(|| constraint.name().to_string()),
-                    )
+                    current_row_names
+                        .get(&constraint.id())
+                        .cloned()
+                        .unwrap_or_else(|| constraint.name().to_string())
                 }
-                AcceptedConstraintKind::PrimaryKey
-                | AcceptedConstraintKind::NotNull { .. }
-                | AcceptedConstraintKind::Check { .. }
-                | AcceptedConstraintKind::TargetedRule { .. } => {
-                    Some(constraint.name().to_string())
-                }
-            }
-            .ok_or(SchemaMigrationPlanningError::IdentityConflict)?;
+                _ => resolve_constraint_name(constraint, target)?,
+            };
             Ok(constraint.clone_with_name(name))
         })
         .collect::<Result<Vec<AcceptedConstraintSnapshot>, SchemaMigrationPlanningError>>()?;
@@ -1751,6 +1737,72 @@ mod tests {
     use crate::db::schema::{
         lower_initial_schema_proposal, migration_lineage::AcceptedEntitySourceLineage,
     };
+
+    #[test]
+    fn constraint_names_resolve_catalog_identity_and_reject_missing_objects() {
+        let proposal = complete_rename_proposal(false, ExpectedAcceptedHead::Empty, None);
+        let candidate = lower_initial_schema_proposal(
+            &proposal,
+            &[crate::db::schema::ProposalStoreTarget {
+                path: "test::Store",
+                identity: TargetStoreIdentity::from_bytes([2; 32]),
+            }],
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        let entity = candidate
+            .bundle()
+            .source_bindings()
+            .entity(&EntitySourceKey::try_new("Item").unwrap())
+            .unwrap();
+        let target = &candidate.bundle().entity_snapshots()[&entity];
+        for (kind, expected) in [
+            (
+                AcceptedConstraintKind::Unique {
+                    index_id: target.indexes()[0].schema_id(),
+                },
+                target.indexes()[0].name(),
+            ),
+            (
+                AcceptedConstraintKind::Relation {
+                    relation_id: target.relations()[0].id(),
+                },
+                target.relations()[0].name(),
+            ),
+            (AcceptedConstraintKind::PrimaryKey, "stored-name"),
+        ] {
+            let constraint = AcceptedConstraintSnapshot::new(
+                ConstraintId::new(1).unwrap(),
+                "stored-name".to_string(),
+                ConstraintOrigin::Generated,
+                kind,
+            );
+            assert_eq!(
+                resolve_constraint_name(&constraint, target).unwrap(),
+                expected
+            );
+        }
+        for kind in [
+            AcceptedConstraintKind::Unique {
+                index_id: SchemaIndexId::new(u32::MAX).unwrap(),
+            },
+            AcceptedConstraintKind::Relation {
+                relation_id: crate::db::schema::RelationId::new(u32::MAX).unwrap(),
+            },
+        ] {
+            let constraint = AcceptedConstraintSnapshot::new(
+                ConstraintId::new(1).unwrap(),
+                "stored-name".to_string(),
+                ConstraintOrigin::Generated,
+                kind,
+            );
+            assert!(matches!(
+                resolve_constraint_name(&constraint, target),
+                Err(SchemaMigrationPlanningError::IdentityConflict)
+            ));
+        }
+    }
 
     #[test]
     fn candidate_failures_preserve_operational_diagnostics() {

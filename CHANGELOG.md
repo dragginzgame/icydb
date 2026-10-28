@@ -5,6 +5,52 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.288.0]
+
+### ⚠️ Breaking
+
+- Database access now requires an explicitly bound memory runtime. Standalone
+  Canic lifecycle exports bootstrap before startup; managed hosts bind their
+  committed runtime. Regenerate actors and use the matching adapter's `mount!`
+  declarations; implicit bootstrap and `endpoints!` are removed.
+  [#373 — Move generated canister endpoints into the Canic IcyDB adapter](https://github.com/dragginzgame/icydb/issues/373).
+
+### 🧪 Testing
+
+- Couple managed IcyDB metrics collection and controller-only read/reset endpoints
+  through one actor feature, selected consistently by Canic Host builds.
+- Add a Canic-managed integration fixture for shared memory ownership and
+  same-contract database restoration, guarded schema access and failed-reply
+  mutation rollback, built through Canic's canonical host owner.
+
+### 🧹 Cleanup
+
+- Share unique/relation activation promotion preparation while retaining typed
+  owner checks and final validation ([#546 — Activation promotions](https://github.com/dragginzgame/icydb/issues/546)).
+- Share journal chunk-order validation across complete and prefix reads while
+  retaining their distinct completeness checks ([#541 — Journal batch reads](https://github.com/dragginzgame/icydb/issues/541)).
+- Share schema proposal store construction while preserving generated-ingress
+  and explicit-removal validation ([#573 — Proposal stores](https://github.com/dragginzgame/icydb/issues/573)).
+- Delegate journal movement counter arithmetic to optional IC Metrics, preserving
+  report widths, overflow diagnostics and reset behavior.
+- Generate heap-store cells from one template, preserving their initialization
+  and registration behavior ([#558 — Heap store cells](https://github.com/dragginzgame/icydb/issues/558)).
+- Share SQL insert literal admission while preserving generated/managed-field
+  rejection and primary-key errors ([#575 — Insert literal admission](https://github.com/dragginzgame/icydb/issues/575)).
+- Share compact and verbose entity-table rendering without changing paths,
+  columns or footers ([#521 — Entity catalog tables](https://github.com/dragginzgame/icydb/issues/521)).
+- Share projection and grouped result rendering while preserving empty-column
+  messages and cursor order ([#576 — Result pages](https://github.com/dragginzgame/icydb/issues/576)).
+- Resolve migration constraint names through one catalog lookup, preserving
+  proposal names and missing-identity errors ([#577 — Constraint names](https://github.com/dragginzgame/icydb/issues/577)).
+
+### 📝 Summary
+
+- Adopt Wire 0.7.21 and Timers 0.31.16, and simplify query, schema, diagnostic,
+  integrity and development-tooling paths without changing public contracts.
+  [Details](docs/changelog/0.288.md).
+
+
 ## [0.287.0] - 2026-10-28
 
 ### ⚠️ Breaking

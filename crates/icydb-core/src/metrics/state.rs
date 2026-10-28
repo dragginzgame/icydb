@@ -5,7 +5,7 @@
 
 use crate::{metrics::ExecutionMetricsPhase, runtime::now_millis};
 
-use ic_metrics::MeasurementAggregate;
+use ic_metrics::{MeasurementAggregate, MeasurementCounter};
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
@@ -184,18 +184,33 @@ impl SchemaLifecycleMeasurements {
 
 #[derive(Clone, Debug, Default)]
 struct ConvergenceMeasurements {
-    appended: crate::db::ExactBacklogMeasurement,
-    retired: crate::db::ExactBacklogMeasurement,
-    overflowed: bool,
+    // Dimensions are batches, records and encoded bytes, in report order.
+    appended: [MeasurementCounter; 3],
+    retired: [MeasurementCounter; 3],
     journal_fold: MeasurementAggregate,
 }
 
 impl ConvergenceMeasurements {
     fn snapshot(&self) -> ConvergenceMetrics {
+        // Upstream owns accumulation and overflow; this boundary only narrows
+        // its wide counters to the maintained u64 report contract.
+        let mut overflowed = false;
+        let mut project = |counters: [MeasurementCounter; 3]| {
+            let [batches, records, bytes] = counters.map(|counter| {
+                overflowed |= counter.total_overflowed();
+                u64::try_from(counter.total()).unwrap_or_else(|_| {
+                    overflowed = true;
+                    u64::MAX
+                })
+            });
+            crate::db::ExactBacklogMeasurement::new(batches, records, bytes)
+        };
+        let appended = project(self.appended);
+        let retired = project(self.retired);
         ConvergenceMetrics {
-            appended: self.appended,
-            retired: self.retired,
-            overflowed: self.overflowed,
+            appended,
+            retired,
+            overflowed,
             journal_fold: self.journal_fold.into(),
         }
     }
@@ -388,20 +403,13 @@ pub(super) fn record_journal_movement(retirement: bool, debt: crate::db::ExactBa
         } else {
             &mut convergence.appended
         };
-        for (before, added) in [
-            (total.batch_count(), debt.batch_count()),
-            (total.record_count(), debt.record_count()),
-            (total.encoded_batch_bytes(), debt.encoded_batch_bytes()),
-        ] {
-            convergence.overflowed |= before.checked_add(added).is_none();
+        for (counter, added) in total.iter_mut().zip([
+            debt.batch_count(),
+            debt.record_count(),
+            debt.encoded_batch_bytes(),
+        ]) {
+            counter.add(u128::from(added));
         }
-        *total = crate::db::ExactBacklogMeasurement::new(
-            total.batch_count().saturating_add(debt.batch_count()),
-            total.record_count().saturating_add(debt.record_count()),
-            total
-                .encoded_batch_bytes()
-                .saturating_add(debt.encoded_batch_bytes()),
-        );
     });
 }
 
@@ -561,6 +569,36 @@ mod tests {
         assert_eq!(reset.journal_debt(), debt);
         assert_eq!(reset.convergence(), &super::ConvergenceMetrics::default());
         assert_ne!(reset.window_id(), report.window_id());
+    }
+
+    #[test]
+    fn convergence_report_preserves_exact_caps_and_clips_each_movement_dimension() {
+        use crate::db::ExactBacklogMeasurement as Debt;
+        for retirement in [false, true] {
+            for dimension in 0..3 {
+                metrics_reset_all();
+                let mut values = [0; 3];
+                values[dimension] = u64::MAX;
+                let capped = Debt::new(values[0], values[1], values[2]);
+                super::record_journal_movement(retirement, capped);
+                assert!(!metrics_snapshot(Debt::default()).convergence().overflowed());
+                values[dimension] = 1;
+                for _ in 0..2 {
+                    super::record_journal_movement(
+                        retirement,
+                        Debt::new(values[0], values[1], values[2]),
+                    );
+                    let report = metrics_snapshot(Debt::default());
+                    assert!(report.convergence().overflowed());
+                    let observed = if retirement {
+                        report.convergence().retired()
+                    } else {
+                        report.convergence().appended()
+                    };
+                    assert_eq!(observed, capped);
+                }
+            }
+        }
     }
 
     #[test]

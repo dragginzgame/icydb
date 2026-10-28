@@ -483,24 +483,32 @@ pub enum ErrorOrigin {
 
 impl ErrorOrigin {
     const fn wire_code(self) -> u8 {
-        match self {
-            Self::Cursor => icydb_diagnostic_code::ErrorOrigin::Cursor.wire_code(),
-            Self::Executor => icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
-            Self::Identity => icydb_diagnostic_code::ErrorOrigin::Identity.wire_code(),
-            Self::Index => icydb_diagnostic_code::ErrorOrigin::Index.wire_code(),
-            Self::Interface => icydb_diagnostic_code::ErrorOrigin::Interface.wire_code(),
-            Self::Planner => icydb_diagnostic_code::ErrorOrigin::Planner.wire_code(),
-            Self::Query => icydb_diagnostic_code::ErrorOrigin::Query.wire_code(),
-            Self::Recovery => icydb_diagnostic_code::ErrorOrigin::Recovery.wire_code(),
-            Self::Response => icydb_diagnostic_code::ErrorOrigin::Response.wire_code(),
-            Self::Runtime => icydb_diagnostic_code::ErrorOrigin::Runtime.wire_code(),
-            Self::Serialize => icydb_diagnostic_code::ErrorOrigin::Serialize.wire_code(),
-            Self::Store => icydb_diagnostic_code::ErrorOrigin::Store.wire_code(),
-        }
+        self.diagnostic_origin().wire_code()
     }
 
     const fn from_wire_code(code: u8) -> Self {
-        match icydb_diagnostic_code::ErrorOrigin::from_wire_code(code) {
+        Self::from_diagnostic_origin(icydb_diagnostic_code::ErrorOrigin::from_wire_code(code))
+    }
+
+    const fn diagnostic_origin(self) -> icydb_diagnostic_code::ErrorOrigin {
+        match self {
+            Self::Cursor => icydb_diagnostic_code::ErrorOrigin::Cursor,
+            Self::Executor => icydb_diagnostic_code::ErrorOrigin::Executor,
+            Self::Identity => icydb_diagnostic_code::ErrorOrigin::Identity,
+            Self::Index => icydb_diagnostic_code::ErrorOrigin::Index,
+            Self::Interface => icydb_diagnostic_code::ErrorOrigin::Interface,
+            Self::Planner => icydb_diagnostic_code::ErrorOrigin::Planner,
+            Self::Query => icydb_diagnostic_code::ErrorOrigin::Query,
+            Self::Recovery => icydb_diagnostic_code::ErrorOrigin::Recovery,
+            Self::Response => icydb_diagnostic_code::ErrorOrigin::Response,
+            Self::Runtime => icydb_diagnostic_code::ErrorOrigin::Runtime,
+            Self::Serialize => icydb_diagnostic_code::ErrorOrigin::Serialize,
+            Self::Store => icydb_diagnostic_code::ErrorOrigin::Store,
+        }
+    }
+
+    const fn from_diagnostic_origin(origin: icydb_diagnostic_code::ErrorOrigin) -> Self {
+        match origin {
             icydb_diagnostic_code::ErrorOrigin::Cursor => Self::Cursor,
             icydb_diagnostic_code::ErrorOrigin::Executor => Self::Executor,
             icydb_diagnostic_code::ErrorOrigin::Identity => Self::Identity,
@@ -537,38 +545,12 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
 
 impl From<ErrorOrigin> for icydb_diagnostic_code::ErrorOrigin {
     fn from(origin: ErrorOrigin) -> Self {
-        match origin {
-            ErrorOrigin::Cursor => Self::Cursor,
-            ErrorOrigin::Executor => Self::Executor,
-            ErrorOrigin::Identity => Self::Identity,
-            ErrorOrigin::Index => Self::Index,
-            ErrorOrigin::Interface => Self::Interface,
-            ErrorOrigin::Planner => Self::Planner,
-            ErrorOrigin::Query => Self::Query,
-            ErrorOrigin::Recovery => Self::Recovery,
-            ErrorOrigin::Response => Self::Response,
-            ErrorOrigin::Runtime => Self::Runtime,
-            ErrorOrigin::Serialize => Self::Serialize,
-            ErrorOrigin::Store => Self::Store,
-        }
+        origin.diagnostic_origin()
     }
 }
 
 impl From<icydb_diagnostic_code::ErrorOrigin> for ErrorOrigin {
     fn from(origin: icydb_diagnostic_code::ErrorOrigin) -> Self {
-        match origin {
-            icydb_diagnostic_code::ErrorOrigin::Cursor => Self::Cursor,
-            icydb_diagnostic_code::ErrorOrigin::Executor => Self::Executor,
-            icydb_diagnostic_code::ErrorOrigin::Identity => Self::Identity,
-            icydb_diagnostic_code::ErrorOrigin::Index => Self::Index,
-            icydb_diagnostic_code::ErrorOrigin::Interface => Self::Interface,
-            icydb_diagnostic_code::ErrorOrigin::Planner => Self::Planner,
-            icydb_diagnostic_code::ErrorOrigin::Query => Self::Query,
-            icydb_diagnostic_code::ErrorOrigin::Recovery => Self::Recovery,
-            icydb_diagnostic_code::ErrorOrigin::Response => Self::Response,
-            icydb_diagnostic_code::ErrorOrigin::Runtime => Self::Runtime,
-            icydb_diagnostic_code::ErrorOrigin::Serialize => Self::Serialize,
-            icydb_diagnostic_code::ErrorOrigin::Store => Self::Store,
-        }
+        Self::from_diagnostic_origin(origin)
     }
 }

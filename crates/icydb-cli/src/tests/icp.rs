@@ -360,3 +360,36 @@ fn hex_response_diagnostics_are_control_free() {
         assert!(!error.chars().any(char::is_control), "byte {byte}");
     }
 }
+
+#[test]
+fn manifest_environment_values_do_not_escape_or_skip_empty_first_keys() {
+    let manifest = r"
+network: local
+canisters: [outside]
+environments:
+  - name: missing-keys
+  - name: empty-keys
+    network: ''
+    network: local
+    canisters: []
+    canisters: [later]
+  - name: populated
+    network: local
+    canisters: [inside]
+";
+    for environment in ["missing-keys", "empty-keys", "absent"] {
+        assert_eq!(
+            parse_manifest_environment_network(manifest, environment),
+            None
+        );
+        assert!(parse_manifest_canisters(manifest, environment).is_empty());
+    }
+    assert_eq!(
+        parse_manifest_environment_network(manifest, "populated"),
+        Some("local")
+    );
+    assert_eq!(
+        parse_manifest_canisters(manifest, "populated"),
+        vec!["inside"]
+    );
+}

@@ -538,27 +538,9 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
             .push(resolved);
     }
 
-    let mut used_types = BTreeSet::new();
-    let mut candidates = Vec::new();
-    for (_, (store, store_entities)) in entities_by_store {
-        let removals = removals_by_store.remove(store.path).unwrap_or_default();
-        if let Some(candidate) = lower_existing_store_candidate(
-            store,
-            stores,
-            proposal,
-            store_entities,
-            removals,
-            &types,
-            &mut used_types,
-        )? {
-            candidates.push(candidate);
-        }
-    }
-    if used_types.len() != types.len() {
-        return Err(InternalError::store_unsupported());
-    }
-    validate_entity_namespace(&candidates, stores)?;
-    Ok(candidates)
+    lower_existing_store_candidates(proposal, stores, entities_by_store, &types, |path| {
+        Some(removals_by_store.remove(path).unwrap_or_default())
+    })
 }
 
 /// Lower one canonical generated proposal whose sealed ingress proves that it
@@ -571,17 +553,32 @@ pub(in crate::db::schema) fn lower_generated_existing_schema_proposal(
         return Err(InternalError::store_invariant());
     }
     let (entities_by_store, types) = existing_proposal_entities_by_store(proposal, stores)?;
+    lower_existing_store_candidates(proposal, stores, entities_by_store, &types, |_| None)
+}
+
+// Both ingress lanes share candidate construction and final namespace/type admission.
+// A present removal batch, even empty, retains existing-lane catalog validation;
+// generated ingress has already rejected removals and skips that transition.
+fn lower_existing_store_candidates(
+    proposal: &SchemaProposal,
+    stores: &[ExistingProposalStore<'_>],
+    entities_by_store: ExistingEntitiesByStore<'_, '_, '_>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    mut removals_for_store: impl FnMut(&'static str) -> Option<ExistingStoreRemovals>,
+) -> Result<Vec<CandidateSchemaRevision>, InternalError> {
     let mut used_types = BTreeSet::new();
     let mut candidates = Vec::new();
-    for (_, (store, store_entities)) in entities_by_store {
-        if let Some(candidate) = lower_generated_existing_store_candidate(
-            store,
-            stores,
-            proposal,
-            store_entities,
-            &types,
-            &mut used_types,
-        )? {
+    for (_, (store, mut entities)) in entities_by_store {
+        icydb_schema::compact_sort_unstable_by(&mut entities, |left, right| {
+            left.source_key().cmp(right.source_key())
+        });
+        let mut state = ExistingStoreCandidateState::new(store, &entities, types, &mut used_types)?;
+        let version_advanced = removals_for_store(store.path)
+            .map(|removals| state.apply_removals(removals))
+            .transpose()?;
+        if let Some(candidate) =
+            state.finish(store, stores, proposal, entities, version_advanced.as_ref())?
+        {
             candidates.push(candidate);
         }
     }
@@ -927,38 +924,6 @@ impl ExistingStoreCandidateState {
         self.changed = true;
         Ok(())
     }
-}
-
-fn lower_existing_store_candidate(
-    store: &ExistingProposalStore<'_>,
-    stores: &[ExistingProposalStore<'_>],
-    proposal: &SchemaProposal,
-    mut entities: Vec<&EntityFragment>,
-    removals: ExistingStoreRemovals,
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-    used_types: &mut BTreeSet<TypeSourceKey>,
-) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    icydb_schema::compact_sort_unstable_by(&mut entities, |left, right| {
-        left.source_key().cmp(right.source_key())
-    });
-    let mut state = ExistingStoreCandidateState::new(store, &entities, types, used_types)?;
-    let version_advanced = state.apply_removals(removals)?;
-    state.finish(store, stores, proposal, entities, Some(&version_advanced))
-}
-
-fn lower_generated_existing_store_candidate(
-    store: &ExistingProposalStore<'_>,
-    stores: &[ExistingProposalStore<'_>],
-    proposal: &SchemaProposal,
-    mut entities: Vec<&EntityFragment>,
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-    used_types: &mut BTreeSet<TypeSourceKey>,
-) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    icydb_schema::compact_sort_unstable_by(&mut entities, |left, right| {
-        left.source_key().cmp(right.source_key())
-    });
-    ExistingStoreCandidateState::new(store, &entities, types, used_types)?
-        .finish(store, stores, proposal, entities, None)
 }
 
 /// Resolve one explicit removal to its unique accepted store and structural
@@ -1327,30 +1292,17 @@ fn apply_existing_index_removals(
     source_bindings: &mut AcceptedSourceBindingCatalog,
     removals: &[ExistingIndexRemoval],
 ) -> Result<BTreeSet<EntityTag>, InternalError> {
-    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingIndexRemoval>>::new();
-    for removal in removals {
-        removals_by_entity
-            .entry(removal.entity_tag)
-            .or_default()
-            .push(removal);
-    }
-
-    let mut changed_entities = BTreeSet::new();
-    for (entity_tag, entity_removals) in removals_by_entity {
-        let [removal] = entity_removals.as_slice() else {
-            return Err(InternalError::store_unsupported());
-        };
-        let current = snapshots
-            .get(&entity_tag)
-            .cloned()
-            .ok_or_else(InternalError::store_invariant)?;
-        let candidate = derive_dense_index_removal_candidate(&current, removal.id)
-            .map_err(|_| InternalError::store_unsupported())?;
-        source_bindings.remove_index(entity_tag, &removal.source, removal.id)?;
-        snapshots.insert(entity_tag, candidate);
-        changed_entities.insert(entity_tag);
-    }
-    Ok(changed_entities)
+    apply_single_existing_removals(
+        snapshots,
+        removals,
+        |removal| removal.entity_tag,
+        |current, removal| {
+            let candidate = derive_dense_index_removal_candidate(current, removal.id)
+                .map_err(|_| InternalError::store_unsupported())?;
+            source_bindings.remove_index(removal.entity_tag, &removal.source, removal.id)?;
+            Ok(candidate)
+        },
+    )
 }
 
 /// Remove one generated relation and its paired constraint per entity.
@@ -1359,29 +1311,16 @@ fn apply_existing_relation_removals(
     source_bindings: &mut AcceptedSourceBindingCatalog,
     removals: &[ExistingRelationRemoval],
 ) -> Result<BTreeSet<EntityTag>, InternalError> {
-    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingRelationRemoval>>::new();
-    for removal in removals {
-        removals_by_entity
-            .entry(removal.entity_tag)
-            .or_default()
-            .push(removal);
-    }
-
-    let mut changed_entities = BTreeSet::new();
-    for (entity_tag, entity_removals) in removals_by_entity {
-        let [removal] = entity_removals.as_slice() else {
-            return Err(InternalError::store_unsupported());
-        };
-        let current = snapshots
-            .get(&entity_tag)
-            .cloned()
-            .ok_or_else(InternalError::store_invariant)?;
-        let candidate = derive_relation_removal_candidate(&current, removal.id)?;
-        source_bindings.remove_relation(entity_tag, &removal.source, removal.id)?;
-        snapshots.insert(entity_tag, candidate);
-        changed_entities.insert(entity_tag);
-    }
-    Ok(changed_entities)
+    apply_single_existing_removals(
+        snapshots,
+        removals,
+        |removal| removal.entity_tag,
+        |current, removal| {
+            let candidate = derive_relation_removal_candidate(current, removal.id)?;
+            source_bindings.remove_relation(removal.entity_tag, &removal.source, removal.id)?;
+            Ok(candidate)
+        },
+    )
 }
 
 /// Derive one dense generated-field removal per entity and carry every
@@ -1391,10 +1330,39 @@ fn apply_existing_field_removals(
     source_bindings: &mut AcceptedSourceBindingCatalog,
     removals: &[ExistingFieldRemoval],
 ) -> Result<BTreeSet<EntityTag>, InternalError> {
-    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&ExistingFieldRemoval>>::new();
+    apply_single_existing_removals(
+        snapshots,
+        removals,
+        |removal| removal.entity_tag,
+        |current, removal| {
+            let candidate = derive_dense_field_removal_candidate(current, removal.id)
+                .map_err(|_| InternalError::store_unsupported())?;
+            source_bindings.remove_field_and_remap(
+                removal.entity_tag,
+                &removal.source,
+                removal.id,
+                |field_id| candidate.retained_field_id(field_id),
+            )?;
+            Ok(candidate.into_snapshot())
+        },
+    )
+}
+
+// Preserve entity ordering and reject multiple removals before reading that
+// entity's snapshot. Kind-specific derivation and binding updates stay together.
+fn apply_single_existing_removals<R>(
+    snapshots: &mut BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    removals: &[R],
+    entity_tag: impl Fn(&R) -> EntityTag,
+    mut derive: impl FnMut(
+        &PersistedSchemaSnapshot,
+        &R,
+    ) -> Result<PersistedSchemaSnapshot, InternalError>,
+) -> Result<BTreeSet<EntityTag>, InternalError> {
+    let mut removals_by_entity = BTreeMap::<EntityTag, Vec<&R>>::new();
     for removal in removals {
         removals_by_entity
-            .entry(removal.entity_tag)
+            .entry(entity_tag(removal))
             .or_default()
             .push(removal);
     }
@@ -1408,15 +1376,8 @@ fn apply_existing_field_removals(
             .get(&entity_tag)
             .cloned()
             .ok_or_else(InternalError::store_invariant)?;
-        let candidate = derive_dense_field_removal_candidate(&current, removal.id)
-            .map_err(|_| InternalError::store_unsupported())?;
-        source_bindings.remove_field_and_remap(
-            entity_tag,
-            &removal.source,
-            removal.id,
-            |field_id| candidate.retained_field_id(field_id),
-        )?;
-        snapshots.insert(entity_tag, candidate.into_snapshot());
+        let candidate = derive(&current, removal)?;
+        snapshots.insert(entity_tag, candidate);
         changed_entities.insert(entity_tag);
     }
     Ok(changed_entities)

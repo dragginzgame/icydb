@@ -85,44 +85,43 @@ impl SqlTokenCursor {
             && matches!(self.peek_next_kind(), Some(TokenKind::StringLiteral(_)))
     }
 
-    // Move text literal payloads out of the token buffer just like blob
-    // literals. Large `IN ('...')` lists otherwise clone every string once
-    // between tokenization and parser AST construction.
     fn take_string_literal(&mut self) -> Result<Value, SqlParseError> {
-        let Some(token) = self.tokens.get_mut(self.pos) else {
-            return Err(SqlParseError::expected(SqlExpectedToken::Literal, None));
-        };
-        let token_kind = std::mem::replace(&mut token.kind, TokenKind::Comma);
-        let TokenKind::StringLiteral(value) = token_kind else {
-            token.kind = token_kind;
-            return Err(SqlParseError::expected(
-                SqlExpectedToken::Literal,
-                Some(&token.kind),
-            ));
-        };
-        self.pos += 1;
-
-        Ok(Value::Text(value))
+        self.take_literal_payload(|kind| match kind {
+            TokenKind::StringLiteral(value) => Ok(Value::Text(value)),
+            other => Err(other),
+        })
     }
 
-    // Move large SQL blob literal payloads out of the token buffer instead of
-    // cloning bytes at the parser boundary. Consumed tokens are never revisited,
-    // so replacing the slot with punctuation preserves cursor invariants.
     fn take_blob_literal(&mut self) -> Result<Value, SqlParseError> {
+        self.take_literal_payload(|kind| match kind {
+            TokenKind::BlobLiteral(bytes) => Ok(Value::Blob(bytes)),
+            other => Err(other),
+        })
+    }
+
+    // Move large payloads without cloning; failed projections restore the token
+    // and leave the cursor unchanged so another literal parser can consume it.
+    fn take_literal_payload(
+        &mut self,
+        project: impl FnOnce(TokenKind) -> Result<Value, TokenKind>,
+    ) -> Result<Value, SqlParseError> {
         let Some(token) = self.tokens.get_mut(self.pos) else {
             return Err(SqlParseError::expected(SqlExpectedToken::Literal, None));
         };
         let token_kind = std::mem::replace(&mut token.kind, TokenKind::Comma);
-        let TokenKind::BlobLiteral(bytes) = token_kind else {
-            token.kind = token_kind;
-            return Err(SqlParseError::expected(
-                SqlExpectedToken::Literal,
-                Some(&token.kind),
-            ));
-        };
-        self.pos += 1;
-
-        Ok(Value::Blob(bytes))
+        match project(token_kind) {
+            Ok(value) => {
+                self.pos += 1;
+                Ok(value)
+            }
+            Err(original) => {
+                token.kind = original;
+                Err(SqlParseError::expected(
+                    SqlExpectedToken::Literal,
+                    Some(&token.kind),
+                ))
+            }
+        }
     }
 
     pub(crate) fn expect_keyword(&mut self, keyword: Keyword) -> Result<(), SqlParseError> {

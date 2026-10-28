@@ -894,20 +894,11 @@ pub(in crate::db::schema) fn decode_literal(
     literal: &AcceptedCheckLiteralV1,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<Value, AcceptedRowConstraintEvaluationError> {
-    let field = AcceptedFieldDecodeContract::new(
-        "__icydb_check_literal",
-        literal.kind(),
-        false,
-        literal.storage_decode(),
-        literal.leaf_codec(),
-    );
-    decode_validated_check_literal_payload(
+    decode_literal_from_catalogs(
+        literal,
         value_catalog.enum_catalog(),
         value_catalog.composite_catalog(),
-        field,
-        literal.payload(),
     )
-    .map_err(|_| AcceptedRowConstraintEvaluationError::LiteralCorrupt)
 }
 
 fn decode_literal_from_catalogs(
