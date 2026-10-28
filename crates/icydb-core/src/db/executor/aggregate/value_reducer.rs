@@ -22,6 +22,8 @@ use crate::{
     value::Value,
 };
 
+use std::borrow::Cow;
+
 ///
 /// ValueReducerState
 ///
@@ -100,6 +102,17 @@ impl ValueReducerState {
     #[must_use]
     pub(in crate::db::executor::aggregate) const fn max() -> Self {
         Self::Max { selected: None }
+    }
+
+    /// Preserve input ownership when dispatching to the value reducers.
+    pub(in crate::db::executor::aggregate) fn ingest_cow(
+        &mut self,
+        value: Cow<'_, Value>,
+    ) -> Result<(), InternalError> {
+        match value {
+            Cow::Borrowed(value) => self.ingest(value),
+            Cow::Owned(value) => self.ingest_owned(value),
+        }
     }
 
     /// Ingest one borrowed aggregate input value.

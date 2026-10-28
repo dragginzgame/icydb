@@ -1121,3 +1121,35 @@ fn derived_errors_preserve_display_and_source_contracts() {
         assert!(error.source().is_none());
     }
 }
+
+#[test]
+fn explain_limits_preserve_distinct_boundaries_and_exact_facts() {
+    use diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
+
+    for (limit, observed) in [(0, 1), (128, 129), (u64::MAX - 1, u64::MAX)] {
+        for (error, boundary) in [
+            (
+                InternalError::query_explain_output_exceeded(limit, observed),
+                RuntimeBoundaryCode::QueryExplainOutputExceeded,
+            ),
+            (
+                InternalError::query_explain_depth_exceeded(limit, observed),
+                RuntimeBoundaryCode::QueryExplainDepthExceeded,
+            ),
+        ] {
+            assert_eq!(error.class(), ErrorClass::Unsupported);
+            assert_eq!(error.origin(), ErrorOrigin::Query);
+            assert_eq!(
+                error.diagnostic().detail().copied(),
+                Some(DiagnosticDetail::RuntimeBoundary { boundary }),
+            );
+            assert_eq!(
+                error.diagnostic_facts(),
+                vec![
+                    (DiagnosticFactTag::Limit, limit),
+                    (DiagnosticFactTag::Actual, observed),
+                ],
+            );
+        }
+    }
+}

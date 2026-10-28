@@ -33,6 +33,25 @@ struct AccessFingerprintVisitor<'a> {
     budget: &'a dyn ConstructionBudget,
 }
 
+impl AccessFingerprintVisitor<'_> {
+    // Charge the branch before visiting children; retain the postorder hash
+    // stream and stop on the first child failure without writing branch framing.
+    fn hash_children<T>(
+        &mut self,
+        children: &[T],
+        tag: u8,
+        project: impl Fn(&T, &mut Self) -> Result<(), InternalError>,
+    ) -> Result<(), InternalError> {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        for child in children {
+            project(child, self)?;
+        }
+        write_tag(self.hasher, tag);
+        write_u32(self.hasher, children.len() as u32);
+        Ok(())
+    }
+}
+
 /// Hash planner-owned access contracts into the plan hash stream.
 pub(in crate::db::query::fingerprint::hash_sections) fn hash_access_plan(
     hasher: &mut Sha256,
@@ -204,14 +223,7 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         children: &[T],
         project: impl Fn(&T, &mut Self) -> Self::Output,
     ) -> Self::Output {
-        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
-        // Identity uses the maintained postorder stream, without a child Vec.
-        for child in children {
-            project(child, self)?;
-        }
-        write_tag(self.hasher, ACCESS_TAG_UNION);
-        write_u32(self.hasher, children.len() as u32);
-        Ok(())
+        self.hash_children(children, ACCESS_TAG_UNION, project)
     }
 
     fn intersection<T>(
@@ -219,12 +231,6 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         children: &[T],
         project: impl Fn(&T, &mut Self) -> Self::Output,
     ) -> Self::Output {
-        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
-        for child in children {
-            project(child, self)?;
-        }
-        write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
-        write_u32(self.hasher, children.len() as u32);
-        Ok(())
+        self.hash_children(children, ACCESS_TAG_INTERSECTION, project)
     }
 }

@@ -1565,3 +1565,37 @@ fn composite_members_select_the_canonical_recursive_wire() {
     assert!(nested.requires_canonical_value_wire());
     assert!(!AcceptedFieldKind::Nat64.requires_canonical_value_wire());
 }
+
+#[test]
+fn index_key_metadata_changes_preserve_the_complete_index_shell() {
+    for origin in [
+        PersistedIndexOrigin::Generated,
+        PersistedIndexOrigin::SqlDdl,
+    ] {
+        let snapshot =
+            nullable_unique_schema_fixture(true, &["email"], &["email"], Some("email IS NOT NULL"));
+        let mut original = snapshot.indexes()[0].clone();
+        original.origin = origin;
+        original.physical_generation = 7;
+        let field_id = FieldId::new(2);
+        let renamed = original.clone_with_renamed_field_path_root(field_id, "contact");
+        assert_eq!(
+            renamed.key().field_paths().next().unwrap().path(),
+            &["contact"]
+        );
+        let required = original.clone_with_top_level_field_nullability(field_id, false);
+        assert!(!required.key().field_paths().next().unwrap().nullable());
+        for mut changed in [renamed, required] {
+            changed.key = original.key.clone();
+            assert_eq!(changed, original);
+        }
+        assert_eq!(
+            original.clone_with_renamed_field_path_root(FieldId::new(99), "unused"),
+            original
+        );
+        assert_eq!(
+            original.clone_with_top_level_field_nullability(FieldId::new(99), false),
+            original
+        );
+    }
+}

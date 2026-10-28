@@ -142,41 +142,33 @@ pub(in crate::db) fn decimal_sign(decimal: Decimal) -> Decimal {
     Decimal::from_i64(sign).unwrap_or(Decimal::ZERO)
 }
 
+// Keep the fallible float round trip shared; callers own operation-specific
+// domain checks before conversion. Static dispatch retains each float operation.
+fn decimal_float_unary_checked(
+    decimal: Decimal,
+    operation: impl FnOnce(f64) -> f64,
+) -> Result<Decimal, NumericEvalError> {
+    let value = decimal.to_f64().ok_or(NumericEvalError::NotRepresentable)?;
+    Decimal::from_f64_lossy(operation(value)).ok_or(NumericEvalError::NotRepresentable)
+}
+
 /// Compute decimal square root under checked SQL numeric evaluation semantics.
 pub(in crate::db) fn decimal_sqrt_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     if decimal.is_sign_negative() {
         return Err(NumericEvalError::NotRepresentable);
     }
 
-    Decimal::from_f64_lossy(
-        decimal
-            .to_f64()
-            .ok_or(NumericEvalError::NotRepresentable)?
-            .sqrt(),
-    )
-    .ok_or(NumericEvalError::NotRepresentable)
+    decimal_float_unary_checked(decimal, f64::sqrt)
 }
 
 /// Compute decimal cube root under checked SQL numeric evaluation semantics.
 pub(in crate::db) fn decimal_cbrt_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
-    Decimal::from_f64_lossy(
-        decimal
-            .to_f64()
-            .ok_or(NumericEvalError::NotRepresentable)?
-            .cbrt(),
-    )
-    .ok_or(NumericEvalError::NotRepresentable)
+    decimal_float_unary_checked(decimal, f64::cbrt)
 }
 
 /// Compute decimal exponent under checked SQL numeric evaluation semantics.
 pub(in crate::db) fn decimal_exp_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
-    Decimal::from_f64_lossy(
-        decimal
-            .to_f64()
-            .ok_or(NumericEvalError::NotRepresentable)?
-            .exp(),
-    )
-    .ok_or(NumericEvalError::NotRepresentable)
+    decimal_float_unary_checked(decimal, f64::exp)
 }
 
 /// Compute decimal natural logarithm under checked SQL numeric evaluation semantics.
@@ -185,13 +177,7 @@ pub(in crate::db) fn decimal_ln_checked(decimal: Decimal) -> Result<Decimal, Num
         return Err(NumericEvalError::NotRepresentable);
     }
 
-    Decimal::from_f64_lossy(
-        decimal
-            .to_f64()
-            .ok_or(NumericEvalError::NotRepresentable)?
-            .ln(),
-    )
-    .ok_or(NumericEvalError::NotRepresentable)
+    decimal_float_unary_checked(decimal, f64::ln)
 }
 
 /// Compute decimal base-2 logarithm under checked SQL numeric evaluation semantics.
@@ -200,13 +186,7 @@ pub(in crate::db) fn decimal_log2_checked(decimal: Decimal) -> Result<Decimal, N
         return Err(NumericEvalError::NotRepresentable);
     }
 
-    Decimal::from_f64_lossy(
-        decimal
-            .to_f64()
-            .ok_or(NumericEvalError::NotRepresentable)?
-            .log2(),
-    )
-    .ok_or(NumericEvalError::NotRepresentable)
+    decimal_float_unary_checked(decimal, f64::log2)
 }
 
 /// Compute decimal base-10 logarithm under checked SQL numeric evaluation semantics.
@@ -215,13 +195,7 @@ pub(in crate::db) fn decimal_log10_checked(decimal: Decimal) -> Result<Decimal, 
         return Err(NumericEvalError::NotRepresentable);
     }
 
-    Decimal::from_f64_lossy(
-        decimal
-            .to_f64()
-            .ok_or(NumericEvalError::NotRepresentable)?
-            .log10(),
-    )
-    .ok_or(NumericEvalError::NotRepresentable)
+    decimal_float_unary_checked(decimal, f64::log10)
 }
 
 /// Compute decimal logarithm with an explicit base under checked SQL numeric

@@ -1084,8 +1084,10 @@ fn bounded_count(reader: &mut MigrationReader<'_>, maximum: usize) -> Result<usi
     Ok(count)
 }
 
-fn encode_head(
-    writer: &mut MigrationWriter,
+/// Write the exact head representation shared by migration and lineage records.
+/// Callers retain their own semantic head validation before writing.
+pub(in crate::db::schema) fn encode_head<const MAX_BYTES: usize>(
+    writer: &mut BoundedByteWriter<MAX_BYTES>,
     head: &ExpectedAcceptedHead,
 ) -> Result<(), InternalError> {
     let ExpectedAcceptedHead::Exact {

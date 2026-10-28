@@ -124,10 +124,7 @@ impl GroupedAggregateReducerState {
         value: Cow<'_, Value>,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Min(reducer) => match value {
-                Cow::Borrowed(value) => reducer.ingest(value),
-                Cow::Owned(value) => reducer.ingest_owned(value),
-            },
+            Self::Min(reducer) => reducer.ingest_cow(value),
             _ => Err(InternalError::query_executor_invariant()),
         }
     }
@@ -138,10 +135,7 @@ impl GroupedAggregateReducerState {
         value: Cow<'_, Value>,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Max(reducer) => match value {
-                Cow::Borrowed(value) => reducer.ingest(value),
-                Cow::Owned(value) => reducer.ingest_owned(value),
-            },
+            Self::Max(reducer) => reducer.ingest_cow(value),
             _ => Err(InternalError::query_executor_invariant()),
         }
     }
@@ -212,6 +206,73 @@ mod tests {
         types::{Decimal, U256},
         value::Value,
     };
+
+    #[test]
+    fn expression_extrema_preserve_owned_borrowed_inputs_and_variant_refusals() {
+        use crate::error::{ErrorClass, ErrorOrigin};
+        use std::borrow::Cow;
+
+        for kind in [AggregateKind::Min, AggregateKind::Max] {
+            for owned in [false, true] {
+                let mut reducer = GroupedAggregateReducerState::for_kind(kind);
+                for value in [
+                    Value::Null,
+                    Value::Text("middle".into()),
+                    Value::Text("a".into()),
+                    Value::Text("z".into()),
+                ] {
+                    let input = if owned {
+                        Cow::Owned(value.clone())
+                    } else {
+                        Cow::Borrowed(&value)
+                    };
+                    match kind {
+                        AggregateKind::Min => reducer.ingest_min_value(input),
+                        _ => reducer.ingest_max_value(input),
+                    }
+                    .unwrap();
+                }
+                let expected = if kind == AggregateKind::Min { "a" } else { "z" };
+                assert_eq!(reducer.into_value().unwrap(), Value::Text(expected.into()));
+            }
+        }
+
+        for kind in [
+            AggregateKind::Count,
+            AggregateKind::Sum,
+            AggregateKind::Avg,
+            AggregateKind::Exists,
+            AggregateKind::Min,
+            AggregateKind::Max,
+            AggregateKind::First,
+            AggregateKind::Last,
+        ] {
+            for owned in [false, true] {
+                for minimum in [false, true] {
+                    if (minimum && kind == AggregateKind::Min)
+                        || (!minimum && kind == AggregateKind::Max)
+                    {
+                        continue;
+                    }
+                    let mut reducer = GroupedAggregateReducerState::for_kind(kind);
+                    let value = Value::Text("invalid route".into());
+                    let input = if owned {
+                        Cow::Owned(value.clone())
+                    } else {
+                        Cow::Borrowed(&value)
+                    };
+                    let error = if minimum {
+                        reducer.ingest_min_value(input)
+                    } else {
+                        reducer.ingest_max_value(input)
+                    }
+                    .unwrap_err();
+                    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+                    assert_eq!(error.origin(), ErrorOrigin::Query);
+                }
+            }
+        }
+    }
 
     #[test]
     fn grouped_count_sum_and_avg_delegate_to_shared_value_reducers() {

@@ -946,3 +946,56 @@ fn secondary_index_drop_compacts_only_physical_ordinals() {
         vec![(1, 1), (3, 2)],
     );
 }
+
+#[test]
+fn ddl_field_candidates_preserve_unknown_errors_and_name_precedence() {
+    let accepted = AcceptedSchemaSnapshot::try_new(base_snapshot()).unwrap();
+    for name in ["missing", "NAME", "name.child"] {
+        assert_eq!(
+            resolve_sql_ddl_field_drop_candidate(&accepted, name),
+            Err(SchemaDdlFieldDropCandidateError::Unknown),
+        );
+        assert_eq!(
+            resolve_sql_ddl_field_set_default_candidate(&accepted, name),
+            Err(SchemaDdlFieldDefaultCandidateError::Unknown),
+        );
+        assert_eq!(
+            resolve_sql_ddl_field_drop_default_candidate(&accepted, name),
+            Err(SchemaDdlFieldDefaultCandidateError::Unknown),
+        );
+        assert_eq!(
+            resolve_sql_ddl_field_nullability_candidate(&accepted, name, false),
+            Err(SchemaDdlFieldNullabilityCandidateError::Unknown),
+        );
+        // Unknown source wins even when the proposed destination is invalid.
+        assert_eq!(
+            resolve_sql_ddl_field_rename_candidate(&accepted, name, "invalid.name"),
+            Err(SchemaDdlFieldRenameCandidateError::Unknown),
+        );
+    }
+    assert_eq!(
+        resolve_sql_ddl_field_drop_candidate(&accepted, "id"),
+        Err(SchemaDdlFieldDropCandidateError::PrimaryKey),
+    );
+    assert_eq!(
+        resolve_sql_ddl_field_rename_candidate(&accepted, "name", "id"),
+        Err(SchemaDdlFieldRenameCandidateError::Duplicate),
+    );
+    let expected = &accepted.persisted_snapshot().fields()[1];
+    assert_eq!(
+        resolve_sql_ddl_field_set_default_candidate(&accepted, "name"),
+        Ok(expected)
+    );
+    assert_eq!(
+        resolve_sql_ddl_field_drop_default_candidate(&accepted, "name"),
+        Ok(expected)
+    );
+    assert_eq!(
+        resolve_sql_ddl_field_nullability_candidate(&accepted, "name", false),
+        Ok(expected)
+    );
+    assert_eq!(
+        resolve_sql_ddl_field_rename_candidate(&accepted, "name", "name"),
+        Ok(expected)
+    );
+}

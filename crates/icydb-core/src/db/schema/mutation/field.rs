@@ -335,10 +335,8 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_candidate<'a>(
     field_name: &str,
 ) -> Result<&'a PersistedFieldSnapshot, SchemaDdlFieldDropCandidateError> {
     let accepted = accepted_before.persisted_snapshot();
-    let field = accepted
-        .fields()
-        .iter()
-        .find(|field| field.name() == field_name)
+    let field = accepted_before
+        .field_by_name(field_name)
         .ok_or(SchemaDdlFieldDropCandidateError::Unknown)?;
 
     if accepted.primary_key_field_ids().contains(&field.id()) {
@@ -364,10 +362,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate<'a>(
     field_name: &str,
 ) -> Result<&'a PersistedFieldSnapshot, SchemaDdlFieldDefaultCandidateError> {
     let field = accepted_before
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.name() == field_name)
+        .field_by_name(field_name)
         .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
 
     Ok(field)
@@ -399,10 +394,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate<'a>(
     field_name: &str,
 ) -> Result<&'a PersistedFieldSnapshot, SchemaDdlFieldDefaultCandidateError> {
     let field = accepted_before
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.name() == field_name)
+        .field_by_name(field_name)
         .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
 
     validate_sql_ddl_field_default_change_candidate(field, &SchemaInsertDefault::None)?;
@@ -419,10 +411,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_nullability_candidate<'a>(
     nullable: bool,
 ) -> Result<&'a PersistedFieldSnapshot, SchemaDdlFieldNullabilityCandidateError> {
     let field = accepted_before
-        .persisted_snapshot()
-        .fields()
-        .iter()
-        .find(|field| field.name() == field_name)
+        .field_by_name(field_name)
         .ok_or(SchemaDdlFieldNullabilityCandidateError::Unknown)?;
 
     if field.nullable() != nullable && field.generated() {
@@ -439,11 +428,8 @@ pub(in crate::db) fn resolve_sql_ddl_field_rename_candidate<'a>(
     old_name: &str,
     new_name: &str,
 ) -> Result<&'a PersistedFieldSnapshot, SchemaDdlFieldRenameCandidateError> {
-    let accepted = accepted_before.persisted_snapshot();
-    let field = accepted
-        .fields()
-        .iter()
-        .find(|field| field.name() == old_name)
+    let field = accepted_before
+        .field_by_name(old_name)
         .ok_or(SchemaDdlFieldRenameCandidateError::Unknown)?;
 
     if old_name == new_name {
@@ -454,11 +440,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_rename_candidate<'a>(
         return Err(SchemaDdlFieldRenameCandidateError::InvalidName);
     }
 
-    if accepted
-        .fields()
-        .iter()
-        .any(|field| field.name() == new_name)
-    {
+    if accepted_before.field_by_name(new_name).is_some() {
         return Err(SchemaDdlFieldRenameCandidateError::Duplicate);
     }
 

@@ -122,8 +122,11 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow one accepted field snapshot by its persisted field name.
     #[must_use]
-    #[cfg(test)]
-    fn field_by_name(&self, name: &str) -> Option<&PersistedFieldSnapshot> {
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db::schema) fn field_by_name(
+        &self,
+        name: &str,
+    ) -> Option<&PersistedFieldSnapshot> {
         self.snapshot
             .fields()
             .iter()
@@ -1300,19 +1303,10 @@ impl PersistedIndexSnapshot {
         field_id: FieldId,
         new_name: &str,
     ) -> Self {
-        Self {
-            schema_id: self.schema_id,
-            ordinal: self.ordinal,
-            physical_generation: self.physical_generation,
-            name: self.name.clone(),
-            store: self.store.clone(),
-            unique: self.unique,
-            origin: self.origin,
-            key: self
-                .key
+        self.clone_with_key(
+            self.key
                 .clone_with_renamed_field_path_root(field_id, new_name),
-            predicate: self.predicate.clone(),
-        }
+        )
     }
 
     /// Clone this index after one accepted top-level source changes
@@ -1325,6 +1319,15 @@ impl PersistedIndexSnapshot {
         field_id: FieldId,
         nullable: bool,
     ) -> Self {
+        self.clone_with_key(
+            self.key
+                .clone_with_top_level_field_nullability(field_id, nullable),
+        )
+    }
+
+    // Clone invariant index metadata once without copying the discarded key.
+    #[cfg(any(test, feature = "sql", feature = "migration"))]
+    fn clone_with_key(&self, key: PersistedIndexKeySnapshot) -> Self {
         Self {
             schema_id: self.schema_id,
             ordinal: self.ordinal,
@@ -1333,9 +1336,7 @@ impl PersistedIndexSnapshot {
             store: self.store.clone(),
             unique: self.unique,
             origin: self.origin,
-            key: self
-                .key
-                .clone_with_top_level_field_nullability(field_id, nullable),
+            key,
             predicate: self.predicate.clone(),
         }
     }

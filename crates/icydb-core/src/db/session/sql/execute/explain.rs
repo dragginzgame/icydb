@@ -447,19 +447,14 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
-        let mut rendered = Vec::with_capacity(strategies.len());
-
-        for strategy in strategies {
-            let diagnostics = self.global_aggregate_terminal_diagnostics(
-                command,
-                strategy,
-                plan,
-                authority,
-                schema_info,
-            )?;
-            rendered.push(render_sql_execution_explain(&diagnostics));
-        }
-
+        let rendered = self.render_global_aggregate_terminals(
+            command,
+            strategies,
+            plan,
+            authority,
+            schema_info,
+            |diagnostics| Ok(render_sql_execution_explain(diagnostics)),
+        )?;
         Ok(rendered.join("\n\n"))
     }
 
@@ -471,8 +466,29 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
-        let mut rendered = Vec::with_capacity(strategies.len());
+        let rendered = self.render_global_aggregate_terminals(
+            command,
+            strategies,
+            plan,
+            authority,
+            schema_info,
+            render_sql_execution_explain_json,
+        )?;
+        Ok(render_sql_execution_explain_json_array(&rendered))
+    }
 
+    // Render each terminal before preparing its successor: neither diagnostics
+    // nor rendering failures may admit later strategies.
+    fn render_global_aggregate_terminals(
+        &self,
+        command: &SqlGlobalAggregateCommand,
+        strategies: &[PreparedSqlScalarAggregateStrategy],
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+        schema_info: &SchemaInfo,
+        render: impl Fn(&FinalizedQueryDiagnostics) -> Result<String, QueryError>,
+    ) -> Result<Vec<String>, QueryError> {
+        let mut rendered = Vec::with_capacity(strategies.len());
         for strategy in strategies {
             let diagnostics = self.global_aggregate_terminal_diagnostics(
                 command,
@@ -481,10 +497,9 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 schema_info,
             )?;
-            rendered.push(render_sql_execution_explain_json(&diagnostics)?);
+            rendered.push(render(&diagnostics)?);
         }
-
-        Ok(render_sql_execution_explain_json_array(&rendered))
+        Ok(rendered)
     }
 
     // Text and JSON share terminal construction and admission. Each caller

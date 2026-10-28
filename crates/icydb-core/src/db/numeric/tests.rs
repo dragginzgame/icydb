@@ -9,7 +9,9 @@ use crate::{
         apply_numeric_arithmetic_checked, apply_value_arithmetic_checked,
         average_decimal_terms_checked, canonical_value_compare, coerce_numeric_decimal,
         compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
-        decimal_power_checked, divide_decimal_terms_checked,
+        decimal_cbrt_checked, decimal_exp_checked, decimal_ln_checked, decimal_log2_checked,
+        decimal_log10_checked, decimal_power_checked, decimal_sqrt_checked,
+        divide_decimal_terms_checked,
     },
     types::{Decimal, Duration, Float64 as F64, Timestamp, U256},
     value::Value,
@@ -492,4 +494,34 @@ fn numeric_remainder_decimal_scale_alignment_preserves_exact_results() {
         ),
         Err(NumericEvalError::NotRepresentable),
     );
+}
+
+#[test]
+fn decimal_unary_float_operations_preserve_domains_and_representability() {
+    let decimal = |value| Decimal::from_i64(value).unwrap();
+    let not_representable = Err(NumericEvalError::NotRepresentable);
+
+    assert_eq!(decimal_sqrt_checked(decimal(-1)), not_representable);
+    assert_eq!(decimal_sqrt_checked(Decimal::ZERO), Ok(Decimal::ZERO));
+    assert_eq!(decimal_sqrt_checked(decimal(4)), Ok(decimal(2)));
+    assert_eq!(decimal_cbrt_checked(decimal(-8)), Ok(decimal(-2)));
+    assert_eq!(decimal_exp_checked(Decimal::ZERO), Ok(decimal(1)));
+    let negative_exp = decimal_exp_checked(decimal(-1)).unwrap();
+    assert!(negative_exp > Decimal::ZERO && negative_exp < decimal(1));
+    // A finite float result can still exceed the decimal range; infinity also
+    // fails with the same typed conversion error.
+    assert_eq!(decimal_exp_checked(decimal(100)), not_representable);
+    assert_eq!(decimal_exp_checked(decimal(1000)), not_representable);
+
+    for logarithm in [
+        decimal_ln_checked,
+        decimal_log2_checked,
+        decimal_log10_checked,
+    ] {
+        assert_eq!(logarithm(decimal(-1)), not_representable);
+        assert_eq!(logarithm(Decimal::ZERO), not_representable);
+        assert_eq!(logarithm(decimal(1)), Ok(Decimal::ZERO));
+    }
+    assert_eq!(decimal_log2_checked(decimal(8)), Ok(decimal(3)));
+    assert_eq!(decimal_log10_checked(decimal(100)), Ok(decimal(2)));
 }

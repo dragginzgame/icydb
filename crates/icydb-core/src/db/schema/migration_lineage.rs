@@ -11,7 +11,10 @@ use icydb_schema::{
 };
 
 use crate::{
-    db::{database_format::crc32c, schema::wire::SchemaWireReader},
+    db::{
+        database_format::crc32c,
+        schema::{migration_record::encode_head, wire::SchemaWireReader},
+    },
     error::InternalError,
     types::EntityTag,
 };
@@ -344,19 +347,8 @@ fn encode_lineage_head(
     writer: &mut LineageWriter,
     head: &ExpectedAcceptedHead,
 ) -> Result<(), InternalError> {
-    let ExpectedAcceptedHead::Exact {
-        revision,
-        fingerprint,
-    } = head
-    else {
-        return Err(InternalError::store_invariant());
-    };
-    if *revision == 0 || fingerprint.to_bytes() == [0; 32] {
-        return Err(InternalError::store_invariant());
-    }
-    writer.push_u64(*revision);
-    writer.push_bytes(&fingerprint.to_bytes());
-    Ok(())
+    validate_lineage_head(head)?;
+    encode_head(writer, head)
 }
 
 fn decode_lineage_head(
@@ -392,6 +384,47 @@ mod tests {
         ExpectedAcceptedHead::Exact {
             revision: u64::from(byte),
             fingerprint: ExpectedSchemaFingerprint::from_bytes([byte; 32]),
+        }
+    }
+
+    #[test]
+    fn accepted_head_encoders_preserve_bytes_and_prewrite_refusals() {
+        use crate::error::{ErrorClass, ErrorOrigin};
+
+        for (revision, fingerprint) in [(7, [9; 32]), (0, [9; 32]), (7, [0; 32])] {
+            let head = ExpectedAcceptedHead::Exact {
+                revision,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes(fingerprint),
+            };
+            let mut expected = vec![42];
+            expected.extend_from_slice(&revision.to_be_bytes());
+            expected.extend_from_slice(&fingerprint);
+            let mut migration = LineageWriter::new();
+            migration.push_u8(42);
+            encode_head(&mut migration, &head).unwrap();
+            assert_eq!(migration.finish().unwrap(), expected);
+
+            let mut lineage = LineageWriter::new();
+            lineage.push_u8(42);
+            let result = encode_lineage_head(&mut lineage, &head);
+            if revision == 0 || fingerprint == [0; 32] {
+                let error = result.unwrap_err();
+                assert_eq!(error.class(), ErrorClass::InvariantViolation);
+                assert_eq!(error.origin(), ErrorOrigin::Store);
+                assert_eq!(lineage.finish().unwrap(), vec![42]);
+            } else {
+                result.unwrap();
+                assert_eq!(lineage.finish().unwrap(), expected);
+            }
+        }
+
+        for encode in [encode_head, encode_lineage_head] {
+            let mut writer = LineageWriter::new();
+            writer.push_u8(42);
+            let error = encode(&mut writer, &ExpectedAcceptedHead::Empty).unwrap_err();
+            assert_eq!(error.class(), ErrorClass::InvariantViolation);
+            assert_eq!(error.origin(), ErrorOrigin::Store);
+            assert_eq!(writer.finish().unwrap(), vec![42]);
         }
     }
 

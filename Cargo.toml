@@ -86,15 +86,15 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.69.3", default-features = false }
-ic-host-fs = { version = "0.69.3", default-features = false }
-ic-host-process = "0.69.3"
-ic-host-text = "0.69.3"
-ic-host-tools = "0.69.3"
-ic-memory = "0.51.8"
+ic-host-artifacts = { version = "0.69.5", default-features = false }
+ic-host-fs = { version = "0.69.5", default-features = false }
+ic-host-process = "0.69.5"
+ic-host-text = "0.69.5"
+ic-host-tools = "0.69.5"
+ic-memory = "0.52.0"
 ic-metrics = "0.16.3"
 ic-platform = { version = "0.7.0", default-features = false }
-ic-storage = "0.51.8"
+ic-storage = "0.52.0"
 ic-wire = "0.7.18"
 icydb = { path = "crates/icydb", version = "=0.286.3", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.286.3" }
@@ -126,9 +126,9 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 
 # Tests and tooling only
 canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "45db926a326712f402fa639e0ca2888031988973" }
-ic-build = "0.69.3"
-ic-testkit = "0.69.3"
-ic-timers = "0.31.7"
+ic-build = "0.69.5"
+ic-testkit = "0.69.5"
+ic-timers = "0.31.14"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }

@@ -50,6 +50,12 @@ impl Memory for GrowthLimitedMemory {
     }
 }
 
+impl ic_memory::MemoryBacking for GrowthLimitedMemory {
+    fn backing_identity(&self) -> ic_memory::BackingIdentity {
+        ic_memory::MemoryBacking::backing_identity(&self.backing)
+    }
+}
+
 /// Return a validated test memory id.
 ///
 /// Memory id `255` is reserved by stable-structures internals and must never
@@ -144,7 +150,7 @@ pub(crate) fn test_memory_with_backing(
 }
 
 /// Bootstrap an isolated fixture runtime with an explicit bucket size.
-pub(crate) fn test_memory_runtime<M: Memory>(
+pub(crate) fn test_memory_runtime<M: ic_memory::MemoryBacking>(
     backing: M,
     config: MemoryManagerConfig,
 ) -> MemoryRuntime<M> {

@@ -90,11 +90,23 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Current direct minimums are IC Build/Host/Testkit 0.69.3, Platform 0.7.0,
-Wire 0.7.18, Memory/Storage 0.51.8 and Metrics 0.16.3. Timers' minimum remains
-0.31.7; the current lock selects Memory/Storage 0.51.13 and Timers 0.31.11.
-Registry availability was verified before locked cache preparation. Canic stays at its explicit adapter
-revision in Cargo.toml; endpoint and lifecycle ownership are unchanged.
+Current direct minimums are IC Build/Host/Testkit 0.69.5, Platform 0.7.0,
+Wire 0.7.18, Memory/Storage 0.52.0, Metrics 0.16.3 and Timers 0.31.14.
+The current lock selects those versions with Platform 0.7.1; the pinned Canic
+adapter still selects Platform 0.6.21 separately. Registry releases were verified
+before locked cache preparation. Endpoint and lifecycle ownership are unchanged.
+Memory 0.52 requires one runtime per physical backing and coordinated consumer
+dependency identities; see the pending [adoption notes](../changelog/0.287.md).
+
+Tooling 0.69.5 registry archives all identify source commit
+`c5b6fae87c6785e831509667ca71617953174604`. Focused Linux qualification passes
+strict CLI/build-helper target lint and the Testkit integration library check,
+67 CLI rendering/diagnostic tests, 41 actual CLI-process tests and 21 build-helper
+tests, including cache reuse and failed artifact publication. The CLI also checks
+on its declared Rust 1.96 minimum. No separate Build/Testkit executable pin is
+maintained by this consumer. Native macOS, installed browser/PocketIC workflows,
+full gates and performance deltas have not been requalified for this graph;
+the earlier release evidence below belongs to its recorded versions.
 
 Platform 0.7.0 removes Candid frontend compiler exports that this workspace does
 not use. Its Principal, Account, executor, ic0 and CDK entry modules match the
@@ -113,12 +125,12 @@ The earlier Tooling 0.69.0 qualification used sources published from
 `f268aef5d205e51811e934648afcd13f026635f1`. Its seven consumed package archives
 contain unchanged Rust sources relative to 0.68.12; the coordinated release
 aligns their Platform-owned Principal identity with IcyDB's existing 0.7
-selection. Current Tooling 0.69.3 is published from
+selection. Earlier Tooling 0.69.3 was published from
 `e3a71a922b1604f53b3e5a1530e154aec96e2a81`; all seven consumed
 registry archives were prepared without changing their existing locked selection.
 Its Testkit exposes mutable client access while retaining instance/server custody.
 The three installed browser fixtures consume that API directly, removing local
-client/server splitting. Platform 0.7.0 remains the registry selection.
+client/server splitting. That qualification used Platform 0.7.0.
 
 Shared Tooling 0.27.3 adds independently selected source-commit verification,
 report-only unattended maintenance with restricted permissions, and an optional
@@ -216,7 +228,7 @@ Native macOS, browser and full release gates remain separate qualification
 obligations. Deployment artifact dependency exclusion enforcement remains
 tracked separately in #378.
 
-Tooling 0.69.3 is qualified locally on Linux through strict Core, CLI, build
+Tooling 0.69.3 was qualified locally on Linux through strict Core, CLI, build
 and affected integration-target linting; focused index, build-cache and CLI
 process tests; and the actual Shared formatting/hook, setup and release-adapter
 fixtures. All three maintained installed Chromium subjects pass with

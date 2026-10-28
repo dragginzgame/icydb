@@ -116,6 +116,12 @@ impl Memory for LimitedMemory {
     }
 }
 
+impl ic_memory::MemoryBacking for LimitedMemory {
+    fn backing_identity(&self) -> ic_memory::BackingIdentity {
+        ic_memory::MemoryBacking::backing_identity(&self.bytes)
+    }
+}
+
 #[test]
 fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     use ic_memory::RuntimeGrowError;
@@ -618,4 +624,47 @@ fn cold_reopen_with_a_wider_host_pool_preserves_keys_ids_and_payloads() {
     let mut bytes = [0; 16];
     reopened.open_memory(KEY).unwrap().read(0, &mut bytes);
     assert_eq!(&bytes, b"retained-journal");
+}
+
+#[test]
+fn wrapped_backing_custody_survives_detached_handles_and_reopens_after_drop() {
+    let backing = LimitedMemory::default();
+    backing.limit.set(u64::MAX);
+    let config = MemoryManagerConfig::new(1).unwrap();
+    let mut host = MemoryRuntime::new_with_config(backing.clone(), config).unwrap();
+    host.bootstrap(
+        &snapshot(&requests("main", &[])),
+        &pool(),
+        &HostPolicy::default(),
+    )
+    .unwrap();
+    let handle = host.open_memory("icydb.main.commit.control.v1").unwrap();
+    handle.grow(1).unwrap();
+    handle.write(0, b"retained");
+    let before = backing.bytes.borrow().clone();
+    assert!(matches!(
+        MemoryRuntime::new_with_config(backing.clone(), config),
+        Err(RuntimeConstructionError::BackingAlreadyClaimed)
+    ));
+    drop(host);
+    assert!(matches!(
+        MemoryRuntime::new_with_config(backing.clone(), config),
+        Err(RuntimeConstructionError::BackingAlreadyClaimed)
+    ));
+    assert_eq!(*backing.bytes.borrow(), before);
+    drop(handle);
+    let mut reopened = MemoryRuntime::new_with_config(backing, config).unwrap();
+    reopened
+        .bootstrap(
+            &snapshot(&requests("main", &[])),
+            &pool(),
+            &HostPolicy::default(),
+        )
+        .unwrap();
+    let mut payload = [0; 8];
+    reopened
+        .open_memory("icydb.main.commit.control.v1")
+        .unwrap()
+        .read(0, &mut payload);
+    assert_eq!(&payload, b"retained");
 }

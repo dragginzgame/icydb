@@ -5,6 +5,50 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.287.0]
+
+### ⚠️ Breaking
+
+- Adopt published IC Memory/Storage 0.52.0 and Timers 0.31.14. Hosts must align
+  Memory dependencies and share one runtime per backing; custom backings now
+  provide physical identity. Stable formats remain unchanged.
+
+### 🔧 Changed
+
+- Adopt published IC Build/Host/Testkit 0.69.5 with unchanged feature selections.
+
+### 🧹 Cleanup
+
+- Share aggregate explain terminal traversal while retaining text/JSON framing
+  and failure order
+  ([#504 — Aggregate explain traversal](https://github.com/dragginzgame/icydb/issues/504)).
+- Share accepted-index metadata copying for rename and nullability changes,
+  preserving identity, generation and predicates
+  ([#505 — Index snapshot metadata](https://github.com/dragginzgame/icydb/issues/505)).
+- Share MIN/MAX value ownership dispatch while retaining borrowed-input behavior
+  and reducer variant checks
+  ([#518 — Extremum input ownership](https://github.com/dragginzgame/icydb/issues/518)).
+- Share explain-limit diagnostic construction while retaining distinct output
+  and depth failures and their exact limit facts
+  ([#511 — Explain limit diagnostics](https://github.com/dragginzgame/icydb/issues/511)).
+- Keep CLI diagnostic labels and default messages in one exhaustive mapping,
+  preserving their existing text
+  ([#520 — Diagnostic code descriptions](https://github.com/dragginzgame/icydb/issues/520)).
+- Share union/intersection fingerprint traversal while preserving byte ordering
+  and construction-budget admission
+  ([#508 — Access set fingerprints](https://github.com/dragginzgame/icydb/issues/508)).
+- Share migration and lineage accepted-head encoding without changing stored bytes
+  or lineage validation
+  ([#503 — Accepted head encoding](https://github.com/dragginzgame/icydb/issues/503)).
+- Share checked decimal-to-float conversion while preserving function domains
+  and typed conversion failures
+  ([#517 — Decimal float conversion](https://github.com/dragginzgame/icydb/issues/517)).
+- Reuse accepted-schema field lookup across DDL changes while preserving each
+  operation's typed errors and validation order
+  ([#519 — DDL field candidates repeat lookup](https://github.com/dragginzgame/icydb/issues/519)).
+
+See [detailed notes](docs/changelog/0.287.md).
+
 ## [0.286.3] - 2026-10-28
 
 ### 🔧 Changed

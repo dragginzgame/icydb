@@ -883,76 +883,94 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
 }
 
 const fn code_label(code: DiagnosticCode) -> &'static str {
-    match code {
-        DiagnosticCode::QueryExactCountMetadataUnavailable => {
-            "E_QUERY_EXACT_COUNT_METADATA_UNAVAILABLE"
-        }
-        DiagnosticCode::QueryValidate => "E_QUERY_VALIDATE",
-        DiagnosticCode::QueryIntent => "E_QUERY_INTENT",
-        DiagnosticCode::QueryPlan => "E_QUERY_PLAN",
-        DiagnosticCode::QueryReadAdmission => "E_QUERY_READ_ADMISSION",
-        DiagnosticCode::QueryUnorderedPagination => "E_QUERY_UNORDERED_PAGINATION",
-        DiagnosticCode::QueryInvalidContinuationCursor => "E_QUERY_INVALID_CONTINUATION_CURSOR",
-        DiagnosticCode::QueryNotFound => "E_QUERY_NOT_FOUND",
-        DiagnosticCode::QueryNotUnique => "E_QUERY_NOT_UNIQUE",
-        DiagnosticCode::QueryNumericOverflow => "E_QUERY_NUMERIC_OVERFLOW",
-        DiagnosticCode::QueryNumericNotRepresentable => "E_QUERY_NUMERIC_NOT_REPRESENTABLE",
-        DiagnosticCode::QueryUnknownAggregateTargetField => {
-            "E_QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD"
-        }
-        DiagnosticCode::QueryUnsupportedProjection => "E_QUERY_UNSUPPORTED_PROJECTION",
-        DiagnosticCode::QueryUnsupportedSqlFeature => "E_QUERY_UNSUPPORTED_SQL_FEATURE",
-        DiagnosticCode::QuerySqlSurfaceMismatch => "E_QUERY_SQL_SURFACE_MISMATCH",
-        DiagnosticCode::QuerySqlWriteBoundary => "E_QUERY_SQL_WRITE_BOUNDARY",
-        DiagnosticCode::SchemaDdlAdmission => "E_SCHEMA_DDL_ADMISSION",
-        DiagnosticCode::StoreNotFound => "E_STORE_NOT_FOUND",
-        DiagnosticCode::StoreCorruption => "E_STORE_CORRUPTION",
-        DiagnosticCode::StoreInvariantViolation => "E_STORE_INVARIANT_VIOLATION",
-        DiagnosticCode::RuntimeCorruption => "E_RUNTIME_CORRUPTION",
-        DiagnosticCode::RuntimeIncompatiblePersistedFormat => {
-            "E_RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT"
-        }
-        DiagnosticCode::RuntimeInvariantViolation => "E_RUNTIME_INVARIANT_VIOLATION",
-        DiagnosticCode::RuntimeConflict => "E_RUNTIME_CONFLICT",
-        DiagnosticCode::RuntimeNotFound => "E_RUNTIME_NOT_FOUND",
-        DiagnosticCode::RuntimeUnsupported => "E_RUNTIME_UNSUPPORTED",
-        DiagnosticCode::RuntimeInternal => "E_RUNTIME_INTERNAL",
-    }
+    code_description(code).0
 }
 
 const fn code_text(code: DiagnosticCode) -> &'static str {
+    code_description(code).1
+}
+
+// Keep stable labels and their fallback sentences together so a new code has
+// one exhaustive presentation entry. Detailed diagnostics retain their own text.
+const fn code_description(code: DiagnosticCode) -> (&'static str, &'static str) {
     match code {
-        DiagnosticCode::QueryExactCountMetadataUnavailable => {
-            "exact-count metadata is unavailable; no rows were scanned"
+        DiagnosticCode::QueryExactCountMetadataUnavailable => (
+            "E_QUERY_EXACT_COUNT_METADATA_UNAVAILABLE",
+            "exact-count metadata is unavailable; no rows were scanned",
+        ),
+        DiagnosticCode::QueryValidate => ("E_QUERY_VALIDATE", "query validation failed"),
+        DiagnosticCode::QueryIntent => ("E_QUERY_INTENT", "query intent is invalid"),
+        DiagnosticCode::QueryPlan => ("E_QUERY_PLAN", "query planning failed"),
+        DiagnosticCode::QueryReadAdmission => {
+            ("E_QUERY_READ_ADMISSION", "query read admission rejected")
         }
-        DiagnosticCode::QueryValidate => "query validation failed",
-        DiagnosticCode::QueryIntent => "query intent is invalid",
-        DiagnosticCode::QueryPlan => "query planning failed",
-        DiagnosticCode::QueryReadAdmission => "query read admission rejected",
-        DiagnosticCode::QueryUnorderedPagination => "pagination requires deterministic ordering",
-        DiagnosticCode::QueryInvalidContinuationCursor => "continuation cursor is invalid",
-        DiagnosticCode::QueryNotFound => "query expected one row but found none",
-        DiagnosticCode::QueryNotUnique => "query expected one row but found multiple rows",
-        DiagnosticCode::QueryNumericOverflow => "numeric operation overflowed",
-        DiagnosticCode::QueryNumericNotRepresentable => "numeric result is not representable",
-        DiagnosticCode::QueryUnknownAggregateTargetField => "unknown aggregate target field",
-        DiagnosticCode::QueryUnsupportedProjection => "query projection is not supported",
-        DiagnosticCode::QueryUnsupportedSqlFeature => "SQL feature is not supported",
-        DiagnosticCode::QuerySqlSurfaceMismatch => "SQL statement used the wrong endpoint surface",
-        DiagnosticCode::QuerySqlWriteBoundary => "SQL write boundary rejected",
-        DiagnosticCode::SchemaDdlAdmission => "SQL DDL admission rejected",
-        DiagnosticCode::StoreNotFound => "store key was not found",
-        DiagnosticCode::StoreCorruption => "store corruption detected",
-        DiagnosticCode::StoreInvariantViolation => "store invariant was violated",
-        DiagnosticCode::RuntimeCorruption => "runtime corruption detected",
-        DiagnosticCode::RuntimeIncompatiblePersistedFormat => {
-            "persisted data format is incompatible"
+        DiagnosticCode::QueryUnorderedPagination => (
+            "E_QUERY_UNORDERED_PAGINATION",
+            "pagination requires deterministic ordering",
+        ),
+        DiagnosticCode::QueryInvalidContinuationCursor => (
+            "E_QUERY_INVALID_CONTINUATION_CURSOR",
+            "continuation cursor is invalid",
+        ),
+        DiagnosticCode::QueryNotFound => {
+            ("E_QUERY_NOT_FOUND", "query expected one row but found none")
         }
-        DiagnosticCode::RuntimeInvariantViolation => "runtime invariant was violated",
-        DiagnosticCode::RuntimeConflict => "runtime conflict detected",
-        DiagnosticCode::RuntimeNotFound => "runtime item was not found",
-        DiagnosticCode::RuntimeUnsupported => "operation is not supported",
-        DiagnosticCode::RuntimeInternal => "internal runtime failure",
+        DiagnosticCode::QueryNotUnique => (
+            "E_QUERY_NOT_UNIQUE",
+            "query expected one row but found multiple rows",
+        ),
+        DiagnosticCode::QueryNumericOverflow => {
+            ("E_QUERY_NUMERIC_OVERFLOW", "numeric operation overflowed")
+        }
+        DiagnosticCode::QueryNumericNotRepresentable => (
+            "E_QUERY_NUMERIC_NOT_REPRESENTABLE",
+            "numeric result is not representable",
+        ),
+        DiagnosticCode::QueryUnknownAggregateTargetField => (
+            "E_QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD",
+            "unknown aggregate target field",
+        ),
+        DiagnosticCode::QueryUnsupportedProjection => (
+            "E_QUERY_UNSUPPORTED_PROJECTION",
+            "query projection is not supported",
+        ),
+        DiagnosticCode::QueryUnsupportedSqlFeature => (
+            "E_QUERY_UNSUPPORTED_SQL_FEATURE",
+            "SQL feature is not supported",
+        ),
+        DiagnosticCode::QuerySqlSurfaceMismatch => (
+            "E_QUERY_SQL_SURFACE_MISMATCH",
+            "SQL statement used the wrong endpoint surface",
+        ),
+        DiagnosticCode::QuerySqlWriteBoundary => {
+            ("E_QUERY_SQL_WRITE_BOUNDARY", "SQL write boundary rejected")
+        }
+        DiagnosticCode::SchemaDdlAdmission => {
+            ("E_SCHEMA_DDL_ADMISSION", "SQL DDL admission rejected")
+        }
+        DiagnosticCode::StoreNotFound => ("E_STORE_NOT_FOUND", "store key was not found"),
+        DiagnosticCode::StoreCorruption => ("E_STORE_CORRUPTION", "store corruption detected"),
+        DiagnosticCode::StoreInvariantViolation => (
+            "E_STORE_INVARIANT_VIOLATION",
+            "store invariant was violated",
+        ),
+        DiagnosticCode::RuntimeCorruption => {
+            ("E_RUNTIME_CORRUPTION", "runtime corruption detected")
+        }
+        DiagnosticCode::RuntimeIncompatiblePersistedFormat => (
+            "E_RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT",
+            "persisted data format is incompatible",
+        ),
+        DiagnosticCode::RuntimeInvariantViolation => (
+            "E_RUNTIME_INVARIANT_VIOLATION",
+            "runtime invariant was violated",
+        ),
+        DiagnosticCode::RuntimeConflict => ("E_RUNTIME_CONFLICT", "runtime conflict detected"),
+        DiagnosticCode::RuntimeNotFound => ("E_RUNTIME_NOT_FOUND", "runtime item was not found"),
+        DiagnosticCode::RuntimeUnsupported => {
+            ("E_RUNTIME_UNSUPPORTED", "operation is not supported")
+        }
+        DiagnosticCode::RuntimeInternal => ("E_RUNTIME_INTERNAL", "internal runtime failure"),
     }
 }
 
