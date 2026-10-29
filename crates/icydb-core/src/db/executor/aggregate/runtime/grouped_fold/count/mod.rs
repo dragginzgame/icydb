@@ -18,14 +18,17 @@ use crate::{
                 runtime::grouped_fold::{
                     bundle::OrderedGroupFoldState,
                     count::{
-                        finalize::finalize_grouped_count_page, ingest::fold_row_view_count_rows,
-                        state::GroupedCountState,
+                        finalize::finalize_grouped_count_page,
+                        ingest::fold_single_field_count_rows, state::GroupedCountState,
                     },
                     dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                     generic::OrderedGroupedPageSelection,
                     utils::resolve_group_field_value,
                 },
-                runtime::grouped_output::finalize_grouped_output,
+                runtime::{
+                    fold_filtered_source_rows, fold_filtered_source_rows_until,
+                    grouped_output::finalize_grouped_output,
+                },
                 value_reducer::finalize_count,
             },
             group::GroupKey,
@@ -47,10 +50,6 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) use ingest::materi
 
 // Execute grouped `COUNT(*)` through a dedicated fold path that keeps only one
 // canonical grouped-count map instead of the generic grouped reducer stack.
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep count-state admission and finalization around the four statically selected ingest shapes"
-)]
 pub(super) fn execute_single_grouped_count_fold_stage(
     route: &GroupedRouteStage,
     stream: &mut GroupedStreamStage,
@@ -69,10 +68,11 @@ pub(super) fn execute_single_grouped_count_fold_stage(
         );
     }
 
-    let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
-    let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let consistency = route.consistency();
-    let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
+    let key_path = {
+        let (_, preparation, _) = stream.fold_inputs_mut();
+        GroupedCountKeyPath::for_route(route, preparation.effective_runtime_filter_program())
+    };
     let mut grouped_counts = GroupedCountState::new();
     // Empty global input still owns one real, budgeted result group.
     if route.group_fields().is_empty() {
@@ -84,52 +84,38 @@ pub(super) fn execute_single_grouped_count_fold_stage(
             grouped_execution_context,
         )?;
     }
-    let mut filtered_rows = 0usize;
 
-    // Phase 1: fold grouped source rows directly into one canonical count map.
-    match key_path {
+    let filtered_rows = match key_path {
         GroupedCountKeyPath::DirectSingleField { group_field_index } => {
-            while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-                let Some(group_value) = row_runtime.read_single_group_value(
-                    consistency,
-                    &data_key,
-                    group_field_index,
-                )?
-                else {
-                    continue;
-                };
-                filtered_rows = filtered_rows.saturating_add(1);
-                grouped_counts
-                    .increment_single_group_value(group_value, grouped_execution_context)?;
-            }
+            fold_single_field_count_rows(consistency, stream, group_field_index, |value| {
+                grouped_counts.increment_single_group_value(value, grouped_execution_context)?;
+                Ok(false)
+            })?
+            .0
         }
         GroupedCountKeyPath::RowView {
             probe_kind: GroupedCountProbeKind::Borrowed,
         } => {
-            fold_row_view_count_rows(
-                route,
-                row_runtime,
-                resolved,
-                effective_runtime_filter_program,
-                grouped_execution_context,
-                &mut grouped_counts,
-                &mut filtered_rows,
-                GroupedCountState::increment_row_borrowed_group_probe,
-            )?;
+            let Some(fields) = route.group_fields().as_direct() else {
+                return Err(InternalError::query_executor_invariant());
+            };
+            fold_filtered_source_rows(consistency, stream, |_, row| {
+                grouped_counts.increment_row_borrowed_group_probe(
+                    row,
+                    fields,
+                    grouped_execution_context,
+                )
+            })?
         }
         GroupedCountKeyPath::RowView {
             probe_kind: GroupedCountProbeKind::Owned,
         } => {
-            fold_row_view_count_rows(
-                route,
-                row_runtime,
-                resolved,
-                effective_runtime_filter_program,
-                grouped_execution_context,
-                &mut grouped_counts,
-                &mut filtered_rows,
-                GroupedCountState::increment_row_owned_group_key,
-            )?;
+            let Some(fields) = route.group_fields().as_direct() else {
+                return Err(InternalError::query_executor_invariant());
+            };
+            fold_filtered_source_rows(consistency, stream, |_, row| {
+                grouped_counts.increment_row_owned_group_key(row, fields, grouped_execution_context)
+            })?
         }
         GroupedCountKeyPath::RowView {
             probe_kind: GroupedCountProbeKind::PathAware,
@@ -137,24 +123,15 @@ pub(super) fn execute_single_grouped_count_fold_stage(
             let Some(fields) = route.group_fields().as_path_aware() else {
                 return Err(InternalError::query_executor_invariant());
             };
-            while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-                let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
-                    continue;
-                };
-                if let Some(program) = effective_runtime_filter_program
-                    && !row_view.eval_filter_program(program)?
-                {
-                    continue;
-                }
+            fold_filtered_source_rows(consistency, stream, |_, row| {
                 grouped_counts.increment_row_path_group_probe(
-                    &row_view,
+                    row,
                     fields,
                     grouped_execution_context,
-                )?;
-                filtered_rows = filtered_rows.saturating_add(1);
-            }
+                )
+            })?
         }
-    }
+    };
 
     // Phase 2: page and project the finalized grouped-count rows directly so
     // this dedicated path does not round-trip through the generic candidate
@@ -191,71 +168,42 @@ fn execute_ordered_grouped_count_fold_stage(
             .map_err(GroupError::into_internal_error)?;
     }
     let mut selection = OrderedGroupedPageSelection::new(route, grouped_projection_spec, 1)?;
-    let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
-    let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let consistency = route.consistency();
-    let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
-    let mut filtered_rows = 0usize;
-    let mut early_scan_stop = false;
-
-    match key_path {
+    let key_path = {
+        let (_, preparation, _) = stream.fold_inputs_mut();
+        GroupedCountKeyPath::for_route(route, preparation.effective_runtime_filter_program())
+    };
+    let (filtered_rows, early_scan_stop) = match key_path {
         GroupedCountKeyPath::DirectSingleField { group_field_index } => {
-            while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-                let Some(group_value) = row_runtime.read_single_group_value(
-                    consistency,
-                    &data_key,
-                    group_field_index,
-                )?
-                else {
-                    continue;
-                };
-                early_scan_stop = apply_ordered_count_row(
+            fold_single_field_count_rows(consistency, stream, group_field_index, |value| {
+                apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,
                     route,
-                    || std::iter::once(Ok(&group_value)),
+                    || std::iter::once(Ok(&value)),
                     &mut selection,
-                )?;
-                if early_scan_stop {
-                    break;
-                }
-                filtered_rows = filtered_rows.saturating_add(1);
-            }
+                )
+            })?
         }
         GroupedCountKeyPath::RowView { .. } => {
-            while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-                let row_view = row_runtime.read_row_view(consistency, &data_key);
-                let Some(row_view) = row_view? else {
-                    continue;
-                };
-                if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
-                    && !row_view.eval_filter_program(effective_runtime_filter_program)?
-                {
-                    continue;
-                }
-                early_scan_stop = apply_ordered_count_row(
+            fold_filtered_source_rows_until(consistency, stream, |_, row| {
+                apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,
                     route,
                     || {
                         route.group_fields().iter().map(|field| match field {
-                            GroupFieldRef::Direct(field) => {
-                                row_view.require_slot_value(field.index())
-                            }
+                            GroupFieldRef::Direct(field) => row.require_slot_value(field.index()),
                             GroupFieldRef::PathAware(field) => {
-                                resolve_group_field_value(&row_view, field)
+                                resolve_group_field_value(row, field)
                             }
                         })
                     },
                     &mut selection,
-                )?;
-                if early_scan_stop {
-                    break;
-                }
-                filtered_rows = filtered_rows.saturating_add(1);
-            }
+                )
+            })?
         }
-    }
+    };
 
     if !early_scan_stop {
         transitions

@@ -455,6 +455,46 @@ fn entity_local_references_and_current_names_are_closed() {
 }
 
 #[test]
+fn entity_member_duplicates_precede_field_policy_admission() {
+    let key = FieldSourceKey::try_new("id").unwrap();
+    let invalid = FieldFragment::new(
+        SchemaName::try_new("id").unwrap(),
+        FieldType::Scalar(ScalarType::Nat64),
+        false,
+        FieldInsertPolicy::Required,
+        Some(crate::FieldManagementPolicy::CreatedAt),
+    );
+    let index = crate::IndexFragment::try_new(
+        SchemaName::try_new("by_id").unwrap(),
+        vec![crate::IndexKeyFragment::Field(key.clone())],
+        false,
+        None,
+    )
+    .unwrap();
+    let construct = |indexes| {
+        EntityFragment::try_new(
+            SchemaName::try_new("MemberAdmission").unwrap(),
+            version_one(),
+            vec![invalid.clone()],
+            vec![key.clone()],
+            indexes,
+            Vec::new(),
+            Vec::new(),
+        )
+    };
+    // Duplicate admission spans all lists before any field is validated. Once
+    // that conflict is removed, the same field exposes its invalid time policy.
+    assert_eq!(
+        construct(vec![index.clone(), index.clone()]),
+        Err(SchemaContractError::DuplicateSourceKey),
+    );
+    assert_eq!(
+        construct(vec![index]),
+        Err(SchemaContractError::InvalidFieldPolicy)
+    );
+}
+
+#[test]
 fn named_collection_fragments_roundtrip_canonically() {
     let fragment = SchemaFragment::try_new(
         Vec::new(),

@@ -3,14 +3,16 @@
 //! Does not own: grouped planning policy or shared grouped fold mechanics.
 //! Boundary: consumes structural grouped row/runtime contracts and emits one grouped row.
 
-use crate::db::executor::aggregate::runtime::grouped_distinct::global_distinct_field_target_and_kind;
+use crate::db::executor::aggregate::runtime::{
+    fold_filtered_source_rows, grouped_distinct::global_distinct_field_target_and_kind,
+};
 use crate::{
     db::{
         executor::{
             RuntimeGroupedRow,
             aggregate::{
-                AggregateKind, EffectiveRuntimeFilterProgram, ExecutionContext,
-                GlobalDistinctAggregateKind, GroupError, GroupedDistinctExecutionStrategy,
+                AggregateKind, ExecutionContext, GlobalDistinctAggregateKind, GroupError,
+                GroupedDistinctExecutionStrategy,
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     resolve_aggregate_target_slot_from_planner_slot,
@@ -19,8 +21,7 @@ use crate::{
                 value_reducer::ValueReducerState,
             },
             group::GroupKeySet,
-            pipeline::contracts::ResolvedExecutionKeyStream,
-            pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
+            pipeline::runtime::{GroupedStreamStage, RowView},
         },
         predicate::MissingRowPolicy,
     },
@@ -183,9 +184,7 @@ impl GlobalDistinctFieldAccumulator {
 // stream and emit the singleton grouped row expected by grouped DISTINCT routing.
 pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     consistency: MissingRowPolicy,
-    row_runtime: &StructuralGroupedRowRuntime,
-    resolved: &mut ResolvedExecutionKeyStream,
-    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
+    stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     execution_strategy: &GroupedDistinctExecutionStrategy,
 ) -> Result<RuntimeGroupedRow, InternalError> {
@@ -195,19 +194,11 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     let mut distinct_values = GroupKeySet::new();
     let mut accumulator = GlobalDistinctFieldAccumulator::new(reducer_spec);
 
-    // Phase 2: walk the resolved key stream, admit distinct values, and update
-    // reducer state in one straight-line loop.
-    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-        let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
-            continue;
-        };
-        if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
-            && !row_view.eval_filter_program(effective_runtime_filter_program)?
-        {
-            continue;
-        }
-        let Some(distinct_value) = dispatcher.extract(&row_view)? else {
-            continue;
+    // Phase 2: share source reading/filtering while keeping DISTINCT admission
+    // and reducer updates owned by this terminal.
+    fold_filtered_source_rows(consistency, stream, |_data_key, row_view| {
+        let Some(distinct_value) = dispatcher.extract(row_view)? else {
+            return Ok(());
         };
         let admitted = grouped_execution_context
             .admit_distinct_value(
@@ -219,11 +210,10 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
             )
             .map_err(GroupError::into_internal_error)?;
         if !admitted {
-            continue;
+            return Ok(());
         }
-
-        accumulator.apply_distinct_value(distinct_value)?;
-    }
+        accumulator.apply_distinct_value(distinct_value)
+    })?;
 
     // Phase 3: emit the singleton grouped row owned by grouped global DISTINCT execution.
     Ok(RuntimeGroupedRow::new(

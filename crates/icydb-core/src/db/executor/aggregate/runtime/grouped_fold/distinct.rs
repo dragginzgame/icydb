@@ -32,13 +32,9 @@ pub(super) fn execute_global_distinct_grouped_fold_stage(
     grouped_execution_context
         .record_implicit_single_group()
         .map_err(GroupError::into_internal_error)?;
-    let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
-    let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let global_row = execute_global_distinct_field_aggregate(
         route.consistency(),
-        row_runtime,
-        resolved,
-        effective_runtime_filter_program,
+        stream,
         grouped_execution_context,
         route.grouped_distinct_execution_strategy(),
     )?;

@@ -7,6 +7,8 @@ mod historical_scalar_tests;
 mod historical_update_tests;
 mod index_readiness_tests;
 #[cfg(feature = "sql")]
+mod mutation_constraint_tests;
+#[cfg(feature = "sql")]
 mod mutation_job_authority_tests;
 mod nested_relation_tests;
 #[cfg(feature = "sql")]
@@ -1581,63 +1583,70 @@ fn ordered_grouped_pages_close_a_group_spanning_physical_refills_before_resume()
         .expect("ordered grouped continuation rows should insert");
     assert_eq!(inserted.rows.len(), 74);
 
-    let query = DynamicQuery::new(ENTITY_NAME)
-        .group_by("payload")
-        .aggregate(crate::db::count())
-        .aggregate(crate::db::sum("id"))
-        .order_by(asc("payload"))
-        .grouped_limits(4, 16 * 1_024)
-        .limit(1);
-    let expected = [
-        (10_u64, 70_u64, crate::types::Decimal::new(2_485, 0)),
-        (20, 3, crate::types::Decimal::new(216, 0)),
-        (30, 1, crate::types::Decimal::new(74, 0)),
-    ];
-    let mut continuation: Option<String> = None;
-    let mut seen_cursors = std::collections::BTreeSet::new();
-
-    for (page_index, (group_key, row_count, id_sum)) in expected.into_iter().enumerate() {
-        let request = continuation.as_ref().map_or_else(
-            || query.clone(),
-            |cursor| query.clone().cursor(cursor.clone()),
-        );
-        let entries_before = IndexStore::current_entry_read_count();
-        let rows_before = DataStore::current_get_call_count();
-        let page = session
-            .execute_trusted_dynamic_grouped_query(&request)
-            .unwrap_or_else(|error| {
-                panic!("ordered grouped page {page_index} should execute: {error:?}")
-            });
-        let entries_read = IndexStore::current_entry_read_count().saturating_sub(entries_before);
-        let rows_read = DataStore::current_get_call_count().saturating_sub(rows_before);
-
-        assert_eq!(page.row_count, 1);
-        let [row] = page.rows.as_slice() else {
-            panic!("ordered grouped page must contain exactly one closed group")
-        };
-        assert_eq!(row.group_key(), &[OutputValue::nat64(group_key)]);
-        assert_eq!(
-            row.aggregate_values(),
-            &[OutputValue::nat64(row_count), OutputValue::decimal(id_sum),],
-        );
-        if page_index == 0 {
-            assert!(
-                entries_read.saturating_add(rows_read) >= 70,
-                "the first closed group must span the maintained 64-entry physical refill",
-            );
+    // Qualify the dedicated COUNT reader alongside the general grouped bundle.
+    for count_only in [true, false] {
+        let mut query = DynamicQuery::new(ENTITY_NAME)
+            .group_by("payload")
+            .aggregate(crate::db::count())
+            .order_by(asc("payload"))
+            .grouped_limits(4, 16 * 1_024)
+            .limit(1);
+        if !count_only {
+            query = query.aggregate(crate::db::sum("id"));
         }
+        let expected = [
+            (10_u64, 70_u64, crate::types::Decimal::new(2_485, 0)),
+            (20, 3, crate::types::Decimal::new(216, 0)),
+            (30, 1, crate::types::Decimal::new(74, 0)),
+        ];
+        let mut continuation: Option<String> = None;
+        let mut seen_cursors = std::collections::BTreeSet::new();
 
-        continuation = page.next_cursor;
-        if page_index + 1 < expected.len() {
-            let cursor = continuation
-                .as_ref()
-                .expect("another closed group should retain continuation");
-            assert!(
-                seen_cursors.insert(cursor.clone()),
-                "ordered grouped continuation must advance monotonically",
+        for (page_index, (group_key, row_count, id_sum)) in expected.into_iter().enumerate() {
+            let request = continuation.as_ref().map_or_else(
+                || query.clone(),
+                |cursor| query.clone().cursor(cursor.clone()),
             );
-        } else {
-            assert_eq!(continuation, None);
+            let entries_before = IndexStore::current_entry_read_count();
+            let rows_before = DataStore::current_get_call_count();
+            let page = session
+                .execute_trusted_dynamic_grouped_query(&request)
+                .unwrap_or_else(|error| {
+                    panic!("ordered grouped page {page_index} should execute: {error:?}")
+                });
+            let entries_read =
+                IndexStore::current_entry_read_count().saturating_sub(entries_before);
+            let rows_read = DataStore::current_get_call_count().saturating_sub(rows_before);
+
+            assert_eq!(page.row_count, 1);
+            let [row] = page.rows.as_slice() else {
+                panic!("ordered grouped page must contain exactly one closed group")
+            };
+            assert_eq!(row.group_key(), &[OutputValue::nat64(group_key)]);
+            let values = [OutputValue::nat64(row_count), OutputValue::decimal(id_sum)];
+            assert_eq!(
+                row.aggregate_values(),
+                &values[..if count_only { 1 } else { 2 }]
+            );
+            if page_index == 0 {
+                assert!(
+                    entries_read.saturating_add(rows_read) >= 70,
+                    "the first closed group must span the maintained 64-entry physical refill",
+                );
+            }
+
+            continuation = page.next_cursor;
+            if page_index + 1 < expected.len() {
+                let cursor = continuation
+                    .as_ref()
+                    .expect("another closed group should retain continuation");
+                assert!(
+                    seen_cursors.insert(cursor.clone()),
+                    "ordered grouped continuation must advance monotonically",
+                );
+            } else {
+                assert_eq!(continuation, None);
+            }
         }
     }
 }

@@ -1,8 +1,8 @@
 # Shared Tooling snapshot v1
-# version	0.27.6
+# version	0.27.7
 format	1
 source	https://github.com/dragginzgame/shared-tooling
-revision	5a72359b5be19d5221334cf2c9b3204621d3f3f6
+revision	11d519c604b1727a2bf6272557a97e770a63b29f
 # entrypoint	scripts/ci/verify-file-checksum.sh
 # entrypoint	scripts/ci/verify-shared-tooling-snapshot.sh
 # entrypoint	scripts/ci/run-validation-targets.sh
@@ -105,11 +105,11 @@ file	36f36552df36ea6e082f1fd1f14661d40b281ea01294ffda2eb6c6ec91bc6907	x	scripts/
 file	9495336bbafd7a82d7446246c85571e5ccb5f17674ad92c83f008275f11c1201	x	scripts/ci/verify-shared-tooling-snapshot.sh
 file	6e7921c970b66c18a612fc5f82b88bfce1d91460618a8ff4276f0a2c62a19213	x	scripts/ci/run-validation-targets.sh
 file	d68abbb5f4a7d03e89b4e5969a545f541c9a122dd2bd6429fc4a99e046f7871a	x	scripts/dev/cloc.sh
-file	c530a64f4f4b064471e656cd72b00f47420756f4563551742b1d2d29a75aad68	-	DRAGGINZGAME.md
+file	e5961b1349fc4eee3be7d61f9b741108d5f00f6abaa2cf24a3668ce39cfb6ff3	-	DRAGGINZGAME.md
 file	59f6cb0b47fcfa698396776bbb391737292ebf34457ad7c65803fe7b36961499	-	docs/principles/README.md
 file	9315c9faffa4f36cfab496342535bf49d728ddd2111e8e127cbc44b3fac89ce7	-	docs/principles/decision-artifact-discipline.md
 file	0e95bbdb5bdaabf587297b20324b034979a7e0ff81be5cee9ac440f6fdcdb0d3	-	docs/principles/reviewable-changes.md
-file	fe4aae95898f3dae972faa75ef15e26930644db321141ee95c9ac41c5bf98c3f	-	docs/principles/rust-code-hygiene.md
+file	bb6a77049ad6c027e59d3aafb34c7edfe2b9a0220620e42a0e6b978b2e0b6225	-	docs/principles/rust-code-hygiene.md
 file	457fd38e0073c91ba470b918d4facd9faac3c5200ebd38c97e9d6b76acdaea55	-	docs/principles/simplicity-and-maintainability.md
 file	07b3afbff894304ed78e72372bb96d796666cfeb2ee71cea809c93c1234efc41	-	docs/consuming-snapshots.md
 file	dfab70f4facaba0b1befa34db70c51587442b55fe40ba1de0fef5b9475cc9778	-	docs/supported-hosts.md
@@ -127,7 +127,7 @@ file	b0b4c00e2183a787791314f21d33d270b8003a1ec67286ce8a681b028214ff75	-	rules/de
 file	a008802ec5ba5950b658b7e0fe6e0a24164cd0f5f0cd946e01bf2f0784047775	x	scripts/ci/check-dependency-pins.sh
 file	3d56ca1b0c5952b9534ece61b6754ca39e6ec1980d929f09de3dbd967a0c4977	-	scripts/ci/dependency-pins.jq
 file	d5933681ed28d3a4cc34c1d5a6cc5701261f5f947f167863e76178b474861f6e	-	audits/README.md
-file	e85421db06b3b1e5bd88d250487e4cc42b40ac7017261400b5ca92e9710e12ef	-	audits/code-hygiene.md
+file	ab714f6770d43494cfa3c86af0d02d00716942f494a9e97657bdbc959b95f007	-	audits/code-hygiene.md
 file	52628e3c08d8c1ac8e258d34ea102daa81253fe78448d5afe406b52e247610d3	-	audits/flow-convergence-and-duplication.md
 file	ffdca09602c44c8aff8fc2a17588b20eb6a56e2e71fb6d42ad75087fdd65819b	-	audits/complexity-and-technical-debt.md
 file	1b64cf2ba0393ab329ec29eb05a696d47ef5933f5ab9bff6e1fe4a7e7b294075	-	audits/module-surface-hardening.md
@@ -199,7 +199,7 @@ file	6eb261f79ff2780422a75e018b091bb119f552a1d155504acacefb7e2e290ba0	x	scripts/
 file	2b771cc01f37951768d129936f3b57fa838da73b68b7e8b087d0e0d99bacf4af	-	scripts/ci/check-runtime-panics.rs
 file	287318bdbe9cd5f1c450d2e992725df6198dc27a8f4b52a037bf9fee3a054aec	-	docs/rust-source-checks.md
 file	f79cb532f6613beb8dd746b9ea7a65b3521a4b85c3e596e134cf8c0d315c3bb4	x	scripts/ci/test-runtime-panics.sh
-file	d39764192049754be5f77b23b6aa6a16db6daeecc8ad69c78bdaab1ded1293a3	-	rules/engineering-details.md
+file	7517f1ef92a43e456a12b215bea9f92f6c1b8443dafea613e3918d941cbfc2dd	-	rules/engineering-details.md
 file	e3aed908dd9b08bf93255328bb056bed57298dab39944e3726aad2726548e653	-	rules/rpc-budgets.md
 file	7f8a58cc55f1cea0546b39bf97b64fee0a0a0e7fe2aaf31712c158cc43b6320c	-	docs/rust-toolchains.md
 file	9aa52699f4f7f8069cddd6b6ec295afc7a781e48b09bf104d2fff8f262a4720d	-	scripts/distribution/maintenance-files.txt

@@ -417,31 +417,52 @@ pub(super) fn project_covering_row_from_decoded_values(
     component_indices: &[usize],
     decoded_values: &[Value],
 ) -> Result<Vec<Value>, InternalError> {
+    project_covering_row_with_component_reader(
+        data_key,
+        fields,
+        component_indices,
+        decoded_values.len(),
+        || {
+            move |position| {
+                decoded_values
+                    .get(position)
+                    .cloned()
+                    .ok_or_else(InternalError::query_executor_invariant)
+            }
+        },
+    )
+}
+
+// Admit work and shape before constructing ownership bookkeeping. All output
+// sources have one walk; only component ownership differs between callers.
+fn project_covering_row_with_component_reader<ReadComponent>(
+    data_key: &DecodedDataStoreKey,
+    fields: &[CoveringReadField],
+    component_indices: &[usize],
+    decoded_value_count: usize,
+    prepare_components: impl FnOnce() -> ReadComponent,
+) -> Result<Vec<Value>, InternalError>
+where
+    ReadComponent: FnMut(usize) -> Result<Value, InternalError>,
+{
     charge_covering_projection_steps(fields.len())?;
-    if component_indices.len() != decoded_values.len() {
+    if component_indices.len() != decoded_value_count {
         return Err(InternalError::query_executor_invariant());
     }
     if let Some(projected) = project_single_primary_key_covering_row(data_key, fields)? {
         return Ok(projected);
     }
-
+    let mut component_value = prepare_components();
     let mut projected = Vec::with_capacity(fields.len());
-
     for field in fields {
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent { component_index }
             | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
-                let Some(position) = component_indices
+                let position = component_indices
                     .iter()
                     .position(|candidate| candidate == component_index)
-                else {
-                    return Err(InternalError::query_executor_invariant());
-                };
-
-                decoded_values
-                    .get(position)
-                    .cloned()
-                    .ok_or_else(InternalError::query_executor_invariant)?
+                    .ok_or_else(InternalError::query_executor_invariant)?;
+                component_value(position)?
             }
             CoveringReadFieldSource::PrimaryKey { component_index } => {
                 data_key.primary_key_component_runtime_value(*component_index)?
@@ -453,7 +474,6 @@ pub(super) fn project_covering_row_from_decoded_values(
         };
         projected.push(value);
     }
-
     Ok(projected)
 }
 
@@ -479,45 +499,24 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
     component_indices: &[usize],
     decoded_values: Vec<Value>,
 ) -> Result<Vec<Value>, InternalError> {
-    charge_covering_projection_steps(fields.len())?;
-    if component_indices.len() != decoded_values.len() {
-        return Err(InternalError::query_executor_invariant());
-    }
-
-    let mut projected = Vec::with_capacity(fields.len());
-    let mut decoded_values = decoded_values;
-    let mut remaining_component_uses =
-        covering_component_position_use_counts(fields, component_indices);
-
-    for field in fields {
-        let value = match &field.source {
-            CoveringReadFieldSource::IndexComponent { component_index }
-            | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
-                let Some(position) = component_indices
-                    .iter()
-                    .position(|candidate| candidate == component_index)
-                else {
-                    return Err(InternalError::query_executor_invariant());
-                };
-
+    project_covering_row_with_component_reader(
+        data_key,
+        fields,
+        component_indices,
+        decoded_values.len(),
+        || {
+            let mut decoded_values = decoded_values;
+            let mut remaining_component_uses =
+                covering_component_position_use_counts(fields, component_indices);
+            move |position| {
                 take_or_clone_last_component_value(
                     decoded_values.as_mut_slice(),
                     remaining_component_uses.as_mut_slice(),
                     position,
-                )?
+                )
             }
-            CoveringReadFieldSource::PrimaryKey { component_index } => {
-                data_key.primary_key_component_runtime_value(*component_index)?
-            }
-            CoveringReadFieldSource::Constant(value) => value.clone(),
-            CoveringReadFieldSource::RowField => {
-                return Err(InternalError::query_executor_invariant());
-            }
-        };
-        projected.push(value);
-    }
-
-    Ok(projected)
+        },
+    )
 }
 
 pub(super) fn project_covering_row_from_single_decoded_value(
@@ -526,65 +525,26 @@ pub(super) fn project_covering_row_from_single_decoded_value(
     component_index: usize,
     decoded_value: Value,
 ) -> Result<Vec<Value>, InternalError> {
-    charge_covering_projection_steps(fields.len())?;
-    let mut projected = Vec::with_capacity(fields.len());
-    let mut decoded_value = Some(decoded_value);
-
-    // Count matching output cells first so the final occurrence can consume the
-    // owned decoded value while earlier duplicate columns keep cloning.
-    let mut remaining_component_uses = fields
-        .iter()
-        .filter(|field| {
-            matches!(
-                &field.source,
-                CoveringReadFieldSource::IndexComponent {
-                    component_index: field_component_index
-                }
-                    | CoveringReadFieldSource::IndexExpressionComponent {
-                    component_index: field_component_index
-                } if *field_component_index == component_index
+    project_covering_row_with_component_reader(data_key, fields, &[component_index], 1, || {
+        // Preserve stack-only single-component bookkeeping and use the same
+        // last-use move as the owned multi-component projector.
+        let mut decoded_values = [decoded_value];
+        let mut remaining_component_uses = [fields.iter().filter(|field| {
+                matches!(
+                    &field.source,
+                    CoveringReadFieldSource::IndexComponent { component_index: index }
+                        | CoveringReadFieldSource::IndexExpressionComponent { component_index: index }
+                        if *index == component_index
+                )
+            }).count()];
+        move |position| {
+            take_or_clone_last_component_value(
+                &mut decoded_values,
+                &mut remaining_component_uses,
+                position,
             )
-        })
-        .count();
-
-    for field in fields {
-        let value = match &field.source {
-            CoveringReadFieldSource::IndexComponent {
-                component_index: field_component_index,
-            }
-            | CoveringReadFieldSource::IndexExpressionComponent {
-                component_index: field_component_index,
-            } => {
-                if *field_component_index != component_index {
-                    return Err(InternalError::query_executor_invariant());
-                }
-
-                // Each projected column owns its value. Duplicate references
-                // clone until the last use, where ownership can move into the
-                // output row directly.
-                remaining_component_uses = remaining_component_uses.saturating_sub(1);
-                if remaining_component_uses == 0 {
-                    decoded_value
-                        .take()
-                        .ok_or_else(InternalError::query_executor_invariant)?
-                } else {
-                    decoded_value
-                        .clone()
-                        .ok_or_else(InternalError::query_executor_invariant)?
-                }
-            }
-            CoveringReadFieldSource::PrimaryKey { component_index } => {
-                data_key.primary_key_component_runtime_value(*component_index)?
-            }
-            CoveringReadFieldSource::Constant(value) => value.clone(),
-            CoveringReadFieldSource::RowField => {
-                return Err(InternalError::query_executor_invariant());
-            }
-        };
-        projected.push(value);
-    }
-
-    Ok(projected)
+        }
+    })
 }
 
 fn charge_covering_projection_steps(count: usize) -> Result<(), InternalError> {

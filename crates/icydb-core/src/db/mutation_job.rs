@@ -111,6 +111,8 @@ pub enum MutationJobRestartReason {
     CandidateExceedsBatchPolicy,
     /// Admitted page work exceeded the execution policy calibrated for it.
     ExecutionBudgetPolicyExceeded,
+    /// An accepted constraint rejected a target row before the page committed.
+    TargetRowRejected,
 }
 
 /// Bounded reason why target mutation execution failed before commit.
@@ -129,7 +131,7 @@ pub enum MutationJobStatus {
     Active,
     /// Stable clean Verify exhaustion committed.
     Completed,
-    /// Authority or policy drift requires a new job.
+    /// Authority, policy or target-row rejection requires a new job.
     RestartRequired(MutationJobRestartReason),
 }
 
@@ -853,6 +855,7 @@ fn write_status(bytes: &mut Vec<u8>, status: MutationJobStatus) {
                 MutationJobRestartReason::ManagedTimestampRegression => 5,
                 MutationJobRestartReason::CandidateExceedsBatchPolicy => 6,
                 MutationJobRestartReason::ExecutionBudgetPolicyExceeded => 7,
+                MutationJobRestartReason::TargetRowRejected => 8,
             });
         }
     }
@@ -872,6 +875,7 @@ fn read_status(reader: &mut ByteReader<'_>) -> Result<MutationJobStatus, Mutatio
                 5 => MutationJobRestartReason::ManagedTimestampRegression,
                 6 => MutationJobRestartReason::CandidateExceedsBatchPolicy,
                 7 => MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
+                8 => MutationJobRestartReason::TargetRowRejected,
                 _ => return Err(MutationJobError::CorruptProgressStore),
             },
         )),
@@ -1100,6 +1104,52 @@ mod tests {
                 decode_mutation_job_payload(&bytes)
                     .expect("current mutation payload should decode"),
                 record,
+            );
+        }
+    }
+
+    #[test]
+    fn every_restart_reason_round_trips_in_progress_and_wire() {
+        let reasons = [
+            MutationJobRestartReason::AcceptedSchemaChanged,
+            MutationJobRestartReason::TargetAllocationChanged,
+            MutationJobRestartReason::IntentIneligible,
+            MutationJobRestartReason::BatchPolicyChanged,
+            MutationJobRestartReason::UnsupportedContinuation,
+            MutationJobRestartReason::ManagedTimestampRegression,
+            MutationJobRestartReason::CandidateExceedsBatchPolicy,
+            MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
+            MutationJobRestartReason::TargetRowRejected,
+        ];
+        for (tag, reason) in (0_u8..).zip(reasons) {
+            let status = MutationJobStatus::RestartRequired(reason);
+            let mut bytes = Vec::new();
+            write_status(&mut bytes, status);
+            assert_eq!(bytes, [2, tag]);
+            assert_eq!(read_status(&mut ByteReader::new(&bytes)), Ok(status));
+            let wire = icydb_schema::wire::encode_one(status).unwrap();
+            assert_eq!(icydb_schema::wire::decode_one(&wire), Ok(status));
+
+            let (record, _) = initial_record()
+                .apply_transition(
+                    &request(0, "terminal"),
+                    MutationJobTransition::new(
+                        status,
+                        MutationJobPhase::Forward,
+                        Vec::new(),
+                        0,
+                        0,
+                        0,
+                    ),
+                )
+                .unwrap();
+            let payload = encode_mutation_job_payload(&record).unwrap();
+            assert_eq!(decode_mutation_job_payload(&payload), Ok(record));
+        }
+        for tag in 9..=u8::MAX {
+            assert_eq!(
+                read_status(&mut ByteReader::new(&[2, tag])),
+                Err(MutationJobError::CorruptProgressStore),
             );
         }
     }

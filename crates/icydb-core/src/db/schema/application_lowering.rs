@@ -1110,6 +1110,24 @@ fn apply_existing_entity_removals(
     Ok(())
 }
 
+// Resolve the shared immutable identity before constructing a kind-specific
+// removal. The member callback distinguishes absence from disallowed ownership:
+// None is a catalog invariant, while Some(false) is an unsupported removal.
+fn resolve_existing_generated_removal_id<'store, 'bundle, Id: Copy>(
+    stores: &'store [ExistingProposalStore<'bundle>],
+    entity_source: &EntitySourceKey,
+    binding: impl FnOnce(&AcceptedSourceBindingCatalog, EntityTag) -> Option<Id>,
+    member_admitted: impl FnOnce(&PersistedSchemaSnapshot, Id) -> Option<bool>,
+) -> Result<(&'store ExistingProposalStore<'bundle>, EntityTag, Id), InternalError> {
+    let (store, entity_tag, snapshot) = resolve_existing_removal_entity(stores, entity_source)?;
+    let id = binding(store.bundle.source_bindings(), entity_tag)
+        .ok_or_else(InternalError::store_unsupported)?;
+    if !member_admitted(snapshot, id).ok_or_else(InternalError::store_invariant)? {
+        return Err(InternalError::store_unsupported());
+    }
+    Ok((store, entity_tag, id))
+}
+
 /// Resolve one removal solely through immutable accepted source identity.
 ///
 /// A live activation or independently owned check remains outside this
@@ -1125,25 +1143,25 @@ fn resolve_existing_generated_constraint_removal<'store, 'bundle>(
     ),
     InternalError,
 > {
-    let (store, entity_tag, snapshot) = resolve_existing_removal_entity(stores, entity_source)?;
-    let constraint_id = store
-        .bundle
-        .source_bindings()
-        .constraint(entity_tag, constraint_source)
-        .ok_or_else(InternalError::store_unsupported)?;
-    let constraint = snapshot
-        .constraints()
-        .iter()
-        .find(|constraint| constraint.id() == constraint_id)
-        .ok_or_else(InternalError::store_invariant)?;
-    if constraint.origin() != ConstraintOrigin::Generated
-        || !matches!(
-            constraint.kind(),
-            AcceptedConstraintKind::Check { .. } | AcceptedConstraintKind::TargetedRule { .. }
-        )
-    {
-        return Err(InternalError::store_unsupported());
-    }
+    let (store, entity_tag, constraint_id) = resolve_existing_generated_removal_id(
+        stores,
+        entity_source,
+        |bindings, tag| bindings.constraint(tag, constraint_source),
+        |snapshot, id| {
+            snapshot
+                .constraints()
+                .iter()
+                .find(|constraint| constraint.id() == id)
+                .map(|constraint| {
+                    constraint.origin() == ConstraintOrigin::Generated
+                        && matches!(
+                            constraint.kind(),
+                            AcceptedConstraintKind::Check { .. }
+                                | AcceptedConstraintKind::TargetedRule { .. }
+                        )
+                })
+        },
+    )?;
     Ok((
         store,
         ExistingConstraintRemoval {
@@ -1161,20 +1179,18 @@ fn resolve_existing_generated_field_removal<'store, 'bundle>(
     entity_source: &EntitySourceKey,
     field_source: &FieldSourceKey,
 ) -> Result<(&'store ExistingProposalStore<'bundle>, ExistingFieldRemoval), InternalError> {
-    let (store, entity_tag, snapshot) = resolve_existing_removal_entity(stores, entity_source)?;
-    let field_id = store
-        .bundle
-        .source_bindings()
-        .field(entity_tag, field_source)
-        .ok_or_else(InternalError::store_unsupported)?;
-    let field = snapshot
-        .fields()
-        .iter()
-        .find(|field| field.id() == field_id)
-        .ok_or_else(InternalError::store_invariant)?;
-    if !field.generated() {
-        return Err(InternalError::store_unsupported());
-    }
+    let (store, entity_tag, field_id) = resolve_existing_generated_removal_id(
+        stores,
+        entity_source,
+        |bindings, tag| bindings.field(tag, field_source),
+        |snapshot, id| {
+            snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == id)
+                .map(PersistedFieldSnapshot::generated)
+        },
+    )?;
     Ok((
         store,
         ExistingFieldRemoval {
@@ -1192,20 +1208,18 @@ fn resolve_existing_generated_index_removal<'store, 'bundle>(
     entity_source: &EntitySourceKey,
     index_source: &IndexSourceKey,
 ) -> Result<(&'store ExistingProposalStore<'bundle>, ExistingIndexRemoval), InternalError> {
-    let (store, entity_tag, snapshot) = resolve_existing_removal_entity(stores, entity_source)?;
-    let index_id = store
-        .bundle
-        .source_bindings()
-        .index(entity_tag, index_source)
-        .ok_or_else(InternalError::store_unsupported)?;
-    let index = snapshot
-        .indexes()
-        .iter()
-        .find(|index| index.schema_id() == index_id)
-        .ok_or_else(InternalError::store_invariant)?;
-    if !index.generated() {
-        return Err(InternalError::store_unsupported());
-    }
+    let (store, entity_tag, index_id) = resolve_existing_generated_removal_id(
+        stores,
+        entity_source,
+        |bindings, tag| bindings.index(tag, index_source),
+        |snapshot, id| {
+            snapshot
+                .indexes()
+                .iter()
+                .find(|index| index.schema_id() == id)
+                .map(PersistedIndexSnapshot::generated)
+        },
+    )?;
     Ok((
         store,
         ExistingIndexRemoval {
@@ -1229,19 +1243,18 @@ fn resolve_existing_generated_relation_removal<'store, 'bundle>(
     ),
     InternalError,
 > {
-    let (store, entity_tag, snapshot) = resolve_existing_removal_entity(stores, entity_source)?;
-    let relation_id = store
-        .bundle
-        .source_bindings()
-        .relation(entity_tag, relation_source)
-        .ok_or_else(InternalError::store_unsupported)?;
-    if !snapshot
-        .relations()
-        .iter()
-        .any(|relation| relation.id() == relation_id)
-    {
-        return Err(InternalError::store_invariant());
-    }
+    let (store, entity_tag, relation_id) = resolve_existing_generated_removal_id(
+        stores,
+        entity_source,
+        |bindings, tag| bindings.relation(tag, relation_source),
+        |snapshot, id| {
+            snapshot
+                .relations()
+                .iter()
+                .any(|relation| relation.id() == id)
+                .then_some(true)
+        },
+    )?;
     Ok((
         store,
         ExistingRelationRemoval {
@@ -4950,6 +4963,51 @@ mod tests {
                 .err()
                 .expect("missing or ambiguous authority must reject");
             assert_eq!(error.class(), crate::error::ErrorClass::Unsupported);
+        }
+    }
+
+    #[test]
+    fn generated_removals_reject_missing_bindings_for_every_member_kind() {
+        let (initial, entity, identity) =
+            scalar_proposal_fixture(ExpectedAcceptedHead::Empty, "missing-removal-bindings", 5);
+        let candidates = lower_initial_schema_proposal(
+            &initial,
+            &[ProposalStoreTarget {
+                path: "test::Store",
+                identity,
+            }],
+        )
+        .unwrap();
+        let stores = [ExistingProposalStore {
+            path: "test::Store",
+            identity,
+            bundle: candidates[0].bundle(),
+        }];
+        for removal in [
+            SchemaRemoval::Field {
+                entity: entity.clone(),
+                field: FieldSourceKey::try_new("missing").unwrap(),
+            },
+            SchemaRemoval::Index {
+                entity: entity.clone(),
+                index: IndexSourceKey::try_new("missing").unwrap(),
+            },
+            SchemaRemoval::Relation {
+                entity: entity.clone(),
+                relation: icydb_schema::RelationSourceKey::try_new("missing").unwrap(),
+            },
+            SchemaRemoval::Constraint {
+                entity,
+                constraint: ConstraintSourceKey::try_new("missing").unwrap(),
+            },
+        ] {
+            let error = resolve_existing_removal(&stores, &removal)
+                .err()
+                .expect("unknown source identity must refuse removal");
+            assert_eq!(
+                error.diagnostic_code(),
+                crate::error::InternalError::store_unsupported().diagnostic_code()
+            );
         }
     }
 

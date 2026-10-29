@@ -601,3 +601,78 @@ fn unique_atom_resume_after_oversized_source_preserves_the_next_entry() {
     assert!(matches!(next.0, PhysicalUnitCheckpoint::After { .. }));
     assert!(next.2.is_empty());
 }
+
+fn assert_missing_within_key_is_corruption(reverse: bool) {
+    let (session, plan) = fixture(0, 0);
+    let store = session.db.store_handle(STORE).unwrap();
+    let bounds = if reverse {
+        plan.relation_inspection()[0].raw_bounds().unwrap()
+    } else {
+        plan.index_inspection()
+            .domain(0, TAG)
+            .unwrap()
+            .raw_bounds()
+            .unwrap()
+    };
+    let mut entries = Vec::new();
+    store.with_index(|index| {
+        index
+            .visit_raw_entries_in_range(
+                (bounds.0.as_ref(), bounds.1.as_ref()),
+                Direction::Asc,
+                |key, value| {
+                    entries.push((key.clone(), value.clone()));
+                    Ok::<_, std::convert::Infallible>(false)
+                },
+            )
+            .unwrap();
+    });
+    assert_eq!(entries.len(), 2);
+    let expected = crate::error::InternalError::store_corruption();
+    for (key, value) in entries {
+        store.with_index_mut(|index| index.remove(&key)).unwrap();
+        let checkpoint = PhysicalUnitCheckpoint::Within {
+            physical_key: key.as_bytes().to_vec(),
+            verifier_family: if reverse {
+                IntegrityVerifierFamily::ReverseRelationEntry
+            } else {
+                IntegrityVerifierFamily::IndexEntry
+            },
+            ordinal: 0,
+        };
+        let limits = DerivedInspectionLimits::standard();
+        let result = if reverse {
+            execute_reverse_integrity_page(&session.db, &plan, 0, checkpoint, limits)
+        } else {
+            execute_index_integrity_page(&session.db, &plan, 0, checkpoint, limits)
+        };
+        let error = result.unwrap_err();
+        assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+        assert_eq!(error.diagnostic().detail(), expected.diagnostic().detail());
+
+        // Within must find the entry, whether its successor exists or the range
+        // is empty. After remains a valid exclusive resume past a missing key.
+        let (_, exhausted, findings) = page(
+            &session,
+            &plan,
+            reverse,
+            PhysicalUnitCheckpoint::After {
+                physical_key: key.as_bytes().to_vec(),
+            },
+            limits,
+        );
+        assert!(exhausted);
+        assert!(findings.is_empty());
+        store.with_index_mut(|index| index.insert(key, value));
+    }
+}
+
+#[test]
+fn missing_within_index_key_is_corruption_with_and_without_a_successor() {
+    assert_missing_within_key_is_corruption(false);
+}
+
+#[test]
+fn missing_within_reverse_key_is_corruption_with_and_without_a_successor() {
+    assert_missing_within_key_is_corruption(true);
+}

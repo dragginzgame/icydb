@@ -6,7 +6,7 @@ use crate::{
     db::{
         executor::{
             aggregate::{
-                EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot,
+                ExecutionContext, FieldSlot,
                 capability::accepted_field_kind_has_identity_group_canonical_form,
                 runtime::grouped_fold::{
                     count::GroupedCountState,
@@ -22,61 +22,37 @@ use crate::{
                 },
             },
             group::{GroupKey, StableHash, StableHashMap},
-            pipeline::contracts::{GroupedRouteStage, ResolvedExecutionKeyStream},
-            pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
+            pipeline::runtime::{GroupedStreamStage, RowView},
         },
+        predicate::MissingRowPolicy,
         query::plan::GroupField,
     },
     error::InternalError,
     value::Value,
 };
 
-// Fold row-view grouped-count input through one statically selected ingest
-// function so borrowed and owned paths are resolved before the source-row loop.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the helper preserves the pre-existing hot-loop data flow while avoiding dynamic dispatch"
-)]
-pub(super) fn fold_row_view_count_rows(
-    route: &GroupedRouteStage,
-    row_runtime: &StructuralGroupedRowRuntime,
-    resolved: &mut ResolvedExecutionKeyStream,
-    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-    grouped_execution_context: &mut ExecutionContext,
-    grouped_counts: &mut GroupedCountState,
-    filtered_rows: &mut usize,
-    mut increment_row: impl FnMut(
-        &mut GroupedCountState,
-        &RowView,
-        &[FieldSlot],
-        &mut ExecutionContext,
-    ) -> Result<(), InternalError>,
-) -> Result<(), InternalError> {
-    let consistency = route.consistency();
-    let Some(group_fields) = route.group_fields().as_direct() else {
-        return Err(InternalError::query_executor_invariant());
-    };
-
+// Keep the single-field read path while sharing ordered/unordered counting.
+// A stopping callback has not consumed its boundary row, matching row-view folds.
+pub(super) fn fold_single_field_count_rows(
+    consistency: MissingRowPolicy,
+    stream: &mut GroupedStreamStage,
+    group_field_index: usize,
+    mut ingest: impl FnMut(Value) -> Result<bool, InternalError>,
+) -> Result<(usize, bool), InternalError> {
+    let (row_runtime, _preparation, resolved) = stream.fold_inputs_mut();
+    let mut filtered_rows = 0usize;
     while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-        let row_view = row_runtime.read_row_view(consistency, &data_key);
-        let Some(row_view) = row_view? else {
+        let Some(group_value) =
+            row_runtime.read_single_group_value(consistency, &data_key, group_field_index)?
+        else {
             continue;
         };
-        if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
-            && !row_view.eval_filter_program(effective_runtime_filter_program)?
-        {
-            continue;
+        if ingest(group_value)? {
+            return Ok((filtered_rows, true));
         }
-        *filtered_rows = filtered_rows.saturating_add(1);
-        increment_row(
-            grouped_counts,
-            &row_view,
-            group_fields,
-            grouped_execution_context,
-        )?;
+        filtered_rows = filtered_rows.saturating_add(1);
     }
-
-    Ok(())
+    Ok((filtered_rows, false))
 }
 
 impl GroupedCountState {

@@ -204,6 +204,77 @@ pub(in crate::db) fn execute_index_integrity_page<C: CanisterKind>(
     let index_store = db.store_handle(domain.store_path())?;
     let source_store = db.store_handle(identity.store_path())?;
     let bounds = domain.raw_bounds()?;
+    execute_derived_integrity_page(
+        index_store,
+        bounds,
+        checkpoint,
+        limits,
+        |store, raw_key, raw_value, page| {
+            inspect_index_entry(
+                plan,
+                &domain,
+                index_ordinal,
+                source_store,
+                store,
+                raw_key,
+                raw_value,
+                limits,
+                page,
+            )
+        },
+    )
+}
+
+/// Execute one bounded page over one active source-owned reverse generation.
+pub(in crate::db) fn execute_reverse_integrity_page<C: CanisterKind>(
+    db: &Db<C>,
+    plan: &AcceptedInspectionPlan,
+    relation_ordinal: usize,
+    checkpoint: PhysicalUnitCheckpoint,
+    limits: DerivedInspectionLimits,
+) -> Result<DerivedIntegrityPage, InternalError> {
+    let limits = limits.validate()?;
+    let identity = plan.identity();
+    let relations = plan.relation_inspection();
+    let relation = relations
+        .get(relation_ordinal)
+        .ok_or_else(InternalError::store_invariant)?;
+    let source_store = db.store_handle(identity.store_path())?;
+    let bounds = relation.raw_bounds()?;
+    execute_derived_integrity_page(
+        relation.target_store(),
+        bounds,
+        checkpoint,
+        limits,
+        |_store, raw_key, raw_value, page| {
+            inspect_reverse_entry(
+                plan,
+                relation,
+                source_store,
+                raw_key,
+                raw_value,
+                limits,
+                page,
+            )
+        },
+    )
+}
+
+// Forward and reverse domains share checkpoint admission, bounded traversal and
+// exhaustion. The caller retains the domain-specific witness inspection and
+// validates limits before resolving its accepted domain and store authorities.
+fn execute_derived_integrity_page(
+    index_store: crate::db::registry::StoreHandle,
+    bounds: (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>),
+    checkpoint: PhysicalUnitCheckpoint,
+    limits: DerivedInspectionLimits,
+    mut inspect_entry: impl FnMut(
+        &crate::db::index::IndexStore,
+        &RawIndexStoreKey,
+        &IndexEntryValue,
+        &mut DerivedPageAccumulator,
+    ) -> Result<(), InternalError>,
+) -> Result<DerivedIntegrityPage, InternalError> {
     let checkpoint_key = checkpoint.raw_index_key()?;
     validate_checkpoint_in_bounds(checkpoint_key.as_ref(), &bounds)?;
     let lower = resume_lower_bound(&checkpoint, checkpoint_key.as_ref(), &bounds.0)?;
@@ -230,80 +301,7 @@ pub(in crate::db) fn execute_index_integrity_page<C: CanisterKind>(
                     return Ok(true);
                 }
 
-                inspect_index_entry(
-                    plan,
-                    &domain,
-                    index_ordinal,
-                    source_store,
-                    store,
-                    raw_key,
-                    raw_value,
-                    limits,
-                    &mut page,
-                )?;
-                Ok(page.stopped)
-            },
-        )
-    })?;
-
-    if !observed_within_key {
-        return Err(InternalError::store_corruption());
-    }
-    let exhausted = !page.stopped;
-    page.finish(exhausted)
-}
-
-/// Execute one bounded page over one active source-owned reverse generation.
-pub(in crate::db) fn execute_reverse_integrity_page<C: CanisterKind>(
-    db: &Db<C>,
-    plan: &AcceptedInspectionPlan,
-    relation_ordinal: usize,
-    checkpoint: PhysicalUnitCheckpoint,
-    limits: DerivedInspectionLimits,
-) -> Result<DerivedIntegrityPage, InternalError> {
-    let limits = limits.validate()?;
-    let identity = plan.identity();
-    let relations = plan.relation_inspection();
-    let relation = relations
-        .get(relation_ordinal)
-        .ok_or_else(InternalError::store_invariant)?;
-    let source_store = db.store_handle(identity.store_path())?;
-    let bounds = relation.raw_bounds()?;
-    let checkpoint_key = checkpoint.raw_index_key()?;
-    validate_checkpoint_in_bounds(checkpoint_key.as_ref(), &bounds)?;
-    let lower = resume_lower_bound(&checkpoint, checkpoint_key.as_ref(), &bounds.0)?;
-    let expected_within_key = matches!(checkpoint, PhysicalUnitCheckpoint::Within { .. })
-        .then(|| checkpoint_key.clone())
-        .flatten();
-    let mut observed_within_key = expected_within_key.is_none();
-    let mut page = DerivedPageAccumulator::new(checkpoint);
-
-    relation.target_store().with_index(|store| {
-        store.visit_raw_entries_in_range(
-            (lower.as_ref(), bounds.1.as_ref()),
-            Direction::Asc,
-            |raw_key, raw_value| {
-                if let Some(expected) = expected_within_key.as_ref()
-                    && !observed_within_key
-                {
-                    if raw_key != expected {
-                        return Err(InternalError::store_corruption());
-                    }
-                    observed_within_key = true;
-                }
-                if !page.start_entry(raw_key, raw_value, limits)? {
-                    return Ok(true);
-                }
-
-                inspect_reverse_entry(
-                    plan,
-                    relation,
-                    source_store,
-                    raw_key,
-                    raw_value,
-                    limits,
-                    &mut page,
-                )?;
+                inspect_entry(store, raw_key, raw_value, &mut page)?;
                 Ok(page.stopped)
             },
         )

@@ -30,6 +30,12 @@ architecture on another.
 Follow the mandatory [Clap CLI rule](../../DRAGGINZGAME.md#cli-applications).
 Use the library's existing capabilities before adding custom argument handling.
 
+## Metrics and logging
+
+Follow the mandatory [observability contract](../../rules/engineering-details.md#metrics-and-logging):
+use `ic-metrics` and `ic-logging`, keep application adapters thin, and resolve
+capability gaps through issues and improvements in IC Observability.
+
 ## Documentation and comments
 
 - Public APIs document purpose, ownership, invariants, and caller-visible

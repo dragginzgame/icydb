@@ -521,45 +521,22 @@ impl KeyAccessRuntime {
         &self,
         request: MergedIndexPrefixStreamSpec<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        if request.index_prefix_specs.is_empty() {
-            return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
-        }
-
-        let active_specs =
-            active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
-        charge_prefix_family_construction(active_specs.as_slice())?;
-        match PrefixSetExecutionShape::from_active_prefixes(
-            active_specs,
-            PrefixSetMergeSafety::OrderedMergeSafe,
-        ) {
-            PrefixSetExecutionShape::Empty => {
-                Ok(ordered_key_stream_from_materialized_keys(Vec::new()))
-            }
-            PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
-            PrefixSetExecutionShape::OrderedMerge(active_specs) => {
-                let branch_count = active_specs.len();
-                let mut streams = Vec::new();
-                streams
-                    .try_reserve_exact(branch_count)
-                    .map_err(|_| InternalError::executor_internal())?;
-                for spec in active_specs {
-                    streams.push(self.index_prefix_stream(request, spec, branch_count)?);
-                }
-
-                OrderedKeyStreamBox::merge_all(
-                    streams,
-                    KeyOrderComparator::from_direction(request.continuation.direction()),
-                )
-            }
-            PrefixSetExecutionShape::OrderedConcat(_) | PrefixSetExecutionShape::Fallback => {
-                Err(InternalError::query_executor_invariant())
-            }
-        }
+        self.assemble_index_prefix_streams(request, PrefixSetMergeSafety::OrderedMergeSafe)
     }
 
     fn resolve_branch_ordered_index_prefix_streams(
         &self,
         request: MergedIndexPrefixStreamSpec<'_>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        self.assemble_index_prefix_streams(request, PrefixSetMergeSafety::OrderedConcatSafe)
+    }
+
+    // Both admitted routes construct the same children. Only branch ordering and
+    // the final stream composition differ; retain the existing merge-safety owner.
+    fn assemble_index_prefix_streams(
+        &self,
+        request: MergedIndexPrefixStreamSpec<'_>,
+        merge_safety: PrefixSetMergeSafety,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         if request.index_prefix_specs.is_empty() {
             return Ok(ordered_key_stream_from_materialized_keys(Vec::new()));
@@ -568,20 +545,20 @@ impl KeyAccessRuntime {
         let mut active_specs =
             active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
         charge_prefix_family_construction(active_specs.as_slice())?;
-        sort_lowered_index_prefix_specs_by_raw_lower_key(&mut active_specs)?;
-        if matches!(request.continuation.direction(), Direction::Desc) {
-            active_specs.reverse();
+        if matches!(merge_safety, PrefixSetMergeSafety::OrderedConcatSafe) {
+            sort_lowered_index_prefix_specs_by_raw_lower_key(&mut active_specs)?;
+            if matches!(request.continuation.direction(), Direction::Desc) {
+                active_specs.reverse();
+            }
         }
 
-        match PrefixSetExecutionShape::from_active_prefixes(
-            active_specs,
-            PrefixSetMergeSafety::OrderedConcatSafe,
-        ) {
+        match PrefixSetExecutionShape::from_active_prefixes(active_specs, merge_safety) {
             PrefixSetExecutionShape::Empty => {
                 Ok(ordered_key_stream_from_materialized_keys(Vec::new()))
             }
             PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
-            PrefixSetExecutionShape::OrderedConcat(active_specs) => {
+            PrefixSetExecutionShape::OrderedMerge(active_specs)
+            | PrefixSetExecutionShape::OrderedConcat(active_specs) => {
                 let branch_count = active_specs.len();
                 let mut streams = Vec::new();
                 streams
@@ -591,11 +568,20 @@ impl KeyAccessRuntime {
                     streams.push(self.index_prefix_stream(request, spec, branch_count)?);
                 }
 
-                Ok(OrderedKeyStreamBox::concat_all(streams))
+                match merge_safety {
+                    PrefixSetMergeSafety::OrderedMergeSafe => OrderedKeyStreamBox::merge_all(
+                        streams,
+                        KeyOrderComparator::from_direction(request.continuation.direction()),
+                    ),
+                    PrefixSetMergeSafety::OrderedConcatSafe => {
+                        Ok(OrderedKeyStreamBox::concat_all(streams))
+                    }
+                    PrefixSetMergeSafety::RequiresFallback => {
+                        Err(InternalError::query_executor_invariant())
+                    }
+                }
             }
-            PrefixSetExecutionShape::OrderedMerge(_) | PrefixSetExecutionShape::Fallback => {
-                Err(InternalError::query_executor_invariant())
-            }
+            PrefixSetExecutionShape::Fallback => Err(InternalError::query_executor_invariant()),
         }
     }
 

@@ -804,6 +804,14 @@ or a residual row restarts Forward from the beginning; accepted-authority,
 internal-policy, candidate-size, managed-time, or admitted execution-policy
 drift persists a typed `RestartRequired` terminal receipt.
 
+A definite accepted-constraint rejection during target-row mutation persists
+`RestartRequired(TargetRowRejected)`. The failed page commits no target rows;
+previously committed pages remain applied and their totals are preserved. Exact
+request replay returns that terminal receipt. Acknowledge its committed sequence
+to reclaim the retained job, and use a new job identity after correcting the row
+or intent. Other target execution errors retain their existing failure behavior;
+query-side failures do not become row-rejection receipts.
+
 Failed accepted-catalog admission or inspection, including a migration gate,
 recovery wait or corrupt catalog, returns `TargetQueryFailed` without changing
 retained job progress. Resolve the obstruction and retry the same advance

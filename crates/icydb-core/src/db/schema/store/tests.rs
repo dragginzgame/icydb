@@ -951,6 +951,101 @@ fn prepared_catalog_fold_rechecks_root_before_writing_payloads() {
 }
 
 #[test]
+fn journaled_schema_publication_refuses_heap_before_identity_preparation() {
+    let candidate = identity_candidate_for_test(
+        "test::PublicationBackend",
+        AcceptedSchemaRevision::INITIAL,
+        EntityTag::new(101),
+        FieldId::new(1),
+        AcceptedFieldKind::Nat64,
+    );
+    let mut store = SchemaStore::init_heap();
+    let error = store
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .unwrap_err();
+    let expected = crate::error::InternalError::store_invariant();
+    assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+    assert_eq!(error.diagnostic().detail(), expected.diagnostic().detail());
+    assert!(store.current_accepted_schema_root().unwrap().is_none());
+}
+
+fn assert_current_publication_rejects_missing_identity(mut store: SchemaStore, journaled: bool) {
+    let candidate = identity_candidate_for_test(
+        "test::PublicationIdentity",
+        AcceptedSchemaRevision::INITIAL,
+        EntityTag::new(101),
+        FieldId::new(1),
+        AcceptedFieldKind::Nat64,
+    );
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .unwrap();
+    let key = RawSchemaKey::from_identity_state(EntityTag::new(101), FieldId::new(1));
+    store
+        .remove_identity_state_key(key, super::IdentityStateWriteTarget::Materialized)
+        .unwrap();
+    let canonical_before = if journaled {
+        store.get_canonical_raw_value(&key).unwrap()
+    } else {
+        None
+    };
+    let result = if journaled {
+        store.apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+    } else {
+        store.publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+    };
+    let error = result.unwrap_err();
+    let expected = crate::error::InternalError::identity_state_corruption();
+    assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+    assert_eq!(error.diagnostic().detail(), expected.diagnostic().detail());
+    assert!(store.get_raw_value(&key).is_none());
+    assert_eq!(
+        store
+            .current_accepted_schema_root()
+            .unwrap()
+            .unwrap()
+            .root(),
+        candidate.root()
+    );
+    if journaled {
+        assert_eq!(
+            store.get_canonical_raw_value(&key).unwrap(),
+            canonical_before
+        );
+    }
+}
+
+#[test]
+fn durable_current_publication_cannot_repair_missing_identity_state() {
+    assert_current_publication_rejects_missing_identity(SchemaStore::init_heap(), false);
+}
+
+#[test]
+fn replayed_current_publication_cannot_repair_missing_identity_state() {
+    let memory = crate::testing::test_memory_owner(229);
+    assert_current_publication_rejects_missing_identity(
+        SchemaStore::init_journaled(memory.open()),
+        true,
+    );
+}
+
+#[test]
 fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
     let memory = crate::testing::test_memory_owner(229);
     let mut store = SchemaStore::init_journaled(memory.open());

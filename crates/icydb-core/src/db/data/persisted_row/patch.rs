@@ -29,7 +29,7 @@ use crate::{
         schema::{
             AcceptedFieldPersistenceContract, AcceptedIdentityAllocation,
             AcceptedInsertOmissionPolicy, CompiledAcceptedRowConstraints,
-            accepted_row_constraint_write_error,
+            OwnedAcceptedFieldDecodeContract, accepted_row_constraint_write_error,
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
         write_context::AcceptedWriteContext,
@@ -598,10 +598,6 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
 /// Unassigned fields preserve their accepted logical values, including frozen
 /// historical fills, while update-managed fields resolve from the operation's
 /// stable write context before typed materialization.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the phased resolver keeps provenance, no-op detection, and managed-time ownership in one accepted-contract boundary"
-)]
 pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     contract: &StructuralRowContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
@@ -617,112 +613,123 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         Some(mutation_context),
         constraints,
     );
+    finish_existing_row_patch(
+        contract,
+        baseline,
+        patch,
+        write_context,
+        mutation_context,
+        |slot, field, intent| {
+            let write_policy = field.write_policy();
+            match intent {
+                Some(AcceptedMutationFieldWriteIntent::Authored(input)) => {
+                    if write_policy.insert_generation().is_some()
+                        || write_policy.write_management().is_some()
+                    {
+                        return Err(InternalError::mutation_database_owned_field_explicit(
+                            mutation_context,
+                            field.field_id().get(),
+                        ));
+                    }
+                    let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+                    let payload = encode_authored_value_for_accepted_field_contract(
+                        constraint_context,
+                        slot,
+                        encoding,
+                        input,
+                    )?;
+                    return Ok((payload, AcceptedFieldWriteProvenance::Authored));
+                }
+                Some(AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(_)) => {
+                    return Err(InternalError::executor_invariant());
+                }
+                Some(AcceptedMutationFieldWriteIntent::CanonicalPayload(payload)) => {
+                    if write_policy.insert_generation().is_some()
+                        || write_policy.write_management().is_some()
+                    {
+                        return Err(InternalError::executor_invariant());
+                    }
+                    // Fixed-patch bytes were admitted once; row constraints
+                    // remain at commit preflight.
+                    return Ok((payload, AcceptedFieldWriteProvenance::Authored));
+                }
+                Some(AcceptedMutationFieldWriteIntent::Resolve(
+                    AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
+                )) => return resolve_explicit_update_default(contract, slot),
+                Some(AcceptedMutationFieldWriteIntent::Resolve(
+                    AcceptedInsertPolicyRequest::OmittedInsert
+                    | AcceptedInsertPolicyRequest::ExplicitInsertDefault,
+                )) => return Err(InternalError::executor_invariant()),
+                None => {}
+            }
+            let value = baseline.required_cached_value(slot)?;
+            let encoding = contract.required_accepted_field_persistence_contract(slot)?;
+            let payload = encode_canonical_value_for_accepted_field_contract(encoding, value)?;
+            let provenance = if baseline.get_bytes(slot).is_some() {
+                AcceptedFieldWriteProvenance::Preserved
+            } else {
+                AcceptedFieldWriteProvenance::HistoricalFill
+            };
+            Ok((payload, provenance))
+        },
+        |provenance| {
+            // Unassigned fields already preserve the exact accepted logical value,
+            // including frozen historical fills; compare only assigned updates.
+            !matches!(
+                provenance,
+                Some(
+                    AcceptedFieldWriteProvenance::Preserved
+                        | AcceptedFieldWriteProvenance::HistoricalFill
+                )
+            )
+        },
+    )
+}
+
+// Updates and replacements resolve fields differently, but share last-write-wins
+// intents, managed-time ownership, logical comparison and canonical row emission.
+// The comparison selector preserves each existing policy without a new mode.
+fn finish_existing_row_patch(
+    contract: &StructuralRowContract,
+    baseline: &StructuralSlotReader<'_>,
+    patch: &AcceptedMutationIntentPatch,
+    write_context: AcceptedWriteContext,
+    mutation_context: MutationDiagnosticContext,
+    mut resolve_slot: impl FnMut(
+        usize,
+        &OwnedAcceptedFieldDecodeContract,
+        Option<AcceptedMutationFieldWriteIntent>,
+    ) -> Result<(Vec<u8>, AcceptedFieldWriteProvenance), InternalError>,
+    should_compare: impl Fn(Option<AcceptedFieldWriteProvenance>) -> bool,
+) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let mut payloads = vec![None; contract.field_count()];
     let mut provenance = vec![None; contract.field_count()];
     let mut intents = vec![None; contract.field_count()];
     let mut updated_at_slot = None;
 
-    // Phase 1: retain exact last-write-wins assignment provenance.
     for entry in patch.entries() {
         let slot = entry.slot().index();
         let _ = contract.required_accepted_field_contract(slot)?;
         intents[slot] = Some(entry.intent().clone());
     }
 
-    // Phase 2: resolve authored/default intent while initially preserving every
-    // managed timestamp. `UpdatedAt` is deliberately deferred until the full
-    // logical candidate can be compared with the accepted before-image.
+    // Preserve managed values while resolving every slot. UpdatedAt is deferred
+    // until the complete logical candidate can be compared with the before-image.
     for (slot, payload) in payloads.iter_mut().enumerate() {
-        if payload.is_some() {
-            continue;
-        }
         let field = contract.required_accepted_field_contract(slot)?;
-        let write_policy = field.write_policy();
-        if matches!(
-            write_policy.write_management(),
-            Some(FieldWriteManagement::UpdatedAt)
-        ) && updated_at_slot.replace(slot).is_some()
+        if field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
+            && updated_at_slot.replace(slot).is_some()
         {
             return Err(InternalError::accepted_row_constraint_program_corrupt());
         }
-        match intents[slot].take() {
-            Some(AcceptedMutationFieldWriteIntent::Authored(input)) => {
-                if write_policy.insert_generation().is_some()
-                    || write_policy.write_management().is_some()
-                {
-                    return Err(InternalError::mutation_database_owned_field_explicit(
-                        mutation_context,
-                        field.field_id().get(),
-                    ));
-                }
-                let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-                *payload = Some(encode_authored_value_for_accepted_field_contract(
-                    constraint_context,
-                    slot,
-                    encoding,
-                    input,
-                )?);
-                provenance[slot] = Some(AcceptedFieldWriteProvenance::Authored);
-                continue;
-            }
-            Some(AcceptedMutationFieldWriteIntent::PreservedReplacementIdentity(_)) => {
-                return Err(InternalError::executor_invariant());
-            }
-            Some(AcceptedMutationFieldWriteIntent::CanonicalPayload(canonical_payload)) => {
-                if write_policy.insert_generation().is_some()
-                    || write_policy.write_management().is_some()
-                {
-                    return Err(InternalError::executor_invariant());
-                }
-                // The fixed-patch binder admitted these bytes against this
-                // accepted contract once; row constraints remain at commit preflight.
-                *payload = Some(canonical_payload);
-                provenance[slot] = Some(AcceptedFieldWriteProvenance::Authored);
-                continue;
-            }
-            Some(AcceptedMutationFieldWriteIntent::Resolve(
-                AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
-            )) => {
-                let (resolved_payload, resolved_provenance) =
-                    resolve_explicit_update_default(contract, slot)?;
-                *payload = Some(resolved_payload);
-                provenance[slot] = Some(resolved_provenance);
-                continue;
-            }
-            Some(AcceptedMutationFieldWriteIntent::Resolve(
-                AcceptedInsertPolicyRequest::OmittedInsert
-                | AcceptedInsertPolicyRequest::ExplicitInsertDefault,
-            )) => return Err(InternalError::executor_invariant()),
-            None => {}
-        }
-        let value = baseline.required_cached_value(slot)?;
-        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        *payload = Some(encode_canonical_value_for_accepted_field_contract(
-            encoding, value,
-        )?);
-        provenance[slot] = Some(if baseline.get_bytes(slot).is_some() {
-            AcceptedFieldWriteProvenance::Preserved
-        } else {
-            AcceptedFieldWriteProvenance::HistoricalFill
-        });
+        let (resolved, source) = resolve_slot(slot, field, intents[slot].take())?;
+        *payload = Some(resolved);
+        provenance[slot] = Some(source);
     }
 
-    // Phase 3: compare canonical logical values without letting the managed
-    // timestamp manufacture a change. Unassigned values (including historical
-    // fills) already crossed canonical encoding above and preserve the exact
-    // baseline value, so only assigned slots need a second encoding to compare.
     let mut logical_changed = false;
     for (slot, payload) in payloads.iter().enumerate() {
-        if updated_at_slot == Some(slot) {
-            continue;
-        }
-        if matches!(
-            provenance[slot],
-            Some(
-                AcceptedFieldWriteProvenance::Preserved
-                    | AcceptedFieldWriteProvenance::HistoricalFill
-            )
-        ) {
+        if updated_at_slot == Some(slot) || !should_compare(provenance[slot]) {
             continue;
         }
         let before = baseline.required_cached_value(slot)?;
@@ -734,9 +741,8 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         }
     }
 
-    // Phase 4: refresh `UpdatedAt` only for a real logical row change. The
-    // accepted clock contract is fail-closed: restored future timestamps are
-    // preserved and block a write that would move managed time backward.
+    // Fail closed on real changes that would move managed time backwards; no-op
+    // writes retain the stored time but must still validate its internal order.
     if logical_changed && let Some(slot) = updated_at_slot {
         validate_managed_timestamp_progression(
             contract,
@@ -744,10 +750,10 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
             write_context.operation_timestamp(),
             mutation_context,
         )?;
-        let value = Value::Timestamp(write_context.operation_timestamp());
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
-            encoding, &value,
+            encoding,
+            &Value::Timestamp(write_context.operation_timestamp()),
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
@@ -864,78 +870,25 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         Some(mutation_context),
         constraints,
     );
-    let mut intents = vec![None; contract.field_count()];
-    for entry in patch.entries() {
-        let slot = entry.slot().index();
-        let _ = contract.required_accepted_field_contract(slot)?;
-        intents[slot] = Some(entry.intent().clone());
-    }
-    let mut payloads = vec![None; contract.field_count()];
-    let mut provenance = vec![None; contract.field_count()];
-    let mut updated_at_slot = None;
-
-    for (slot, payload) in payloads.iter_mut().enumerate() {
-        let field = contract.required_accepted_field_contract(slot)?;
-        if field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
-            && updated_at_slot.replace(slot).is_some()
-        {
-            return Err(InternalError::accepted_row_constraint_program_corrupt());
-        }
-        let (resolved, source) = resolve_existing_replace_active_slot(
-            constraint_context,
-            contract,
-            baseline,
-            slot,
-            intents[slot].take(),
-            write_context,
-            mutation_context,
-        )?;
-        *payload = Some(resolved);
-        provenance[slot] = Some(source);
-    }
-
-    let mut logical_changed = false;
-    for (slot, payload) in payloads.iter().enumerate() {
-        if updated_at_slot == Some(slot) {
-            continue;
-        }
-        let before = baseline.required_cached_value(slot)?;
-        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        let before = encode_canonical_value_for_accepted_field_contract(encoding, before)?;
-        if payload.as_deref() != Some(before.as_slice()) {
-            logical_changed = true;
-            break;
-        }
-    }
-
-    if logical_changed && let Some(slot) = updated_at_slot {
-        validate_managed_timestamp_progression(
-            contract,
-            baseline,
-            write_context.operation_timestamp(),
-            mutation_context,
-        )?;
-        let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
-            encoding,
-            &Value::Timestamp(write_context.operation_timestamp()),
-        )?);
-        provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
-    } else {
-        validate_existing_managed_timestamp_order(contract, baseline, mutation_context)?;
-    }
-
-    let slot_payloads = payloads
-        .into_iter()
-        .map(|payload| payload.ok_or_else(InternalError::persisted_row_encode_internal))
-        .collect::<Result<Vec<_>, _>>()?;
-    let row = emit_raw_row_from_slot_payloads(
-        contract.current_layout_version(),
-        contract.field_count(),
-        slot_payloads.as_slice(),
-    )?;
-
-    Ok(ResolvedAcceptedMutationRow::new(row, provenance))
+    finish_existing_row_patch(
+        contract,
+        baseline,
+        patch,
+        write_context,
+        mutation_context,
+        |slot, _field, intent| {
+            resolve_existing_replace_active_slot(
+                constraint_context,
+                contract,
+                baseline,
+                slot,
+                intent,
+                write_context,
+                mutation_context,
+            )
+        },
+        |_| true,
+    )
 }
 
 fn validate_managed_timestamp_progression(
@@ -1116,6 +1069,28 @@ mod tests {
     };
     use crate::error::MutationDiagnosticContext;
     use crate::types::Ulid;
+    use icydb_diagnostic_code::DiagnosticMutationOperation;
+
+    type ExistingRowResolver = fn(
+        &StructuralRowContract,
+        CommitSchemaFingerprint,
+        &CompiledAcceptedRowConstraints,
+        &StructuralSlotReader<'_>,
+        &AcceptedMutationIntentPatch,
+        AcceptedWriteContext,
+        MutationDiagnosticContext,
+    ) -> Result<ResolvedAcceptedMutationRow, InternalError>;
+
+    const EXISTING_ROW_RESOLVERS: [(DiagnosticMutationOperation, ExistingRowResolver); 2] = [
+        (
+            DiagnosticMutationOperation::Update,
+            resolve_update_structural_patch_with_accepted_contract,
+        ),
+        (
+            DiagnosticMutationOperation::Replace,
+            resolve_existing_replace_structural_patch_with_accepted_contract,
+        ),
+    ];
 
     fn replacement_owned_snapshot() -> AcceptedSchemaSnapshot {
         use crate::db::schema::SchemaFieldWritePolicy;
@@ -1407,44 +1382,44 @@ mod tests {
     }
 
     #[test]
-    fn replacement_preserves_insert_generated_values_and_real_change_timestamps() {
+    fn existing_mutations_preserve_generated_values_and_real_change_timestamps() {
         use crate::types::Timestamp;
-        use icydb_diagnostic_code::{DiagnosticMutationOperation, ErrorCode};
+        use icydb_diagnostic_code::ErrorCode;
 
-        let (contract, constraints) = replacement_owned_contract(&replacement_owned_snapshot());
-        let values = replacement_owned_values();
-        let baseline =
-            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
-                Ok(Cow::Borrowed(&values[slot]))
-            })
-            .unwrap()
-            .into_raw_row();
-        let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-            &baseline, &contract,
-        )
-        .unwrap();
-        let context = MutationDiagnosticContext::new(
-            crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
-            [7; 16],
-            1,
-            DiagnosticMutationOperation::Replace,
-            0,
-        );
-        let patch = |payload| {
-            AcceptedMutationIntentPatch::new()
-                .set_authored(FieldSlot::from_validated_index(0), InputValue::nat64(1))
-                .set_authored(
-                    FieldSlot::from_validated_index(1),
-                    InputValue::text("ignored".into()),
-                )
-                .set_authored(
-                    FieldSlot::from_validated_index(1),
-                    InputValue::nat64(payload),
-                )
-        };
-        for (payload, now) in [(10, 6), (10, 20), (11, 20)] {
-            let (row, provenance) =
-                resolve_existing_replace_structural_patch_with_accepted_contract(
+        for (operation, resolve) in EXISTING_ROW_RESOLVERS {
+            let (contract, constraints) = replacement_owned_contract(&replacement_owned_snapshot());
+            let values = replacement_owned_values();
+            let baseline =
+                canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                    Ok(Cow::Borrowed(&values[slot]))
+                })
+                .unwrap()
+                .into_raw_row();
+            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &baseline, &contract,
+            )
+            .unwrap();
+            let context = MutationDiagnosticContext::new(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                [7; 16],
+                1,
+                operation,
+                0,
+            );
+            let patch = |payload| {
+                AcceptedMutationIntentPatch::new()
+                    .set_authored(FieldSlot::from_validated_index(0), InputValue::nat64(1))
+                    .set_authored(
+                        FieldSlot::from_validated_index(1),
+                        InputValue::text("ignored".into()),
+                    )
+                    .set_authored(
+                        FieldSlot::from_validated_index(1),
+                        InputValue::nat64(payload),
+                    )
+            };
+            for (payload, now) in [(10, 6), (10, 20), (11, 20)] {
+                let (row, provenance) = resolve(
                     &contract,
                     [7; 16],
                     &constraints,
@@ -1455,42 +1430,90 @@ mod tests {
                 )
                 .unwrap()
                 .into_parts();
-            let row = row.into_raw_row();
-            let after = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                &row, &contract,
-            )
-            .unwrap();
-            for slot in 2..=4 {
-                assert_eq!(after.required_cached_value(slot).unwrap(), &values[slot]);
+                let row = row.into_raw_row();
+                let after = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                    &row, &contract,
+                )
+                .unwrap();
+                for slot in 2..=4 {
+                    assert_eq!(after.required_cached_value(slot).unwrap(), &values[slot]);
+                    assert_eq!(
+                        provenance[slot],
+                        Some(AcceptedFieldWriteProvenance::Preserved)
+                    );
+                }
+                assert_eq!(after.required_cached_value(6).unwrap(), &Value::Null);
                 assert_eq!(
-                    provenance[slot],
-                    Some(AcceptedFieldWriteProvenance::Preserved)
+                    after.required_cached_value(5).unwrap(),
+                    &Value::Timestamp(Timestamp::from_millis(if payload == 10 { 7 } else { now }))
                 );
+                if payload == 10 {
+                    assert_eq!(row.as_bytes(), baseline.as_bytes());
+                }
             }
-            assert_eq!(after.required_cached_value(6).unwrap(), &Value::Null);
+            let error = resolve(
+                &contract,
+                [7; 16],
+                &constraints,
+                &reader,
+                &patch(11),
+                AcceptedWriteContext::new(Timestamp::from_millis(6)),
+                context,
+            )
+            .err()
+            .expect("real changes must still reject managed time regression");
             assert_eq!(
-                after.required_cached_value(5).unwrap(),
-                &Value::Timestamp(Timestamp::from_millis(if payload == 10 { 7 } else { now }))
+                error.diagnostic().error_code(),
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_MANAGED_TIMESTAMP_REGRESSION
             );
-            if payload == 10 {
-                assert_eq!(row.as_bytes(), baseline.as_bytes());
-            }
         }
-        let error = resolve_existing_replace_structural_patch_with_accepted_contract(
-            &contract,
-            [7; 16],
-            &constraints,
-            &reader,
-            &patch(11),
-            AcceptedWriteContext::new(Timestamp::from_millis(6)),
-            context,
+    }
+
+    #[test]
+    fn existing_noops_reject_inverted_stored_timestamps() {
+        use crate::types::Timestamp;
+        use icydb_diagnostic_code::ErrorCode;
+
+        let (contract, constraints) = replacement_owned_contract(&replacement_owned_snapshot());
+        let mut values = replacement_owned_values();
+        values[4] = Value::Timestamp(Timestamp::from_millis(9));
+        let baseline =
+            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                Ok(Cow::Borrowed(&values[slot]))
+            })
+            .unwrap()
+            .into_raw_row();
+        let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+            &baseline, &contract,
         )
-        .err()
-        .expect("real changes must still reject managed time regression");
-        assert_eq!(
-            error.diagnostic().error_code(),
-            ErrorCode::RUNTIME_BOUNDARY_MUTATION_MANAGED_TIMESTAMP_REGRESSION
-        );
+        .unwrap();
+        let patch = AcceptedMutationIntentPatch::new()
+            .set_authored(FieldSlot::from_validated_index(0), InputValue::nat64(1))
+            .set_authored(FieldSlot::from_validated_index(1), InputValue::nat64(10));
+        for (operation, resolve) in EXISTING_ROW_RESOLVERS {
+            let context = MutationDiagnosticContext::new(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                [7; 16],
+                1,
+                operation,
+                0,
+            );
+            let error = resolve(
+                &contract,
+                [7; 16],
+                &constraints,
+                &reader,
+                &patch,
+                AcceptedWriteContext::new(Timestamp::from_millis(20)),
+                context,
+            )
+            .err()
+            .expect("unchanged writes must reject inverted stored timestamps");
+            assert_eq!(
+                error.diagnostic().error_code(),
+                ErrorCode::RUNTIME_BOUNDARY_MUTATION_MANAGED_TIMESTAMP_REGRESSION
+            );
+        }
     }
 
     #[test]

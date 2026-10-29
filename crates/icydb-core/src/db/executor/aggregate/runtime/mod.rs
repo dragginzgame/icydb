@@ -11,9 +11,14 @@ mod grouped_row;
 mod tests;
 
 use crate::{
-    db::executor::{
-        aggregate::CompiledExpr,
-        projection::{GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr},
+    db::{
+        data::DecodedDataStoreKey,
+        executor::{
+            aggregate::CompiledExpr,
+            pipeline::runtime::{GroupedStreamStage, RowView},
+            projection::{GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr},
+        },
+        predicate::MissingRowPolicy,
     },
     error::InternalError,
 };
@@ -30,4 +35,45 @@ pub(in crate::db::executor) fn group_matches_having_expr(
 ) -> Result<bool, InternalError> {
     evaluate_grouped_having_expr(expr, grouped_row)
         .map_err(ProjectionEvalError::into_internal_error)
+}
+
+// Non-stopping terminals reuse the same source reader as ordered count folds.
+fn fold_filtered_source_rows(
+    consistency: MissingRowPolicy,
+    stream: &mut GroupedStreamStage,
+    mut ingest: impl FnMut(&DecodedDataStoreKey, &RowView) -> Result<(), InternalError>,
+) -> Result<usize, InternalError> {
+    fold_filtered_source_rows_until(consistency, stream, |key, row| {
+        ingest(key, row)?;
+        Ok(false)
+    })
+    .map(|(filtered_rows, _stopped)| filtered_rows)
+}
+
+// A true callback result means the ordered page stopped before consuming its
+// boundary row. Count only successfully ingested, non-stopping rows; absence,
+// filter rejection and failed ingest never advance the completed-row count.
+fn fold_filtered_source_rows_until(
+    consistency: MissingRowPolicy,
+    stream: &mut GroupedStreamStage,
+    mut ingest: impl FnMut(&DecodedDataStoreKey, &RowView) -> Result<bool, InternalError>,
+) -> Result<(usize, bool), InternalError> {
+    let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
+    let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
+    let mut filtered_rows = 0usize;
+    while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+        let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
+            continue;
+        };
+        if let Some(filter) = effective_runtime_filter_program
+            && !row_view.eval_filter_program(filter)?
+        {
+            continue;
+        }
+        if ingest(&data_key, &row_view)? {
+            return Ok((filtered_rows, true));
+        }
+        filtered_rows = filtered_rows.saturating_add(1);
+    }
+    Ok((filtered_rows, false))
 }

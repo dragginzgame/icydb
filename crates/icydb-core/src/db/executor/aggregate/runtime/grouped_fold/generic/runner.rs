@@ -3,27 +3,23 @@
 //! Boundary: owns generic grouped ingest and page finalization wiring.
 
 use crate::{
-    db::{
-        data::DecodedDataStoreKey,
-        executor::{
-            aggregate::{
-                ExecutionContext, GroupError, ProjectionSpec,
-                contracts::GroupedDistinctExecutionMode,
-                runtime::grouped_fold::{
-                    bundle::{
-                        GroupedAggregateBundle, GroupedAggregateBundleSpec,
-                        OrderedGroupedAggregateFold,
-                    },
-                    dispatch::group_fields_support_borrowed_group_probe,
-                    generic::{OrderedGroupedPageSelection, page_finalize::finalize_grouped_page},
+    db::executor::{
+        aggregate::{
+            ExecutionContext, GroupError, ProjectionSpec,
+            contracts::GroupedDistinctExecutionMode,
+            runtime::grouped_fold::{
+                bundle::{
+                    GroupedAggregateBundle, GroupedAggregateBundleSpec, OrderedGroupedAggregateFold,
                 },
-                runtime::grouped_output::finalize_grouped_output,
+                dispatch::group_fields_support_borrowed_group_probe,
+                generic::{OrderedGroupedPageSelection, page_finalize::finalize_grouped_page},
             },
-            group::GroupKey,
-            pipeline::{
-                contracts::{GroupedCursorPage, GroupedRouteStage},
-                runtime::{GroupedStreamStage, RowView},
-            },
+            runtime::{fold_filtered_source_rows, grouped_output::finalize_grouped_output},
+        },
+        group::GroupKey,
+        pipeline::{
+            contracts::{GroupedCursorPage, GroupedRouteStage},
+            runtime::GroupedStreamStage,
         },
     },
     error::InternalError,
@@ -216,7 +212,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
     ) -> Result<usize, InternalError> {
-        self.fold_filtered_source_rows(stream, |data_key, row_view| {
+        fold_filtered_source_rows(self.route.consistency(), stream, |data_key, row_view| {
             let Some(direct_group_fields) = self.group_fields.as_direct() else {
                 return Err(InternalError::query_executor_invariant());
             };
@@ -239,7 +235,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
     ) -> Result<usize, InternalError> {
-        self.fold_filtered_source_rows(stream, |data_key, row_view| {
+        fold_filtered_source_rows(self.route.consistency(), stream, |data_key, row_view| {
             let Some(direct_group_fields) = self.group_fields.as_direct() else {
                 return Err(InternalError::query_executor_invariant());
             };
@@ -263,7 +259,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         let Some(group_fields) = self.group_fields.as_path_aware() else {
             return Err(InternalError::query_executor_invariant());
         };
-        self.fold_filtered_source_rows(stream, |data_key, row_view| {
+        fold_filtered_source_rows(self.route.consistency(), stream, |data_key, row_view| {
             grouped_bundle
                 .ingest_row_with_path_group_probe(
                     grouped_execution_context,
@@ -273,35 +269,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 )
                 .map_err(GroupError::into_internal_error)
         })
-    }
-
-    // Keep read/filter/count ordering common while statically selecting ingest
-    // outside the loop. Rejected rows never reach key construction or admission.
-    fn fold_filtered_source_rows(
-        &self,
-        stream: &mut GroupedStreamStage,
-        mut ingest: impl FnMut(&DecodedDataStoreKey, &RowView) -> Result<(), InternalError>,
-    ) -> Result<usize, InternalError> {
-        let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
-        let effective_runtime_filter_program =
-            execution_preparation.effective_runtime_filter_program();
-        let mut filtered_rows = 0usize;
-        let consistency = self.route.consistency();
-
-        while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-            let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
-                continue;
-            };
-            if let Some(filter) = effective_runtime_filter_program
-                && !row_view.eval_filter_program(filter)?
-            {
-                continue;
-            }
-            filtered_rows = filtered_rows.saturating_add(1);
-            ingest(&data_key, &row_view)?;
-        }
-
-        Ok(filtered_rows)
     }
 }
 

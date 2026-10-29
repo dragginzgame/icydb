@@ -824,10 +824,6 @@ impl<'a> ResumableForwardScanner<'a> {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one bounded scan keeps row validation, candidate staging, and exact checkpoint progress in order"
-    )]
     fn next_mutation(
         &mut self,
         patch: &crate::db::data::AcceptedMutationIntentPatch,
@@ -918,16 +914,10 @@ impl<'a> ResumableForwardScanner<'a> {
             })
         });
         if let Err(error) = visit {
-            self.failure = Some(
-                match classify_mutation_job_target_execution_failure(&error) {
-                    MutationJobTargetExecutionFailure::Restart(reason) => {
-                        ResumableForwardScanError::Restart(reason)
-                    }
-                    MutationJobTargetExecutionFailure::Target(_) => {
-                        ResumableForwardScanError::Query
-                    }
-                },
-            );
+            self.failure = Some(mutation_job_execution_budget_restart_reason(&error).map_or(
+                ResumableForwardScanError::Query,
+                ResumableForwardScanError::Restart,
+            ));
             return None;
         }
         if !stopped {
@@ -1267,11 +1257,9 @@ fn persist_classified_mutation_job_query_failure<C: CanisterKind>(
     request: &MutationJobAdvanceRequest,
     error: &InternalError,
 ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-    match classify_mutation_job_target_execution_failure(error) {
-        MutationJobTargetExecutionFailure::Restart(reason) => {
-            persist_terminal_mutation_job_restart::<C>(before, request, reason)
-        }
-        MutationJobTargetExecutionFailure::Target(_) => Err(MutationJobError::TargetQueryFailed),
+    match mutation_job_execution_budget_restart_reason(error) {
+        Some(reason) => persist_terminal_mutation_job_restart::<C>(before, request, reason),
+        None => Err(MutationJobError::TargetQueryFailed),
     }
 }
 
@@ -1283,6 +1271,13 @@ fn classify_mutation_job_target_execution_failure(
     }
     let diagnostic = error.diagnostic();
     match diagnostic.detail() {
+        // A definite row refusal otherwise repeats at the same checkpoint.
+        // Retain terminal progress so the caller can acknowledge it.
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::ConstraintViolation,
+        }) => {
+            MutationJobTargetExecutionFailure::Restart(MutationJobRestartReason::TargetRowRejected)
+        }
         Some(DiagnosticDetail::RuntimeBoundary {
             boundary: RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
         }) => MutationJobTargetExecutionFailure::Target(
@@ -1790,11 +1785,44 @@ mod tests {
             )
         ));
 
-        let other = InternalError::executor_invariant();
-        assert!(matches!(
-            classify_mutation_job_target_execution_failure(&other),
-            MutationJobTargetExecutionFailure::Target(MutationJobTargetFailureReason::Other)
-        ));
+        for kind in [
+            icydb_diagnostic_code::DiagnosticConstraintKind::Check,
+            icydb_diagnostic_code::DiagnosticConstraintKind::NotNull,
+            icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule,
+        ] {
+            let value_path = (kind
+                == icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule)
+                .then(|| {
+                    crate::error::ConstraintValuePath::new(vec![
+                        crate::error::ConstraintValuePathComponent::RootField { field_id: 1 },
+                    ])
+                });
+            let constraint = InternalError::mutation_constraint_violation(
+                crate::error::AcceptedConstraintFactContext::write_admission(
+                    1, [7; 16], 1, 1, kind, None, value_path,
+                ),
+            );
+            assert!(matches!(
+                classify_mutation_job_target_execution_failure(&constraint),
+                MutationJobTargetExecutionFailure::Restart(
+                    MutationJobRestartReason::TargetRowRejected
+                )
+            ));
+            assert_eq!(
+                mutation_job_execution_budget_restart_reason(&constraint),
+                None
+            );
+        }
+
+        for other in [
+            InternalError::executor_invariant(),
+            InternalError::accepted_row_constraint_program_corrupt(),
+        ] {
+            assert!(matches!(
+                classify_mutation_job_target_execution_failure(&other),
+                MutationJobTargetExecutionFailure::Target(MutationJobTargetFailureReason::Other)
+            ));
+        }
     }
 
     #[test]

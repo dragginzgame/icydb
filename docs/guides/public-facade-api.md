@@ -581,6 +581,11 @@ batch policy, an impossible candidate, managed-time regression, or admitted
 execution-policy divergence yields a bounded typed terminal
 `RestartRequired` state.
 
+A target row rejected by an accepted constraint terminates with
+`RestartRequired(TargetRowRejected)`. The rejected page commits no row changes;
+earlier pages stay applied. The receipt is replayable and can be acknowledged to
+reclaim the job. Correct the row or intent before starting a new job identity.
+
 ### Mutation-job completion under concurrent writes
 
 Bounded advances do not guarantee eventual completion while the target entity

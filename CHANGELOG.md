@@ -5,6 +5,52 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.290.0]
+
+### ⚠️ Breaking
+
+- Adopt Memory/Storage 0.55.1. Consumers exchanging IcyDB's exposed memory types
+  must align their dependencies; allocation and collection formats are unchanged.
+- Mutation jobs add the `TargetRowRejected` restart reason; exhaustive matches
+  must handle the new case ([#104](https://github.com/dragginzgame/icydb/issues/104)).
+
+### 📦 Dependencies
+
+- Adopt Metrics 0.17.2, IC Build/Host/Testkit 0.69.14, Platform 0.7.6 and Shared
+  Tooling 0.27.7. Preserve feature and protocol boundaries; Timers 0.32 awaits
+  the Canic adapter.
+
+### 🩹 Fixed
+
+- Terminalize durable mutation jobs when an accepted constraint rejects a target
+  row, allowing replay and acknowledgement after partial progress
+  ([#104](https://github.com/dragginzgame/icydb/issues/104)).
+
+### 🧹 Cleanup
+
+- Share accepted schema publication while preserving durable and journaled
+  effects ([#554](https://github.com/dragginzgame/icydb/issues/554)).
+- Share derived integrity-page traversal while preserving checkpoints and
+  bounded progress ([#552](https://github.com/dragginzgame/icydb/issues/552)).
+- Share existing-row mutation finishing while preserving update/replacement
+  policies and managed timestamps ([#579](https://github.com/dragginzgame/icydb/issues/579)).
+- Share index-prefix stream assembly while preserving merge and branch ordering
+  ([#571](https://github.com/dragginzgame/icydb/issues/571)).
+- Share covering-row projection while preserving component ownership and budget
+  admission ([#569](https://github.com/dragginzgame/icydb/issues/569)).
+- Share grouped COUNT scans, aligning row accounting while preserving ordered
+  page boundaries ([#560](https://github.com/dragginzgame/icydb/issues/560)).
+- Share DISTINCT and generic grouped source reads while preserving filtering
+  before aggregate admission ([#561](https://github.com/dragginzgame/icydb/issues/561)).
+- Share generated-removal identity resolution while preserving member ownership
+  and typed refusals ([#578](https://github.com/dragginzgame/icydb/issues/578)).
+  [Details](docs/changelog/0.290.md).
+
+### 🧪 Testing
+
+- Protect cross-list entity diagnostic priority while retaining phased member
+  admission ([#564](https://github.com/dragginzgame/icydb/issues/564)).
+
 ## [0.289.0] - 2026-10-29
 
 ### ⚠️ Breaking

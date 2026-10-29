@@ -1590,17 +1590,7 @@ impl SchemaStore {
                 state.owner().field_id(),
             );
             let bytes = encode_identity_state(&state)?;
-            match target {
-                IdentityStateWriteTarget::Durable => {
-                    self.insert_durable_raw_value(key, bytes);
-                }
-                IdentityStateWriteTarget::Materialized => {
-                    self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
-                }
-                IdentityStateWriteTarget::Canonical => {
-                    self.insert_canonical_raw_value(key, bytes)?;
-                }
-            }
+            self.insert_raw_value_at_target(key, bytes, target)?;
         }
         Ok(())
     }
@@ -2609,6 +2599,27 @@ impl SchemaStore {
         expected_revision: AcceptedSchemaRevision,
         candidate: &CandidateSchemaRevision,
     ) -> Result<(), InternalError> {
+        self.publish_accepted_schema_candidate_to(
+            incarnation,
+            expected_revision,
+            candidate,
+            IdentityStateWriteTarget::Durable,
+        )
+    }
+
+    // Durable bootstrap and journal replay publish the same effective authority.
+    // Their existing write target couples bundle/root insertion, identity effects
+    // and retention; canonical fold keeps its separate prepared publication.
+    fn publish_accepted_schema_candidate_to(
+        &mut self,
+        incarnation: DatabaseIncarnationId,
+        expected_revision: AcceptedSchemaRevision,
+        candidate: &CandidateSchemaRevision,
+        target: IdentityStateWriteTarget,
+    ) -> Result<(), InternalError> {
+        if matches!(target, IdentityStateWriteTarget::Canonical) {
+            return Err(InternalError::store_invariant());
+        }
         let identity_transition = self.prepare_identity_state_transition(
             incarnation,
             candidate,
@@ -2618,47 +2629,51 @@ impl SchemaStore {
             if !identity_transition.is_empty() {
                 return Err(InternalError::identity_state_corruption());
             }
-            let selection = self
-                .current_accepted_schema_root()?
+        } else {
+            let first = self.accepted_root_slot_bytes(0)?;
+            let second = self.accepted_root_slot_bytes(1)?;
+            prepare_accepted_schema_root_publication(
+                [first.as_deref(), second.as_deref()],
+                expected_revision,
+                candidate,
+            )
+            .map_err(map_schema_publication_error)?;
+
+            let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
+            self.insert_raw_value_at_target(
+                bundle_key,
+                candidate.encoded_bundle().to_vec(),
+                target,
+            )?;
+            let persisted_bundle = self
+                .get_raw_value(&bundle_key)
                 .ok_or_else(InternalError::store_corruption)?;
-            self.retain_durable_candidate_entries(candidate, selection.slot())?;
-            return Ok(());
+            let _verified = decode_verified_accepted_schema_revision_bundle(
+                candidate.root(),
+                persisted_bundle.as_bytes(),
+            )?;
+            self.apply_identity_state_transition(identity_transition, target)?;
+
+            // Recheck immediately before publishing the inactive slot, after
+            // candidate persistence and the accepted identity transition.
+            let first = self.accepted_root_slot_bytes(0)?;
+            let second = self.accepted_root_slot_bytes(1)?;
+            let publication = prepare_accepted_schema_root_publication(
+                [first.as_deref(), second.as_deref()],
+                expected_revision,
+                candidate,
+            )
+            .map_err(map_schema_publication_error)?;
+            let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
+            self.insert_raw_value_at_target(root_key, publication.encoded_root().to_vec(), target)?;
+
+            // Replay retains its effective-root plus bundle revalidation.
+            if matches!(target, IdentityStateWriteTarget::Materialized)
+                && !self.current_root_matches_candidate(candidate)?
+            {
+                return Err(InternalError::store_corruption());
+            }
         }
-        let first = self.accepted_root_slot_bytes(0)?;
-        let second = self.accepted_root_slot_bytes(1)?;
-        prepare_accepted_schema_root_publication(
-            [first.as_deref(), second.as_deref()],
-            expected_revision,
-            candidate,
-        )
-        .map_err(map_schema_publication_error)?;
-
-        let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
-        self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
-        let persisted_bundle = self
-            .get_raw_value(&bundle_key)
-            .ok_or_else(InternalError::store_corruption)?;
-        let _verified = decode_verified_accepted_schema_revision_bundle(
-            candidate.root(),
-            persisted_bundle.as_bytes(),
-        )?;
-        self.apply_identity_state_transition(
-            identity_transition,
-            IdentityStateWriteTarget::Durable,
-        )?;
-
-        // Re-read the root immediately before the inactive-slot write. This is
-        // the compare-and-swap check after candidate persistence.
-        let first = self.accepted_root_slot_bytes(0)?;
-        let second = self.accepted_root_slot_bytes(1)?;
-        let publication = prepare_accepted_schema_root_publication(
-            [first.as_deref(), second.as_deref()],
-            expected_revision,
-            candidate,
-        )
-        .map_err(map_schema_publication_error)?;
-        let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
-        self.insert_durable_raw_value(root_key, publication.encoded_root().to_vec());
 
         let selected = self
             .current_accepted_schema_root()?
@@ -2666,8 +2681,15 @@ impl SchemaStore {
         if selected.root() != candidate.root() {
             return Err(InternalError::store_corruption());
         }
-        self.retain_durable_candidate_entries(candidate, selected.slot())?;
-        Ok(())
+        match target {
+            IdentityStateWriteTarget::Durable => {
+                self.retain_durable_candidate_entries(candidate, selected.slot())
+            }
+            IdentityStateWriteTarget::Materialized => {
+                self.retain_materialized_candidate_entries(candidate, selected.slot())
+            }
+            IdentityStateWriteTarget::Canonical => Err(InternalError::store_invariant()),
+        }
     }
 
     /// Restore one current accepted candidate into an empty live-only schema
@@ -2861,70 +2883,12 @@ impl SchemaStore {
         if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
             return Err(InternalError::store_invariant());
         }
-        let identity_transition = self.prepare_identity_state_transition(
+        self.publish_accepted_schema_candidate_to(
             incarnation,
-            candidate,
-            IdentityStateStorageView::Effective,
-        )?;
-        if self.current_root_matches_candidate(candidate)? {
-            if !identity_transition.is_empty() {
-                return Err(InternalError::identity_state_corruption());
-            }
-            let selection = self
-                .current_accepted_schema_root()?
-                .ok_or_else(InternalError::store_corruption)?;
-            self.retain_materialized_candidate_entries(candidate, selection.slot())?;
-            return Ok(());
-        }
-
-        let first = self.accepted_root_slot_bytes(0)?;
-        let second = self.accepted_root_slot_bytes(1)?;
-        prepare_accepted_schema_root_publication(
-            [first.as_deref(), second.as_deref()],
             expected_revision,
             candidate,
-        )
-        .map_err(map_schema_publication_error)?;
-
-        let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
-        self.insert_raw_value(
-            bundle_key,
-            RawSchemaValue::from_encoded_control_record(candidate.encoded_bundle().to_vec()),
-        );
-        let persisted_bundle = self
-            .get_raw_value(&bundle_key)
-            .ok_or_else(InternalError::store_corruption)?;
-        let _verified = decode_verified_accepted_schema_revision_bundle(
-            candidate.root(),
-            persisted_bundle.as_bytes(),
-        )?;
-        self.apply_identity_state_transition(
-            identity_transition,
             IdentityStateWriteTarget::Materialized,
-        )?;
-
-        let first = self.accepted_root_slot_bytes(0)?;
-        let second = self.accepted_root_slot_bytes(1)?;
-        let publication = prepare_accepted_schema_root_publication(
-            [first.as_deref(), second.as_deref()],
-            expected_revision,
-            candidate,
         )
-        .map_err(map_schema_publication_error)?;
-        let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
-        self.insert_raw_value(
-            root_key,
-            RawSchemaValue::from_encoded_control_record(publication.encoded_root().to_vec()),
-        );
-
-        if !self.current_root_matches_candidate(candidate)? {
-            return Err(InternalError::store_corruption());
-        }
-        let selection = self
-            .current_accepted_schema_root()?
-            .ok_or_else(InternalError::store_corruption)?;
-        self.retain_materialized_candidate_entries(candidate, selection.slot())?;
-        Ok(())
     }
 
     /// Consume one candidate's preflight payloads in the same atomic fold callback.
@@ -3158,6 +3122,24 @@ impl SchemaStore {
             derive_index_allocation_metadata(snapshots)?,
             derive_schema_catalog_metadata(snapshots)?,
         )))
+    }
+
+    // Keep schema/control bytes and identity-state updates on the same selected
+    // destination without changing the concrete backend writers' custody rules.
+    fn insert_raw_value_at_target(
+        &mut self,
+        key: RawSchemaKey,
+        bytes: Vec<u8>,
+        target: IdentityStateWriteTarget,
+    ) -> Result<(), InternalError> {
+        match target {
+            IdentityStateWriteTarget::Durable => self.insert_durable_raw_value(key, bytes),
+            IdentityStateWriteTarget::Materialized => {
+                self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
+            }
+            IdentityStateWriteTarget::Canonical => self.insert_canonical_raw_value(key, bytes)?,
+        }
+        Ok(())
     }
 
     /// Insert or replace one opaque schema/control value.

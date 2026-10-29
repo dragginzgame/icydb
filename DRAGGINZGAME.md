@@ -129,6 +129,14 @@ for justified internal links, packaging and filesystem security boundaries.
 Use Clap for Rust CLI parsing. Read the [CLI contract](rules/engineering-details.md#cli-applications)
 when adding or changing commands.
 
+## Metrics and logging
+
+**All our Rust crates use `ic-metrics` for metrics and `ic-logging` for logging.**
+Do not maintain custom or competing implementations. Raise capability gaps as
+issues in IC Observability and improve the canonical crates there. Read the
+[observability contract](rules/engineering-details.md#metrics-and-logging)
+when adding, changing or reviewing metrics and logging.
+
 ## IC application encoding
 
 Owned application types must not derive or implement `CandidType`. Use `ic-wire`

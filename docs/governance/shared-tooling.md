@@ -7,8 +7,8 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.27.6 at published revision
-`5a72359b5be19d5221334cf2c9b3204621d3f3f6`. The canonical exporter owns the
+IcyDB selects Shared Tooling 0.27.7 at published revision
+`11d519c604b1727a2bf6272557a97e770a63b29f`. The canonical exporter owns the
 130 selected payloads and their hashes/modes. Adoption also verifies every
 payload and mode against that independently selected source commit; ordinary
 checks remain offline local-integrity checks. Refresh them canonically; a
@@ -39,7 +39,7 @@ own any future placement decision.
 | Principal identity and external Candid/CDK interfaces | IC Platform | Explicit platform features; no workspace-owned direct SDK use |
 | Allocation admission and exclusive memory leases | IC Memory | Database keys, host grant declarations and role bindings |
 | Governed collections and stable codec interfaces | IC Storage | Database codecs, indexes, transactions and retained-control admission |
-| Measurement arithmetic | IC Metrics | Phase/entity attribution, report selection and resets |
+| Measurement arithmetic | IC Observability (`ic-metrics`) | Phase/entity attribution, report selection and resets |
 | Cargo/Wasm acquisition and retained caches | IC Build | Actor recipes, optimizer/interface policy and report budgets |
 | File/process/text primitives | IC Host Tooling | Product artifact admission and CLI presentation |
 | PocketIC setup, admission, gateway and lifecycle | IC Testkit | Fixture topology, scenarios and native Wire calls |
@@ -90,28 +90,58 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Current direct minimums are IC Build/Host/Testkit 0.69.10, Platform 0.7.0,
-Wire 0.7.21, Memory/Storage 0.54.0, Metrics 0.17.0 and Timers 0.31.16.
-The lock selects those requested package versions and Platform 0.7.4; the pinned
+Current direct minimums are IC Build/Host/Testkit 0.69.14, Platform 0.7.6,
+Wire 0.7.21, Memory/Storage 0.55.1, Metrics 0.17.2 and Timers 0.31.16.
+The lock selects those requested package versions; the pinned
 Canic adapter retains Platform 0.6.21 and Timers 0.31.16. Timers 0.32 remains
 blocked by that adapter's exclusive global-timer dependency; remediation is
-[Canic #709](https://github.com/dragginzgame/canic/issues/709). No local supplier
+[Canic #590](https://github.com/dragginzgame/canic/issues/590) (superseding #709). No local supplier
 path override is used.
 
-Shared 0.27.6's 130 payloads match independently reviewed committed source
-`5a72359b5be19d5221334cf2c9b3204621d3f3f6`; consumer adapter regressions,
+Shared 0.27.7's 130 payloads match independently reviewed committed source
+`11d519c604b1727a2bf6272557a97e770a63b29f`; consumer adapter regressions,
 declaration pins, graph invariants and external-IC dependency boundaries pass.
 The refresh preserves IcyDB's selected entrypoints and local stricter file policy.
 Scheduled maintenance was not enabled or requalified by this adoption.
 
-Memory/Storage 0.54.0 registry archives identify source
-`9ca2e8e39f8ab5d1b8501e4d843b25c614719a13`. Their Rust sources match 0.53.1
-byte-for-byte; the graph retains one Memory identity and unchanged custody and
-persisted formats. Tooling 0.69.10 archives identify source
-`1ead6af25b701093814e47da50d564b4f60ad726`. Focused Linux results and exact
-selected inputs are retained under `target/evidence/upstream-20261029/`.
-Full gates, installed-IC/browser and native macOS workflows have not been
-requalified for this graph; performance deltas are unmeasured.
+Metrics 0.17.2's registry archive identifies IC Observability source
+`775a47fab309c043e5a40ec96e009706d668a49b`. Measurement behavior, native Wire
+transport and optional recording contracts are unchanged from 0.17.0. The
+independent Logging package is not selected by this update. IC Persistence
+retains durable adapter ownership; this adoption adds no storage integration.
+
+Tooling 0.69.14 registry archives identify source
+`645ae21d387b03e2750f5c7fd5a604a7f5279899`. Memory/Storage 0.55.1 archives
+identify Persistence source `c3700a1c8ac99d13e570a35f3cfe023692df079c`.
+All nine packages declare Rust 1.91 support. Memory and Storage library sources
+match 0.55.0; custody, allocation ledger and B-tree formats remain unchanged.
+The earlier 0.54-to-0.55 crate-identity change affects exposed Memory types, so
+consumers exchanging them must align dependencies. The pending batch remains
+under [0.290](../changelog/0.290.md). Neither stable metrics nor stable logging
+adapters are selected; their checkpoint retirement requires no reset here.
+
+Platform 0.7.6 was already locked; this update raises its direct minimum without
+changing features. Wire 0.7.21, Metrics 0.17.2 and compatible Timers 0.31.16 are
+already current. Published Timers 0.32 cannot coexist with the retained adapter's
+0.31 requirement because both own the same exclusive global timer. The canonical
+Canic issue above remains open; its local drafts do not establish an available,
+qualified adapter revision. Keep the supplier pin and single timer owner intact.
+
+Shared retains the reviewed `11d519c604b1727a2bf6272557a97e770a63b29f` selection,
+which matches the available public revision. Tooling retains public interfaces,
+selected features, cache/report formats and lifecycle responsibilities. Exact
+archive provenance and focused evidence for this refresh are retained under
+`target/evidence/upstream-20261029-latest/`. Fresh Linux qualification passes
+strict facade/Core/CLI/build-adapter and integration-library lint, 5 Core memory/
+replay tests, 7 facade bootstrap tests, 179 CLI tests and 21 build-adapter tests.
+The Rust 1.91 public Wasm path passes with SQL, metrics and migration enabled;
+declaration pins, dependency boundaries, graph invariants, manifest ordering,
+local document links and consumer tooling fixtures pass. Earlier 0.55.0/0.69.13 qualification
+remains under `target/evidence/upstream-20261029-memory055/`; its 308 tests and
+compiler results apply to those recorded inputs, not this newer selection.
+Native macOS, installed-IC and broad release qualification remain outside local
+checks. Substitute Testkit CLI fixtures do not qualify a real PocketIC server;
+performance deltas remain unmeasured.
 
 ### Retained earlier qualification
 
