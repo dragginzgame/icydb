@@ -25,7 +25,7 @@ use crate::{
             order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
-                access_candidate_score_outranks, index_literal_matches_schema,
+                index_candidate_outranks, index_literal_matches_schema,
                 prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
                 range_bound_count,
             },
@@ -304,8 +304,11 @@ fn plan_starts_with_compare(
         match best {
             None => best = Some((score, index)),
             Some((best_score, best_index))
-                if access_candidate_score_outranks(score, best_score, false)
-                    || (score == best_score && index.name() < best_index.name()) =>
+                if index_candidate_outranks(
+                    (score, index.name()),
+                    (best_score, best_index.name()),
+                    false,
+                ) =>
             {
                 best = Some((score, index));
             }
@@ -386,8 +389,11 @@ fn plan_ordered_compare(
         match best {
             None => best = Some((score, index, leading_key_item)),
             Some((best_score, best_index, _))
-                if access_candidate_score_outranks(score, best_score, false)
-                    || (score == best_score && index.name() < best_index.name()) =>
+                if index_candidate_outranks(
+                    (score, index.name()),
+                    (best_score, best_index.name()),
+                    false,
+                ) =>
             {
                 best = Some((score, index, leading_key_item));
             }

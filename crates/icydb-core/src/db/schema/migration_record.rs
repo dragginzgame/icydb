@@ -1255,18 +1255,41 @@ fn decode_progress(
     Ok(progress)
 }
 
+// Both cursor shapes share the persisted presence/store/entity prefix.
+fn encode_cursor_identity(
+    writer: &mut MigrationWriter,
+    identity: Option<(TargetStoreIdentity, EntityTag)>,
+) {
+    match identity {
+        None => writer.push_u8(0),
+        Some((store, entity)) => {
+            writer.push_u8(1);
+            writer.push_bytes(&store.to_bytes());
+            writer.push_u64(entity.value());
+        }
+    }
+}
+
+fn decode_cursor_identity(
+    reader: &mut MigrationReader<'_>,
+) -> Result<Option<(TargetStoreIdentity, EntityTag)>, InternalError> {
+    match reader.read_u8()? {
+        0 => Ok(None),
+        1 => Ok(Some((
+            TargetStoreIdentity::from_bytes(reader.read_array()?),
+            EntityTag::new(reader.read_u64()?),
+        ))),
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
 fn encode_row_cursor(
     writer: &mut MigrationWriter,
     cursor: Option<&PersistedSchemaMigrationRowCursor>,
 ) -> Result<(), InternalError> {
-    match cursor {
-        None => writer.push_u8(0),
-        Some(cursor) => {
-            writer.push_u8(1);
-            writer.push_bytes(&cursor.store.to_bytes());
-            writer.push_u64(cursor.entity.value());
-            writer.push_len_prefixed_bytes(&cursor.primary_key)?;
-        }
+    encode_cursor_identity(writer, cursor.map(|cursor| (cursor.store, cursor.entity)));
+    if let Some(cursor) = cursor {
+        writer.push_len_prefixed_bytes(&cursor.primary_key)?;
     }
     Ok(())
 }
@@ -1274,30 +1297,24 @@ fn encode_row_cursor(
 fn decode_row_cursor(
     reader: &mut MigrationReader<'_>,
 ) -> Result<Option<PersistedSchemaMigrationRowCursor>, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(None),
-        1 => Ok(Some(PersistedSchemaMigrationRowCursor {
-            store: TargetStoreIdentity::from_bytes(reader.read_array()?),
-            entity: EntityTag::new(reader.read_u64()?),
-            primary_key: reader.read_len_prefixed_bytes()?.to_vec(),
-        })),
-        _ => Err(InternalError::store_corruption()),
-    }
+    let Some((store, entity)) = decode_cursor_identity(reader)? else {
+        return Ok(None);
+    };
+    Ok(Some(PersistedSchemaMigrationRowCursor {
+        store,
+        entity,
+        primary_key: reader.read_len_prefixed_bytes()?.to_vec(),
+    }))
 }
 
 fn encode_index_cursor(
     writer: &mut MigrationWriter,
     cursor: Option<&PersistedSchemaMigrationIndexCursor>,
 ) -> Result<(), InternalError> {
-    match cursor {
-        None => writer.push_u8(0),
-        Some(cursor) => {
-            writer.push_u8(1);
-            writer.push_bytes(&cursor.store.to_bytes());
-            writer.push_u64(cursor.entity.value());
-            writer.push_u64(cursor.index);
-            writer.push_len_prefixed_bytes(&cursor.key)?;
-        }
+    encode_cursor_identity(writer, cursor.map(|cursor| (cursor.store, cursor.entity)));
+    if let Some(cursor) = cursor {
+        writer.push_u64(cursor.index);
+        writer.push_len_prefixed_bytes(&cursor.key)?;
     }
     Ok(())
 }
@@ -1305,16 +1322,15 @@ fn encode_index_cursor(
 fn decode_index_cursor(
     reader: &mut MigrationReader<'_>,
 ) -> Result<Option<PersistedSchemaMigrationIndexCursor>, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(None),
-        1 => Ok(Some(PersistedSchemaMigrationIndexCursor {
-            store: TargetStoreIdentity::from_bytes(reader.read_array()?),
-            entity: EntityTag::new(reader.read_u64()?),
-            index: reader.read_u64()?,
-            key: reader.read_len_prefixed_bytes()?.to_vec(),
-        })),
-        _ => Err(InternalError::store_corruption()),
-    }
+    let Some((store, entity)) = decode_cursor_identity(reader)? else {
+        return Ok(None);
+    };
+    Ok(Some(PersistedSchemaMigrationIndexCursor {
+        store,
+        entity,
+        index: reader.read_u64()?,
+        key: reader.read_len_prefixed_bytes()?.to_vec(),
+    }))
 }
 
 #[cfg(test)]
@@ -1433,6 +1449,75 @@ mod tests {
     use crate::db::commit::{
         CommitMarker, DatabaseControlOp, decode_commit_marker_payload, encode_commit_marker_payload,
     };
+
+    #[test]
+    fn cursor_codecs_preserve_exact_identity_prefix_and_shape_payloads() {
+        let store = TargetStoreIdentity::from_bytes([7; 32]);
+        let entity = EntityTag::new(42);
+        let row = PersistedSchemaMigrationRowCursor {
+            store,
+            entity,
+            primary_key: vec![8, 9],
+        };
+        let index = PersistedSchemaMigrationIndexCursor {
+            store,
+            entity,
+            index: 31,
+            key: vec![8, 9],
+        };
+        let mut expected_prefix = vec![1];
+        expected_prefix.extend_from_slice(&[7; 32]);
+        expected_prefix.extend_from_slice(&42u64.to_be_bytes());
+        let mut expected_row = expected_prefix.clone();
+        expected_row.extend_from_slice(&2u32.to_be_bytes());
+        expected_row.extend_from_slice(&[8, 9]);
+        let mut expected_index = expected_prefix;
+        expected_index.extend_from_slice(&31u64.to_be_bytes());
+        expected_index.extend_from_slice(&2u32.to_be_bytes());
+        expected_index.extend_from_slice(&[8, 9]);
+        let mut writer = MigrationWriter::new();
+        encode_row_cursor(&mut writer, Some(&row)).unwrap();
+        assert_eq!(writer.finish().unwrap(), expected_row);
+        let mut writer = MigrationWriter::new();
+        encode_index_cursor(&mut writer, Some(&index)).unwrap();
+        assert_eq!(writer.finish().unwrap(), expected_index);
+        let mut reader = MigrationReader::new(&expected_row);
+        assert_eq!(decode_row_cursor(&mut reader).unwrap(), Some(row));
+        reader.finish().unwrap();
+        let mut reader = MigrationReader::new(&expected_index);
+        assert_eq!(decode_index_cursor(&mut reader).unwrap(), Some(index));
+        reader.finish().unwrap();
+        for end in 0..expected_row.len() {
+            assert!(decode_row_cursor(&mut MigrationReader::new(&expected_row[..end])).is_err());
+        }
+        for end in 0..expected_index.len() {
+            assert!(
+                decode_index_cursor(&mut MigrationReader::new(&expected_index[..end])).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cursor_codecs_preserve_absence_and_reject_unknown_tags() {
+        let mut writer = MigrationWriter::new();
+        encode_row_cursor(&mut writer, None).unwrap();
+        assert_eq!(writer.finish().unwrap(), [0]);
+        let mut writer = MigrationWriter::new();
+        encode_index_cursor(&mut writer, None).unwrap();
+        assert_eq!(writer.finish().unwrap(), [0]);
+        assert_eq!(
+            decode_row_cursor(&mut MigrationReader::new(&[0])).unwrap(),
+            None
+        );
+        assert_eq!(
+            decode_index_cursor(&mut MigrationReader::new(&[0])).unwrap(),
+            None
+        );
+        for tag in 2..=u8::MAX {
+            assert!(decode_row_cursor(&mut MigrationReader::new(&[tag])).is_err());
+            assert!(decode_index_cursor(&mut MigrationReader::new(&[tag])).is_err());
+        }
+    }
 
     fn record() -> SchemaMigrationRecord {
         SchemaMigrationRecord::prepared(

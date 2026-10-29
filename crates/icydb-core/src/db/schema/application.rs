@@ -31,16 +31,16 @@ use crate::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
             ConstraintValidationPhase, ConstraintValidationProgress, ExistingProposalStore,
-            MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, ProposalStoreTarget, SchemaApplicationRecord,
-            SchemaApplicationRecordOp, SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId,
-            SchemaChangeOutcome, SchemaChangeProgress, SchemaChangeProgressStatus,
-            SchemaChangeReceipt, SchemaChangeValidationPhase, StagedUserIndexDomainError,
-            UnpublishedRowLocalValidation, advance_accepted_row_local_constraint_activation,
-            constraint_validation_finding_output, derive_schema_change_job_id,
-            load_schema_application_record_read_only, lower_existing_schema_proposal,
-            lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
-            prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
-            with_schema_application_store,
+            MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, PersistedSchemaSnapshot, ProposalStoreTarget,
+            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
+            SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress,
+            SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaChangeValidationPhase,
+            StagedUserIndexDomainError, UnpublishedRowLocalValidation,
+            advance_accepted_row_local_constraint_activation, constraint_validation_finding_output,
+            derive_schema_change_job_id, load_schema_application_record_read_only,
+            lower_existing_schema_proposal, lower_generated_existing_schema_proposal,
+            lower_initial_schema_proposal, prove_empty_user_index_domain,
+            validate_unpublished_row_local_candidate_bounded, with_schema_application_store,
         },
     },
     error::InternalError,
@@ -2675,34 +2675,23 @@ fn require_empty_physical_index_removals(
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
 ) -> Result<(), InternalError> {
-    for candidate in candidates {
-        let (position, authority) = authorities
-            .iter()
-            .enumerate()
-            .find(|(_, authority)| authority.path == candidate.store_path())
-            .ok_or_else(InternalError::store_invariant)?;
-        let current = current_bundles
-            .get(position)
-            .and_then(Option::as_ref)
-            .ok_or_else(InternalError::store_invariant)?;
-        for (entity_tag, after) in candidate.bundle().entity_snapshots() {
-            let Some(before) = current.entity_snapshots().get(entity_tag) else {
-                continue;
-            };
+    validate_existing_candidate_entities(
+        authorities,
+        current_bundles,
+        candidates,
+        |store, entity_tag, before, after| {
             if before.indexes().len() == after.indexes().len() {
-                continue;
+                return Ok(());
             }
             if before.indexes().len() != after.indexes().len().saturating_add(1) {
                 return Err(InternalError::store_unsupported());
             }
-            require_exact_empty_entity(authority.handle, *entity_tag)?;
-            authority
-                .handle
-                .with_index(|store| prove_empty_user_index_domain(store, *entity_tag))
-                .map_err(StagedUserIndexDomainError::into_internal_error)?;
-        }
-    }
-    Ok(())
+            require_exact_empty_entity(store, entity_tag)?;
+            store
+                .with_index(|index| prove_empty_user_index_domain(index, entity_tag))
+                .map_err(StagedUserIndexDomainError::into_internal_error)
+        },
+    )
 }
 
 /// Prove that every dense field-removal candidate has no historical row to
@@ -2711,6 +2700,36 @@ fn require_empty_physical_field_removals(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    validate_existing_candidate_entities(
+        authorities,
+        current_bundles,
+        candidates,
+        |store, entity_tag, before, after| {
+            if before.row_layout() == after.row_layout() {
+                return Ok(());
+            }
+            if before.fields().len() != after.fields().len().saturating_add(1) {
+                return Err(InternalError::store_unsupported());
+            }
+            require_exact_empty_entity(store, entity_tag)
+        },
+    )
+}
+
+// Traverse candidates in their existing order and pair only retained entities.
+// Resolve each store before invoking its kind-specific physical safety proof;
+// missing authority/bundles remain invariants, while new entities are skipped.
+fn validate_existing_candidate_entities(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+    mut validate: impl FnMut(
+        StoreHandle,
+        EntityTag,
+        &PersistedSchemaSnapshot,
+        &PersistedSchemaSnapshot,
+    ) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
     for candidate in candidates {
         let (position, authority) = authorities
@@ -2726,13 +2745,7 @@ fn require_empty_physical_field_removals(
             let Some(before) = current.entity_snapshots().get(entity_tag) else {
                 continue;
             };
-            if before.row_layout() == after.row_layout() {
-                continue;
-            }
-            if before.fields().len() != after.fields().len().saturating_add(1) {
-                return Err(InternalError::store_unsupported());
-            }
-            require_exact_empty_entity(authority.handle, *entity_tag)?;
+            validate(authority.handle, *entity_tag, before, after)?;
         }
     }
     Ok(())

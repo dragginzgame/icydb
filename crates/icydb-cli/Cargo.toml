@@ -29,6 +29,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 ic-host-fs = { workspace = true, features = ["test-support"] }
+ic-metrics = { workspace = true }
 
 [lints]
 workspace = true

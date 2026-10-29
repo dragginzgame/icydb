@@ -16,12 +16,20 @@ evidence; mark current remote observations BLOCKED rather than treating cached
 results as fresh. Do not request broader permissions or recover credentials.
 Write new evidence only under the supplied run directory. Retain failed evidence.
 
-Run the eight routine tasks, including Cargo tool and advisory README freshness, then one
-bounded audit. README findings never block releases or trigger prose rewrites.
+Run the local portions of cargo-machete, msrv, snapshot-drift and readme-freshness,
+then one bounded audit. Use source inspection when prepared tools or matching
+local evidence are unavailable; mark the unexecuted check explicitly. Review
+only local snapshot integrity and local README claims. Do not attempt online
+latest-version, CI-health or current-advisory checks. List those deferred remote
+observations once for the whole pass, rather than attempting and reporting the
+same blocked network operations for every repository. README findings never
+block releases or trigger prose rewrites.
 Alternate code-audit and tooling-duplication using the last completed report
 when available; start with
 tooling-duplication when there is no history. Choose the least recently reviewed
-relevant scope from retained reports; do not maintain another work queue.
+relevant scope from the copied prior-report.md when supplied. Other state-root
+logs are outside this run's permissions; do not try to read them or maintain
+another work queue.
 Work sequentially, avoid active builds, and report unavailable evidence rather
 than waiting indefinitely or treating a missing check as success.
 

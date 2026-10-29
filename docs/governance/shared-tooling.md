@@ -7,8 +7,8 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.27.3 at published revision
-`cc81a58a5b2dd287c577cbffd2c576c178b6785c`. The canonical exporter owns the
+IcyDB selects Shared Tooling 0.27.6 at published revision
+`5a72359b5be19d5221334cf2c9b3204621d3f3f6`. The canonical exporter owns the
 130 selected payloads and their hashes/modes. Adoption also verifies every
 payload and mode against that independently selected source commit; ordinary
 checks remain offline local-integrity checks. Refresh them canonically; a
@@ -90,11 +90,31 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Current direct minimums are IC Build/Host/Testkit 0.69.5, Platform 0.7.0,
-Wire 0.7.21, Memory/Storage 0.53.0, Metrics 0.16.3 and Timers 0.31.16.
-The current lock selects Tooling 0.69.8 and Platform 0.7.4; the pinned Canic
-adapter still selects Platform 0.6.21 separately. Registry releases were verified
-before locked cache preparation. Endpoint and lifecycle ownership are unchanged.
+Current direct minimums are IC Build/Host/Testkit 0.69.10, Platform 0.7.0,
+Wire 0.7.21, Memory/Storage 0.54.0, Metrics 0.17.0 and Timers 0.31.16.
+The lock selects those requested package versions and Platform 0.7.4; the pinned
+Canic adapter retains Platform 0.6.21 and Timers 0.31.16. Timers 0.32 remains
+blocked by that adapter's exclusive global-timer dependency; remediation is
+[Canic #709](https://github.com/dragginzgame/canic/issues/709). No local supplier
+path override is used.
+
+Shared 0.27.6's 130 payloads match independently reviewed committed source
+`5a72359b5be19d5221334cf2c9b3204621d3f3f6`; consumer adapter regressions,
+declaration pins, graph invariants and external-IC dependency boundaries pass.
+The refresh preserves IcyDB's selected entrypoints and local stricter file policy.
+Scheduled maintenance was not enabled or requalified by this adoption.
+
+Memory/Storage 0.54.0 registry archives identify source
+`9ca2e8e39f8ab5d1b8501e4d843b25c614719a13`. Their Rust sources match 0.53.1
+byte-for-byte; the graph retains one Memory identity and unchanged custody and
+persisted formats. Tooling 0.69.10 archives identify source
+`1ead6af25b701093814e47da50d564b4f60ad726`. Focused Linux results and exact
+selected inputs are retained under `target/evidence/upstream-20261029/`.
+Full gates, installed-IC/browser and native macOS workflows have not been
+requalified for this graph; performance deltas are unmeasured.
+
+### Retained earlier qualification
+
 Wire 0.7.21 passes five endpoint/lifecycle tests, five generator tests, strict
 generator lint, dependency-boundary checks and the Rust 1.91 Wasm check with
 SQL/migration enabled. Node contract qualification preserves 90 exact frames

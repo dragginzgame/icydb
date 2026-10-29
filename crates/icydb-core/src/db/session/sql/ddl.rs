@@ -12,7 +12,7 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintValidationProgress,
-            SchemaDdlAcceptedSnapshotDerivation, SchemaFieldNullabilityOutcome,
+            SchemaDdlAcceptedSnapshotDerivation, SchemaFieldNullabilityOutcome, SchemaVersion,
             advance_check_constraint_activation, advance_not_null_constraint_activation,
             advance_unique_constraint_activation, constraint_validation_finding_output,
             ensure_schema_migration_ready_for_schema_changes, execute_schema_check_addition,
@@ -35,6 +35,7 @@ use crate::{
     },
     error::InternalError,
     traits::CanisterKind,
+    types::EntityTag,
 };
 
 fn constraint_validation_report(
@@ -333,6 +334,42 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    // Admit the version before operation-specific validation, and invalidate
+    // cached authority only after publication succeeds. The operation retains
+    // its schema semantics; this frame owns the accepted identity and report.
+    fn execute_prepared_schema_publication<T>(
+        &self,
+        accepted_before: &AcceptedSchemaCatalogContext,
+        prepared: &PreparedSqlDdlCommand,
+        status: SqlDdlExecutionStatus,
+        execute: impl FnOnce(
+            EntityTag,
+            &str,
+            &AcceptedSchemaSnapshot,
+            AcceptedCatalogIdentity,
+            SchemaVersion,
+        ) -> Result<T, InternalError>,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let next_schema_version = prepared
+            .bound()
+            .schema_version_contract()
+            .next_schema_version()
+            .ok_or_else(QueryError::unsupported_query)?;
+        let identity = accepted_before.identity();
+        execute(
+            identity.entity_tag(),
+            identity.entity_path(),
+            accepted_before.snapshot(),
+            identity.clone(),
+            next_schema_version,
+        )
+        .map_err(QueryError::from_sql_ddl_execution_error)?;
+        self.invalidate_accepted_schema_runtime_root();
+        Ok(SqlStatementResult::Ddl(
+            prepared.report().clone().with_execution_status(status),
+        ))
+    }
+
     fn execute_prepared_unique_index_activation(
         &self,
         store: StoreHandle,
@@ -340,28 +377,22 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &PreparedSqlDdlCommand,
         create: &BoundSqlCreateIndexRequest,
     ) -> Result<SqlStatementResult, QueryError> {
-        let next_schema_version = prepared
-            .bound()
-            .schema_version_contract()
-            .next_schema_version()
-            .ok_or_else(QueryError::unsupported_query)?;
-        execute_schema_unique_index_activation(
-            store,
-            accepted_before.identity().entity_tag(),
-            accepted_before.identity().entity_path(),
-            accepted_before.snapshot(),
-            accepted_before.identity(),
-            create.candidate_index(),
-            next_schema_version,
+        self.execute_prepared_schema_publication(
+            accepted_before,
+            prepared,
+            SqlDdlExecutionStatus::ActivationPublished,
+            |tag, path, snapshot, identity, version| {
+                execute_schema_unique_index_activation(
+                    store,
+                    tag,
+                    path,
+                    snapshot,
+                    identity,
+                    create.candidate_index(),
+                    version,
+                )
+            },
         )
-        .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_runtime_root();
-        Ok(SqlStatementResult::Ddl(
-            prepared
-                .report()
-                .clone()
-                .with_execution_status(SqlDdlExecutionStatus::ActivationPublished),
-        ))
     }
 
     fn execute_prepared_unique_index_activation_abort(
@@ -371,33 +402,26 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &PreparedSqlDdlCommand,
         drop: &crate::db::sql::ddl::BoundSqlDropIndexRequest,
     ) -> Result<SqlStatementResult, QueryError> {
-        let next_schema_version = prepared
-            .bound()
-            .schema_version_contract()
-            .next_schema_version()
-            .ok_or_else(QueryError::unsupported_query)?;
-        execute_schema_unique_index_activation_abort(
-            store,
-            accepted_before.identity().entity_tag(),
-            accepted_before.identity().entity_path(),
-            accepted_before.snapshot(),
-            accepted_before.identity(),
-            (
-                drop.pending_activation_id()
-                    .ok_or_else(InternalError::store_invariant)
-                    .map_err(QueryError::from_sql_ddl_execution_error)?,
-                drop.dropped_index(),
-            ),
-            next_schema_version,
+        self.execute_prepared_schema_publication(
+            accepted_before,
+            prepared,
+            SqlDdlExecutionStatus::Published,
+            |tag, path, snapshot, identity, version| {
+                execute_schema_unique_index_activation_abort(
+                    store,
+                    tag,
+                    path,
+                    snapshot,
+                    identity,
+                    (
+                        drop.pending_activation_id()
+                            .ok_or_else(InternalError::store_invariant)?,
+                        drop.dropped_index(),
+                    ),
+                    version,
+                )
+            },
         )
-        .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_runtime_root();
-        Ok(SqlStatementResult::Ddl(
-            prepared
-                .report()
-                .clone()
-                .with_execution_status(SqlDdlExecutionStatus::Published),
-        ))
     }
 
     fn execute_prepared_drop_check(
@@ -407,28 +431,14 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &PreparedSqlDdlCommand,
         drop: &crate::db::schema::SchemaDropConstraintRequest,
     ) -> Result<SqlStatementResult, QueryError> {
-        let next_schema_version = prepared
-            .bound()
-            .schema_version_contract()
-            .next_schema_version()
-            .ok_or_else(QueryError::unsupported_query)?;
-        execute_schema_check_drop(
-            store,
-            accepted_before.identity().entity_tag(),
-            accepted_before.identity().entity_path(),
-            accepted_before.snapshot(),
-            accepted_before.identity(),
-            drop,
-            next_schema_version,
+        self.execute_prepared_schema_publication(
+            accepted_before,
+            prepared,
+            SqlDdlExecutionStatus::Published,
+            |tag, path, snapshot, identity, version| {
+                execute_schema_check_drop(store, tag, path, snapshot, identity, drop, version)
+            },
         )
-        .map_err(QueryError::from_sql_ddl_execution_error)?;
-        self.invalidate_accepted_schema_runtime_root();
-        Ok(SqlStatementResult::Ddl(
-            prepared
-                .report()
-                .clone()
-                .with_execution_status(SqlDdlExecutionStatus::Published),
-        ))
     }
 
     fn execute_prepared_validate_constraint(
@@ -495,42 +505,41 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &PreparedSqlDdlCommand,
         alter: &crate::db::sql::ddl::BoundSqlAlterColumnNullabilityRequest,
     ) -> Result<SqlStatementResult, QueryError> {
-        let status = if let Some(constraint_id) = alter.pending_activation_id() {
-            let next_schema_version = prepared
-                .bound()
-                .schema_version_contract()
-                .next_schema_version()
-                .ok_or_else(QueryError::unsupported_query)?;
-            execute_schema_not_null_activation_abort(
-                store,
-                accepted_before.identity().entity_tag(),
-                accepted_before.identity().entity_path(),
-                accepted_before.snapshot(),
-                accepted_before.identity(),
-                next_schema_version,
-                alter.field_id(),
-                constraint_id,
-            )
-            .map_err(QueryError::from_sql_ddl_execution_error)?;
-            SqlDdlExecutionStatus::Published
-        } else {
-            let derivation = prepared
-                .derivation()
-                .ok_or_else(QueryError::unsupported_query)?;
-            match execute_schema_field_nullability_change(
-                store,
-                accepted_before.identity().entity_tag(),
-                accepted_before.identity().entity_path(),
-                accepted_before.snapshot(),
-                accepted_before.identity(),
-                derivation,
-            )
-            .map_err(QueryError::from_sql_ddl_execution_error)?
-            {
-                SchemaFieldNullabilityOutcome::Published => SqlDdlExecutionStatus::Published,
-                SchemaFieldNullabilityOutcome::ActivationPublished { .. } => {
-                    SqlDdlExecutionStatus::ActivationPublished
-                }
+        if let Some(constraint_id) = alter.pending_activation_id() {
+            return self.execute_prepared_schema_publication(
+                accepted_before,
+                prepared,
+                SqlDdlExecutionStatus::Published,
+                |tag, path, snapshot, identity, version| {
+                    execute_schema_not_null_activation_abort(
+                        store,
+                        tag,
+                        path,
+                        snapshot,
+                        identity,
+                        version,
+                        alter.field_id(),
+                        constraint_id,
+                    )
+                },
+            );
+        }
+        let derivation = prepared
+            .derivation()
+            .ok_or_else(QueryError::unsupported_query)?;
+        let status = match execute_schema_field_nullability_change(
+            store,
+            accepted_before.identity().entity_tag(),
+            accepted_before.identity().entity_path(),
+            accepted_before.snapshot(),
+            accepted_before.identity(),
+            derivation,
+        )
+        .map_err(QueryError::from_sql_ddl_execution_error)?
+        {
+            SchemaFieldNullabilityOutcome::Published => SqlDdlExecutionStatus::Published,
+            SchemaFieldNullabilityOutcome::ActivationPublished { .. } => {
+                SqlDdlExecutionStatus::ActivationPublished
             }
         };
         self.invalidate_accepted_schema_runtime_root();

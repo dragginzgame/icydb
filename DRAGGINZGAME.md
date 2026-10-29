@@ -116,11 +116,13 @@ when changing interfaces, persistence or installation/recovery behavior.
 Do not submit DFINITY PRs or depend on future DFINITY work. Use available qualified
 dependencies or own the solution under the [maintenance contract](rules/engineering-details.md#dfinity-dependencies-own-the-solution).
 
-## Repository files: no symlinks
+<a id="repository-files-no-symlinks"></a>
 
-Maintain regular repository and package files. Read the [symlink contract and
-limited exceptions](rules/engineering-details.md#repository-files-no-symlinks)
-when changing generators, packaging or installation paths.
+## Repository files: self-contained source and packages
+
+Keep source and distributions self-contained; prefer regular files. Read the
+[file and symlink contract](rules/engineering-details.md#repository-files-no-symlinks)
+for justified internal links, packaging and filesystem security boundaries.
 
 ## CLI applications
 

@@ -5,6 +5,57 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.289.0]
+
+### ⚠️ Breaking
+
+- Adopt IC Metrics 0.17.0's validated measurement values directly in reports;
+  remove local numeric mirrors and regenerate clients for the new report shape.
+  [Details](docs/changelog/0.289.md).
+
+### 📦 Dependencies
+
+- Adopt Shared Tooling 0.27.6, IC Build/Host/Testkit 0.69.10, Platform 0.7.5,
+  Memory/Storage 0.54.0 and test-only rusqlite 0.41.1; Timers 0.32 remains
+  blocked by the Canic adapter.
+
+### 🧹 Cleanup
+
+- Share cursorless page-window compaction while preserving order, limits and
+  typed swap errors ([#586](https://github.com/dragginzgame/icydb/issues/586)).
+- Share SQL constraint publication and removal preflight, preserving typed
+  refusals, runtime invalidation and physical safety checks
+  ([#513](https://github.com/dragginzgame/icydb/issues/513),
+  [#529](https://github.com/dragginzgame/icydb/issues/529)).
+- Share allocation-fingerprint framing while preserving current hash bytes
+  ([#581](https://github.com/dragginzgame/icydb/issues/581)).
+- Share convergence-control publication while preserving bootstrap ordering
+  ([#582](https://github.com/dragginzgame/icydb/issues/582)).
+- Share expression traversal and access-shape reduction, retaining early-stop
+  semantics and plan-specific projections
+  ([#585](https://github.com/dragginzgame/icydb/issues/585),
+  [#570](https://github.com/dragginzgame/icydb/issues/570)).
+- Share migration-cursor identity framing while preserving persisted bytes
+  ([#544](https://github.com/dragginzgame/icydb/issues/544)).
+- Share cardinality-control scans while preserving lazy lifecycle reads
+  ([#587](https://github.com/dragginzgame/icydb/issues/587)).
+- Share source-lineage record construction and ordering across schema planning
+  ([#589](https://github.com/dragginzgame/icydb/issues/589)).
+- Share relation target lowering across scalar, composite and nested sources
+  ([#591](https://github.com/dragginzgame/icydb/issues/591)).
+- Centralize index candidate tie-breaking across lookup, prefix and range planners
+  ([#584](https://github.com/dragginzgame/icydb/issues/584)).
+- Share index-bound component validation while preserving typed failures and
+  bound ordering ([#583](https://github.com/dragginzgame/icydb/issues/583)).
+- Share SQL write result formatting across DELETE, INSERT and UPDATE, preserving
+  RETURNING admission and reusing prepared column labels
+  ([#590](https://github.com/dragginzgame/icydb/issues/590)).
+
+### 📚 Documentation
+
+- Clarify that 0.288.0's Canic composition notes describe isolated work, not the
+  shipped adapter integration. [Details](docs/changelog/0.288.md).
+
 ## [0.288.0] - 2026-10-28
 
 ### ⚠️ Breaking

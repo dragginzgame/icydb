@@ -79,6 +79,24 @@ pub(in crate::db::schema) struct PlannedEntitySourceLineage {
 }
 
 impl PlannedEntitySourceLineage {
+    // All planning routes derive the version and digest from the same proposed entity.
+    fn from_proposal(
+        proposal: &SchemaProposal,
+        entity: &EntityFragment,
+        store: TargetStoreIdentity,
+        entity_tag: EntityTag,
+    ) -> Result<Self, SchemaMigrationPlanningError> {
+        Ok(Self {
+            store,
+            entity: entity_tag,
+            version: AcceptedEntitySourceVersion::try_new(entity.version().get())
+                .map_err(|_| SchemaMigrationPlanningError::CorruptLineage)?,
+            digest: proposal
+                .entity_source_digest(entity.source_key())
+                .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?,
+        })
+    }
+
     #[must_use]
     pub(in crate::db::schema) const fn store(self) -> TargetStoreIdentity {
         self.store
@@ -238,19 +256,14 @@ pub(in crate::db::schema) fn plan_entity_source_adoption(
         {
             return Err(SchemaMigrationPlanningError::IdentityConflict);
         }
-        planned.push(PlannedEntitySourceLineage {
-            store: store.identity,
-            entity: entity_tag,
-            version: AcceptedEntitySourceVersion::try_new(entity.version().get())
-                .map_err(|_| SchemaMigrationPlanningError::CorruptLineage)?,
-            digest: proposal
-                .entity_source_digest(source)
-                .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?,
-        });
+        planned.push(PlannedEntitySourceLineage::from_proposal(
+            proposal,
+            entity,
+            store.identity,
+            entity_tag,
+        )?);
     }
-    icydb_schema::compact_sort_unstable_by(&mut planned, |left, right| {
-        (left.store, left.entity).cmp(&(right.store, right.entity))
-    });
+    sort_source_lineage(&mut planned);
     Ok(planned)
 }
 
@@ -291,19 +304,14 @@ pub(in crate::db::schema) fn plan_new_entity_source_lineage(
             .source_bindings()
             .entity(source)
             .ok_or(SchemaMigrationPlanningError::UnknownToObject)?;
-        planned.push(PlannedEntitySourceLineage {
-            store: store_identity,
-            entity: entity_tag,
-            version: AcceptedEntitySourceVersion::try_new(entity.version().get())
-                .map_err(|_| SchemaMigrationPlanningError::CorruptLineage)?,
-            digest: proposal
-                .entity_source_digest(source)
-                .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?,
-        });
+        planned.push(PlannedEntitySourceLineage::from_proposal(
+            proposal,
+            entity,
+            store_identity,
+            entity_tag,
+        )?);
     }
-    icydb_schema::compact_sort_unstable_by(&mut planned, |left, right| {
-        (left.store, left.entity).cmp(&(right.store, right.entity))
-    });
+    sort_source_lineage(&mut planned);
     Ok(planned)
 }
 
@@ -368,27 +376,29 @@ pub(in crate::db::schema) fn plan_schema_migration(
     let transitioned = resolved
         .iter()
         .map(|binding| {
-            Ok(PlannedEntitySourceLineage {
-                store: binding.store_identity,
-                entity: binding.entity_tag,
-                version: AcceptedEntitySourceVersion::try_new(binding.entity.version().get())
-                    .map_err(|_| SchemaMigrationPlanningError::CorruptLineage)?,
-                digest: proposal
-                    .entity_source_digest(binding.entity.source_key())
-                    .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?,
-            })
+            PlannedEntitySourceLineage::from_proposal(
+                proposal,
+                binding.entity,
+                binding.store_identity,
+                binding.entity_tag,
+            )
         })
         .collect::<Result<Vec<_>, SchemaMigrationPlanningError>>()?;
     lineage.extend(transitioned);
-    icydb_schema::compact_sort_unstable_by(&mut lineage, |left, right| {
-        (left.store, left.entity).cmp(&(right.store, right.entity))
-    });
+    sort_source_lineage(&mut lineage);
     Ok(PlannedSchemaMigration {
         candidates,
         lineage,
         physical,
         programs,
     })
+}
+
+// Publication order is canonical across adoption, installation and migration.
+fn sort_source_lineage(lineage: &mut [PlannedEntitySourceLineage]) {
+    icydb_schema::compact_sort_unstable_by(lineage, |left, right| {
+        (left.store, left.entity).cmp(&(right.store, right.entity))
+    });
 }
 
 fn proposal_entities(proposal: &SchemaProposal) -> BTreeMap<&EntitySourceKey, &EntityFragment> {

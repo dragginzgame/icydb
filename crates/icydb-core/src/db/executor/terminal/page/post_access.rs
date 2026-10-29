@@ -105,30 +105,14 @@ pub(super) fn apply_data_row_page_window(
     };
 
     let total = rows.row_count();
-    let start = usize::try_from(page.offset)
-        .unwrap_or(usize::MAX)
-        .min(total);
-    let end = match page.limit {
-        Some(limit) => start
-            .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
-            .min(total),
-        None => total,
-    };
-    if start == 0 {
-        rows.truncate(end);
-        return Ok(());
-    }
-
-    let mut kept = 0usize;
-    for read_index in start..end {
-        if kept != read_index {
-            rows.swap(kept, read_index)?;
-        }
-        kept = kept.saturating_add(1);
-    }
-
-    rows.truncate(kept);
-    Ok(())
+    apply_compact_page_window(
+        rows,
+        total,
+        usize::try_from(page.offset).unwrap_or(usize::MAX),
+        page.limit,
+        ProjectionDataRows::swap,
+        ProjectionDataRows::truncate,
+    )
 }
 
 // Apply the ordered-load continuation boundary and page window in one in-place
@@ -143,7 +127,17 @@ pub(super) fn apply_load_cursor_and_pagination_window(
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     if cursor.is_none() {
         let rows_after_cursor = rows.len();
-        apply_kernel_row_page_window(rows, offset, limit);
+        apply_compact_page_window(
+            rows,
+            rows_after_cursor,
+            offset,
+            limit,
+            |rows, left, right| {
+                rows.swap(left, right);
+                Ok(())
+            },
+            Vec::truncate,
+        )?;
 
         return Ok(rows_after_cursor);
     }
@@ -186,10 +180,17 @@ pub(super) fn apply_load_cursor_and_pagination_window(
     Ok(kept_after_cursor)
 }
 
-// Apply the LIMIT/OFFSET page window for the common no-cursor path without
-// paying one cursor-branch check per retained row.
-fn apply_kernel_row_page_window(rows: &mut Vec<KernelRow>, offset: usize, limit: Option<u32>) {
-    let total = rows.len();
+// Compact either row container with the same window and movement policy.
+// Container operations stay explicit: canonical data-row swaps are fallible,
+// while kernel vectors swap directly. Neither path allocates another row list.
+fn apply_compact_page_window<R>(
+    rows: &mut R,
+    total: usize,
+    offset: usize,
+    limit: Option<u32>,
+    mut swap: impl FnMut(&mut R, usize, usize) -> Result<(), InternalError>,
+    truncate: impl FnOnce(&mut R, usize),
+) -> Result<(), InternalError> {
     let start = offset.min(total);
     let end = match limit {
         Some(limit) => start
@@ -198,17 +199,77 @@ fn apply_kernel_row_page_window(rows: &mut Vec<KernelRow>, offset: usize, limit:
         None => total,
     };
     if start == 0 {
-        rows.truncate(end);
-        return;
+        truncate(rows, end);
+        return Ok(());
     }
 
     let mut kept = 0usize;
     for read_index in start..end {
         if kept != read_index {
-            rows.swap(kept, read_index);
+            swap(rows, kept, read_index)?;
         }
         kept = kept.saturating_add(1);
     }
 
-    rows.truncate(kept);
+    truncate(rows, kept);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_compact_page_window;
+    use crate::{db::executor::ProjectionDataRows, error::InternalError};
+
+    #[test]
+    fn compact_page_windows_preserve_order_and_zero_offset_needs_no_swaps() {
+        for total in 0..=6 {
+            for offset in [0, 1, 3, 6, usize::MAX] {
+                for limit in [None, Some(0), Some(1), Some(4), Some(u32::MAX)] {
+                    let mut rows = (0..total).collect::<Vec<_>>();
+                    let expected = rows
+                        .iter()
+                        .copied()
+                        .skip(offset)
+                        .take(limit.map_or(usize::MAX, |limit| usize::try_from(limit).unwrap()))
+                        .collect::<Vec<_>>();
+                    let mut swaps = 0;
+                    apply_compact_page_window(
+                        &mut rows,
+                        total,
+                        offset,
+                        limit,
+                        |rows, left, right| {
+                            swaps += 1;
+                            rows.swap(left, right);
+                            Ok(())
+                        },
+                        Vec::truncate,
+                    )
+                    .unwrap();
+                    assert_eq!(rows, expected);
+                    if offset == 0 {
+                        assert_eq!(swaps, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compact_page_window_propagates_data_row_swap_refusal_without_truncation() {
+        let mut rows = ProjectionDataRows::raw(Vec::new());
+        let error = apply_compact_page_window(
+            &mut rows,
+            2,
+            1,
+            Some(1),
+            ProjectionDataRows::swap,
+            |_, _| panic!("failed compaction must not truncate"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.diagnostic_code(),
+            InternalError::query_executor_invariant().diagnostic_code()
+        );
+    }
 }

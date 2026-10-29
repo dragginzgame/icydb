@@ -9,6 +9,10 @@ native CI qualifies each supported host separately.
 
 ## Repository symlink admission
 
+This optional helper enforces an all-regular repository inventory. It is stricter
+than the [baseline file policy](../DRAGGINZGAME.md#repository-files-no-symlinks),
+which permits justified internal links. It is not a universal compliance gate.
+
 ```sh
 perl scripts/ci/check-no-symlinks.pl --consumer /path/to/checkout
 ```
@@ -21,8 +25,11 @@ Tracked deletions are allowed. Failed Git/filesystem observations never pass.
 Inventory uses NUL delimiters and disables optional Git index writes; inherited
 Git directory/index overrides cannot select another source.
 
-Shared's `make check-no-symlinks` runs in its CI and release gate. Consumers may
-adopt the script as a snapshot entrypoint and select it in their existing gates.
+Shared's `make check-no-symlinks` runs in its CI and release gate as a local choice.
+Consumers choosing the same stricter inventory may adopt it as a snapshot
+entrypoint. Repositories using justified internal links should select checks for
+their packaging and filesystem security boundaries instead; do not add a second
+exception framework or copy/sync machinery just to satisfy this helper.
 Ignored tool stores and isolated negative-test scratch are outside the inventory;
 this is not admission of arbitrary ignored files or generated package contents.
 Those remain subject to the baseline rule and their artifact checks.

@@ -27,7 +27,7 @@ use crate::{
             order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
-                access_candidate_score_outranks, coercion_supports_index_lookup,
+                coercion_supports_index_lookup, index_candidate_outranks,
                 index_field_literal_matcher, index_literal_matches_schema,
             },
         },
@@ -187,8 +187,11 @@ fn best_leading_lookup_index<'a>(
         match &best {
             None => best = Some((score, index)),
             Some((best_score, best_index))
-                if access_candidate_score_outranks(score, *best_score, true)
-                    || (score == *best_score && index.name() < best_index.name()) =>
+                if index_candidate_outranks(
+                    (score, index.name()),
+                    (*best_score, best_index.name()),
+                    true,
+                ) =>
             {
                 best = Some((score, index));
             }
@@ -238,8 +241,11 @@ pub(super) fn index_prefix_from_and(
         match &best {
             None => best = Some((score, index, prefix)),
             Some((best_score, best_index, _))
-                if access_candidate_score_outranks(score, *best_score, true)
-                    || (score == *best_score && index.name() < best_index.name()) =>
+                if index_candidate_outranks(
+                    (score, index.name()),
+                    (*best_score, best_index.name()),
+                    true,
+                ) =>
             {
                 best = Some((score, index, prefix));
             }
@@ -382,8 +388,11 @@ fn index_branch_set_from_and_with_cap(
         match &best {
             None => best = Some((score, index, fixed_values, branch_values)),
             Some((best_score, best_index, _, _))
-                if access_candidate_score_outranks(score, *best_score, true)
-                    || (score == *best_score && index.name() < best_index.name()) =>
+                if index_candidate_outranks(
+                    (score, index.name()),
+                    (*best_score, best_index.name()),
+                    true,
+                ) =>
             {
                 best = Some((score, index, fixed_values, branch_values));
             }

@@ -45,38 +45,34 @@ pub(super) fn render_metrics_report(report: &MetricsReport) -> String {
         retired.encoded_batch_bytes(),
         convergence.overflowed(),
         convergence.journal_fold().samples(),
-        convergence.journal_fold().instructions_total(),
-        convergence.journal_fold().instructions_max(),
-        convergence.journal_fold().samples_saturated(),
-        convergence.journal_fold().total_saturated(),
+        convergence.journal_fold().total(),
+        convergence.journal_fold().maximum().unwrap_or(0),
+        convergence.journal_fold().samples_overflowed(),
+        convergence.journal_fold().total_overflowed(),
         report.schema_lifecycle().startup_recovery().samples(),
+        report.schema_lifecycle().startup_recovery().total(),
         report
             .schema_lifecycle()
             .startup_recovery()
-            .instructions_total(),
+            .maximum()
+            .unwrap_or(0),
         report
             .schema_lifecycle()
             .startup_recovery()
-            .instructions_max(),
+            .samples_overflowed(),
         report
             .schema_lifecycle()
             .startup_recovery()
-            .samples_saturated(),
-        report
-            .schema_lifecycle()
-            .startup_recovery()
-            .total_saturated(),
+            .total_overflowed(),
     );
     if report.entities().is_empty() {
         output.push_str("  None\n");
         return output;
     }
 
-    if report
-        .entities()
-        .iter()
-        .any(|entity| entity.samples_saturated() || entity.total_saturated())
-    {
+    if report.entities().iter().any(|entity| {
+        entity.instructions().samples_overflowed() || entity.instructions().total_overflowed()
+    }) {
         output.push_str("  + marks a clipped count or instruction total\n");
     }
     let rows = report.entities().iter().map(entity_row).collect::<Vec<_>>();
@@ -88,22 +84,25 @@ fn entity_row(entity: &EntityMetrics) -> MetricsEntityRow {
     // The producer preserves actual overflow quality; raw cap values cannot
     // distinguish clipped observations from exact caps and cannot rebuild it.
     let average = entity
-        .instructions_mean()
+        .instructions()
+        .mean()
+        .ok()
+        .flatten()
         .map_or_else(|| "unavailable".to_string(), |value| value.to_string());
     [
         entity.path().to_string(),
-        if entity.samples_saturated() {
-            format!("{}+", entity.hits())
+        if entity.instructions().samples_overflowed() {
+            format!("{}+", entity.instructions().samples())
         } else {
-            entity.hits().to_string()
+            entity.instructions().samples().to_string()
         },
-        if entity.total_saturated() {
-            format!("{}+", entity.instructions_total())
+        if entity.instructions().total_overflowed() {
+            format!("{}+", entity.instructions().total())
         } else {
-            entity.instructions_total().to_string()
+            entity.instructions().total().to_string()
         },
         average,
-        entity.instructions_max().to_string(),
+        entity.instructions().maximum().unwrap_or(0).to_string(),
     ]
 }
 
@@ -134,26 +133,24 @@ mod tests {
         samples_saturated: bool,
         total_saturated: bool,
     ) -> EntityMetrics {
-        // Use complete producer-projected state through the real Wire decoder;
-        // the renderer consumes the admitted mean instead of redoing arithmetic.
         #[derive(serde::Serialize)]
         struct ReportEntity {
             path: &'static str,
-            hits: u64,
-            instructions_total: u128,
-            instructions_max: u64,
-            samples_saturated: bool,
-            total_saturated: bool,
-            instructions_mean: Option<u128>,
+            instructions: ic_metrics::MeasurementAggregate,
         }
-        let encoded = icydb_schema::wire::encode_one(ReportEntity {
-            path: "app.Entity",
+        let maximum = (hits != 0).then_some(u64::try_from(total).unwrap_or(u64::MAX));
+        let instructions = ic_metrics::MeasurementAggregate::from_parts(
             hits,
-            instructions_total: total,
-            instructions_max: u64::try_from(total).unwrap_or(u64::MAX),
+            total,
+            maximum,
             samples_saturated,
             total_saturated,
-            instructions_mean: mean,
+        )
+        .expect("admitted measurement fixture");
+        assert_eq!(instructions.mean().ok().flatten(), mean);
+        let encoded = icydb_schema::wire::encode_one(ReportEntity {
+            path: "app.Entity",
+            instructions,
         })
         .expect("encode report entity");
         icydb_schema::wire::decode_one(&encoded).expect("decode report entity")

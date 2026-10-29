@@ -52,8 +52,12 @@ including their resolved directory aliases. Admission checks existing ancestors
 of a future state root without creating it. Invalid paths fail before CLI probes
 or state writes; ordinary spaces and aliases remain supported.
 
-Run the helper's `--check PROJECTS_ROOT STATE_ROOT` mode to check Codex version,
-isolated-configuration support and saved login without starting an agent. Missing optional task tools
+Run the helper's `--check PROJECTS_ROOT STATE_ROOT` mode to admit the generated
+permission table with a no-model sandbox probe and verify saved login without
+starting an agent. It retains temporary check evidence without creating the
+selected state directory or consuming cadence. Runs perform the same preflight
+before recording dispatch. Invalid setup can be retried immediately; a dispatched
+agent failure still consumes its interval. Missing optional task tools
 will be reported as blocked; neither the runner nor the timer installs them.
 
 Install reviewed copies of both units under `~/.config/systemd/user/`, validate
@@ -86,8 +90,9 @@ exit-status or report. `last-attempt` is a dispatch timestamp, not a PASS marker
 A successful process exit does not mean every repository check passed: read the
 per-task findings and blockers in the report. Do not commit private run logs.
 
-The portable fixture uses a fake CLI to check dispatch, due-time admission and
-failed/empty report handling. It does not establish live agent, GitHub or native
+The portable fixture uses a fake CLI to check shared preflight/dispatch settings,
+due-time admission, prior-report selection and failed/empty report handling.
+It does not establish live agent, GitHub or native
 host qualification. Installation checks prove timer configuration and credentials;
 the first real report establishes actual execution coverage.
 
@@ -113,6 +118,13 @@ and installed runtime behavior remain host trust inputs. Do not combine the
 named profile with legacy `sandbox_mode` settings, which can override it.
 See [Codex permissions](https://learn.chatgpt.com/docs/permissions).
 
+The runner copies one completed prior report into the current evidence directory,
+recording its source path. Failed/unfinished reports are not used for rotation;
+the agent receives no extra state-root permission. Scheduled work covers local
+unused-dependency/MSRV source review, snapshot integrity, local README claims and
+one bounded audit. Remote freshness/CI/advisory observations are deferred once
+per pass for interactive review.
+
 The former `--approve-for-me` launch selected workspace-write plus automatic
 approval review; it was not the CLI's unsandboxed bypass option. The replacement
 removes that escalation route and makes the report-only scope explicit. Current
@@ -125,7 +137,8 @@ Before the next live pass, qualify the installed Codex permission-profile suppor
 and managed configuration with harmless sandbox probes: allowed source read,
 evidence write, denied source write, denied private credential-marker read and
 denied network access. Use dummy markers, never print real credentials.
-`--check` and the substitute CLI fixture cannot establish runtime confinement.
+`--check` executes those no-model filesystem/network probes with the same table;
+the substitute CLI fixture alone cannot establish runtime confinement.
 An unsupported configuration must fail; do not fall back to broader permissions.
 
 ## Other local schedulers

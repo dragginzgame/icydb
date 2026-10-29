@@ -15,7 +15,7 @@ use crate::{
             order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
-                access_candidate_score_outranks, index_literal_matches_schema,
+                index_candidate_outranks, index_literal_matches_schema,
                 range::{
                     CachedCompare, IndexFieldConstraint, RangeConstraint,
                     bounds::{merge_range_constraint, merge_range_constraint_bounds},
@@ -164,8 +164,11 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         match best {
             None => best = Some((score, index, range_slot, prefix, range)),
             Some((best_score, best_index, _, _, _))
-                if access_candidate_score_outranks(score, best_score, false)
-                    || (score == best_score && index.name() < best_index.name()) =>
+                if index_candidate_outranks(
+                    (score, index.name()),
+                    (best_score, best_index.name()),
+                    false,
+                ) =>
             {
                 best = Some((score, index, range_slot, prefix, range));
             }

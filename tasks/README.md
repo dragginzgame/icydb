@@ -19,10 +19,12 @@ without `.md`; people and agents use the same definitions.
 | [code-audit](code-audit.md) | What concrete correctness or complexity problems exist in one selected area? | Rotate one audit per pass |
 | [tooling-duplication](tooling-duplication.md) | Which locally owned tooling could share an existing implementation? | Alternate with code-audit |
 
-The `maintenance` pass runs the eight routine tasks above for the selected
+The interactive `maintenance` pass runs the eight routine tasks above for the selected
 repositories, then alternates the two audit tasks. Bound each audit to one useful area; record
 remaining scope rather than claiming a complete estate audit. Cadences are
-suggestions until a schedule is enabled. Installing a snapshot enables no timer.
+suggestions until a schedule is enabled. The scheduled report-only prompt selects
+local work and lists deferred remote checks once; it does not attempt the eight
+online-capable procedures unchanged. Installing a snapshot enables no timer.
 
 ## Run a task
 

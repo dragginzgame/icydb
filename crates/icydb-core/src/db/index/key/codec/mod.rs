@@ -205,13 +205,7 @@ impl IndexKey {
             return Ok((empty.clone(), empty));
         }
         for component in prefix {
-            let component = component.as_ref();
-            if component.is_empty() {
-                return Err(IndexKeyEncodeError::EmptySegment);
-            }
-            if component.len() > Self::MAX_COMPONENT_SIZE {
-                return Err(IndexKeyEncodeError::SegmentTooLarge);
-            }
+            validate_component(component.as_ref())?;
         }
 
         let lower = Self::raw_prefix_bound_with_kind(
@@ -255,13 +249,7 @@ impl IndexKey {
             return Ok((Bound::Included(empty.clone()), Bound::Included(empty)));
         }
         for component in prefix {
-            let component = component.as_ref();
-            if component.is_empty() {
-                return Err(IndexKeyEncodeError::EmptySegment);
-            }
-            if component.len() > Self::MAX_COMPONENT_SIZE {
-                return Err(IndexKeyEncodeError::SegmentTooLarge);
-            }
+            validate_component(component.as_ref())?;
         }
         validate_component_bound(lower)?;
         validate_component_bound(upper)?;
@@ -585,19 +573,23 @@ impl RangeBoundSide {
     }
 }
 
+// Prefix and range components share the same byte-level admission contract.
+const fn validate_component(component: &[u8]) -> Result<(), IndexKeyEncodeError> {
+    if component.is_empty() {
+        return Err(IndexKeyEncodeError::EmptySegment);
+    }
+    if component.len() > IndexKey::MAX_COMPONENT_SIZE {
+        return Err(IndexKeyEncodeError::SegmentTooLarge);
+    }
+
+    Ok(())
+}
+
 fn validate_component_bound<B: AsRef<[u8]>>(bound: &Bound<B>) -> Result<(), IndexKeyEncodeError> {
     match bound {
         Bound::Unbounded => Ok(()),
         Bound::Included(component) | Bound::Excluded(component) => {
-            let component = component.as_ref();
-            if component.is_empty() {
-                return Err(IndexKeyEncodeError::EmptySegment);
-            }
-            if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-                return Err(IndexKeyEncodeError::SegmentTooLarge);
-            }
-
-            Ok(())
+            validate_component(component.as_ref())
         }
     }
 }

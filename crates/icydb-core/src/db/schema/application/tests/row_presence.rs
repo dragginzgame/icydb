@@ -5,11 +5,18 @@ use crate::{
     db::{
         DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell, RequestExecutionRoot,
         data::{DecodedDataStoreKey, RawRow},
+        index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind},
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         record_generated_schema_startup_failure,
         schema::{
-            SchemaChangeReceipt, application::apply_generated_schema,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            SchemaChangeReceipt, SchemaIndexId,
+            application::{
+                apply_generated_schema, require_empty_physical_field_removals,
+                require_empty_physical_index_removals,
+            },
             cardinality_generation::CardinalityGenerationState,
+            derive_dense_field_removal_candidate, derive_dense_index_removal_candidate,
         },
     },
     error::InternalError,
@@ -17,6 +24,7 @@ use crate::{
     value::InputValue,
 };
 use icydb_schema::SchemaRemoval;
+use std::collections::BTreeMap;
 
 #[test]
 fn initial_schema_application_rejects_visible_rows_without_publishing_a_head() {
@@ -510,4 +518,146 @@ fn empty_removal_probe_qualifies_live_rows_tombstones_and_entity_bounds() {
         data.remove(&key);
     });
     assert!(super::super::require_exact_empty_entity(store, tag).is_ok());
+}
+
+#[test]
+fn physical_removals_preserve_distinct_row_and_index_domain_proofs() {
+    let (db, _, _) = initialize();
+    let store = db.store_handle(ABORT_STORE_PATH).unwrap();
+    let current =
+        store.with_schema(|schema| schema.current_accepted_schema_bundle().unwrap().unwrap());
+    let (&tag, original) = current.entity_snapshots().iter().next().unwrap();
+    let id = original
+        .fields()
+        .iter()
+        .find(|field| field.name() == "id")
+        .unwrap();
+    let index_id = SchemaIndexId::new(1).unwrap();
+    let before = original
+        .clone()
+        .with_indexes(vec![PersistedIndexSnapshot::new(
+            index_id,
+            1,
+            "id_lookup".into(),
+            ABORT_STORE_PATH.into(),
+            false,
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    id.id(),
+                    id.slot(),
+                    vec!["id".into()],
+                    id.kind().clone(),
+                    id.nullable(),
+                ),
+            ]),
+            None,
+        )]);
+    let bundle = |snapshot| {
+        AcceptedSchemaRevisionBundle::new(
+            current.revision().checked_next().unwrap(),
+            current.store_path(),
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+            [(tag, snapshot)].into(),
+        )
+        .unwrap()
+    };
+    let field_after = derive_dense_field_removal_candidate(
+        &before,
+        before
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .unwrap()
+            .id(),
+    )
+    .unwrap()
+    .into_snapshot();
+    let fields = [CandidateSchemaRevision::new(bundle(field_after)).unwrap()];
+    let indexes = [CandidateSchemaRevision::new(bundle(
+        derive_dense_index_removal_candidate(&before, index_id).unwrap(),
+    ))
+    .unwrap()];
+    let current_bundles = [Some(bundle(before))];
+    let authorities = application_authorities(&db);
+    require_empty_physical_field_removals(&authorities, &current_bundles, &fields).unwrap();
+    require_empty_physical_index_removals(&authorities, &current_bundles, &indexes).unwrap();
+
+    // A stale user-index witness is not part of the field-only emptiness proof.
+    let index_key = IndexKey::new_from_components_with_primary_key_value(
+        &IndexId::new(tag, 1),
+        IndexKeyKind::User,
+        &[1_u64.to_be_bytes()],
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)),
+    )
+    .unwrap()
+    .to_raw()
+    .unwrap();
+    store.with_index_mut(|index| index.insert(index_key, IndexEntryValue::presence()));
+    require_empty_physical_field_removals(&authorities, &current_bundles, &fields).unwrap();
+    let error = require_empty_physical_index_removals(&authorities, &current_bundles, &indexes)
+        .unwrap_err();
+    assert_eq!(
+        error.diagnostic_code(),
+        InternalError::store_corruption().diagnostic_code()
+    );
+
+    // Both paths refuse row presence before considering unrelated index state.
+    let key = DecodedDataStoreKey::new(tag, &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)))
+        .to_raw()
+        .unwrap();
+    store.with_data_mut(|data| data.insert_raw_for_test(key, RawRow::try_new(vec![0xff]).unwrap()));
+    for error in [
+        require_empty_physical_field_removals(&authorities, &current_bundles, &fields).unwrap_err(),
+        require_empty_physical_index_removals(&authorities, &current_bundles, &indexes)
+            .unwrap_err(),
+    ] {
+        assert_eq!(
+            error.diagnostic_code(),
+            InternalError::store_unsupported().diagnostic_code()
+        );
+    }
+}
+
+#[test]
+fn physical_removal_pairing_preserves_authority_refusals_and_new_entity_skip() {
+    let (db, _, _) = initialize();
+    let store = db.store_handle(ABORT_STORE_PATH).unwrap();
+    let current =
+        store.with_schema(|schema| schema.current_accepted_schema_bundle().unwrap().unwrap());
+    let candidates = [CandidateSchemaRevision::new(current.clone()).unwrap()];
+    let authorities = application_authorities(&db);
+    let assert_invariant = |authorities: &[_], bundles: &[_]| {
+        for error in [
+            require_empty_physical_field_removals(authorities, bundles, &candidates).unwrap_err(),
+            require_empty_physical_index_removals(authorities, bundles, &candidates).unwrap_err(),
+        ] {
+            assert_eq!(
+                error.diagnostic_code(),
+                InternalError::store_invariant().diagnostic_code()
+            );
+        }
+    };
+    assert_invariant(&[], &[Some(current.clone())]);
+    assert_invariant(&authorities, &[]);
+    assert_invariant(&authorities, &[None]);
+
+    // A candidate absent from the prior bundle belongs to entity-creation
+    // admission, even when physical rows already exist for that candidate tag.
+    let tag = *current.entity_snapshots().keys().next().unwrap();
+    let key = DecodedDataStoreKey::new(tag, &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)))
+        .to_raw()
+        .unwrap();
+    store.with_data_mut(|data| data.insert_raw_for_test(key, RawRow::try_new(vec![0xff]).unwrap()));
+    let empty = AcceptedSchemaRevisionBundle::new(
+        current.revision(),
+        current.store_path(),
+        current.enum_catalog().clone(),
+        current.composite_catalog().clone(),
+        BTreeMap::new(),
+    )
+    .unwrap();
+    let prior = [Some(empty)];
+    require_empty_physical_field_removals(&authorities, &prior, &candidates).unwrap();
+    require_empty_physical_index_removals(&authorities, &prior, &candidates).unwrap();
 }

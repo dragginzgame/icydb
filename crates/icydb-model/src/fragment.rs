@@ -306,25 +306,12 @@ fn lower_nested_relations(
     candidates
         .into_iter()
         .map(|candidate| {
-            let target = schema.cast_node::<Entity>(candidate.target).map_err(|_| {
-                FragmentLoweringError::InvalidReference(candidate.target.to_string())
-            })?;
-            RelationFragment::try_new(
-                SchemaName::try_new(candidate.path_name)?,
-                RelationSourceFragment::Nested {
+            lower_relation(schema, candidate.target, &candidate.path_name, || {
+                Ok(RelationSourceFragment::Nested {
                     root: entity_field_source_key(entity, root.name())?,
                     steps: candidate.steps,
-                },
-                EntitySourceKey::try_new(target.name())?,
-                target
-                    .primary_key()
-                    .fields()
-                    .iter()
-                    .map(|field| entity_field_source_key(target, field))
-                    .collect::<Result<Vec<_>, _>>()?,
-                RelationDeleteAction::Restrict,
-            )
-            .map_err(Into::into)
+                })
+            })
         })
         .collect()
 }
@@ -599,22 +586,11 @@ fn lower_scalar_relation(
         .item()
         .relation()
         .ok_or_else(|| FragmentLoweringError::InvalidReference(field.name().to_string()))?;
-    let target = schema
-        .cast_node::<Entity>(target_path)
-        .map_err(|_| FragmentLoweringError::InvalidReference(target_path.to_string()))?;
-    RelationFragment::try_new(
-        SchemaName::try_new(field.name())?,
-        RelationSourceFragment::direct(vec![entity_field_source_key(entity, field.name())?]),
-        EntitySourceKey::try_new(target.name())?,
-        target
-            .primary_key()
-            .fields()
-            .iter()
-            .map(|field| entity_field_source_key(target, field))
-            .collect::<Result<Vec<_>, _>>()?,
-        RelationDeleteAction::Restrict,
-    )
-    .map_err(Into::into)
+    lower_relation(schema, target_path, field.name(), || {
+        Ok(RelationSourceFragment::direct(vec![
+            entity_field_source_key(entity, field.name())?,
+        ]))
+    })
 }
 
 fn lower_composite_relation(
@@ -622,18 +598,31 @@ fn lower_composite_relation(
     entity: &Entity,
     relation: &RelationEdge,
 ) -> Result<RelationFragment, FragmentLoweringError> {
-    let target = schema
-        .cast_node::<Entity>(relation.target())
-        .map_err(|_| FragmentLoweringError::InvalidReference(relation.target().to_string()))?;
-    RelationFragment::try_new(
-        SchemaName::try_new(relation.name())?,
-        RelationSourceFragment::direct(
+    lower_relation(schema, relation.target(), relation.name(), || {
+        Ok(RelationSourceFragment::direct(
             relation
                 .local_fields()
                 .iter()
                 .map(|field| entity_field_source_key(entity, field))
                 .collect::<Result<Vec<_>, _>>()?,
-        ),
+        ))
+    })
+}
+
+// Resolve the target before lowering the source, preserving reference-error precedence.
+// All relation shapes use the target's complete primary key and restrict deletion.
+fn lower_relation(
+    schema: &Schema,
+    target_path: &str,
+    name: &str,
+    source: impl FnOnce() -> Result<RelationSourceFragment, FragmentLoweringError>,
+) -> Result<RelationFragment, FragmentLoweringError> {
+    let target = schema
+        .cast_node::<Entity>(target_path)
+        .map_err(|_| FragmentLoweringError::InvalidReference(target_path.to_string()))?;
+    RelationFragment::try_new(
+        SchemaName::try_new(name)?,
+        source()?,
         EntitySourceKey::try_new(target.name())?,
         target
             .primary_key()
@@ -1485,7 +1474,7 @@ mod tests {
 
     use super::{
         FragmentLoweringError, Schema, lower_blob_default, lower_field_rules,
-        lower_nested_relations, lower_scalar_default,
+        lower_nested_relations, lower_relation, lower_scalar_default,
     };
     use crate::{
         node::{
@@ -1496,6 +1485,72 @@ mod tests {
         },
         types::{Cardinality, Primitive},
     };
+
+    #[test]
+    fn relation_finish_preserves_source_and_ordered_target_keys() {
+        use icydb_schema::{
+            RelationDeleteAction, RelationPathStepFragment, RelationSourceFragment,
+        };
+
+        for keys in [&["id"][..], &["tags", "id"][..]] {
+            let mut schema = Schema::new();
+            schema.insert_node(SchemaNode::Entity(Entity::new(
+                Def::new("test", "Target"),
+                "test::Store",
+                1,
+                PrimaryKey::new(keys, PrimaryKeySource::External),
+                &[],
+                &[],
+                &[],
+                FieldList::new(&ENTITY_FIELDS),
+                EMPTY_TYPE.clone(),
+            )));
+            let direct = RelationSourceFragment::direct(
+                keys.iter()
+                    .map(|key| FieldSourceKey::try_new(*key).unwrap())
+                    .collect(),
+            );
+            let mut sources = vec![direct];
+            if keys.len() == 1 {
+                sources.push(RelationSourceFragment::Nested {
+                    root: FieldSourceKey::try_new("root").unwrap(),
+                    steps: vec![RelationPathStepFragment::OptionalSome],
+                });
+            }
+            for source in sources {
+                let relation =
+                    lower_relation(&schema, "test::Target", "owner", || Ok(source.clone()))
+                        .unwrap();
+                assert_eq!(relation.source(), &source);
+                assert_eq!(relation.target_entity().as_str(), "Target");
+                assert_eq!(
+                    relation
+                        .target_fields()
+                        .iter()
+                        .map(FieldSourceKey::as_str)
+                        .collect::<Vec<_>>(),
+                    keys
+                );
+                assert_eq!(relation.on_delete(), RelationDeleteAction::Restrict);
+            }
+            assert!(matches!(
+                lower_relation(&schema, "test::Target", "owner", || Ok(
+                    RelationSourceFragment::direct(vec![])
+                )),
+                Err(FragmentLoweringError::Contract(_)),
+            ));
+        }
+    }
+
+    #[test]
+    fn relation_target_failure_precedes_source_lowering() {
+        let result = lower_relation(&Schema::new(), "test::Missing", "owner", || {
+            panic!("invalid target must reject before source lowering")
+        });
+        assert!(
+            matches!(result, Err(FragmentLoweringError::InvalidReference(path)) if path == "test::Missing")
+        );
+    }
 
     #[test]
     fn blob_defaults_and_migration_fills_share_exact_bytes_and_refusals() {

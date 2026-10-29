@@ -171,7 +171,7 @@ and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 
 - Paths inside the repository use that checkout's source identity. An explicit
   dependency path outside it needs a documented development purpose and release
-  qualification boundary. Follow the [no-symlink rule](../DRAGGINZGAME.md#repository-files-no-symlinks);
+  qualification boundary. Follow the [self-contained file policy](../DRAGGINZGAME.md#repository-files-no-symlinks);
   a sibling-path exception does not authorize a repository symlink into that
   checkout. A `version` beside `path` does not freeze the sibling's bytes.
 - Release qualification must select and verify the external repository's exact
@@ -231,7 +231,7 @@ entry. Root name/version (when declared) and direct dependency tables must agree
 Direct Git dependencies require a full commit fragment; errors redact their
 selectors. Relative file-directory inputs are resolved physically, so redirected
 external inputs also need the scoped sibling exception below. Checker acceptance
-does not waive the baseline's no-symlink rule. Absolute file inputs,
+does not waive the baseline's self-contained dependency requirements. Absolute file inputs,
 file archives, `link:`/`workspace:` selectors, and roots with `npm-shrinkwrap.json`
 are outside this bounded checker. It does not inspect workspace child manifests
 or the transitive lock graph. npm's own locked preparation and consumer tests

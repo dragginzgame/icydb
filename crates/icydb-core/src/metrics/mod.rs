@@ -12,8 +12,8 @@ use std::marker::PhantomData;
 
 #[cfg(feature = "metrics")]
 pub use state::{
-    ConvergenceMetrics, EntityMetrics, InstructionMetrics, MetricsReport, SchemaLifecycleMetrics,
-    metrics_report, metrics_reset_all,
+    ConvergenceMetrics, EntityMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_report,
+    metrics_reset_all,
 };
 
 /// Fixed semantic owners; these are observations, never execution choices.

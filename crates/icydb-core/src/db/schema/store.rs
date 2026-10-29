@@ -55,7 +55,7 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
-use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
+use ic_storage::adapter::{MapIter, StableBTreeMap, Storable, storable::Bound as StorableBound};
 use sha2::Digest;
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, Ref, RefCell};
@@ -820,23 +820,9 @@ impl SchemaStore {
         ),
         InternalError,
     > {
-        let SchemaStoreBackend::Journaled { canonical, .. } = &self.backend else {
-            return Err(InternalError::store_invariant());
-        };
-        let header_key = RawSchemaKey::from_cardinality_generation_header();
-        let cursor_key = RawSchemaKey::from_cardinality_build_cursor();
-        let mut header = None;
-        let mut cursor = None;
-        for entry in canonical.range(header_key..=cursor_key) {
-            if *entry.key() == header_key {
-                header = Some(self.decode_cardinality_header_cached(&entry.value())?);
-            } else if *entry.key() == cursor_key {
-                cursor = Some(CardinalityBuildCursor::decode(entry.value().as_bytes())?);
-            } else {
-                return Err(InternalError::store_corruption());
-            }
-        }
-        Ok((header, cursor))
+        self.read_cardinality_generation_control(|entry| {
+            CardinalityBuildCursor::decode(entry.value().as_bytes()).map(Some)
+        })
     }
 
     /// Load only lifecycle identity needed by advisory cardinality consumers.
@@ -846,24 +832,33 @@ impl SchemaStore {
     pub(in crate::db) fn cardinality_generation_lifecycle_control(
         &self,
     ) -> Result<(Option<CardinalityGenerationHeader>, bool), InternalError> {
+        self.read_cardinality_generation_control(|_| Ok(true))
+    }
+
+    // Project the lazy cursor entry so lifecycle reads never materialize its payload.
+    fn read_cardinality_generation_control<'a, C: Default>(
+        &'a self,
+        mut read_cursor: impl FnMut(
+            <MapIter<'a, RawSchemaKey, RawSchemaValue> as Iterator>::Item,
+        ) -> Result<C, InternalError>,
+    ) -> Result<(Option<CardinalityGenerationHeader>, C), InternalError> {
         let SchemaStoreBackend::Journaled { canonical, .. } = &self.backend else {
             return Err(InternalError::store_invariant());
         };
         let header_key = RawSchemaKey::from_cardinality_generation_header();
         let cursor_key = RawSchemaKey::from_cardinality_build_cursor();
         let mut header = None;
-        let mut cursor_present = false;
+        let mut cursor = C::default();
         for entry in canonical.range(header_key..=cursor_key) {
             if *entry.key() == header_key {
                 header = Some(self.decode_cardinality_header_cached(&entry.value())?);
             } else if *entry.key() == cursor_key {
-                cursor_present = true;
+                cursor = read_cursor(entry)?;
             } else {
                 return Err(InternalError::store_corruption());
             }
         }
-
-        Ok((header, cursor_present))
+        Ok((header, cursor))
     }
 
     fn decode_cardinality_header_cached(
@@ -3874,120 +3869,109 @@ fn map_schema_publication_error(error: AcceptedSchemaPublicationError) -> Intern
     }
 }
 
-fn derive_data_allocation_metadata(
+// Allocation roles share the entity/version frame; payloads retain their own domains.
+fn derive_schema_metadata(
     snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
+    domain: u8,
+    mut hash_payload: impl FnMut(
+        &mut sha2::Sha256,
+        &PersistedSchemaSnapshot,
+    ) -> Result<(), InternalError>,
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
     let mut max_version = SchemaVersion::initial();
     let mut hasher = new_hash_sha256();
-    write_hash_tag_u8(&mut hasher, SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_DOMAIN);
-
+    write_hash_tag_u8(&mut hasher, domain);
     for (entity, persisted) in snapshots {
         if persisted.version() > max_version {
             max_version = persisted.version();
         }
-
-        let data_projection = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            persisted.version(),
-            persisted.entity_path().to_string(),
-            persisted.entity_name().to_string(),
-            persisted.primary_key_field_ids().to_vec(),
-            persisted.row_layout().clone(),
-            persisted.fields().to_vec(),
-            Vec::new(),
-        );
-        let constraint_catalog = crate::db::schema::AcceptedConstraintCatalog::initial(
-            data_projection.fields(),
-            data_projection.indexes(),
-            data_projection.relations(),
-        )
-        .map_err(|_| InternalError::store_invariant())?;
-        let data_projection = data_projection.with_constraint_catalog(constraint_catalog);
-        let encoded = encode_persisted_schema_snapshot(&data_projection)?;
-
         write_hash_u64(&mut hasher, entity.value());
         write_hash_u32(&mut hasher, persisted.version().get());
-        write_hash_len_u32(&mut hasher, encoded.len());
-        hasher.update(encoded);
+        hash_payload(&mut hasher, persisted)?;
     }
-
     Ok(finalize_schema_metadata(
         max_version,
         SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
         snapshots.len(),
     ))
+}
+
+fn derive_data_allocation_metadata(
+    snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
+) -> Result<SchemaStoreCatalogMetadata, InternalError> {
+    derive_schema_metadata(
+        snapshots,
+        SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_DOMAIN,
+        |hasher, persisted| {
+            let data_projection = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+                persisted.version(),
+                persisted.entity_path().to_string(),
+                persisted.entity_name().to_string(),
+                persisted.primary_key_field_ids().to_vec(),
+                persisted.row_layout().clone(),
+                persisted.fields().to_vec(),
+                Vec::new(),
+            );
+            let constraint_catalog = crate::db::schema::AcceptedConstraintCatalog::initial(
+                data_projection.fields(),
+                data_projection.indexes(),
+                data_projection.relations(),
+            )
+            .map_err(|_| InternalError::store_invariant())?;
+            let data_projection = data_projection.with_constraint_catalog(constraint_catalog);
+            let encoded = encode_persisted_schema_snapshot(&data_projection)?;
+
+            write_hash_len_u32(hasher, encoded.len());
+            hasher.update(encoded);
+            Ok(())
+        },
+    )
 }
 
 fn derive_index_allocation_metadata(
     snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
-    let mut max_version = SchemaVersion::initial();
-    let mut hasher = new_hash_sha256();
-    write_hash_tag_u8(
-        &mut hasher,
+    derive_schema_metadata(
+        snapshots,
         SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_DOMAIN,
-    );
-
-    for (entity, persisted) in snapshots {
-        if persisted.version() > max_version {
-            max_version = persisted.version();
-        }
-
-        write_hash_u64(&mut hasher, entity.value());
-        write_hash_u32(&mut hasher, persisted.version().get());
-        write_hash_len_u32(&mut hasher, persisted.indexes().len());
-        for index in persisted.indexes() {
-            write_hash_u32(&mut hasher, u32::from(index.ordinal()));
-            write_hash_str_u32(&mut hasher, index.name());
-            write_hash_str_u32(&mut hasher, index.store());
-            write_hash_tag_u8(&mut hasher, u8::from(index.unique()));
-            write_hash_str_u32(&mut hasher, persisted_index_origin_name(index.origin()));
-            match index.predicate() {
-                Some(predicate) => {
-                    write_hash_tag_u8(&mut hasher, 1);
-                    let bytes = predicate.canonical_bytes()?;
-                    write_hash_len_u32(&mut hasher, bytes.len());
-                    hasher.update(&bytes);
+        |hasher, persisted| {
+            write_hash_len_u32(hasher, persisted.indexes().len());
+            for index in persisted.indexes() {
+                write_hash_u32(hasher, u32::from(index.ordinal()));
+                write_hash_str_u32(hasher, index.name());
+                write_hash_str_u32(hasher, index.store());
+                write_hash_tag_u8(hasher, u8::from(index.unique()));
+                write_hash_str_u32(hasher, persisted_index_origin_name(index.origin()));
+                match index.predicate() {
+                    Some(predicate) => {
+                        write_hash_tag_u8(hasher, 1);
+                        let bytes = predicate.canonical_bytes()?;
+                        write_hash_len_u32(hasher, bytes.len());
+                        hasher.update(&bytes);
+                    }
+                    None => write_hash_tag_u8(hasher, 0),
                 }
-                None => write_hash_tag_u8(&mut hasher, 0),
+                hash_persisted_index_key(hasher, index.key());
             }
-            hash_persisted_index_key(&mut hasher, index.key());
-        }
-    }
-
-    Ok(finalize_schema_metadata(
-        max_version,
-        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
-        hasher,
-        snapshots.len(),
-    ))
+            Ok(())
+        },
+    )
 }
 
 fn derive_schema_catalog_metadata(
     snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
-    let mut max_version = SchemaVersion::initial();
-    let mut hasher = new_hash_sha256();
-    write_hash_tag_u8(&mut hasher, SCHEMA_STORE_CATALOG_FINGERPRINT_DOMAIN);
-
-    for (entity, persisted) in snapshots {
-        if persisted.version() > max_version {
-            max_version = persisted.version();
-        }
-
-        write_hash_u64(&mut hasher, entity.value());
-        let encoded = encode_persisted_schema_snapshot(persisted)?;
-        write_hash_u32(&mut hasher, persisted.version().get());
-        write_hash_len_u32(&mut hasher, encoded.len());
-        hasher.update(encoded);
-    }
-
-    Ok(finalize_schema_metadata(
-        max_version,
-        SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
-        hasher,
-        snapshots.len(),
-    ))
+    derive_schema_metadata(
+        snapshots,
+        SCHEMA_STORE_CATALOG_FINGERPRINT_DOMAIN,
+        |hasher, persisted| {
+            let encoded = encode_persisted_schema_snapshot(persisted)?;
+            write_hash_len_u32(hasher, encoded.len());
+            hasher.update(encoded);
+            Ok(())
+        },
+    )
 }
 
 fn finalize_schema_metadata(

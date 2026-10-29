@@ -303,7 +303,7 @@ persist_failure_log() {
     printf '%s\n' "$retained_log"
 }
 
-print_failure_detail() {
+select_failure_detail() {
     local log="$1"
     local target="$2"
     local clean_log="${log}.clean"
@@ -339,6 +339,22 @@ print_failure_detail() {
             printf '[%s] %s\n' "$target" "$line"
         fi
     done <<< "$details"
+}
+
+print_failure_detail() {
+    local log="$1" target="$2" excerpt="$1.excerpt" line
+    # Select once per immutable failed-target log. Console, retained highlights
+    # and GitHub summaries project the same excerpt without rescanning raw bytes.
+    if [[ ! -f "$excerpt" ]]; then
+        select_failure_detail "$log" "$target" > "$excerpt"
+    fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ $INHERITED_DIAGNOSTIC_PATTERN ]]; then
+            print_retained_error_line "$line"
+        else
+            printf '%s\n' "$line"
+        fi
+    done < "$excerpt"
 }
 
 persist_highlighted_failure_log() {
@@ -473,7 +489,6 @@ for target in "$@"; do
                 "Unable to retain the complete failure log under: $FAILURE_LOG_ROOT"
             print_error_line "$target" "Full failure log retained at: $retained_log"
         fi
-        print_failure_detail "$log" "$target"
     fi
 
     elapsed="$((SECONDS - start))"
@@ -528,7 +543,7 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
         preserve_temporary_logs=true
     fi
     highlighted_failure_log="$(persist_highlighted_failure_log)"
-    printf '\nFailure details (repeated from the full logs):\n'
+    if [[ "$RUNNER_DEPTH" == 0 ]]; then printf '\nFailure details (selected from the full logs):\n'; fi
     for index in "${!targets[@]}"; do
         if [[ "${results[$index]}" == "FAIL" ]]; then
             echo
@@ -537,7 +552,9 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
                 print_error_line "${targets[$index]}" \
                     "Full failure log retained at: ${retained_logs[$index]}"
             fi
-            print_failure_detail "${logs[$index]}" "${targets[$index]}"
+            if [[ "$RUNNER_DEPTH" == 0 ]]; then
+                print_failure_detail "${logs[$index]}" "${targets[$index]}"
+            fi
         fi
     done
 

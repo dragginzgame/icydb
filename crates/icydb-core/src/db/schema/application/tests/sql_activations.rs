@@ -332,6 +332,39 @@ fn plain_check_reports_its_byte_page_limit_without_publishing() {
 const UNIQUE: &str = "CREATE UNIQUE INDEX sql_unique ON Item (score)";
 const NOT_NULL: &str = "ALTER TABLE Item ALTER COLUMN note SET NOT NULL";
 
+#[test]
+fn sql_constraint_publications_preserve_status_and_refresh_session_authority() {
+    let (db, session) = initialize();
+    for (create, drop) in [
+        (UNIQUE, "DROP INDEX sql_unique ON Item"),
+        (CHECK, "ALTER TABLE Item DROP CONSTRAINT sql_check"),
+        (NOT_NULL, "ALTER TABLE Item ALTER COLUMN note DROP NOT NULL"),
+    ] {
+        for (sql, status) in [
+            (create, SqlDdlExecutionStatus::ActivationPublished),
+            (drop, SqlDdlExecutionStatus::Published),
+        ] {
+            let before = snapshot(&db);
+            // Mutation without its explicit version contract must not publish.
+            assert!(session.execute_admin_sql_ddl(sql).is_err());
+            assert_eq!(snapshot(&db), before);
+            let version = before.version().get();
+            let SqlStatementResult::Ddl(report) = session
+                .execute_admin_sql_ddl(&format!(
+                    "{sql} EXPECT SCHEMA VERSION {version} SET SCHEMA VERSION {}",
+                    version + 1
+                ))
+                .unwrap()
+            else {
+                panic!("schema publication must return a DDL report");
+            };
+            assert_eq!(report.execution_status(), status);
+            assert_eq!(snapshot(&db).version().get(), version + 1);
+        }
+        assert!(snapshot(&db).constraint_activations().is_empty());
+    }
+}
+
 fn validate_constraint(
     session: &DbSession<AbortCanister>,
     constraint: &str,

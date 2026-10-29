@@ -30,8 +30,8 @@ release gates remain complete and independent of this selection.
 Shared Tooling's allowlist covers reviewed root, governance and developer-guide
 prose. The guide expansion excludes documents with snapshot-companion declarations
 because those headers control exported payloads. New paths still require explicit
-review; embedded/build inputs remain outside the list. Each existing
-portable matrix check retains its name, runs on Linux for docs-only changes and
-checks local documentation links and whitespace. Normal changes retain native
+review; embedded/build inputs remain outside the list. Documentation-only
+changes select one Linux matrix entry instead of three identical Linux jobs,
+checking local documentation links and whitespace. Normal changes retain native
 Linux and both macOS jobs. The lint/security job still runs, including the
 repository secret scan. A docs-only pass does not claim native qualification.

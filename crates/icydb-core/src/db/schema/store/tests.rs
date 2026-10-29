@@ -2043,6 +2043,38 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
         .expect("indexed allocation metadata should derive")
         .expect("indexed allocation metadata should be present");
 
+    // Frozen before the shared-frame extraction: these are current format bytes.
+    assert_eq!(
+        [
+            base_metadata.data().schema_fingerprint(),
+            base_metadata.index().schema_fingerprint(),
+            base_metadata.schema().schema_fingerprint(),
+            indexed_metadata.data().schema_fingerprint(),
+            indexed_metadata.index().schema_fingerprint(),
+            indexed_metadata.schema().schema_fingerprint(),
+        ],
+        [
+            [
+                25, 234, 137, 222, 127, 185, 57, 21, 31, 42, 74, 105, 101, 204, 61, 255
+            ],
+            [
+                222, 197, 105, 30, 196, 156, 26, 217, 27, 160, 202, 14, 186, 133, 130, 66
+            ],
+            [
+                17, 54, 172, 94, 221, 120, 74, 23, 217, 83, 176, 245, 186, 155, 137, 87
+            ],
+            [
+                25, 234, 137, 222, 127, 185, 57, 21, 31, 42, 74, 105, 101, 204, 61, 255
+            ],
+            [
+                35, 82, 248, 2, 13, 208, 103, 133, 202, 239, 145, 227, 10, 134, 60, 150
+            ],
+            [
+                233, 235, 2, 37, 98, 104, 29, 251, 175, 229, 159, 188, 121, 1, 90, 25
+            ]
+        ]
+    );
+
     assert_eq!(
         base_metadata.data().schema_fingerprint(),
         indexed_metadata.data().schema_fingerprint(),

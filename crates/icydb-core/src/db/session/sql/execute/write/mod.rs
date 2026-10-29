@@ -101,7 +101,7 @@ where
 fn sql_write_mutation_statement_result(
     rows: Vec<Vec<Value>>,
     returning: Option<&SqlReturningProjection>,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    columns: Vec<String>,
     catalog: &AcceptedSchemaCatalogContext,
 ) -> Result<SqlStatementResult, QueryError> {
     let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
@@ -109,7 +109,7 @@ fn sql_write_mutation_statement_result(
         None => Ok(SqlStatementResult::Count { row_count }),
         Some(returning) => sql_returning_statement_projection(
             catalog.enum_catalog(),
-            projection_labels_from_accepted_write_descriptor(descriptor),
+            columns,
             rows,
             row_count,
             returning,
@@ -239,6 +239,6 @@ impl<C: CanisterKind> DbSession<C> {
             )
             .map_err(QueryError::execute)?;
 
-        sql_write_mutation_statement_result(rows, returning, descriptor, catalog)
+        sql_write_mutation_statement_result(rows, returning, columns, catalog)
     }
 }

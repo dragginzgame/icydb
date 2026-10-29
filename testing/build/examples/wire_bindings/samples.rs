@@ -40,6 +40,11 @@ pub(super) fn values() -> Result<Vec<V>, Box<dyn Error>> {
 }
 
 pub(super) fn seed(tracer: &mut Tracer, samples: &mut Samples) -> Result<(), Box<dyn Error>> {
+    // Numeric transport validates restoration; reflection must use admitted states.
+    let mut measured_zero = ic_metrics::MeasurementAggregate::EMPTY;
+    measured_zero.record(0);
+    tracer.trace_value(samples, &measured_zero)?;
+    tracer.trace_value(samples, &ic_metrics::MeasurementAggregate::EMPTY)?;
     let values = values()?;
     for value in &values {
         tracer.trace_value(samples, value)?;

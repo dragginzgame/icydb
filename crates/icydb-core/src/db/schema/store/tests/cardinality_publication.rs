@@ -62,6 +62,56 @@ fn assert_cardinality_preserved(store: &SchemaStore, entries: &[(RawSchemaKey, V
     }
 }
 
+#[test]
+fn control_projection_keeps_cursor_decode_out_of_lifecycle_reads() {
+    let heap = SchemaStore::init_heap();
+    assert_eq!(
+        heap.cardinality_generation_control().unwrap_err().class(),
+        ErrorClass::InvariantViolation
+    );
+    assert_eq!(
+        heap.cardinality_generation_lifecycle_control()
+            .unwrap_err()
+            .class(),
+        ErrorClass::InvariantViolation
+    );
+    let mut store = SchemaStore::init_journaled(test_memory(229));
+    assert_eq!(
+        store.cardinality_generation_lifecycle_control().unwrap(),
+        (None, false)
+    );
+    assert_eq!(
+        store.cardinality_generation_control().unwrap(),
+        (None, None)
+    );
+    seed_cardinality(&mut store, 0, CardinalityGenerationState::Building);
+    let (header, cursor) = store.cardinality_generation_control().unwrap();
+    assert!(cursor.is_some());
+    assert_eq!(
+        store.cardinality_generation_lifecycle_control().unwrap(),
+        (header, true)
+    );
+
+    store.insert_durable_raw_value(RawSchemaKey::from_cardinality_build_cursor(), vec![0]);
+    assert_eq!(
+        store.cardinality_generation_lifecycle_control().unwrap(),
+        (header, true)
+    );
+    assert_eq!(
+        store.cardinality_generation_control().unwrap_err().class(),
+        ErrorClass::Corruption
+    );
+
+    store.insert_durable_raw_value(RawSchemaKey::from_cardinality_generation_header(), vec![0]);
+    assert_eq!(
+        store
+            .cardinality_generation_lifecycle_control()
+            .unwrap_err()
+            .class(),
+        ErrorClass::Corruption
+    );
+}
+
 fn batch(candidate: &CandidateSchemaRevision) -> JournalBatch {
     JournalBatch::new(
         [1; 16],

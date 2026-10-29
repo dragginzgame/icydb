@@ -66,8 +66,8 @@ fn report_lifecycle(metrics: &SchemaLifecycleMetrics, label: &str) {
         eprintln!(
             "creation lifecycle owner: label={label} owner={owner} samples={} instructions_total={} instructions_max={}",
             counter.samples(),
-            counter.instructions_total(),
-            counter.instructions_max()
+            counter.total(),
+            counter.maximum().unwrap_or(0)
         );
     }
 }

@@ -30,6 +30,79 @@ fn other_index_id() -> IndexId {
     IndexId::new(EntityTag::new(1), 1)
 }
 
+#[test]
+fn prefix_and_range_bounds_preserve_component_errors_and_order() {
+    use super::IndexKeyEncodeError::{EmptySegment, SegmentTooLarge};
+
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        for (prefix, expected) in [
+            (vec![vec![]], EmptySegment),
+            (
+                vec![vec![1; IndexKey::MAX_COMPONENT_SIZE + 1]],
+                SegmentTooLarge,
+            ),
+            (
+                vec![vec![], vec![1; IndexKey::MAX_COMPONENT_SIZE + 1]],
+                EmptySegment,
+            ),
+            (
+                vec![vec![1; IndexKey::MAX_COMPONENT_SIZE + 1], vec![]],
+                SegmentTooLarge,
+            ),
+        ] {
+            assert_eq!(
+                IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), kind, 3, &prefix),
+                Err(expected),
+            );
+            assert_eq!(
+                IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+                    &index_id(),
+                    kind,
+                    3,
+                    &prefix,
+                    &RangeBound::Included(Vec::<u8>::new()),
+                    &RangeBound::Unbounded,
+                ),
+                Err(expected),
+            );
+        }
+        for (lower, upper, expected) in [
+            (
+                RangeBound::Included(vec![]),
+                RangeBound::Unbounded,
+                EmptySegment,
+            ),
+            (
+                RangeBound::Unbounded,
+                RangeBound::Excluded(vec![]),
+                EmptySegment,
+            ),
+            (
+                RangeBound::Excluded(vec![1; IndexKey::MAX_COMPONENT_SIZE + 1]),
+                RangeBound::Included(vec![]),
+                SegmentTooLarge,
+            ),
+            (
+                RangeBound::Unbounded,
+                RangeBound::Included(vec![1; IndexKey::MAX_COMPONENT_SIZE + 1]),
+                SegmentTooLarge,
+            ),
+        ] {
+            assert_eq!(
+                IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+                    &index_id(),
+                    kind,
+                    2,
+                    &[vec![1]],
+                    &lower,
+                    &upper,
+                ),
+                Err(expected),
+            );
+        }
+    }
+}
+
 fn encode_component(value: &Value) -> Vec<u8> {
     super::super::ordered::encode_canonical_index_component(value).expect("component should encode")
 }

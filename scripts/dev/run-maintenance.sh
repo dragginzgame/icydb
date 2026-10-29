@@ -51,21 +51,9 @@ codex_clean() {
         LANG=C.UTF-8 "$codex_bin" "$@"
 }
 
-if [[ "$mode" == --check ]]; then
-    codex_clean --version
-    cli_help="$(codex_clean exec --help)"
-    [[ "$cli_help" == *--ignore-user-config* && "$cli_help" == *--strict-config* ]] || {
-        echo 'this runner requires Codex isolated configuration support' >&2; exit 1;
-    }
-    codex_clean login status
-    echo 'Maintenance prerequisites checked; no agent or schedule started.'
-    exit 0
-fi
-
-mkdir -p "$state_root/runs"
 now="$(date -u +%s)"
 stamp="$state_root/last-attempt"
-if [[ -e "$stamp" || -L "$stamp" ]]; then
+if [[ "$mode" != --check && ( -e "$stamp" || -L "$stamp" ) ]]; then
     [[ -f "$stamp" && ! -L "$stamp" ]] || { echo 'last-attempt must be a regular file' >&2; exit 1; }
     last="$(cat "$stamp")"
     [[ "$last" =~ ^[0-9]{1,10}$ ]] || { echo 'invalid last-attempt timestamp' >&2; exit 1; }
@@ -78,7 +66,12 @@ if [[ -e "$stamp" || -L "$stamp" ]]; then
     fi
 fi
 
-run_dir="$(mktemp -d "$state_root/runs/$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")"
+if [[ "$mode" == --check ]]; then
+    run_dir="$(mktemp -d "${TMPDIR:-/tmp}/maintenance-check.XXXXXX")"
+else
+    mkdir -p "$state_root/runs"
+    run_dir="$(mktemp -d "$state_root/runs/$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")"
+fi
 printf 'Maintenance evidence: %s\n' "$run_dir"
 trap 'printf "%s\n" "$?" > "$run_dir/exit-status"' EXIT
 trap 'exit 130' INT
@@ -88,15 +81,6 @@ if git -C "$run_dir" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 printf '%s\n' "$now" > "$run_dir/started-at"
 {
-    printf 'Shared Tooling checkout: %s\nProjects directory: %s\nRun directory: %s\n' "$ROOT" "$projects_root" "$run_dir"
-    printf 'Prior reports: %s/runs (read only for comparison).\n\n' "$state_root"
-    cat "$ROOT/tasks/maintenance-prompt.md"
-} > "$run_dir/prompt.txt"
-# Record dispatch before starting an agent: a failed/uncertain attempt must not
-# cause an unattended retry burst. A manual --run remains available to the owner.
-cp "$run_dir/started-at" "$run_dir/next-attempt"
-mv -f "$run_dir/next-attempt" "$stamp"
-{
     git -C "$ROOT" rev-parse HEAD
     git -C "$ROOT" status --short
     codex_clean --version
@@ -105,11 +89,9 @@ mv -f "$run_dir/next-attempt" "$stamp"
 # Work from the evidence directory, outside project config discovery. A named
 # profile allows only runtime prerequisites, selected source reads and evidence
 # writes. Never combine it with --sandbox (which overrides named profiles).
-permissions=(
-    --ignore-user-config --ignore-rules --strict-config --skip-git-repo-check
+configuration=(
     -c 'approval_policy="never"'
     -c 'default_permissions="maintenance"'
-    -c 'permissions.maintenance.filesystem={":minimal"="read"}'
     -c 'permissions.maintenance.network.enabled=false'
     -c 'allow_login_shell=false'
     -c 'shell_environment_policy.inherit="core"'
@@ -118,10 +100,13 @@ permissions=(
     -c 'features.apps=false'
     -c 'web_search="disabled"'
 )
+filesystem_entries='":minimal"="read"'
 permission_path() {
     local path="$1" access="$2" quoted
     quoted="$(perl -MJSON::PP -e 'print encode_json($ARGV[0])' "$path")"
-    permissions+=(-c "permissions.maintenance.filesystem.$quoted=\"$access\"")
+    # CLI -c splits dotted keys without TOML quoted-key semantics. Keep paths
+    # (including dots and slashes) as literal keys in one inline TOML table.
+    filesystem_entries+=",$quoted=\"$access\""
 }
 run_dir="$(cd -P "$run_dir" && pwd)"
 permission_path "$ROOT" read
@@ -142,8 +127,63 @@ for private in "$HOME/.ssh" "$HOME/.aws" "$HOME/.config/gh" "$HOME/.git-credenti
     "${CODEX_HOME:-$HOME/.codex}"; do
     permission_path "$private" deny
 done
-printf '%s\n' "${permissions[@]}" > "$run_dir/permissions.txt"
-codex_clean exec "${permissions[@]}" --cd "$run_dir" --json \
+permission_path "$run_dir/private-probe" deny
+configuration+=(-c "permissions.maintenance.filesystem={$filesystem_entries}")
+printf '%s\n' "${configuration[@]}" > "$run_dir/permissions.txt"
+
+# Qualify the same permission table without a model call. A clean CLI home
+# excludes user configuration, matching exec's --ignore-user-config; managed
+# configuration still participates. A failed admission never consumes cadence.
+mkdir "$run_dir/sandbox-config"
+printf 'dummy private marker\n' > "$run_dir/private-probe"
+# shellcheck disable=SC2016 # The sandboxed child expands its positional arguments.
+if ! (
+    codex_clean login status
+    env -i HOME="$HOME" PATH="$PATH" CODEX_HOME="$run_dir/sandbox-config" LANG=C.UTF-8 \
+        "$codex_bin" sandbox --permission-profile maintenance --include-managed-config \
+        --cd "$run_dir" "${configuration[@]}" -- /bin/bash --noprofile --norc -c '
+        set -eu
+        cat "$1/tasks/README.md" > /dev/null
+        printf "evidence write\n" > "$2/preflight-write"
+        if (: >> "$1/tasks/README.md") 2>/dev/null; then exit 31; fi
+        if cat "$2/private-probe" >/dev/null 2>&1; then exit 32; fi
+        command -v curl >/dev/null
+        if curl --disable --noproxy "*" --connect-timeout 2 --max-time 3 http://1.1.1.1 >/dev/null 2>&1; then exit 33; fi
+        ' -- "$ROOT" "$run_dir"
+) > "$run_dir/preflight.log" 2>&1; then
+    echo "Maintenance preflight failed; inspect $run_dir/preflight.log" >&2
+    exit 1
+fi
+if [[ "$mode" == --check ]]; then
+    echo "Maintenance permissions and prerequisites checked; no agent started. Evidence: $run_dir"
+    exit 0
+fi
+
+# Carry one completed report into the admitted evidence directory. Do not grant
+# the agent general access to the state root or failed/unfinished run logs.
+prior_report=''
+for prior in "$state_root"/runs/*; do
+    [[ -d "$prior" && ! -L "$prior" && -f "$prior/exit-status" && ! -L "$prior/exit-status" &&
+       -s "$prior/report.md" && ! -L "$prior/report.md" ]] || continue
+    [[ "$(cat "$prior/exit-status")" == 0 ]] || continue
+    prior_report="$prior/report.md"
+done
+if [[ -n "$prior_report" ]]; then
+    cp "$prior_report" "$run_dir/prior-report.md"
+    printf '%s\n' "$prior_report" > "$run_dir/prior-report-source.txt"
+fi
+{
+    printf 'Shared Tooling checkout: %s\nProjects directory: %s\nRun directory: %s\n' "$ROOT" "$projects_root" "$run_dir"
+    if [[ -n "$prior_report" ]]; then printf 'Prior completed report: %s/prior-report.md\n' "$run_dir";
+    else printf 'No prior completed report is available.\n'; fi
+    cat "$ROOT/tasks/maintenance-prompt.md"
+} > "$run_dir/prompt.txt"
+# Dispatch failures retain the original no-burst policy; setup failures above
+# are safe to retry because no agent has been started.
+cp "$run_dir/started-at" "$run_dir/next-attempt"
+mv -f "$run_dir/next-attempt" "$stamp"
+codex_clean exec --ignore-user-config --ignore-rules --strict-config --skip-git-repo-check \
+    "${configuration[@]}" --cd "$run_dir" --json \
     --output-last-message "$run_dir/report.md" - \
     < "$run_dir/prompt.txt" > "$run_dir/events.jsonl" 2> "$run_dir/stderr.log"
 [[ -s "$run_dir/report.md" ]] || { echo 'Codex returned no maintenance report' >&2; exit 1; }

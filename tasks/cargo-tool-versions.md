@@ -12,6 +12,11 @@ checkout common-tool receipts and `$CARGO_HOME/.crates2.json` (default
 `~/.cargo/.crates2.json`). It does not execute installed tools, source the catalog,
 or invoke Cargo. Alternate registries, Git installations and prerelease selections
 are reported as unsupported observations, never silently treated as crates.io.
+Use `--tool NAME` for one package: unrelated Git, alternate-registry or prerelease
+installations do not block that selection. The selected package still requires a
+supported identity, and malformed receipt JSON or ambiguous package names refuse.
+Omitting `--tool` retains the complete installation inventory and its unsupported
+selection diagnostics.
 Receipts describe recorded versions; they do not authenticate current binaries.
 The existing `make rust-tools-check` owns byte, build and complete-set admission.
 

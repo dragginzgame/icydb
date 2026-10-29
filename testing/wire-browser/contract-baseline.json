@@ -1,249 +1,5534 @@
 {
   "methods": [
-    {"id":"3472371254828811082","mode":"query","name":"icydb_query","request":{"k":"ref","name":"icydb_query_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_query_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811083","mode":"update","name":"icydb_ddl","request":{"k":"ref","name":"icydb_ddl_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_ddl_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811084","mode":"update","name":"icydb_update","request":{"k":"ref","name":"icydb_update_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_update_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811085","mode":"update","name":"icydb_integrity","request":{"k":"ref","name":"icydb_integrity_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_integrity_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811086","mode":"update","name":"icydb_fixtures_reset","request":{"k":"ref","name":"icydb_fixtures_reset_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_fixtures_reset_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811087","mode":"update","name":"icydb_fixtures_load","request":{"k":"ref","name":"icydb_fixtures_load_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_fixtures_load_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811088","mode":"query","name":"icydb_metrics","request":{"k":"ref","name":"icydb_metrics_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_metrics_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811089","mode":"update","name":"icydb_metrics_reset","request":{"k":"ref","name":"icydb_metrics_reset_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_metrics_reset_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811090","mode":"query","name":"icydb_snapshot","request":{"k":"ref","name":"icydb_snapshot_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_snapshot_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811091","mode":"query","name":"icydb_schema","request":{"k":"ref","name":"icydb_schema_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_schema_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811092","mode":"update","name":"icydb_schema_migrate","request":{"k":"ref","name":"icydb_schema_migrate_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_schema_migrate_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768},
-    {"id":"3472371254828811093","mode":"query","name":"icydb_schema_migration","request":{"k":"ref","name":"icydb_schema_migration_Request"},"requestBytes":2097152,"requestDepth":32,"requestNodes":32768,"response":{"k":"ref","name":"icydb_schema_migration_Response"},"responseBytes":3145728,"responseDepth":32,"responseNodes":32768}
+    {
+      "id": "3472371254828811082",
+      "mode": "query",
+      "name": "icydb_query",
+      "request": {
+        "k": "ref",
+        "name": "icydb_query_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_query_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811083",
+      "mode": "update",
+      "name": "icydb_ddl",
+      "request": {
+        "k": "ref",
+        "name": "icydb_ddl_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_ddl_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811084",
+      "mode": "update",
+      "name": "icydb_update",
+      "request": {
+        "k": "ref",
+        "name": "icydb_update_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_update_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811085",
+      "mode": "update",
+      "name": "icydb_integrity",
+      "request": {
+        "k": "ref",
+        "name": "icydb_integrity_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_integrity_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811086",
+      "mode": "update",
+      "name": "icydb_fixtures_reset",
+      "request": {
+        "k": "ref",
+        "name": "icydb_fixtures_reset_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_fixtures_reset_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811087",
+      "mode": "update",
+      "name": "icydb_fixtures_load",
+      "request": {
+        "k": "ref",
+        "name": "icydb_fixtures_load_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_fixtures_load_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811088",
+      "mode": "query",
+      "name": "icydb_metrics",
+      "request": {
+        "k": "ref",
+        "name": "icydb_metrics_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_metrics_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811089",
+      "mode": "update",
+      "name": "icydb_metrics_reset",
+      "request": {
+        "k": "ref",
+        "name": "icydb_metrics_reset_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_metrics_reset_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811090",
+      "mode": "query",
+      "name": "icydb_snapshot",
+      "request": {
+        "k": "ref",
+        "name": "icydb_snapshot_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_snapshot_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811091",
+      "mode": "query",
+      "name": "icydb_schema",
+      "request": {
+        "k": "ref",
+        "name": "icydb_schema_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_schema_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811092",
+      "mode": "update",
+      "name": "icydb_schema_migrate",
+      "request": {
+        "k": "ref",
+        "name": "icydb_schema_migrate_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_schema_migrate_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    },
+    {
+      "id": "3472371254828811093",
+      "mode": "query",
+      "name": "icydb_schema_migration",
+      "request": {
+        "k": "ref",
+        "name": "icydb_schema_migration_Request"
+      },
+      "requestBytes": 2097152,
+      "requestDepth": 32,
+      "requestNodes": 32768,
+      "response": {
+        "k": "ref",
+        "name": "icydb_schema_migration_Response"
+      },
+      "responseBytes": 3145728,
+      "responseDepth": 32,
+      "responseNodes": 32768
+    }
   ],
   "types": {
-    "Account":{"fields":[{"name":"owner","value":{"k":"ref","name":"WireType1"}},{"name":"subaccount","value":{"k":"ref","name":"WireType2"}}],"k":"record"},
-    "ConstraintValidationFindingOutput":{"fields":[{"name":"accepted_schema_fingerprint","value":{"k":"ref","name":"WireType5"}},{"name":"entity_tag","value":{"k":"ref","name":"WireType7"}},{"name":"constraint_id","value":{"k":"ref","name":"WireType8"}},{"name":"primary_key","value":{"k":"ref","name":"WireType9"}},{"name":"field_ids","value":{"k":"ref","name":"WireType10"}},{"name":"value_path","value":{"k":"ref","name":"WireType11"}},{"name":"error_code","value":{"k":"ref","name":"WireType15"}}],"k":"record"},
-    "ConstraintValidationProgressDescription":{"fields":[{"name":"phase","value":{"k":"ref","name":"WireType17"}},{"name":"rows_scanned","value":{"k":"ref","name":"WireType7"}},{"name":"findings_seen","value":{"k":"ref","name":"WireType7"}},{"name":"restarts","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "ConstraintValuePath":{"k":"ref","name":"WireType12"},
-    "ConstraintValuePathComponent":{"k":"ref","name":"WireType14"},
-    "ConvergenceMetrics":{"fields":[{"name":"appended","value":{"k":"ref","name":"WireType19"}},{"name":"retired","value":{"k":"ref","name":"WireType19"}},{"name":"overflowed","value":{"k":"ref","name":"WireType20"}},{"name":"journal_fold","value":{"k":"ref","name":"WireType21"}}],"k":"record"},
-    "DataStoreSnapshot":{"fields":[{"name":"path","value":{"k":"ref","name":"WireType17"}},{"name":"storage","value":{"k":"ref","name":"WireType25"}},{"name":"allocation","value":{"k":"ref","name":"WireType26"}},{"name":"durability","value":{"k":"ref","name":"WireType27"}},{"name":"commit","value":{"k":"ref","name":"WireType28"}},{"name":"recovery","value":{"k":"ref","name":"WireType29"}},{"name":"schema_metadata","value":{"k":"ref","name":"WireType30"}},{"name":"memory_id","value":{"k":"ref","name":"WireType31"}},{"name":"stable_key","value":{"k":"ref","name":"WireType32"}},{"name":"schema_version","value":{"k":"ref","name":"WireType33"}},{"name":"schema_fingerprint_method_version","value":{"k":"ref","name":"WireType31"}},{"name":"schema_fingerprint","value":{"k":"ref","name":"WireType32"}},{"name":"entries","value":{"k":"ref","name":"WireType7"}},{"name":"memory_bytes","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "DatabaseIncarnationId":{"item":{"k":"ref","name":"WireType5"},"k":"newtype"},
-    "DeepIntegrityPage":{"fields":[{"name":"job_id","value":{"k":"ref","name":"WireType36"}},{"name":"page_sequence","value":{"k":"ref","name":"WireType7"}},{"name":"phase","value":{"k":"ref","name":"WireType38"}},{"name":"status","value":{"k":"ref","name":"WireType39"}},{"name":"pages_completed","value":{"k":"ref","name":"WireType7"}},{"name":"findings_seen","value":{"k":"ref","name":"WireType7"}},{"name":"findings","value":{"k":"ref","name":"WireType44"}},{"name":"blocked_verifier_families","value":{"k":"ref","name":"WireType55"}}],"k":"record"},
-    "DeepIntegrityPageStatus":{"k":"ref","name":"WireType39"},
-    "DiagnosticFact":{"fields":[{"name":"tag","value":{"k":"ref","name":"WireType6"}},{"name":"value","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "EntityCatalogDescription":{"fields":[{"name":"entity_name","value":{"k":"ref","name":"WireType17"}},{"name":"entity_path","value":{"k":"ref","name":"WireType17"}},{"name":"store_path","value":{"k":"ref","name":"WireType17"}},{"name":"storage","value":{"k":"ref","name":"WireType17"}},{"name":"columns","value":{"k":"ref","name":"WireType8"}},{"name":"indexes","value":{"k":"ref","name":"WireType8"}},{"name":"relations","value":{"k":"ref","name":"WireType8"}},{"name":"schema_version","value":{"k":"ref","name":"WireType8"}}],"k":"record"},
-    "EntityConstraintDescription":{"fields":[{"name":"id","value":{"k":"ref","name":"WireType8"}},{"name":"name","value":{"k":"ref","name":"WireType17"}},{"name":"kind","value":{"k":"ref","name":"WireType17"}},{"name":"origin","value":{"k":"ref","name":"WireType17"}},{"name":"validation_state","value":{"k":"ref","name":"WireType17"}},{"name":"validation_progress","value":{"k":"ref","name":"WireType59"}},{"name":"field_id","value":{"k":"ref","name":"WireType33"}},{"name":"index_id","value":{"k":"ref","name":"WireType33"}},{"name":"relation_id","value":{"k":"ref","name":"WireType33"}},{"name":"fields","value":{"k":"ref","name":"WireType52"}},{"name":"index","value":{"k":"ref","name":"WireType32"}},{"name":"predicate_sql","value":{"k":"ref","name":"WireType32"}},{"name":"relation","value":{"k":"ref","name":"WireType32"}},{"name":"target_entity","value":{"k":"ref","name":"WireType32"}},{"name":"action","value":{"k":"ref","name":"WireType32"}},{"name":"semantics","value":{"k":"ref","name":"WireType17"}},{"name":"check_sql","value":{"k":"ref","name":"WireType32"}}],"k":"record"},
-    "EntityFieldDescription":{"fields":[{"name":"name","value":{"k":"ref","name":"WireType17"}},{"name":"slot","value":{"k":"ref","name":"WireType15"}},{"name":"kind","value":{"k":"ref","name":"WireType17"}},{"name":"nullable","value":{"k":"ref","name":"WireType20"}},{"name":"primary_key","value":{"k":"ref","name":"WireType20"}},{"name":"queryable","value":{"k":"ref","name":"WireType20"}},{"name":"origin","value":{"k":"ref","name":"WireType17"}},{"name":"insert_omission","value":{"k":"ref","name":"WireType32"}},{"name":"insert_default","value":{"k":"ref","name":"WireType32"}},{"name":"insert_default_bytes","value":{"k":"ref","name":"WireType33"}},{"name":"insert_default_hash","value":{"k":"ref","name":"WireType32"}},{"name":"introduced_in_layout","value":{"k":"ref","name":"WireType33"}},{"name":"historical_fill","value":{"k":"ref","name":"WireType32"}},{"name":"historical_fill_bytes","value":{"k":"ref","name":"WireType33"}},{"name":"historical_fill_hash","value":{"k":"ref","name":"WireType32"}}],"k":"record"},
-    "EntityIdentityDescription":{"fields":[{"name":"field","value":{"k":"ref","name":"WireType17"}},{"name":"generator","value":{"k":"ref","name":"WireType17"}},{"name":"accepted_kind","value":{"k":"ref","name":"WireType17"}},{"name":"minimum","value":{"k":"ref","name":"WireType22"}},{"name":"maximum","value":{"k":"ref","name":"WireType22"}},{"name":"high_water","value":{"k":"ref","name":"WireType22"}},{"name":"remaining","value":{"k":"ref","name":"WireType22"}},{"name":"exhausted","value":{"k":"ref","name":"WireType20"}}],"k":"record"},
-    "EntityIndexDescription":{"fields":[{"name":"name","value":{"k":"ref","name":"WireType17"}},{"name":"unique","value":{"k":"ref","name":"WireType20"}},{"name":"fields","value":{"k":"ref","name":"WireType52"}},{"name":"origin","value":{"k":"ref","name":"WireType17"}}],"k":"record"},
-    "EntityMetrics":{"fields":[{"name":"path","value":{"k":"ref","name":"WireType17"}},{"name":"hits","value":{"k":"ref","name":"WireType7"}},{"name":"instructions_total","value":{"k":"ref","name":"WireType22"}},{"name":"instructions_max","value":{"k":"ref","name":"WireType7"}},{"name":"samples_saturated","value":{"k":"ref","name":"WireType20"}},{"name":"total_saturated","value":{"k":"ref","name":"WireType20"}},{"name":"instructions_mean","value":{"k":"ref","name":"WireType23"}}],"k":"record"},
-    "EntityRelationCardinality":{"k":"enum","variants":[{"id":0,"name":"Single","value":{"k":"unit"}},{"id":1,"name":"List","value":{"k":"unit"}},{"id":2,"name":"Set","value":{"k":"unit"}}]},
-    "EntityRelationDescription":{"fields":[{"name":"field","value":{"k":"ref","name":"WireType17"}},{"name":"target_path","value":{"k":"ref","name":"WireType17"}},{"name":"target_entity_name","value":{"k":"ref","name":"WireType17"}},{"name":"target_store_path","value":{"k":"ref","name":"WireType17"}},{"name":"cardinality","value":{"k":"ref","name":"EntityRelationCardinality"}}],"k":"record"},
-    "EntitySchemaDescription":{"fields":[{"name":"entity_path","value":{"k":"ref","name":"WireType17"}},{"name":"entity_name","value":{"k":"ref","name":"WireType17"}},{"name":"entity_tag","value":{"k":"ref","name":"WireType7"}},{"name":"accepted_schema_fingerprint_method","value":{"k":"ref","name":"WireType6"}},{"name":"accepted_schema_fingerprint","value":{"k":"ref","name":"WireType5"}},{"name":"primary_key","value":{"k":"ref","name":"WireType17"}},{"name":"primary_key_fields","value":{"k":"ref","name":"WireType52"}},{"name":"identity","value":{"k":"ref","name":"WireType67"}},{"name":"fields","value":{"k":"ref","name":"WireType69"}},{"name":"indexes","value":{"k":"ref","name":"WireType70"}},{"name":"relations","value":{"k":"ref","name":"WireType71"}},{"name":"constraints","value":{"k":"ref","name":"WireType72"}},{"name":"row_layout_current","value":{"k":"ref","name":"WireType8"}},{"name":"row_layout_history_floor","value":{"k":"ref","name":"WireType8"}}],"k":"record"},
-    "EntitySnapshot":{"fields":[{"name":"store","value":{"k":"ref","name":"WireType17"}},{"name":"path","value":{"k":"ref","name":"WireType17"}},{"name":"entries","value":{"k":"ref","name":"WireType7"}},{"name":"memory_bytes","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "Error":{"fields":[{"name":"code","value":{"k":"ref","name":"WireType15"}},{"name":"class","value":{"k":"ref","name":"WireType6"}},{"name":"origin","value":{"k":"ref","name":"WireType6"}},{"name":"facts","value":{"k":"ref","name":"WireType75"}},{"name":"query_field","value":{"k":"ref","name":"WireType76"}}],"k":"record"},
-    "ExactBacklogMeasurement":{"k":"ref","name":"WireType19"},
-    "ExpectedAcceptedHead":{"k":"enum","variants":[{"id":0,"name":"Empty","value":{"k":"unit"}},{"id":1,"name":"Exact","value":{"fields":[{"name":"revision","value":{"k":"ref","name":"WireType7"}},{"name":"fingerprint","value":{"k":"ref","name":"WireType79"}}],"k":"record"}}]},
-    "IndexState":{"k":"enum","variants":[{"id":0,"name":"Building","value":{"k":"unit"}},{"id":1,"name":"Ready","value":{"k":"unit"}}]},
-    "IndexStoreSnapshot":{"fields":[{"name":"path","value":{"k":"ref","name":"WireType17"}},{"name":"storage","value":{"k":"ref","name":"WireType25"}},{"name":"allocation","value":{"k":"ref","name":"WireType26"}},{"name":"durability","value":{"k":"ref","name":"WireType27"}},{"name":"commit","value":{"k":"ref","name":"WireType28"}},{"name":"recovery","value":{"k":"ref","name":"WireType29"}},{"name":"schema_metadata","value":{"k":"ref","name":"WireType30"}},{"name":"memory_id","value":{"k":"ref","name":"WireType31"}},{"name":"stable_key","value":{"k":"ref","name":"WireType32"}},{"name":"schema_version","value":{"k":"ref","name":"WireType33"}},{"name":"schema_fingerprint_method_version","value":{"k":"ref","name":"WireType31"}},{"name":"schema_fingerprint","value":{"k":"ref","name":"WireType32"}},{"name":"entries","value":{"k":"ref","name":"WireType7"}},{"name":"user_entries","value":{"k":"ref","name":"WireType7"}},{"name":"system_entries","value":{"k":"ref","name":"WireType7"}},{"name":"memory_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"state","value":{"k":"ref","name":"IndexState"}}],"k":"record"},
-    "InstructionMetrics":{"k":"ref","name":"WireType21"},
-    "IntegrityAbortReceipt":{"fields":[{"name":"job_id","value":{"k":"ref","name":"WireType36"}},{"name":"page_sequence","value":{"k":"ref","name":"WireType7"}},{"name":"status","value":{"k":"ref","name":"WireType83"}}],"k":"record"},
-    "IntegrityAbortStatus":{"k":"ref","name":"WireType83"},
-    "IntegrityAuthorityClass":{"k":"ref","name":"WireType42"},
-    "IntegrityAuthorityDiagnostic":{"k":"ref","name":"WireType41"},
-    "IntegrityCheckError":{"k":"enum","variants":[{"id":0,"name":"Database","value":{"k":"ref","name":"Error"}},{"id":1,"name":"Job","value":{"k":"ref","name":"WireType86"}},{"id":2,"name":"Uninspectable","value":{"k":"ref","name":"WireType41"}}]},
-    "IntegrityCheckResult":{"k":"enum","variants":[{"id":0,"name":"Quick","value":{"k":"ref","name":"WireType88"}},{"id":1,"name":"Deep","value":{"k":"ref","name":"WireType90"}}]},
-    "IntegrityEntityIdentity":{"k":"ref","name":"WireType49"},
-    "IntegrityFinding":{"k":"ref","name":"WireType45"},
-    "IntegrityFindingClass":{"k":"ref","name":"WireType46"},
-    "IntegrityFindingKind":{"k":"ref","name":"WireType48"},
-    "IntegrityJobError":{"k":"ref","name":"WireType86"},
-    "IntegrityJobId":{"k":"ref","name":"WireType36"},
-    "IntegrityJobReceipt":{"k":"ref","name":"WireType90"},
-    "IntegrityPendingTerminal":{"k":"ref","name":"WireType84"},
-    "IntegrityPhase":{"k":"ref","name":"WireType38"},
-    "IntegrityResourceDiagnostic":{"k":"ref","name":"WireType43"},
-    "IntegritySeverity":{"k":"ref","name":"WireType47"},
-    "IntegrityTerminalOutcome":{"k":"ref","name":"WireType40"},
-    "IntegrityVerifierFamily":{"k":"ref","name":"WireType50"},
-    "MemoryAllocation":{"fields":[{"name":"memory_manager_id","value":{"k":"ref","name":"WireType6"}},{"name":"binding","value":{"k":"ref","name":"WireType92"}},{"name":"pool_eligible","value":{"k":"ref","name":"WireType93"}},{"name":"virtual_extent","value":{"k":"ref","name":"WireType94"}},{"name":"allocated_buckets","value":{"k":"ref","name":"WireType15"}},{"name":"allocated_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"bucket_slack_bytes","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "MemoryAllocationBinding":{"k":"ref","name":"WireType92"},
-    "MemoryAllocations":{"fields":[{"name":"current_generation","value":{"k":"ref","name":"WireType96"}},{"name":"manager_layout_version","value":{"k":"ref","name":"WireType6"}},{"name":"bucket_size_pages","value":{"k":"ref","name":"WireType15"}},{"name":"bucket_size_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"bucket_capacity","value":{"k":"ref","name":"WireType8"}},{"name":"allocated_buckets","value":{"k":"ref","name":"WireType15"}},{"name":"remaining_buckets","value":{"k":"ref","name":"WireType8"}},{"name":"maximum_bucket_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"physical_extent","value":{"k":"ref","name":"WireType94"}},{"name":"virtual_extent","value":{"k":"ref","name":"WireType94"}},{"name":"manager_metadata_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"manager_header_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"manager_bucket_table_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"manager_padding_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"allocated_bucket_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"bucket_slack_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"known_binding_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"unknown_binding_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"unmanaged_bytes","value":{"k":"ref","name":"WireType7"}},{"name":"metadata_bytes_read","value":{"k":"ref","name":"WireType7"}},{"name":"memories","value":{"k":"ref","name":"WireType97"}}],"k":"record"},
-    "MemoryCatalogDescription":{"fields":[{"name":"tag","value":{"k":"ref","name":"WireType17"}},{"name":"memory_id","value":{"k":"ref","name":"WireType6"}},{"name":"store_path","value":{"k":"ref","name":"WireType17"}}],"k":"record"},
-    "MemoryExtent":{"k":"ref","name":"WireType94"},
-    "MetricsReport":{"fields":[{"name":"window_id","value":{"k":"ref","name":"WireType96"}},{"name":"window_start_ms","value":{"k":"ref","name":"WireType7"}},{"name":"window_end_ms","value":{"k":"ref","name":"WireType7"}},{"name":"total_entities","value":{"k":"ref","name":"WireType7"}},{"name":"entities","value":{"k":"ref","name":"WireType100"}},{"name":"schema_lifecycle","value":{"k":"ref","name":"WireType101"}},{"name":"journal_debt","value":{"k":"ref","name":"WireType19"}},{"name":"convergence","value":{"k":"ref","name":"ConvergenceMetrics"}}],"k":"record"},
-    "PublicEnumValue":{"fields":[{"name":"variant","value":{"k":"ref","name":"WireType17"}},{"name":"path","value":{"k":"ref","name":"WireType32"}},{"name":"payload","value":{"k":"ref","name":"WireType103"}}],"k":"record"},
-    "PublicValue":{"k":"ref","name":"WireType105"},
-    "QueryFieldDiagnostic":{"k":"ref","name":"WireType77"},
-    "QuickIntegrityResult":{"k":"ref","name":"WireType88"},
-    "QuickIntegrityStatus":{"k":"ref","name":"WireType89"},
-    "RowProjectionOutput":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"columns","value":{"k":"ref","name":"WireType52"}},{"name":"rows","value":{"k":"ref","name":"WireType120"}},{"name":"row_count","value":{"k":"ref","name":"WireType8"}}],"k":"record"},
-    "SchemaLifecycleMetrics":{"k":"ref","name":"WireType101"},
-    "SchemaMigrationCommand":{"k":"enum","variants":[{"id":0,"name":"Adopt","value":{"fields":[{"name":"expected_database","value":{"k":"ref","name":"WireType124"}},{"name":"expected_head","value":{"k":"ref","name":"ExpectedAcceptedHead"}}],"k":"record"}},{"id":1,"name":"Advance","value":{"fields":[{"name":"expected_database","value":{"k":"ref","name":"WireType124"}},{"name":"expected_head","value":{"k":"ref","name":"ExpectedAcceptedHead"}},{"name":"expected_plan","value":{"k":"ref","name":"WireType125"}},{"name":"acknowledged_finding_page","value":{"k":"ref","name":"WireType96"}}],"k":"record"}},{"id":2,"name":"Abort","value":{"fields":[{"name":"expected_database","value":{"k":"ref","name":"WireType124"}},{"name":"expected_head","value":{"k":"ref","name":"ExpectedAcceptedHead"}},{"name":"expected_plan","value":{"k":"ref","name":"WireType125"}}],"k":"record"}}]},
-    "SchemaMigrationEntityTransition":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType127"}},{"name":"from_version","value":{"k":"ref","name":"WireType33"}},{"name":"to_version","value":{"k":"ref","name":"WireType8"}}],"k":"record"},
-    "SchemaMigrationFinding":{"fields":[{"name":"kind","value":{"k":"ref","name":"WireType129"}},{"name":"entity_tag","value":{"k":"ref","name":"WireType7"}},{"name":"primary_key","value":{"k":"ref","name":"WireType9"}},{"name":"source_field","value":{"k":"ref","name":"WireType33"}},{"name":"target_field","value":{"k":"ref","name":"WireType33"}},{"name":"transform_reason","value":{"k":"ref","name":"WireType130"}}],"k":"record"},
-    "SchemaMigrationFindingKind":{"k":"ref","name":"WireType129"},
-    "SchemaMigrationPhase":{"k":"enum","variants":[{"id":0,"name":"Unadopted","value":{"k":"unit"}},{"id":1,"name":"Adopted","value":{"k":"unit"}},{"id":2,"name":"Idle","value":{"k":"unit"}},{"id":3,"name":"Prepared","value":{"k":"unit"}},{"id":4,"name":"Validating","value":{"k":"unit"}},{"id":5,"name":"ReadyToRewrite","value":{"k":"unit"}},{"id":6,"name":"RewritingRows","value":{"k":"unit"}},{"id":7,"name":"RebuildingIndexes","value":{"k":"unit"}},{"id":8,"name":"FinalValidation","value":{"k":"unit"}},{"id":9,"name":"Publishing","value":{"k":"unit"}},{"id":10,"name":"Applied","value":{"k":"unit"}},{"id":11,"name":"Rejected","value":{"k":"unit"}},{"id":12,"name":"Aborted","value":{"k":"unit"}}]},
-    "SchemaMigrationReceipt":{"fields":[{"name":"database_identity","value":{"k":"ref","name":"WireType124"}},{"name":"plan_digest","value":{"k":"ref","name":"WireType134"}},{"name":"prior_head","value":{"k":"ref","name":"ExpectedAcceptedHead"}},{"name":"accepted_head","value":{"k":"ref","name":"ExpectedAcceptedHead"}}],"k":"record"},
-    "SchemaMigrationStatusPage":{"fields":[{"name":"database_identity","value":{"k":"ref","name":"WireType124"}},{"name":"accepted_head","value":{"k":"ref","name":"ExpectedAcceptedHead"}},{"name":"plan_digest","value":{"k":"ref","name":"WireType134"}},{"name":"phase","value":{"k":"ref","name":"SchemaMigrationPhase"}},{"name":"transitions","value":{"k":"ref","name":"WireType136"}},{"name":"rows_validated","value":{"k":"ref","name":"WireType7"}},{"name":"rows_rewritten","value":{"k":"ref","name":"WireType7"}},{"name":"indexes_rebuilt","value":{"k":"ref","name":"WireType8"}},{"name":"findings","value":{"k":"ref","name":"WireType137"}},{"name":"next_cursor","value":{"k":"ref","name":"WireType51"}},{"name":"terminal_receipt","value":{"k":"ref","name":"WireType138"}}],"k":"record"},
-    "SchemaMigrationStatusRequest":{"fields":[{"name":"cursor","value":{"k":"ref","name":"WireType51"}}],"k":"record"},
-    "SchemaMigrationTransformReason":{"k":"ref","name":"WireType131"},
-    "SchemaStoreSnapshot":{"fields":[{"name":"path","value":{"k":"ref","name":"WireType17"}},{"name":"storage","value":{"k":"ref","name":"WireType25"}},{"name":"allocation","value":{"k":"ref","name":"WireType26"}},{"name":"durability","value":{"k":"ref","name":"WireType27"}},{"name":"commit","value":{"k":"ref","name":"WireType28"}},{"name":"recovery","value":{"k":"ref","name":"WireType29"}},{"name":"schema_metadata","value":{"k":"ref","name":"WireType30"}},{"name":"memory_id","value":{"k":"ref","name":"WireType31"}},{"name":"stable_key","value":{"k":"ref","name":"WireType32"}},{"name":"schema_version","value":{"k":"ref","name":"WireType33"}},{"name":"schema_fingerprint_method_version","value":{"k":"ref","name":"WireType31"}},{"name":"schema_fingerprint","value":{"k":"ref","name":"WireType32"}},{"name":"entity_count","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "SqlColumnDefault":{"k":"enum","variants":[{"id":0,"name":"Auto","value":{"k":"unit"}},{"id":1,"name":"Null","value":{"k":"unit"}},{"id":2,"name":"Literal","value":{"fields":[{"name":"text","value":{"k":"ref","name":"WireType17"}}],"k":"record"}},{"id":3,"name":"Required","value":{"k":"unit"}},{"id":4,"name":"NotApplicable","value":{"k":"unit"}}]},
-    "SqlColumnExtra":{"k":"enum","variants":[{"id":0,"name":"Identity","value":{"k":"unit"}},{"id":1,"name":"Generated","value":{"k":"unit"}},{"id":2,"name":"Relation","value":{"k":"unit"}}]},
-    "SqlColumnKey":{"k":"enum","variants":[{"id":0,"name":"Primary","value":{"k":"unit"}},{"id":1,"name":"Unique","value":{"k":"unit"}},{"id":2,"name":"Multiple","value":{"k":"unit"}},{"id":3,"name":"None","value":{"k":"unit"}}]},
-    "SqlColumnSummary":{"fields":[{"name":"name","value":{"k":"ref","name":"WireType17"}},{"name":"field_type","value":{"k":"ref","name":"WireType17"}},{"name":"nullable","value":{"k":"ref","name":"WireType20"}},{"name":"key","value":{"k":"ref","name":"SqlColumnKey"}},{"name":"default","value":{"k":"ref","name":"SqlColumnDefault"}},{"name":"extra","value":{"k":"ref","name":"WireType145"}}],"k":"record"},
-    "SqlConstraintValidationOutput":{"fields":[{"name":"constraint_id","value":{"k":"ref","name":"WireType8"}},{"name":"activation_epoch","value":{"k":"ref","name":"WireType96"}},{"name":"page_sequence","value":{"k":"ref","name":"WireType96"}},{"name":"state","value":{"k":"ref","name":"WireType17"}},{"name":"revision_status","value":{"k":"ref","name":"WireType17"}},{"name":"rows_scanned","value":{"k":"ref","name":"WireType7"}},{"name":"findings","value":{"k":"ref","name":"WireType147"}},{"name":"complete","value":{"k":"ref","name":"WireType20"}}],"k":"record"},
-    "SqlDescribeOutput":{"k":"enum","variants":[{"id":0,"name":"Compact","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"columns","value":{"k":"ref","name":"WireType149"}}],"k":"record"}},{"id":1,"name":"Verbose","value":{"fields":[{"name":"description","value":{"k":"ref","name":"EntitySchemaDescription"}}],"k":"record"}}]},
-    "SqlGroupedRowsOutput":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"columns","value":{"k":"ref","name":"WireType52"}},{"name":"rows","value":{"k":"ref","name":"WireType151"}},{"name":"row_count","value":{"k":"ref","name":"WireType8"}},{"name":"next_cursor","value":{"k":"ref","name":"WireType32"}}],"k":"record"},
-    "SqlIntegrityError":{"k":"enum","variants":[{"id":0,"name":"Integrity","value":{"k":"ref","name":"IntegrityCheckError"}},{"id":1,"name":"Sql","value":{"k":"ref","name":"Error"}}]},
-    "SqlQueryResult":{"k":"enum","variants":[{"id":0,"name":"Count","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"row_count","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":1,"name":"Projection","value":{"k":"ref","name":"RowProjectionOutput"}},{"id":2,"name":"Grouped","value":{"k":"ref","name":"SqlGroupedRowsOutput"}},{"id":3,"name":"Explain","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"explain","value":{"k":"ref","name":"WireType17"}}],"k":"record"}},{"id":4,"name":"Describe","value":{"k":"ref","name":"SqlDescribeOutput"}},{"id":5,"name":"ShowConstraints","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"constraints","value":{"k":"ref","name":"WireType72"}}],"k":"record"}},{"id":6,"name":"ShowIndexes","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"indexes","value":{"k":"ref","name":"WireType52"}}],"k":"record"}},{"id":7,"name":"ShowColumns","value":{"k":"ref","name":"WireType154"}},{"id":8,"name":"ShowRelations","value":{"k":"ref","name":"WireType155"}},{"id":9,"name":"ShowEntities","value":{"fields":[{"name":"entities","value":{"k":"ref","name":"WireType156"}},{"name":"verbose","value":{"k":"ref","name":"WireType20"}}],"k":"record"}},{"id":10,"name":"ShowStores","value":{"fields":[{"name":"stores","value":{"k":"ref","name":"WireType157"}},{"name":"verbose","value":{"k":"ref","name":"WireType20"}}],"k":"record"}},{"id":11,"name":"ShowMemory","value":{"fields":[{"name":"memory","value":{"k":"ref","name":"WireType159"}}],"k":"record"}},{"id":12,"name":"Ddl","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"mutation_kind","value":{"k":"ref","name":"WireType17"}},{"name":"target_index","value":{"k":"ref","name":"WireType17"}},{"name":"target_store","value":{"k":"ref","name":"WireType17"}},{"name":"field_path","value":{"k":"ref","name":"WireType52"}},{"name":"status","value":{"k":"ref","name":"WireType17"}},{"name":"rows_scanned","value":{"k":"ref","name":"WireType7"}},{"name":"index_keys_written","value":{"k":"ref","name":"WireType7"}},{"name":"constraint_validation","value":{"k":"ref","name":"WireType160"}}],"k":"record"}}]},
-    "SqlShowColumnsOutput":{"k":"ref","name":"WireType154"},
-    "SqlShowRelationsOutput":{"k":"ref","name":"WireType155"},
-    "StorageReport":{"fields":[{"name":"memory_allocations","value":{"k":"ref","name":"WireType162"}},{"name":"storage_data","value":{"k":"ref","name":"WireType163"}},{"name":"storage_index","value":{"k":"ref","name":"WireType164"}},{"name":"schema_storage","value":{"k":"ref","name":"WireType165"}},{"name":"entity_storage","value":{"k":"ref","name":"WireType166"}},{"name":"corrupted_keys","value":{"k":"ref","name":"WireType7"}},{"name":"corrupted_entries","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "StoreAllocationIdentityCapability":{"k":"ref","name":"WireType26"},
-    "StoreCatalogDescription":{"k":"ref","name":"WireType158"},
-    "StoreCommitParticipation":{"k":"ref","name":"WireType28"},
-    "StoreDurability":{"k":"ref","name":"WireType27"},
-    "StoreRecoveryCapability":{"k":"ref","name":"WireType29"},
-    "StoreSchemaMetadataCapability":{"k":"ref","name":"WireType30"},
-    "StoreSnapshotStorageMode":{"k":"ref","name":"WireType25"},
-    "WireType1":{"k":"bytes","max":29},
-    "WireType10":{"item":{"k":"ref","name":"WireType8"},"k":"list"},
-    "WireType100":{"item":{"k":"ref","name":"EntityMetrics"},"k":"list"},
-    "WireType101":{"fields":[{"name":"lowering","value":{"k":"ref","name":"WireType21"}},{"name":"publication","value":{"k":"ref","name":"WireType21"}},{"name":"runtime_compilation","value":{"k":"ref","name":"WireType21"}},{"name":"cardinality","value":{"k":"ref","name":"WireType21"}},{"name":"startup_recovery","value":{"k":"ref","name":"WireType21"}}],"k":"record"},
-    "WireType103":{"item":{"k":"ref","name":"WireType104"},"k":"option"},
-    "WireType104":{"k":"ref","name":"WireType105"},
-    "WireType105":{"k":"enum","variants":[{"id":0,"name":"Account","value":{"k":"ref","name":"Account"}},{"id":1,"name":"Blob","value":{"k":"ref","name":"WireType9"}},{"id":2,"name":"Bool","value":{"k":"ref","name":"WireType20"}},{"id":3,"name":"Date","value":{"k":"ref","name":"WireType106"}},{"id":4,"name":"Decimal","value":{"k":"ref","name":"WireType107"}},{"id":5,"name":"Duration","value":{"k":"ref","name":"WireType108"}},{"id":6,"name":"Enum","value":{"k":"ref","name":"PublicEnumValue"}},{"id":7,"name":"Float32","value":{"k":"ref","name":"WireType109"}},{"id":8,"name":"Float64","value":{"k":"ref","name":"WireType110"}},{"id":9,"name":"Int","value":{"k":"ref","name":"WireType111"}},{"id":10,"name":"Int128","value":{"k":"ref","name":"WireType112"}},{"id":11,"name":"List","value":{"k":"ref","name":"WireType113"}},{"id":12,"name":"Map","value":{"k":"ref","name":"WireType114"}},{"id":13,"name":"Null","value":{"k":"unit"}},{"id":14,"name":"Principal","value":{"k":"ref","name":"WireType1"}},{"id":15,"name":"Subaccount","value":{"k":"ref","name":"WireType3"}},{"id":16,"name":"Text","value":{"k":"ref","name":"WireType17"}},{"id":17,"name":"Timestamp","value":{"k":"ref","name":"WireType116"}},{"id":18,"name":"Nat","value":{"k":"ref","name":"WireType7"}},{"id":19,"name":"Nat128","value":{"k":"ref","name":"WireType22"}},{"id":20,"name":"Ulid","value":{"k":"ref","name":"WireType117"}},{"id":21,"name":"Unit","value":{"k":"unit"}},{"id":22,"name":"U256","value":{"k":"ref","name":"WireType118"}}]},
-    "WireType106":{"bits":32,"k":"i","max":2932896,"min":-719528},
-    "WireType107":{"check":"decimal","k":"text"},
-    "WireType108":{"bits":64,"k":"u"},
-    "WireType109":{"bits":32,"k":"float"},
-    "WireType11":{"item":{"k":"ref","name":"WireType12"},"k":"option"},
-    "WireType110":{"bits":64,"k":"float"},
-    "WireType111":{"bits":64,"k":"i"},
-    "WireType112":{"bits":128,"k":"i"},
-    "WireType113":{"item":{"k":"ref","name":"WireType105"},"k":"list"},
-    "WireType114":{"item":{"k":"ref","name":"WireType115"},"k":"list"},
-    "WireType115":{"items":[{"k":"ref","name":"WireType105"},{"k":"ref","name":"WireType105"}],"k":"tuple"},
-    "WireType116":{"bits":64,"k":"i"},
-    "WireType117":{"k":"bytes","max":16,"min":16},
-    "WireType118":{"k":"bytes","max":32,"min":32},
-    "WireType12":{"fields":[{"name":"components","value":{"k":"ref","name":"WireType13"}}],"k":"record"},
-    "WireType120":{"item":{"k":"ref","name":"WireType121"},"k":"list"},
-    "WireType121":{"item":{"k":"ref","name":"WireType122"},"k":"list"},
-    "WireType122":{"k":"ref","name":"WireType105"},
-    "WireType124":{"k":"ref","name":"WireType37"},
-    "WireType125":{"k":"ref","name":"WireType37"},
-    "WireType127":{"k":"text"},
-    "WireType129":{"k":"enum","variants":[{"id":0,"name":"Transform","value":{"k":"unit"}},{"id":1,"name":"UniqueIndex","value":{"k":"unit"}},{"id":2,"name":"Relation","value":{"k":"unit"}},{"id":3,"name":"Constraint","value":{"k":"unit"}},{"id":4,"name":"ResourceLimit","value":{"k":"unit"}}]},
-    "WireType13":{"item":{"k":"ref","name":"WireType14"},"k":"list"},
-    "WireType130":{"item":{"k":"ref","name":"WireType131"},"k":"option"},
-    "WireType131":{"k":"enum","variants":[{"id":0,"name":"Overflow","value":{"k":"unit"}},{"id":1,"name":"NegativeToUnsigned","value":{"k":"unit"}},{"id":2,"name":"PrecisionLoss","value":{"k":"unit"}},{"id":3,"name":"NullSource","value":{"k":"unit"}},{"id":4,"name":"ValueContract","value":{"k":"unit"}}]},
-    "WireType134":{"item":{"k":"ref","name":"WireType125"},"k":"option"},
-    "WireType136":{"item":{"k":"ref","name":"SchemaMigrationEntityTransition"},"k":"list"},
-    "WireType137":{"item":{"k":"ref","name":"SchemaMigrationFinding"},"k":"list"},
-    "WireType138":{"item":{"k":"ref","name":"SchemaMigrationReceipt"},"k":"option"},
-    "WireType14":{"k":"enum","variants":[{"id":0,"name":"RootField","value":{"fields":[{"name":"field_id","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":1,"name":"RecordMember","value":{"fields":[{"name":"composite_type_id","value":{"k":"ref","name":"WireType8"}},{"name":"member_id","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":2,"name":"TupleElement","value":{"fields":[{"name":"composite_type_id","value":{"k":"ref","name":"WireType8"}},{"name":"ordinal","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":3,"name":"Newtype","value":{"fields":[{"name":"composite_type_id","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":4,"name":"EnumVariant","value":{"fields":[{"name":"enum_type_id","value":{"k":"ref","name":"WireType8"}},{"name":"variant_id","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":5,"name":"ListElement","value":{"fields":[{"name":"index","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":6,"name":"SetElement","value":{"fields":[{"name":"index","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":7,"name":"MapEntryKey","value":{"fields":[{"name":"index","value":{"k":"ref","name":"WireType8"}}],"k":"record"}},{"id":8,"name":"MapEntryValue","value":{"fields":[{"name":"index","value":{"k":"ref","name":"WireType8"}}],"k":"record"}}]},
-    "WireType145":{"item":{"k":"ref","name":"SqlColumnExtra"},"k":"list"},
-    "WireType147":{"item":{"k":"ref","name":"ConstraintValidationFindingOutput"},"k":"list"},
-    "WireType149":{"item":{"k":"ref","name":"SqlColumnSummary"},"k":"list"},
-    "WireType15":{"bits":16,"k":"u"},
-    "WireType151":{"item":{"k":"ref","name":"WireType52"},"k":"list"},
-    "WireType154":{"k":"enum","variants":[{"id":0,"name":"Compact","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"columns","value":{"k":"ref","name":"WireType149"}}],"k":"record"}},{"id":1,"name":"Verbose","value":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"columns","value":{"k":"ref","name":"WireType69"}}],"k":"record"}}]},
-    "WireType155":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType17"}},{"name":"relations","value":{"k":"ref","name":"WireType71"}}],"k":"record"},
-    "WireType156":{"item":{"k":"ref","name":"EntityCatalogDescription"},"k":"list"},
-    "WireType157":{"item":{"k":"ref","name":"WireType158"},"k":"list"},
-    "WireType158":{"fields":[{"name":"store_path","value":{"k":"ref","name":"WireType17"}},{"name":"storage","value":{"k":"ref","name":"WireType17"}}],"k":"record"},
-    "WireType159":{"item":{"k":"ref","name":"MemoryCatalogDescription"},"k":"list"},
-    "WireType160":{"item":{"k":"ref","name":"SqlConstraintValidationOutput"},"k":"option"},
-    "WireType162":{"item":{"k":"ref","name":"MemoryAllocations"},"k":"option"},
-    "WireType163":{"item":{"k":"ref","name":"DataStoreSnapshot"},"k":"list"},
-    "WireType164":{"item":{"k":"ref","name":"IndexStoreSnapshot"},"k":"list"},
-    "WireType165":{"item":{"k":"ref","name":"SchemaStoreSnapshot"},"k":"list"},
-    "WireType166":{"item":{"k":"ref","name":"EntitySnapshot"},"k":"list"},
-    "WireType17":{"k":"text"},
-    "WireType174":{"item":{"k":"ref","name":"EntitySchemaDescription"},"k":"list"},
-    "WireType19":{"fields":[{"name":"batch_count","value":{"k":"ref","name":"WireType7"}},{"name":"record_count","value":{"k":"ref","name":"WireType7"}},{"name":"encoded_batch_bytes","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "WireType2":{"item":{"k":"ref","name":"WireType3"},"k":"option"},
-    "WireType20":{"k":"bool"},
-    "WireType21":{"fields":[{"name":"samples","value":{"k":"ref","name":"WireType7"}},{"name":"instructions_total","value":{"k":"ref","name":"WireType22"}},{"name":"instructions_max","value":{"k":"ref","name":"WireType7"}},{"name":"samples_saturated","value":{"k":"ref","name":"WireType20"}},{"name":"total_saturated","value":{"k":"ref","name":"WireType20"}},{"name":"instructions_mean","value":{"k":"ref","name":"WireType23"}}],"k":"record"},
-    "WireType22":{"bits":128,"k":"u"},
-    "WireType23":{"item":{"k":"ref","name":"WireType22"},"k":"option"},
-    "WireType25":{"k":"enum","variants":[{"id":0,"name":"Heap","value":{"k":"unit"}},{"id":1,"name":"Journaled","value":{"k":"unit"}}]},
-    "WireType26":{"k":"enum","variants":[{"id":0,"name":"Present","value":{"k":"unit"}},{"id":1,"name":"Absent","value":{"k":"unit"}}]},
-    "WireType27":{"k":"enum","variants":[{"id":0,"name":"Durable","value":{"k":"unit"}},{"id":1,"name":"Volatile","value":{"k":"unit"}}]},
-    "WireType28":{"k":"enum","variants":[{"id":0,"name":"Durable","value":{"k":"unit"}},{"id":1,"name":"LiveOnly","value":{"k":"unit"}}]},
-    "WireType29":{"k":"enum","variants":[{"id":0,"name":"StableBasePlusJournalReplay","value":{"k":"unit"}},{"id":1,"name":"None","value":{"k":"unit"}}]},
-    "WireType3":{"k":"bytes","max":32,"min":32},
-    "WireType30":{"k":"enum","variants":[{"id":0,"name":"LiveRebuiltMetadata","value":{"k":"unit"}},{"id":1,"name":"CanonicalStableHistoryPlusJournalTail","value":{"k":"unit"}}]},
-    "WireType31":{"item":{"k":"ref","name":"WireType6"},"k":"option"},
-    "WireType32":{"item":{"k":"ref","name":"WireType17"},"k":"option"},
-    "WireType33":{"item":{"k":"ref","name":"WireType8"},"k":"option"},
-    "WireType36":{"item":{"k":"ref","name":"WireType37"},"k":"newtype"},
-    "WireType37":{"item":{"k":"ref","name":"WireType6"},"k":"array","max":32},
-    "WireType38":{"k":"enum","variants":[{"id":0,"name":"QuickMetadata","value":{"k":"unit"}},{"id":1,"name":"Rows","value":{"k":"unit"}},{"id":2,"name":"IndexEntries","value":{"k":"unit"}},{"id":3,"name":"ReverseRelations","value":{"k":"unit"}},{"id":4,"name":"JournalTails","value":{"k":"unit"}},{"id":5,"name":"FinalProofVectorCheck","value":{"k":"unit"}}]},
-    "WireType39":{"k":"enum","variants":[{"id":0,"name":"InProgress","value":{"k":"unit"}},{"id":1,"name":"Terminal","value":{"k":"ref","name":"WireType40"}}]},
-    "WireType40":{"k":"enum","variants":[{"id":0,"name":"DeepCompleteClean","value":{"k":"unit"}},{"id":1,"name":"DeepCompleteWithFindings","value":{"k":"unit"}},{"id":2,"name":"Invalidated","value":{"k":"unit"}},{"id":3,"name":"Uninspectable","value":{"k":"ref","name":"WireType41"}},{"id":4,"name":"ResourceLimited","value":{"k":"ref","name":"WireType43"}},{"id":5,"name":"Expired","value":{"k":"unit"}},{"id":6,"name":"Aborted","value":{"k":"unit"}}]},
-    "WireType41":{"fields":[{"name":"diagnostic_code","value":{"k":"ref","name":"WireType15"}},{"name":"class","value":{"k":"ref","name":"WireType42"}}],"k":"record"},
-    "WireType42":{"k":"enum","variants":[{"id":0,"name":"Corruption","value":{"k":"unit"}},{"id":1,"name":"IncompatiblePersistedFormat","value":{"k":"unit"}},{"id":2,"name":"InvariantViolation","value":{"k":"unit"}},{"id":3,"name":"Unsupported","value":{"k":"unit"}},{"id":4,"name":"Internal","value":{"k":"unit"}}]},
-    "WireType43":{"fields":[{"name":"diagnostic_code","value":{"k":"ref","name":"WireType15"}}],"k":"record"},
-    "WireType44":{"item":{"k":"ref","name":"WireType45"},"k":"list"},
-    "WireType45":{"fields":[{"name":"diagnostic_code","value":{"k":"ref","name":"WireType15"}},{"name":"class","value":{"k":"ref","name":"WireType46"}},{"name":"severity","value":{"k":"ref","name":"WireType47"}},{"name":"kind","value":{"k":"ref","name":"WireType48"}},{"name":"entity","value":{"k":"ref","name":"WireType49"}},{"name":"store_path","value":{"k":"ref","name":"WireType17"}},{"name":"phase","value":{"k":"ref","name":"WireType38"}},{"name":"verifier_family","value":{"k":"ref","name":"WireType50"}},{"name":"physical_key","value":{"k":"ref","name":"WireType9"}},{"name":"primary_key","value":{"k":"ref","name":"WireType51"}},{"name":"field_paths","value":{"k":"ref","name":"WireType52"}},{"name":"value_path","value":{"k":"ref","name":"WireType53"}},{"name":"constraint_id","value":{"k":"ref","name":"WireType33"}},{"name":"constraint_name","value":{"k":"ref","name":"WireType32"}},{"name":"schema_index_id","value":{"k":"ref","name":"WireType33"}},{"name":"relation_id","value":{"k":"ref","name":"WireType33"}},{"name":"expected","value":{"k":"ref","name":"WireType32"}},{"name":"observed","value":{"k":"ref","name":"WireType32"}}],"k":"record"},
-    "WireType46":{"k":"enum","variants":[{"id":0,"name":"Corruption","value":{"k":"unit"}},{"id":1,"name":"IncompatiblePersistedFormat","value":{"k":"unit"}},{"id":2,"name":"ResourceLimited","value":{"k":"unit"}}]},
-    "WireType47":{"k":"enum","variants":[{"id":0,"name":"Error","value":{"k":"unit"}},{"id":1,"name":"Advisory","value":{"k":"unit"}}]},
-    "WireType48":{"k":"enum","variants":[{"id":0,"name":"MalformedDataKey","value":{"k":"unit"}},{"id":1,"name":"MalformedRow","value":{"k":"unit"}},{"id":2,"name":"OversizedRow","value":{"k":"unit"}},{"id":3,"name":"InvalidFieldValue","value":{"k":"unit"}},{"id":4,"name":"PrimaryKeyMismatch","value":{"k":"unit"}},{"id":5,"name":"InvalidIdentityValue","value":{"k":"unit"}},{"id":6,"name":"IdentityHighWaterExceeded","value":{"k":"unit"}},{"id":7,"name":"ConstraintViolation","value":{"k":"unit"}},{"id":8,"name":"MissingIndexEntry","value":{"k":"unit"}},{"id":9,"name":"DivergentIndexEntry","value":{"k":"unit"}},{"id":10,"name":"MalformedIndexEntry","value":{"k":"unit"}},{"id":11,"name":"OrphanIndexEntry","value":{"k":"unit"}},{"id":12,"name":"DuplicateUniqueIndexKey","value":{"k":"unit"}},{"id":13,"name":"MissingRelationTarget","value":{"k":"unit"}},{"id":14,"name":"MissingReverseRelationEntry","value":{"k":"unit"}},{"id":15,"name":"DivergentReverseRelationEntry","value":{"k":"unit"}},{"id":16,"name":"MalformedReverseRelationEntry","value":{"k":"unit"}},{"id":17,"name":"OrphanReverseRelationEntry","value":{"k":"unit"}},{"id":18,"name":"MalformedJournalBatch","value":{"k":"unit"}},{"id":19,"name":"JournalSequenceGap","value":{"k":"unit"}},{"id":20,"name":"DuplicateJournalBatchIdentity","value":{"k":"unit"}},{"id":21,"name":"JournalControlMismatch","value":{"k":"unit"}}]},
-    "WireType49":{"fields":[{"name":"entity_tag","value":{"k":"ref","name":"WireType7"}},{"name":"entity_path","value":{"k":"ref","name":"WireType17"}},{"name":"store_path","value":{"k":"ref","name":"WireType17"}}],"k":"record"},
-    "WireType5":{"item":{"k":"ref","name":"WireType6"},"k":"array","max":16},
-    "WireType50":{"k":"enum","variants":[{"id":0,"name":"DataKey","value":{"k":"unit"}},{"id":1,"name":"RowEnvelope","value":{"k":"unit"}},{"id":2,"name":"FieldValue","value":{"k":"unit"}},{"id":3,"name":"PrimaryKey","value":{"k":"unit"}},{"id":4,"name":"IdentityState","value":{"k":"unit"}},{"id":5,"name":"ValidatedConstraints","value":{"k":"unit"}},{"id":6,"name":"ForwardIndex","value":{"k":"unit"}},{"id":7,"name":"IndexEntry","value":{"k":"unit"}},{"id":8,"name":"UniqueIndex","value":{"k":"unit"}},{"id":9,"name":"Relation","value":{"k":"unit"}},{"id":10,"name":"ReverseRelationEntry","value":{"k":"unit"}},{"id":11,"name":"JournalEnvelope","value":{"k":"unit"}},{"id":12,"name":"JournalBatchIdentity","value":{"k":"unit"}}]},
-    "WireType51":{"item":{"k":"ref","name":"WireType9"},"k":"option"},
-    "WireType52":{"item":{"k":"ref","name":"WireType17"},"k":"list"},
-    "WireType53":{"item":{"k":"ref","name":"WireType54"},"k":"option"},
-    "WireType54":{"k":"ref","name":"WireType12"},
-    "WireType55":{"item":{"k":"ref","name":"WireType50"},"k":"list"},
-    "WireType59":{"item":{"k":"ref","name":"ConstraintValidationProgressDescription"},"k":"option"},
-    "WireType6":{"bits":8,"k":"u"},
-    "WireType67":{"item":{"k":"ref","name":"WireType68"},"k":"option"},
-    "WireType68":{"k":"ref","name":"EntityIdentityDescription"},
-    "WireType69":{"item":{"k":"ref","name":"EntityFieldDescription"},"k":"list"},
-    "WireType7":{"bits":64,"k":"u"},
-    "WireType70":{"item":{"k":"ref","name":"EntityIndexDescription"},"k":"list"},
-    "WireType71":{"item":{"k":"ref","name":"EntityRelationDescription"},"k":"list"},
-    "WireType72":{"item":{"k":"ref","name":"EntityConstraintDescription"},"k":"list"},
-    "WireType75":{"item":{"k":"ref","name":"DiagnosticFact"},"k":"list"},
-    "WireType76":{"item":{"k":"ref","name":"WireType77"},"k":"option"},
-    "WireType77":{"fields":[{"name":"role","value":{"k":"ref","name":"WireType6"}},{"name":"field","value":{"k":"ref","name":"WireType17"}}],"k":"record"},
-    "WireType79":{"k":"ref","name":"WireType37"},
-    "WireType8":{"bits":32,"k":"u"},
-    "WireType83":{"k":"enum","variants":[{"id":0,"name":"TerminationPending","value":{"k":"ref","name":"WireType84"}},{"id":1,"name":"Terminal","value":{"k":"ref","name":"WireType40"}}]},
-    "WireType84":{"k":"enum","variants":[{"id":0,"name":"Expired","value":{"k":"unit"}},{"id":1,"name":"Aborted","value":{"k":"unit"}}]},
-    "WireType86":{"k":"enum","variants":[{"id":0,"name":"CapacityExceeded","value":{"k":"unit"}},{"id":1,"name":"CorruptProgressHeader","value":{"k":"unit"}},{"id":2,"name":"CorruptProgressRecord","value":{"k":"unit"}},{"id":3,"name":"CounterExhausted","value":{"k":"unit"}},{"id":4,"name":"EntityIdentityMismatch","value":{"k":"unit"}},{"id":5,"name":"IncompatibleProgressFormat","value":{"k":"unit"}},{"id":6,"name":"Internal","value":{"k":"unit"}},{"id":7,"name":"InvalidEntityIdentity","value":{"k":"unit"}},{"id":8,"name":"InvalidJobId","value":{"k":"unit"}},{"id":9,"name":"InvalidOwner","value":{"k":"unit"}},{"id":10,"name":"InvalidSubmissionKey","value":{"k":"unit"}},{"id":11,"name":"JobIncarnationMismatch","value":{"k":"unit"}},{"id":12,"name":"JobNotFound","value":{"k":"unit"}},{"id":13,"name":"JobOwnerMismatch","value":{"k":"unit"}},{"id":14,"name":"StaleAcknowledgement","value":{"k":"unit"}},{"id":15,"name":"StartInvalidated","value":{"k":"unit"}},{"id":16,"name":"SubmissionAlreadyAdvanced","value":{"k":"unit"}},{"id":17,"name":"SubmissionConflict","value":{"k":"unit"}}]},
-    "WireType88":{"fields":[{"name":"entity","value":{"k":"ref","name":"WireType49"}},{"name":"database_incarnation_id","value":{"k":"ref","name":"DatabaseIncarnationId"}},{"name":"accepted_schema_version","value":{"k":"ref","name":"WireType8"}},{"name":"accepted_schema_fingerprint","value":{"k":"ref","name":"WireType5"}},{"name":"status","value":{"k":"ref","name":"WireType89"}},{"name":"total_findings","value":{"k":"ref","name":"WireType7"}},{"name":"omitted_findings","value":{"k":"ref","name":"WireType7"}},{"name":"findings","value":{"k":"ref","name":"WireType44"}}],"k":"record"},
-    "WireType89":{"k":"enum","variants":[{"id":0,"name":"CompleteClean","value":{"k":"unit"}},{"id":1,"name":"CompleteWithFindings","value":{"k":"unit"}},{"id":2,"name":"Uninspectable","value":{"k":"ref","name":"WireType41"}},{"id":3,"name":"ResourceLimited","value":{"k":"ref","name":"WireType43"}}]},
-    "WireType9":{"k":"bytes"},
-    "WireType90":{"k":"enum","variants":[{"id":0,"name":"Page","value":{"k":"ref","name":"DeepIntegrityPage"}},{"id":1,"name":"Abort","value":{"k":"ref","name":"IntegrityAbortReceipt"}}]},
-    "WireType92":{"k":"enum","variants":[{"id":0,"name":"Current","value":{"fields":[{"name":"stable_key","value":{"k":"ref","name":"WireType17"}},{"name":"owner","value":{"k":"ref","name":"WireType17"}}],"k":"record"}},{"id":1,"name":"Ledger","value":{"fields":[{"name":"stable_key","value":{"k":"ref","name":"WireType17"}},{"name":"owner","value":{"k":"ref","name":"WireType17"}}],"k":"record"}},{"id":2,"name":"Unknown","value":{"k":"unit"}}]},
-    "WireType93":{"item":{"k":"ref","name":"WireType20"},"k":"option"},
-    "WireType94":{"fields":[{"name":"wasm_pages","value":{"k":"ref","name":"WireType7"}},{"name":"bytes","value":{"k":"ref","name":"WireType7"}}],"k":"record"},
-    "WireType96":{"item":{"k":"ref","name":"WireType7"},"k":"option"},
-    "WireType97":{"item":{"k":"ref","name":"MemoryAllocation"},"k":"list"},
-    "icydb_ddl_Request":{"k":"ref","name":"WireType17"},
-    "icydb_ddl_Response":{"k":"ref","name":"icydb_query_Response"},
-    "icydb_fixtures_load_Request":{"k":"ref","name":"icydb_fixtures_reset_Request"},
-    "icydb_fixtures_load_Response":{"k":"ref","name":"icydb_fixtures_reset_Response"},
-    "icydb_fixtures_reset_Request":{"k":"unit"},
-    "icydb_fixtures_reset_Response":{"err":{"k":"ref","name":"Error"},"k":"result","ok":{"k":"ref","name":"icydb_fixtures_reset_Request"}},
-    "icydb_integrity_Request":{"k":"ref","name":"WireType17"},
-    "icydb_integrity_Response":{"err":{"k":"ref","name":"SqlIntegrityError"},"k":"result","ok":{"k":"ref","name":"IntegrityCheckResult"}},
-    "icydb_metrics_Request":{"k":"ref","name":"icydb_fixtures_reset_Request"},
-    "icydb_metrics_Response":{"err":{"k":"ref","name":"Error"},"k":"result","ok":{"k":"ref","name":"MetricsReport"}},
-    "icydb_metrics_reset_Request":{"k":"ref","name":"icydb_fixtures_reset_Request"},
-    "icydb_metrics_reset_Response":{"k":"ref","name":"icydb_fixtures_reset_Response"},
-    "icydb_query_Request":{"k":"ref","name":"WireType17"},
-    "icydb_query_Response":{"err":{"k":"ref","name":"Error"},"k":"result","ok":{"k":"ref","name":"SqlQueryResult"}},
-    "icydb_schema_Request":{"k":"ref","name":"icydb_fixtures_reset_Request"},
-    "icydb_schema_Response":{"err":{"k":"ref","name":"Error"},"k":"result","ok":{"k":"ref","name":"WireType174"}},
-    "icydb_schema_migrate_Request":{"k":"ref","name":"SchemaMigrationCommand"},
-    "icydb_schema_migrate_Response":{"err":{"k":"ref","name":"Error"},"k":"result","ok":{"k":"ref","name":"SchemaMigrationStatusPage"}},
-    "icydb_schema_migration_Request":{"k":"ref","name":"SchemaMigrationStatusRequest"},
-    "icydb_schema_migration_Response":{"k":"ref","name":"icydb_schema_migrate_Response"},
-    "icydb_snapshot_Request":{"k":"ref","name":"icydb_fixtures_reset_Request"},
-    "icydb_snapshot_Response":{"err":{"k":"ref","name":"Error"},"k":"result","ok":{"k":"ref","name":"StorageReport"}},
-    "icydb_update_Request":{"k":"ref","name":"WireType17"},
-    "icydb_update_Response":{"k":"ref","name":"icydb_query_Response"}
+    "Account": {
+      "fields": [
+        {
+          "name": "owner",
+          "value": {
+            "k": "ref",
+            "name": "WireType1"
+          }
+        },
+        {
+          "name": "subaccount",
+          "value": {
+            "k": "ref",
+            "name": "WireType2"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "ConstraintValidationFindingOutput": {
+      "fields": [
+        {
+          "name": "accepted_schema_fingerprint",
+          "value": {
+            "k": "ref",
+            "name": "WireType5"
+          }
+        },
+        {
+          "name": "entity_tag",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "constraint_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "primary_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType9"
+          }
+        },
+        {
+          "name": "field_ids",
+          "value": {
+            "k": "ref",
+            "name": "WireType10"
+          }
+        },
+        {
+          "name": "value_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType11"
+          }
+        },
+        {
+          "name": "error_code",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "ConstraintValidationProgressDescription": {
+      "fields": [
+        {
+          "name": "phase",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "rows_scanned",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "findings_seen",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "restarts",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "ConstraintValuePath": {
+      "k": "ref",
+      "name": "WireType12"
+    },
+    "ConstraintValuePathComponent": {
+      "k": "ref",
+      "name": "WireType14"
+    },
+    "ConvergenceMetrics": {
+      "fields": [
+        {
+          "name": "appended",
+          "value": {
+            "k": "ref",
+            "name": "WireType19"
+          }
+        },
+        {
+          "name": "retired",
+          "value": {
+            "k": "ref",
+            "name": "WireType19"
+          }
+        },
+        {
+          "name": "overflowed",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "journal_fold",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "DataStoreSnapshot": {
+      "fields": [
+        {
+          "name": "path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType26"
+          }
+        },
+        {
+          "name": "allocation",
+          "value": {
+            "k": "ref",
+            "name": "WireType27"
+          }
+        },
+        {
+          "name": "durability",
+          "value": {
+            "k": "ref",
+            "name": "WireType28"
+          }
+        },
+        {
+          "name": "commit",
+          "value": {
+            "k": "ref",
+            "name": "WireType29"
+          }
+        },
+        {
+          "name": "recovery",
+          "value": {
+            "k": "ref",
+            "name": "WireType30"
+          }
+        },
+        {
+          "name": "schema_metadata",
+          "value": {
+            "k": "ref",
+            "name": "WireType31"
+          }
+        },
+        {
+          "name": "memory_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType32"
+          }
+        },
+        {
+          "name": "stable_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "schema_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "schema_fingerprint_method_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType32"
+          }
+        },
+        {
+          "name": "schema_fingerprint",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "entries",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "memory_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "DatabaseIncarnationId": {
+      "item": {
+        "k": "ref",
+        "name": "WireType5"
+      },
+      "k": "newtype"
+    },
+    "DeepIntegrityPage": {
+      "fields": [
+        {
+          "name": "job_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType37"
+          }
+        },
+        {
+          "name": "page_sequence",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "phase",
+          "value": {
+            "k": "ref",
+            "name": "WireType39"
+          }
+        },
+        {
+          "name": "status",
+          "value": {
+            "k": "ref",
+            "name": "WireType40"
+          }
+        },
+        {
+          "name": "pages_completed",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "findings_seen",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "findings",
+          "value": {
+            "k": "ref",
+            "name": "WireType45"
+          }
+        },
+        {
+          "name": "blocked_verifier_families",
+          "value": {
+            "k": "ref",
+            "name": "WireType56"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "DeepIntegrityPageStatus": {
+      "k": "ref",
+      "name": "WireType40"
+    },
+    "DiagnosticFact": {
+      "fields": [
+        {
+          "name": "tag",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "value",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityCatalogDescription": {
+      "fields": [
+        {
+          "name": "entity_name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "entity_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "store_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "columns",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "indexes",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "relations",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "schema_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityConstraintDescription": {
+      "fields": [
+        {
+          "name": "id",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "kind",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "origin",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "validation_state",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "validation_progress",
+          "value": {
+            "k": "ref",
+            "name": "WireType60"
+          }
+        },
+        {
+          "name": "field_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "index_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "relation_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "fields",
+          "value": {
+            "k": "ref",
+            "name": "WireType53"
+          }
+        },
+        {
+          "name": "index",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "predicate_sql",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "relation",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "target_entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "action",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "semantics",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "check_sql",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityFieldDescription": {
+      "fields": [
+        {
+          "name": "name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "slot",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "kind",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "nullable",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "primary_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "queryable",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "origin",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "insert_omission",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "insert_default",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "insert_default_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "insert_default_hash",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "introduced_in_layout",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "historical_fill",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "historical_fill_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "historical_fill_hash",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityIdentityDescription": {
+      "fields": [
+        {
+          "name": "field",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "generator",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "accepted_kind",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "minimum",
+          "value": {
+            "k": "ref",
+            "name": "WireType23"
+          }
+        },
+        {
+          "name": "maximum",
+          "value": {
+            "k": "ref",
+            "name": "WireType23"
+          }
+        },
+        {
+          "name": "high_water",
+          "value": {
+            "k": "ref",
+            "name": "WireType23"
+          }
+        },
+        {
+          "name": "remaining",
+          "value": {
+            "k": "ref",
+            "name": "WireType23"
+          }
+        },
+        {
+          "name": "exhausted",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityIndexDescription": {
+      "fields": [
+        {
+          "name": "name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "unique",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "fields",
+          "value": {
+            "k": "ref",
+            "name": "WireType53"
+          }
+        },
+        {
+          "name": "origin",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityMetrics": {
+      "fields": [
+        {
+          "name": "path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "instructions",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntityRelationCardinality": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Single",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "List",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Set",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "EntityRelationDescription": {
+      "fields": [
+        {
+          "name": "field",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "target_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "target_entity_name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "target_store_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "cardinality",
+          "value": {
+            "k": "ref",
+            "name": "EntityRelationCardinality"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntitySchemaDescription": {
+      "fields": [
+        {
+          "name": "entity_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "entity_name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "entity_tag",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "accepted_schema_fingerprint_method",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "accepted_schema_fingerprint",
+          "value": {
+            "k": "ref",
+            "name": "WireType5"
+          }
+        },
+        {
+          "name": "primary_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "primary_key_fields",
+          "value": {
+            "k": "ref",
+            "name": "WireType53"
+          }
+        },
+        {
+          "name": "identity",
+          "value": {
+            "k": "ref",
+            "name": "WireType68"
+          }
+        },
+        {
+          "name": "fields",
+          "value": {
+            "k": "ref",
+            "name": "WireType70"
+          }
+        },
+        {
+          "name": "indexes",
+          "value": {
+            "k": "ref",
+            "name": "WireType71"
+          }
+        },
+        {
+          "name": "relations",
+          "value": {
+            "k": "ref",
+            "name": "WireType72"
+          }
+        },
+        {
+          "name": "constraints",
+          "value": {
+            "k": "ref",
+            "name": "WireType73"
+          }
+        },
+        {
+          "name": "row_layout_current",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "row_layout_history_floor",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "EntitySnapshot": {
+      "fields": [
+        {
+          "name": "store",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "entries",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "memory_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "Error": {
+      "fields": [
+        {
+          "name": "code",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "class",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "origin",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "facts",
+          "value": {
+            "k": "ref",
+            "name": "WireType76"
+          }
+        },
+        {
+          "name": "query_field",
+          "value": {
+            "k": "ref",
+            "name": "WireType77"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "ExactBacklogMeasurement": {
+      "k": "ref",
+      "name": "WireType19"
+    },
+    "ExpectedAcceptedHead": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Empty",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Exact",
+          "value": {
+            "fields": [
+              {
+                "name": "revision",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType7"
+                }
+              },
+              {
+                "name": "fingerprint",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType80"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        }
+      ]
+    },
+    "IndexState": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Building",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Ready",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "IndexStoreSnapshot": {
+      "fields": [
+        {
+          "name": "path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType26"
+          }
+        },
+        {
+          "name": "allocation",
+          "value": {
+            "k": "ref",
+            "name": "WireType27"
+          }
+        },
+        {
+          "name": "durability",
+          "value": {
+            "k": "ref",
+            "name": "WireType28"
+          }
+        },
+        {
+          "name": "commit",
+          "value": {
+            "k": "ref",
+            "name": "WireType29"
+          }
+        },
+        {
+          "name": "recovery",
+          "value": {
+            "k": "ref",
+            "name": "WireType30"
+          }
+        },
+        {
+          "name": "schema_metadata",
+          "value": {
+            "k": "ref",
+            "name": "WireType31"
+          }
+        },
+        {
+          "name": "memory_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType32"
+          }
+        },
+        {
+          "name": "stable_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "schema_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "schema_fingerprint_method_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType32"
+          }
+        },
+        {
+          "name": "schema_fingerprint",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "entries",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "user_entries",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "system_entries",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "memory_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "state",
+          "value": {
+            "k": "ref",
+            "name": "IndexState"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "IntegrityAbortReceipt": {
+      "fields": [
+        {
+          "name": "job_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType37"
+          }
+        },
+        {
+          "name": "page_sequence",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "status",
+          "value": {
+            "k": "ref",
+            "name": "WireType84"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "IntegrityAbortStatus": {
+      "k": "ref",
+      "name": "WireType84"
+    },
+    "IntegrityAuthorityClass": {
+      "k": "ref",
+      "name": "WireType43"
+    },
+    "IntegrityAuthorityDiagnostic": {
+      "k": "ref",
+      "name": "WireType42"
+    },
+    "IntegrityCheckError": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Database",
+          "value": {
+            "k": "ref",
+            "name": "Error"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Job",
+          "value": {
+            "k": "ref",
+            "name": "WireType87"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Uninspectable",
+          "value": {
+            "k": "ref",
+            "name": "WireType42"
+          }
+        }
+      ]
+    },
+    "IntegrityCheckResult": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Quick",
+          "value": {
+            "k": "ref",
+            "name": "WireType89"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Deep",
+          "value": {
+            "k": "ref",
+            "name": "WireType91"
+          }
+        }
+      ]
+    },
+    "IntegrityEntityIdentity": {
+      "k": "ref",
+      "name": "WireType50"
+    },
+    "IntegrityFinding": {
+      "k": "ref",
+      "name": "WireType46"
+    },
+    "IntegrityFindingClass": {
+      "k": "ref",
+      "name": "WireType47"
+    },
+    "IntegrityFindingKind": {
+      "k": "ref",
+      "name": "WireType49"
+    },
+    "IntegrityJobError": {
+      "k": "ref",
+      "name": "WireType87"
+    },
+    "IntegrityJobId": {
+      "k": "ref",
+      "name": "WireType37"
+    },
+    "IntegrityJobReceipt": {
+      "k": "ref",
+      "name": "WireType91"
+    },
+    "IntegrityPendingTerminal": {
+      "k": "ref",
+      "name": "WireType85"
+    },
+    "IntegrityPhase": {
+      "k": "ref",
+      "name": "WireType39"
+    },
+    "IntegrityResourceDiagnostic": {
+      "k": "ref",
+      "name": "WireType44"
+    },
+    "IntegritySeverity": {
+      "k": "ref",
+      "name": "WireType48"
+    },
+    "IntegrityTerminalOutcome": {
+      "k": "ref",
+      "name": "WireType41"
+    },
+    "IntegrityVerifierFamily": {
+      "k": "ref",
+      "name": "WireType51"
+    },
+    "MeasurementAggregate": {
+      "k": "ref",
+      "name": "WireType21"
+    },
+    "MemoryAllocation": {
+      "fields": [
+        {
+          "name": "memory_manager_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "binding",
+          "value": {
+            "k": "ref",
+            "name": "WireType93"
+          }
+        },
+        {
+          "name": "pool_eligible",
+          "value": {
+            "k": "ref",
+            "name": "WireType94"
+          }
+        },
+        {
+          "name": "virtual_extent",
+          "value": {
+            "k": "ref",
+            "name": "WireType95"
+          }
+        },
+        {
+          "name": "allocated_buckets",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "allocated_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "bucket_slack_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "MemoryAllocationBinding": {
+      "k": "ref",
+      "name": "WireType93"
+    },
+    "MemoryAllocations": {
+      "fields": [
+        {
+          "name": "current_generation",
+          "value": {
+            "k": "ref",
+            "name": "WireType24"
+          }
+        },
+        {
+          "name": "manager_layout_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "bucket_size_pages",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "bucket_size_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "bucket_capacity",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "allocated_buckets",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "remaining_buckets",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "maximum_bucket_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "physical_extent",
+          "value": {
+            "k": "ref",
+            "name": "WireType95"
+          }
+        },
+        {
+          "name": "virtual_extent",
+          "value": {
+            "k": "ref",
+            "name": "WireType95"
+          }
+        },
+        {
+          "name": "manager_metadata_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "manager_header_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "manager_bucket_table_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "manager_padding_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "allocated_bucket_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "bucket_slack_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "known_binding_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "unknown_binding_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "unmanaged_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "metadata_bytes_read",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "memories",
+          "value": {
+            "k": "ref",
+            "name": "WireType97"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "MemoryCatalogDescription": {
+      "fields": [
+        {
+          "name": "tag",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "memory_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "store_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "MemoryExtent": {
+      "k": "ref",
+      "name": "WireType95"
+    },
+    "MetricsReport": {
+      "fields": [
+        {
+          "name": "window_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType24"
+          }
+        },
+        {
+          "name": "window_start_ms",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "window_end_ms",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "total_entities",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "entities",
+          "value": {
+            "k": "ref",
+            "name": "WireType100"
+          }
+        },
+        {
+          "name": "schema_lifecycle",
+          "value": {
+            "k": "ref",
+            "name": "WireType101"
+          }
+        },
+        {
+          "name": "journal_debt",
+          "value": {
+            "k": "ref",
+            "name": "WireType19"
+          }
+        },
+        {
+          "name": "convergence",
+          "value": {
+            "k": "ref",
+            "name": "ConvergenceMetrics"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "PublicEnumValue": {
+      "fields": [
+        {
+          "name": "variant",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "path",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "payload",
+          "value": {
+            "k": "ref",
+            "name": "WireType103"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "PublicValue": {
+      "k": "ref",
+      "name": "WireType105"
+    },
+    "QueryFieldDiagnostic": {
+      "k": "ref",
+      "name": "WireType78"
+    },
+    "QuickIntegrityResult": {
+      "k": "ref",
+      "name": "WireType89"
+    },
+    "QuickIntegrityStatus": {
+      "k": "ref",
+      "name": "WireType90"
+    },
+    "RowProjectionOutput": {
+      "fields": [
+        {
+          "name": "entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "columns",
+          "value": {
+            "k": "ref",
+            "name": "WireType53"
+          }
+        },
+        {
+          "name": "rows",
+          "value": {
+            "k": "ref",
+            "name": "WireType120"
+          }
+        },
+        {
+          "name": "row_count",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SchemaLifecycleMetrics": {
+      "k": "ref",
+      "name": "WireType101"
+    },
+    "SchemaMigrationCommand": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Adopt",
+          "value": {
+            "fields": [
+              {
+                "name": "expected_database",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType124"
+                }
+              },
+              {
+                "name": "expected_head",
+                "value": {
+                  "k": "ref",
+                  "name": "ExpectedAcceptedHead"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Advance",
+          "value": {
+            "fields": [
+              {
+                "name": "expected_database",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType124"
+                }
+              },
+              {
+                "name": "expected_head",
+                "value": {
+                  "k": "ref",
+                  "name": "ExpectedAcceptedHead"
+                }
+              },
+              {
+                "name": "expected_plan",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType125"
+                }
+              },
+              {
+                "name": "acknowledged_finding_page",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType24"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Abort",
+          "value": {
+            "fields": [
+              {
+                "name": "expected_database",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType124"
+                }
+              },
+              {
+                "name": "expected_head",
+                "value": {
+                  "k": "ref",
+                  "name": "ExpectedAcceptedHead"
+                }
+              },
+              {
+                "name": "expected_plan",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType125"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        }
+      ]
+    },
+    "SchemaMigrationEntityTransition": {
+      "fields": [
+        {
+          "name": "entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType127"
+          }
+        },
+        {
+          "name": "from_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "to_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SchemaMigrationFinding": {
+      "fields": [
+        {
+          "name": "kind",
+          "value": {
+            "k": "ref",
+            "name": "WireType129"
+          }
+        },
+        {
+          "name": "entity_tag",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "primary_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType9"
+          }
+        },
+        {
+          "name": "source_field",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "target_field",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "transform_reason",
+          "value": {
+            "k": "ref",
+            "name": "WireType130"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SchemaMigrationFindingKind": {
+      "k": "ref",
+      "name": "WireType129"
+    },
+    "SchemaMigrationPhase": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Unadopted",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Adopted",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Idle",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Prepared",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Validating",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 5,
+          "name": "ReadyToRewrite",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 6,
+          "name": "RewritingRows",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 7,
+          "name": "RebuildingIndexes",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 8,
+          "name": "FinalValidation",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 9,
+          "name": "Publishing",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 10,
+          "name": "Applied",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 11,
+          "name": "Rejected",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 12,
+          "name": "Aborted",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "SchemaMigrationReceipt": {
+      "fields": [
+        {
+          "name": "database_identity",
+          "value": {
+            "k": "ref",
+            "name": "WireType124"
+          }
+        },
+        {
+          "name": "plan_digest",
+          "value": {
+            "k": "ref",
+            "name": "WireType134"
+          }
+        },
+        {
+          "name": "prior_head",
+          "value": {
+            "k": "ref",
+            "name": "ExpectedAcceptedHead"
+          }
+        },
+        {
+          "name": "accepted_head",
+          "value": {
+            "k": "ref",
+            "name": "ExpectedAcceptedHead"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SchemaMigrationStatusPage": {
+      "fields": [
+        {
+          "name": "database_identity",
+          "value": {
+            "k": "ref",
+            "name": "WireType124"
+          }
+        },
+        {
+          "name": "accepted_head",
+          "value": {
+            "k": "ref",
+            "name": "ExpectedAcceptedHead"
+          }
+        },
+        {
+          "name": "plan_digest",
+          "value": {
+            "k": "ref",
+            "name": "WireType134"
+          }
+        },
+        {
+          "name": "phase",
+          "value": {
+            "k": "ref",
+            "name": "SchemaMigrationPhase"
+          }
+        },
+        {
+          "name": "transitions",
+          "value": {
+            "k": "ref",
+            "name": "WireType136"
+          }
+        },
+        {
+          "name": "rows_validated",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "rows_rewritten",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "indexes_rebuilt",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "findings",
+          "value": {
+            "k": "ref",
+            "name": "WireType137"
+          }
+        },
+        {
+          "name": "next_cursor",
+          "value": {
+            "k": "ref",
+            "name": "WireType52"
+          }
+        },
+        {
+          "name": "terminal_receipt",
+          "value": {
+            "k": "ref",
+            "name": "WireType138"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SchemaMigrationStatusRequest": {
+      "fields": [
+        {
+          "name": "cursor",
+          "value": {
+            "k": "ref",
+            "name": "WireType52"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SchemaMigrationTransformReason": {
+      "k": "ref",
+      "name": "WireType131"
+    },
+    "SchemaStoreSnapshot": {
+      "fields": [
+        {
+          "name": "path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType26"
+          }
+        },
+        {
+          "name": "allocation",
+          "value": {
+            "k": "ref",
+            "name": "WireType27"
+          }
+        },
+        {
+          "name": "durability",
+          "value": {
+            "k": "ref",
+            "name": "WireType28"
+          }
+        },
+        {
+          "name": "commit",
+          "value": {
+            "k": "ref",
+            "name": "WireType29"
+          }
+        },
+        {
+          "name": "recovery",
+          "value": {
+            "k": "ref",
+            "name": "WireType30"
+          }
+        },
+        {
+          "name": "schema_metadata",
+          "value": {
+            "k": "ref",
+            "name": "WireType31"
+          }
+        },
+        {
+          "name": "memory_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType32"
+          }
+        },
+        {
+          "name": "stable_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "schema_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "schema_fingerprint_method_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType32"
+          }
+        },
+        {
+          "name": "schema_fingerprint",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "entity_count",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SqlColumnDefault": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Auto",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Null",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Literal",
+          "value": {
+            "fields": [
+              {
+                "name": "text",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Required",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "NotApplicable",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "SqlColumnExtra": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Identity",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Generated",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Relation",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "SqlColumnKey": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Primary",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Unique",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Multiple",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "None",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "SqlColumnSummary": {
+      "fields": [
+        {
+          "name": "name",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "field_type",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "nullable",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "key",
+          "value": {
+            "k": "ref",
+            "name": "SqlColumnKey"
+          }
+        },
+        {
+          "name": "default",
+          "value": {
+            "k": "ref",
+            "name": "SqlColumnDefault"
+          }
+        },
+        {
+          "name": "extra",
+          "value": {
+            "k": "ref",
+            "name": "WireType145"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SqlConstraintValidationOutput": {
+      "fields": [
+        {
+          "name": "constraint_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "activation_epoch",
+          "value": {
+            "k": "ref",
+            "name": "WireType24"
+          }
+        },
+        {
+          "name": "page_sequence",
+          "value": {
+            "k": "ref",
+            "name": "WireType24"
+          }
+        },
+        {
+          "name": "state",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "revision_status",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "rows_scanned",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "findings",
+          "value": {
+            "k": "ref",
+            "name": "WireType147"
+          }
+        },
+        {
+          "name": "complete",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SqlDescribeOutput": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Compact",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "columns",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType149"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Verbose",
+          "value": {
+            "fields": [
+              {
+                "name": "description",
+                "value": {
+                  "k": "ref",
+                  "name": "EntitySchemaDescription"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        }
+      ]
+    },
+    "SqlGroupedRowsOutput": {
+      "fields": [
+        {
+          "name": "entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "columns",
+          "value": {
+            "k": "ref",
+            "name": "WireType53"
+          }
+        },
+        {
+          "name": "rows",
+          "value": {
+            "k": "ref",
+            "name": "WireType151"
+          }
+        },
+        {
+          "name": "row_count",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "next_cursor",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "SqlIntegrityError": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Integrity",
+          "value": {
+            "k": "ref",
+            "name": "IntegrityCheckError"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Sql",
+          "value": {
+            "k": "ref",
+            "name": "Error"
+          }
+        }
+      ]
+    },
+    "SqlQueryResult": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Count",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "row_count",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Projection",
+          "value": {
+            "k": "ref",
+            "name": "RowProjectionOutput"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Grouped",
+          "value": {
+            "k": "ref",
+            "name": "SqlGroupedRowsOutput"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Explain",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "explain",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Describe",
+          "value": {
+            "k": "ref",
+            "name": "SqlDescribeOutput"
+          }
+        },
+        {
+          "id": 5,
+          "name": "ShowConstraints",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "constraints",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType73"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 6,
+          "name": "ShowIndexes",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "indexes",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType53"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 7,
+          "name": "ShowColumns",
+          "value": {
+            "k": "ref",
+            "name": "WireType154"
+          }
+        },
+        {
+          "id": 8,
+          "name": "ShowRelations",
+          "value": {
+            "k": "ref",
+            "name": "WireType155"
+          }
+        },
+        {
+          "id": 9,
+          "name": "ShowEntities",
+          "value": {
+            "fields": [
+              {
+                "name": "entities",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType156"
+                }
+              },
+              {
+                "name": "verbose",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType20"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 10,
+          "name": "ShowStores",
+          "value": {
+            "fields": [
+              {
+                "name": "stores",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType157"
+                }
+              },
+              {
+                "name": "verbose",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType20"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 11,
+          "name": "ShowMemory",
+          "value": {
+            "fields": [
+              {
+                "name": "memory",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType159"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 12,
+          "name": "Ddl",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "mutation_kind",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "target_index",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "target_store",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "field_path",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType53"
+                }
+              },
+              {
+                "name": "status",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "rows_scanned",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType7"
+                }
+              },
+              {
+                "name": "index_keys_written",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType7"
+                }
+              },
+              {
+                "name": "constraint_validation",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType160"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        }
+      ]
+    },
+    "SqlShowColumnsOutput": {
+      "k": "ref",
+      "name": "WireType154"
+    },
+    "SqlShowRelationsOutput": {
+      "k": "ref",
+      "name": "WireType155"
+    },
+    "StorageReport": {
+      "fields": [
+        {
+          "name": "memory_allocations",
+          "value": {
+            "k": "ref",
+            "name": "WireType162"
+          }
+        },
+        {
+          "name": "storage_data",
+          "value": {
+            "k": "ref",
+            "name": "WireType163"
+          }
+        },
+        {
+          "name": "storage_index",
+          "value": {
+            "k": "ref",
+            "name": "WireType164"
+          }
+        },
+        {
+          "name": "schema_storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType165"
+          }
+        },
+        {
+          "name": "entity_storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType166"
+          }
+        },
+        {
+          "name": "corrupted_keys",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "corrupted_entries",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "StoreAllocationIdentityCapability": {
+      "k": "ref",
+      "name": "WireType27"
+    },
+    "StoreCatalogDescription": {
+      "k": "ref",
+      "name": "WireType158"
+    },
+    "StoreCommitParticipation": {
+      "k": "ref",
+      "name": "WireType29"
+    },
+    "StoreDurability": {
+      "k": "ref",
+      "name": "WireType28"
+    },
+    "StoreRecoveryCapability": {
+      "k": "ref",
+      "name": "WireType30"
+    },
+    "StoreSchemaMetadataCapability": {
+      "k": "ref",
+      "name": "WireType31"
+    },
+    "StoreSnapshotStorageMode": {
+      "k": "ref",
+      "name": "WireType26"
+    },
+    "WireType1": {
+      "k": "bytes",
+      "max": 29
+    },
+    "WireType10": {
+      "item": {
+        "k": "ref",
+        "name": "WireType8"
+      },
+      "k": "list"
+    },
+    "WireType100": {
+      "item": {
+        "k": "ref",
+        "name": "EntityMetrics"
+      },
+      "k": "list"
+    },
+    "WireType101": {
+      "fields": [
+        {
+          "name": "lowering",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "publication",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "runtime_compilation",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "cardinality",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "startup_recovery",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType103": {
+      "item": {
+        "k": "ref",
+        "name": "WireType104"
+      },
+      "k": "option"
+    },
+    "WireType104": {
+      "k": "ref",
+      "name": "WireType105"
+    },
+    "WireType105": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Account",
+          "value": {
+            "k": "ref",
+            "name": "Account"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Blob",
+          "value": {
+            "k": "ref",
+            "name": "WireType9"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Bool",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Date",
+          "value": {
+            "k": "ref",
+            "name": "WireType106"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Decimal",
+          "value": {
+            "k": "ref",
+            "name": "WireType107"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Duration",
+          "value": {
+            "k": "ref",
+            "name": "WireType108"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Enum",
+          "value": {
+            "k": "ref",
+            "name": "PublicEnumValue"
+          }
+        },
+        {
+          "id": 7,
+          "name": "Float32",
+          "value": {
+            "k": "ref",
+            "name": "WireType109"
+          }
+        },
+        {
+          "id": 8,
+          "name": "Float64",
+          "value": {
+            "k": "ref",
+            "name": "WireType110"
+          }
+        },
+        {
+          "id": 9,
+          "name": "Int",
+          "value": {
+            "k": "ref",
+            "name": "WireType111"
+          }
+        },
+        {
+          "id": 10,
+          "name": "Int128",
+          "value": {
+            "k": "ref",
+            "name": "WireType112"
+          }
+        },
+        {
+          "id": 11,
+          "name": "List",
+          "value": {
+            "k": "ref",
+            "name": "WireType113"
+          }
+        },
+        {
+          "id": 12,
+          "name": "Map",
+          "value": {
+            "k": "ref",
+            "name": "WireType114"
+          }
+        },
+        {
+          "id": 13,
+          "name": "Null",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 14,
+          "name": "Principal",
+          "value": {
+            "k": "ref",
+            "name": "WireType1"
+          }
+        },
+        {
+          "id": 15,
+          "name": "Subaccount",
+          "value": {
+            "k": "ref",
+            "name": "WireType3"
+          }
+        },
+        {
+          "id": 16,
+          "name": "Text",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "id": 17,
+          "name": "Timestamp",
+          "value": {
+            "k": "ref",
+            "name": "WireType116"
+          }
+        },
+        {
+          "id": 18,
+          "name": "Nat",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "id": 19,
+          "name": "Nat128",
+          "value": {
+            "k": "ref",
+            "name": "WireType23"
+          }
+        },
+        {
+          "id": 20,
+          "name": "Ulid",
+          "value": {
+            "k": "ref",
+            "name": "WireType117"
+          }
+        },
+        {
+          "id": 21,
+          "name": "Unit",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 22,
+          "name": "U256",
+          "value": {
+            "k": "ref",
+            "name": "WireType118"
+          }
+        }
+      ]
+    },
+    "WireType106": {
+      "bits": 32,
+      "k": "i",
+      "max": 2932896,
+      "min": -719528
+    },
+    "WireType107": {
+      "check": "decimal",
+      "k": "text"
+    },
+    "WireType108": {
+      "bits": 64,
+      "k": "u"
+    },
+    "WireType109": {
+      "bits": 32,
+      "k": "float"
+    },
+    "WireType11": {
+      "item": {
+        "k": "ref",
+        "name": "WireType12"
+      },
+      "k": "option"
+    },
+    "WireType110": {
+      "bits": 64,
+      "k": "float"
+    },
+    "WireType111": {
+      "bits": 64,
+      "k": "i"
+    },
+    "WireType112": {
+      "bits": 128,
+      "k": "i"
+    },
+    "WireType113": {
+      "item": {
+        "k": "ref",
+        "name": "WireType105"
+      },
+      "k": "list"
+    },
+    "WireType114": {
+      "item": {
+        "k": "ref",
+        "name": "WireType115"
+      },
+      "k": "list"
+    },
+    "WireType115": {
+      "items": [
+        {
+          "k": "ref",
+          "name": "WireType105"
+        },
+        {
+          "k": "ref",
+          "name": "WireType105"
+        }
+      ],
+      "k": "tuple"
+    },
+    "WireType116": {
+      "bits": 64,
+      "k": "i"
+    },
+    "WireType117": {
+      "k": "bytes",
+      "max": 16,
+      "min": 16
+    },
+    "WireType118": {
+      "k": "bytes",
+      "max": 32,
+      "min": 32
+    },
+    "WireType12": {
+      "fields": [
+        {
+          "name": "components",
+          "value": {
+            "k": "ref",
+            "name": "WireType13"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType120": {
+      "item": {
+        "k": "ref",
+        "name": "WireType121"
+      },
+      "k": "list"
+    },
+    "WireType121": {
+      "item": {
+        "k": "ref",
+        "name": "WireType122"
+      },
+      "k": "list"
+    },
+    "WireType122": {
+      "k": "ref",
+      "name": "WireType105"
+    },
+    "WireType124": {
+      "k": "ref",
+      "name": "WireType38"
+    },
+    "WireType125": {
+      "k": "ref",
+      "name": "WireType38"
+    },
+    "WireType127": {
+      "k": "text"
+    },
+    "WireType129": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Transform",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "UniqueIndex",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Relation",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Constraint",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "ResourceLimit",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType13": {
+      "item": {
+        "k": "ref",
+        "name": "WireType14"
+      },
+      "k": "list"
+    },
+    "WireType130": {
+      "item": {
+        "k": "ref",
+        "name": "WireType131"
+      },
+      "k": "option"
+    },
+    "WireType131": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Overflow",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "NegativeToUnsigned",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "PrecisionLoss",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "NullSource",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "ValueContract",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType134": {
+      "item": {
+        "k": "ref",
+        "name": "WireType125"
+      },
+      "k": "option"
+    },
+    "WireType136": {
+      "item": {
+        "k": "ref",
+        "name": "SchemaMigrationEntityTransition"
+      },
+      "k": "list"
+    },
+    "WireType137": {
+      "item": {
+        "k": "ref",
+        "name": "SchemaMigrationFinding"
+      },
+      "k": "list"
+    },
+    "WireType138": {
+      "item": {
+        "k": "ref",
+        "name": "SchemaMigrationReceipt"
+      },
+      "k": "option"
+    },
+    "WireType14": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "RootField",
+          "value": {
+            "fields": [
+              {
+                "name": "field_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 1,
+          "name": "RecordMember",
+          "value": {
+            "fields": [
+              {
+                "name": "composite_type_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              },
+              {
+                "name": "member_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 2,
+          "name": "TupleElement",
+          "value": {
+            "fields": [
+              {
+                "name": "composite_type_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              },
+              {
+                "name": "ordinal",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Newtype",
+          "value": {
+            "fields": [
+              {
+                "name": "composite_type_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 4,
+          "name": "EnumVariant",
+          "value": {
+            "fields": [
+              {
+                "name": "enum_type_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              },
+              {
+                "name": "variant_id",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 5,
+          "name": "ListElement",
+          "value": {
+            "fields": [
+              {
+                "name": "index",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 6,
+          "name": "SetElement",
+          "value": {
+            "fields": [
+              {
+                "name": "index",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 7,
+          "name": "MapEntryKey",
+          "value": {
+            "fields": [
+              {
+                "name": "index",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 8,
+          "name": "MapEntryValue",
+          "value": {
+            "fields": [
+              {
+                "name": "index",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType8"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        }
+      ]
+    },
+    "WireType145": {
+      "item": {
+        "k": "ref",
+        "name": "SqlColumnExtra"
+      },
+      "k": "list"
+    },
+    "WireType147": {
+      "item": {
+        "k": "ref",
+        "name": "ConstraintValidationFindingOutput"
+      },
+      "k": "list"
+    },
+    "WireType149": {
+      "item": {
+        "k": "ref",
+        "name": "SqlColumnSummary"
+      },
+      "k": "list"
+    },
+    "WireType15": {
+      "bits": 16,
+      "k": "u"
+    },
+    "WireType151": {
+      "item": {
+        "k": "ref",
+        "name": "WireType53"
+      },
+      "k": "list"
+    },
+    "WireType154": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Compact",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "columns",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType149"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Verbose",
+          "value": {
+            "fields": [
+              {
+                "name": "entity",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "columns",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType70"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        }
+      ]
+    },
+    "WireType155": {
+      "fields": [
+        {
+          "name": "entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "relations",
+          "value": {
+            "k": "ref",
+            "name": "WireType72"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType156": {
+      "item": {
+        "k": "ref",
+        "name": "EntityCatalogDescription"
+      },
+      "k": "list"
+    },
+    "WireType157": {
+      "item": {
+        "k": "ref",
+        "name": "WireType158"
+      },
+      "k": "list"
+    },
+    "WireType158": {
+      "fields": [
+        {
+          "name": "store_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "storage",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType159": {
+      "item": {
+        "k": "ref",
+        "name": "MemoryCatalogDescription"
+      },
+      "k": "list"
+    },
+    "WireType160": {
+      "item": {
+        "k": "ref",
+        "name": "SqlConstraintValidationOutput"
+      },
+      "k": "option"
+    },
+    "WireType162": {
+      "item": {
+        "k": "ref",
+        "name": "MemoryAllocations"
+      },
+      "k": "option"
+    },
+    "WireType163": {
+      "item": {
+        "k": "ref",
+        "name": "DataStoreSnapshot"
+      },
+      "k": "list"
+    },
+    "WireType164": {
+      "item": {
+        "k": "ref",
+        "name": "IndexStoreSnapshot"
+      },
+      "k": "list"
+    },
+    "WireType165": {
+      "item": {
+        "k": "ref",
+        "name": "SchemaStoreSnapshot"
+      },
+      "k": "list"
+    },
+    "WireType166": {
+      "item": {
+        "k": "ref",
+        "name": "EntitySnapshot"
+      },
+      "k": "list"
+    },
+    "WireType17": {
+      "k": "text"
+    },
+    "WireType174": {
+      "item": {
+        "k": "ref",
+        "name": "EntitySchemaDescription"
+      },
+      "k": "list"
+    },
+    "WireType19": {
+      "fields": [
+        {
+          "name": "batch_count",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "record_count",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "encoded_batch_bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType2": {
+      "item": {
+        "k": "ref",
+        "name": "WireType3"
+      },
+      "k": "option"
+    },
+    "WireType20": {
+      "k": "bool"
+    },
+    "WireType21": {
+      "k": "ref",
+      "name": "WireType22"
+    },
+    "WireType22": {
+      "fields": [
+        {
+          "name": "samples",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "total",
+          "value": {
+            "k": "ref",
+            "name": "WireType23"
+          }
+        },
+        {
+          "name": "maximum",
+          "value": {
+            "k": "ref",
+            "name": "WireType24"
+          }
+        },
+        {
+          "name": "samples_overflowed",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        },
+        {
+          "name": "total_overflowed",
+          "value": {
+            "k": "ref",
+            "name": "WireType20"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType23": {
+      "bits": 128,
+      "k": "u"
+    },
+    "WireType24": {
+      "item": {
+        "k": "ref",
+        "name": "WireType7"
+      },
+      "k": "option"
+    },
+    "WireType26": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Heap",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Journaled",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType27": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Present",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Absent",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType28": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Durable",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Volatile",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType29": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Durable",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "LiveOnly",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType3": {
+      "k": "bytes",
+      "max": 32,
+      "min": 32
+    },
+    "WireType30": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "StableBasePlusJournalReplay",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "None",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType31": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "LiveRebuiltMetadata",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "CanonicalStableHistoryPlusJournalTail",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType32": {
+      "item": {
+        "k": "ref",
+        "name": "WireType6"
+      },
+      "k": "option"
+    },
+    "WireType33": {
+      "item": {
+        "k": "ref",
+        "name": "WireType17"
+      },
+      "k": "option"
+    },
+    "WireType34": {
+      "item": {
+        "k": "ref",
+        "name": "WireType8"
+      },
+      "k": "option"
+    },
+    "WireType37": {
+      "item": {
+        "k": "ref",
+        "name": "WireType38"
+      },
+      "k": "newtype"
+    },
+    "WireType38": {
+      "item": {
+        "k": "ref",
+        "name": "WireType6"
+      },
+      "k": "array",
+      "max": 32
+    },
+    "WireType39": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "QuickMetadata",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Rows",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "IndexEntries",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "ReverseRelations",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "JournalTails",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 5,
+          "name": "FinalProofVectorCheck",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType40": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "InProgress",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Terminal",
+          "value": {
+            "k": "ref",
+            "name": "WireType41"
+          }
+        }
+      ]
+    },
+    "WireType41": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "DeepCompleteClean",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "DeepCompleteWithFindings",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Invalidated",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Uninspectable",
+          "value": {
+            "k": "ref",
+            "name": "WireType42"
+          }
+        },
+        {
+          "id": 4,
+          "name": "ResourceLimited",
+          "value": {
+            "k": "ref",
+            "name": "WireType44"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Expired",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Aborted",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType42": {
+      "fields": [
+        {
+          "name": "diagnostic_code",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "class",
+          "value": {
+            "k": "ref",
+            "name": "WireType43"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType43": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Corruption",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "IncompatiblePersistedFormat",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "InvariantViolation",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Unsupported",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Internal",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType44": {
+      "fields": [
+        {
+          "name": "diagnostic_code",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType45": {
+      "item": {
+        "k": "ref",
+        "name": "WireType46"
+      },
+      "k": "list"
+    },
+    "WireType46": {
+      "fields": [
+        {
+          "name": "diagnostic_code",
+          "value": {
+            "k": "ref",
+            "name": "WireType15"
+          }
+        },
+        {
+          "name": "class",
+          "value": {
+            "k": "ref",
+            "name": "WireType47"
+          }
+        },
+        {
+          "name": "severity",
+          "value": {
+            "k": "ref",
+            "name": "WireType48"
+          }
+        },
+        {
+          "name": "kind",
+          "value": {
+            "k": "ref",
+            "name": "WireType49"
+          }
+        },
+        {
+          "name": "entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType50"
+          }
+        },
+        {
+          "name": "store_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "phase",
+          "value": {
+            "k": "ref",
+            "name": "WireType39"
+          }
+        },
+        {
+          "name": "verifier_family",
+          "value": {
+            "k": "ref",
+            "name": "WireType51"
+          }
+        },
+        {
+          "name": "physical_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType9"
+          }
+        },
+        {
+          "name": "primary_key",
+          "value": {
+            "k": "ref",
+            "name": "WireType52"
+          }
+        },
+        {
+          "name": "field_paths",
+          "value": {
+            "k": "ref",
+            "name": "WireType53"
+          }
+        },
+        {
+          "name": "value_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType54"
+          }
+        },
+        {
+          "name": "constraint_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "constraint_name",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "schema_index_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "relation_id",
+          "value": {
+            "k": "ref",
+            "name": "WireType34"
+          }
+        },
+        {
+          "name": "expected",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        },
+        {
+          "name": "observed",
+          "value": {
+            "k": "ref",
+            "name": "WireType33"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType47": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Corruption",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "IncompatiblePersistedFormat",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "ResourceLimited",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType48": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Error",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Advisory",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType49": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "MalformedDataKey",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "MalformedRow",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "OversizedRow",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "InvalidFieldValue",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "PrimaryKeyMismatch",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 5,
+          "name": "InvalidIdentityValue",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 6,
+          "name": "IdentityHighWaterExceeded",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 7,
+          "name": "ConstraintViolation",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 8,
+          "name": "MissingIndexEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 9,
+          "name": "DivergentIndexEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 10,
+          "name": "MalformedIndexEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 11,
+          "name": "OrphanIndexEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 12,
+          "name": "DuplicateUniqueIndexKey",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 13,
+          "name": "MissingRelationTarget",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 14,
+          "name": "MissingReverseRelationEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 15,
+          "name": "DivergentReverseRelationEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 16,
+          "name": "MalformedReverseRelationEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 17,
+          "name": "OrphanReverseRelationEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 18,
+          "name": "MalformedJournalBatch",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 19,
+          "name": "JournalSequenceGap",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 20,
+          "name": "DuplicateJournalBatchIdentity",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 21,
+          "name": "JournalControlMismatch",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType5": {
+      "item": {
+        "k": "ref",
+        "name": "WireType6"
+      },
+      "k": "array",
+      "max": 16
+    },
+    "WireType50": {
+      "fields": [
+        {
+          "name": "entity_tag",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "entity_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        },
+        {
+          "name": "store_path",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType51": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "DataKey",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "RowEnvelope",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "FieldValue",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "PrimaryKey",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "IdentityState",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 5,
+          "name": "ValidatedConstraints",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 6,
+          "name": "ForwardIndex",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 7,
+          "name": "IndexEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 8,
+          "name": "UniqueIndex",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 9,
+          "name": "Relation",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 10,
+          "name": "ReverseRelationEntry",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 11,
+          "name": "JournalEnvelope",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 12,
+          "name": "JournalBatchIdentity",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType52": {
+      "item": {
+        "k": "ref",
+        "name": "WireType9"
+      },
+      "k": "option"
+    },
+    "WireType53": {
+      "item": {
+        "k": "ref",
+        "name": "WireType17"
+      },
+      "k": "list"
+    },
+    "WireType54": {
+      "item": {
+        "k": "ref",
+        "name": "WireType55"
+      },
+      "k": "option"
+    },
+    "WireType55": {
+      "k": "ref",
+      "name": "WireType12"
+    },
+    "WireType56": {
+      "item": {
+        "k": "ref",
+        "name": "WireType51"
+      },
+      "k": "list"
+    },
+    "WireType6": {
+      "bits": 8,
+      "k": "u"
+    },
+    "WireType60": {
+      "item": {
+        "k": "ref",
+        "name": "ConstraintValidationProgressDescription"
+      },
+      "k": "option"
+    },
+    "WireType68": {
+      "item": {
+        "k": "ref",
+        "name": "WireType69"
+      },
+      "k": "option"
+    },
+    "WireType69": {
+      "k": "ref",
+      "name": "EntityIdentityDescription"
+    },
+    "WireType7": {
+      "bits": 64,
+      "k": "u"
+    },
+    "WireType70": {
+      "item": {
+        "k": "ref",
+        "name": "EntityFieldDescription"
+      },
+      "k": "list"
+    },
+    "WireType71": {
+      "item": {
+        "k": "ref",
+        "name": "EntityIndexDescription"
+      },
+      "k": "list"
+    },
+    "WireType72": {
+      "item": {
+        "k": "ref",
+        "name": "EntityRelationDescription"
+      },
+      "k": "list"
+    },
+    "WireType73": {
+      "item": {
+        "k": "ref",
+        "name": "EntityConstraintDescription"
+      },
+      "k": "list"
+    },
+    "WireType76": {
+      "item": {
+        "k": "ref",
+        "name": "DiagnosticFact"
+      },
+      "k": "list"
+    },
+    "WireType77": {
+      "item": {
+        "k": "ref",
+        "name": "WireType78"
+      },
+      "k": "option"
+    },
+    "WireType78": {
+      "fields": [
+        {
+          "name": "role",
+          "value": {
+            "k": "ref",
+            "name": "WireType6"
+          }
+        },
+        {
+          "name": "field",
+          "value": {
+            "k": "ref",
+            "name": "WireType17"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType8": {
+      "bits": 32,
+      "k": "u"
+    },
+    "WireType80": {
+      "k": "ref",
+      "name": "WireType38"
+    },
+    "WireType84": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "TerminationPending",
+          "value": {
+            "k": "ref",
+            "name": "WireType85"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Terminal",
+          "value": {
+            "k": "ref",
+            "name": "WireType41"
+          }
+        }
+      ]
+    },
+    "WireType85": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Expired",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Aborted",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType87": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "CapacityExceeded",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "CorruptProgressHeader",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "CorruptProgressRecord",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 3,
+          "name": "CounterExhausted",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 4,
+          "name": "EntityIdentityMismatch",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 5,
+          "name": "IncompatibleProgressFormat",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Internal",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 7,
+          "name": "InvalidEntityIdentity",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 8,
+          "name": "InvalidJobId",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 9,
+          "name": "InvalidOwner",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 10,
+          "name": "InvalidSubmissionKey",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 11,
+          "name": "JobIncarnationMismatch",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 12,
+          "name": "JobNotFound",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 13,
+          "name": "JobOwnerMismatch",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 14,
+          "name": "StaleAcknowledgement",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 15,
+          "name": "StartInvalidated",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 16,
+          "name": "SubmissionAlreadyAdvanced",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 17,
+          "name": "SubmissionConflict",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType89": {
+      "fields": [
+        {
+          "name": "entity",
+          "value": {
+            "k": "ref",
+            "name": "WireType50"
+          }
+        },
+        {
+          "name": "database_incarnation_id",
+          "value": {
+            "k": "ref",
+            "name": "DatabaseIncarnationId"
+          }
+        },
+        {
+          "name": "accepted_schema_version",
+          "value": {
+            "k": "ref",
+            "name": "WireType8"
+          }
+        },
+        {
+          "name": "accepted_schema_fingerprint",
+          "value": {
+            "k": "ref",
+            "name": "WireType5"
+          }
+        },
+        {
+          "name": "status",
+          "value": {
+            "k": "ref",
+            "name": "WireType90"
+          }
+        },
+        {
+          "name": "total_findings",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "omitted_findings",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "findings",
+          "value": {
+            "k": "ref",
+            "name": "WireType45"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType9": {
+      "k": "bytes"
+    },
+    "WireType90": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "CompleteClean",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 1,
+          "name": "CompleteWithFindings",
+          "value": {
+            "k": "unit"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Uninspectable",
+          "value": {
+            "k": "ref",
+            "name": "WireType42"
+          }
+        },
+        {
+          "id": 3,
+          "name": "ResourceLimited",
+          "value": {
+            "k": "ref",
+            "name": "WireType44"
+          }
+        }
+      ]
+    },
+    "WireType91": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Page",
+          "value": {
+            "k": "ref",
+            "name": "DeepIntegrityPage"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Abort",
+          "value": {
+            "k": "ref",
+            "name": "IntegrityAbortReceipt"
+          }
+        }
+      ]
+    },
+    "WireType93": {
+      "k": "enum",
+      "variants": [
+        {
+          "id": 0,
+          "name": "Current",
+          "value": {
+            "fields": [
+              {
+                "name": "stable_key",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "owner",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 1,
+          "name": "Ledger",
+          "value": {
+            "fields": [
+              {
+                "name": "stable_key",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              },
+              {
+                "name": "owner",
+                "value": {
+                  "k": "ref",
+                  "name": "WireType17"
+                }
+              }
+            ],
+            "k": "record"
+          }
+        },
+        {
+          "id": 2,
+          "name": "Unknown",
+          "value": {
+            "k": "unit"
+          }
+        }
+      ]
+    },
+    "WireType94": {
+      "item": {
+        "k": "ref",
+        "name": "WireType20"
+      },
+      "k": "option"
+    },
+    "WireType95": {
+      "fields": [
+        {
+          "name": "wasm_pages",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        },
+        {
+          "name": "bytes",
+          "value": {
+            "k": "ref",
+            "name": "WireType7"
+          }
+        }
+      ],
+      "k": "record"
+    },
+    "WireType97": {
+      "item": {
+        "k": "ref",
+        "name": "MemoryAllocation"
+      },
+      "k": "list"
+    },
+    "icydb_ddl_Request": {
+      "k": "ref",
+      "name": "WireType17"
+    },
+    "icydb_ddl_Response": {
+      "k": "ref",
+      "name": "icydb_query_Response"
+    },
+    "icydb_fixtures_load_Request": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Request"
+    },
+    "icydb_fixtures_load_Response": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Response"
+    },
+    "icydb_fixtures_reset_Request": {
+      "k": "unit"
+    },
+    "icydb_fixtures_reset_Response": {
+      "err": {
+        "k": "ref",
+        "name": "Error"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "icydb_fixtures_reset_Request"
+      }
+    },
+    "icydb_integrity_Request": {
+      "k": "ref",
+      "name": "WireType17"
+    },
+    "icydb_integrity_Response": {
+      "err": {
+        "k": "ref",
+        "name": "SqlIntegrityError"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "IntegrityCheckResult"
+      }
+    },
+    "icydb_metrics_Request": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Request"
+    },
+    "icydb_metrics_Response": {
+      "err": {
+        "k": "ref",
+        "name": "Error"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "MetricsReport"
+      }
+    },
+    "icydb_metrics_reset_Request": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Request"
+    },
+    "icydb_metrics_reset_Response": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Response"
+    },
+    "icydb_query_Request": {
+      "k": "ref",
+      "name": "WireType17"
+    },
+    "icydb_query_Response": {
+      "err": {
+        "k": "ref",
+        "name": "Error"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "SqlQueryResult"
+      }
+    },
+    "icydb_schema_Request": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Request"
+    },
+    "icydb_schema_Response": {
+      "err": {
+        "k": "ref",
+        "name": "Error"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "WireType174"
+      }
+    },
+    "icydb_schema_migrate_Request": {
+      "k": "ref",
+      "name": "SchemaMigrationCommand"
+    },
+    "icydb_schema_migrate_Response": {
+      "err": {
+        "k": "ref",
+        "name": "Error"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "SchemaMigrationStatusPage"
+      }
+    },
+    "icydb_schema_migration_Request": {
+      "k": "ref",
+      "name": "SchemaMigrationStatusRequest"
+    },
+    "icydb_schema_migration_Response": {
+      "k": "ref",
+      "name": "icydb_schema_migrate_Response"
+    },
+    "icydb_snapshot_Request": {
+      "k": "ref",
+      "name": "icydb_fixtures_reset_Request"
+    },
+    "icydb_snapshot_Response": {
+      "err": {
+        "k": "ref",
+        "name": "Error"
+      },
+      "k": "result",
+      "ok": {
+        "k": "ref",
+        "name": "StorageReport"
+      }
+    },
+    "icydb_update_Request": {
+      "k": "ref",
+      "name": "WireType17"
+    },
+    "icydb_update_Response": {
+      "k": "ref",
+      "name": "icydb_query_Response"
+    }
   }
 }

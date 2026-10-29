@@ -15,7 +15,9 @@ fn metrics_activity(fixture: &StandaloneCanisterFixture) -> u64 {
     report(fixture)
         .entities()
         .iter()
-        .fold(0_u64, |total, entity| total.saturating_add(entity.hits()))
+        .fold(0_u64, |total, entity| {
+            total.saturating_add(entity.instructions().samples())
+        })
 }
 
 fn report(fixture: &StandaloneCanisterFixture) -> MetricsReport {
@@ -103,7 +105,7 @@ fn canonical_debt_conserves_across_writes_reset_fold_and_upgrade() {
     assert_eq!(tuple(folded.journal_debt()), [0; 3]);
     assert_conservation(&reset, &folded);
     assert!(folded.convergence().journal_fold().samples() > 0);
-    assert!(folded.convergence().journal_fold().instructions_total() > 0);
+    assert!(folded.convergence().journal_fold().total() > 0);
 
     let batches: Result<u32, Error> = fixture
         .pocket_ic()
@@ -128,7 +130,7 @@ fn canonical_debt_conserves_across_writes_reset_fold_and_upgrade() {
     assert_eq!(tuple(recovered.journal_debt()), [0; 3]);
     assert_conservation(&restarted, &recovered);
     assert!(recovered.schema_lifecycle().startup_recovery().samples() > 0);
-    assert!(recovered.convergence().journal_fold().instructions_total() > 0);
+    assert!(recovered.convergence().journal_fold().total() > 0);
 }
 
 fn call_generated_query(fixture: &StandaloneCanisterFixture) {

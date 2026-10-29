@@ -5,75 +5,9 @@
 
 use crate::{metrics::ExecutionMetricsPhase, runtime::now_millis};
 
-use ic_metrics::{MeasurementAggregate, MeasurementCounter};
+use ic_metrics::{MeasurementAggregate, MeasurementCounter, MeasurementWindow};
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
-
-/// Local instruction observations and their tracked quality for one owner.
-///
-/// Spans include failed attempts and may nest; totals are not exclusive
-/// accounting and must not be summed or converted to cycles.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
-pub struct InstructionMetrics {
-    samples: u64,
-    instructions_total: u128,
-    instructions_max: u64,
-    samples_saturated: bool,
-    total_saturated: bool,
-    instructions_mean: Option<u128>,
-}
-
-impl InstructionMetrics {
-    /// Number of completed observation spans, including failed attempts.
-    #[must_use]
-    pub const fn samples(&self) -> u64 {
-        self.samples
-    }
-
-    /// Wide saturating sum of observed local instructions, encoded as native Wire `u128`.
-    #[must_use]
-    pub const fn instructions_total(&self) -> u128 {
-        self.instructions_total
-    }
-
-    /// Largest local instruction interval in this window.
-    #[must_use]
-    pub const fn instructions_max(&self) -> u64 {
-        self.instructions_max
-    }
-
-    /// Whether the sample count actually overflowed, rather than reaching its cap.
-    #[must_use]
-    pub const fn samples_saturated(&self) -> bool {
-        self.samples_saturated
-    }
-
-    /// Whether the instruction total actually overflowed.
-    #[must_use]
-    pub const fn total_saturated(&self) -> bool {
-        self.total_saturated
-    }
-
-    /// Exact floor-rounded mean, unavailable for empty or overflowed observations.
-    #[must_use]
-    pub const fn instructions_mean(&self) -> Option<u128> {
-        self.instructions_mean
-    }
-}
-
-impl From<MeasurementAggregate> for InstructionMetrics {
-    fn from(measurement: MeasurementAggregate) -> Self {
-        Self {
-            samples: measurement.samples(),
-            instructions_total: measurement.total(),
-            instructions_max: measurement.maximum().unwrap_or(0),
-            samples_saturated: measurement.samples_overflowed(),
-            total_saturated: measurement.total_overflowed(),
-            instructions_mean: measurement.mean().ok().flatten(),
-        }
-    }
-}
 
 /// Five fixed, heap-only schema-owner counters in the existing metrics window.
 ///
@@ -82,42 +16,42 @@ impl From<MeasurementAggregate> for InstructionMetrics {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaLifecycleMetrics {
-    lowering: InstructionMetrics,
-    publication: InstructionMetrics,
-    runtime_compilation: InstructionMetrics,
-    cardinality: InstructionMetrics,
-    startup_recovery: InstructionMetrics,
+    lowering: MeasurementAggregate,
+    publication: MeasurementAggregate,
+    runtime_compilation: MeasurementAggregate,
+    cardinality: MeasurementAggregate,
+    startup_recovery: MeasurementAggregate,
 }
 
 impl SchemaLifecycleMetrics {
     /// Candidate lowering/preflight; excludes facade decode and lineage preparation.
     #[must_use]
-    pub const fn lowering(&self) -> &InstructionMetrics {
+    pub const fn lowering(&self) -> &MeasurementAggregate {
         &self.lowering
     }
 
     /// Ordinary application lineage/publication preparation and compound commit.
     #[must_use]
-    pub const fn publication(&self) -> &InstructionMetrics {
+    pub const fn publication(&self) -> &MeasurementAggregate {
         &self.publication
     }
 
     /// Cold accepted database-wide runtime-root compilation; excludes cache hits.
     #[must_use]
-    pub const fn runtime_compilation(&self) -> &InstructionMetrics {
+    pub const fn runtime_compilation(&self) -> &MeasurementAggregate {
         &self.runtime_compilation
     }
 
     /// Startup cardinality driver pages, including authority checks and quiescence.
     #[must_use]
-    pub const fn cardinality(&self) -> &InstructionMetrics {
+    pub const fn cardinality(&self) -> &MeasurementAggregate {
         &self.cardinality
     }
 
     /// Shared startup recovery pages, including journal folding and failed attempts.
     /// Excludes subsequent schema handoff, runtime compilation and cardinality work.
     #[must_use]
-    pub const fn startup_recovery(&self) -> &InstructionMetrics {
+    pub const fn startup_recovery(&self) -> &MeasurementAggregate {
         &self.startup_recovery
     }
 }
@@ -133,7 +67,7 @@ pub struct ConvergenceMetrics {
     appended: crate::db::ExactBacklogMeasurement,
     retired: crate::db::ExactBacklogMeasurement,
     overflowed: bool,
-    journal_fold: InstructionMetrics,
+    journal_fold: MeasurementAggregate,
 }
 
 impl ConvergenceMetrics {
@@ -154,31 +88,8 @@ impl ConvergenceMetrics {
     }
     /// Actual batch-fold instruction spans, including failed attempts.
     #[must_use]
-    pub const fn journal_fold(&self) -> &InstructionMetrics {
+    pub const fn journal_fold(&self) -> &MeasurementAggregate {
         &self.journal_fold
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-struct SchemaLifecycleMeasurements {
-    lowering: MeasurementAggregate,
-    publication: MeasurementAggregate,
-    runtime_compilation: MeasurementAggregate,
-    cardinality: MeasurementAggregate,
-    startup_recovery: MeasurementAggregate,
-}
-
-impl SchemaLifecycleMeasurements {
-    // Project only at the report boundary; the upstream aggregate remains the
-    // sole recording and overflow authority for each heap observation window.
-    fn snapshot(&self) -> SchemaLifecycleMetrics {
-        SchemaLifecycleMetrics {
-            lowering: self.lowering.into(),
-            publication: self.publication.into(),
-            runtime_compilation: self.runtime_compilation.into(),
-            cardinality: self.cardinality.into(),
-            startup_recovery: self.startup_recovery.into(),
-        }
     }
 }
 
@@ -211,7 +122,7 @@ impl ConvergenceMeasurements {
             appended,
             retired,
             overflowed,
-            journal_fold: self.journal_fold.into(),
+            journal_fold: self.journal_fold,
         }
     }
 }
@@ -219,26 +130,24 @@ impl ConvergenceMeasurements {
 #[derive(Clone, Debug)]
 struct MetricsState {
     entities: BTreeMap<String, MeasurementAggregate>,
-    schema_lifecycle: SchemaLifecycleMeasurements,
+    schema_lifecycle: SchemaLifecycleMetrics,
     convergence: ConvergenceMeasurements,
     window_start_ms: u64,
-    window_id: Option<u64>,
 }
 
 impl Default for MetricsState {
     fn default() -> Self {
         Self {
             entities: BTreeMap::new(),
-            schema_lifecycle: SchemaLifecycleMeasurements::default(),
+            schema_lifecycle: SchemaLifecycleMetrics::default(),
             convergence: ConvergenceMeasurements::default(),
             window_start_ms: now_millis(),
-            window_id: Some(0),
         }
     }
 }
 
 thread_local! {
-    static STATE: RefCell<MetricsState> = RefCell::new(MetricsState::default());
+    static STATE: RefCell<MeasurementWindow<MetricsState>> = RefCell::new(MeasurementWindow::new(MetricsState::default()));
 }
 
 /// Cost attributed to one accepted entity during the active metrics window.
@@ -246,12 +155,7 @@ thread_local! {
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityMetrics {
     path: String,
-    hits: u64,
-    instructions_total: u128,
-    instructions_max: u64,
-    samples_saturated: bool,
-    total_saturated: bool,
-    instructions_mean: Option<u128>,
+    instructions: MeasurementAggregate,
 }
 
 impl EntityMetrics {
@@ -261,40 +165,10 @@ impl EntityMetrics {
         self.path.as_str()
     }
 
-    /// Number of observed entity execution spans.
+    /// Instruction observations with canonical sample, maximum and overflow quality.
     #[must_use]
-    pub const fn hits(&self) -> u64 {
-        self.hits
-    }
-
-    /// Wide saturating sum of local instructions, encoded as native Wire `u128`.
-    #[must_use]
-    pub const fn instructions_total(&self) -> u128 {
-        self.instructions_total
-    }
-
-    /// Largest local instruction delta attributed to one entity execution.
-    #[must_use]
-    pub const fn instructions_max(&self) -> u64 {
-        self.instructions_max
-    }
-
-    /// Whether the observation count actually overflowed.
-    #[must_use]
-    pub const fn samples_saturated(&self) -> bool {
-        self.samples_saturated
-    }
-
-    /// Whether the instruction total actually overflowed.
-    #[must_use]
-    pub const fn total_saturated(&self) -> bool {
-        self.total_saturated
-    }
-
-    /// Producer-admitted floor-rounded mean, absent when empty or overflowed.
-    #[must_use]
-    pub const fn instructions_mean(&self) -> Option<u128> {
-        self.instructions_mean
+    pub const fn instructions(&self) -> &MeasurementAggregate {
+        &self.instructions
     }
 }
 
@@ -381,6 +255,7 @@ impl MetricsReport {
 pub(super) fn record_owner_execution(phase: &ExecutionMetricsPhase, instructions: u64) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
+        let state = state.state_mut();
         let lifecycle = &mut state.schema_lifecycle;
         let counter = match phase {
             ExecutionMetricsPhase::Lowering => &mut lifecycle.lowering,
@@ -397,7 +272,7 @@ pub(super) fn record_owner_execution(phase: &ExecutionMetricsPhase, instructions
 pub(super) fn record_journal_movement(retirement: bool, debt: crate::db::ExactBacklogMeasurement) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
-        let convergence = &mut state.convergence;
+        let convergence = &mut state.state_mut().convergence;
         let total = if retirement {
             &mut convergence.retired
         } else {
@@ -416,6 +291,7 @@ pub(super) fn record_journal_movement(retirement: bool, debt: crate::db::ExactBa
 pub(super) fn record_entity_execution(entity_path: &str, instructions: u64) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
+        let state = state.state_mut();
         // Repeated observations borrow the existing path; only a new owner allocates.
         let counter = if let Some(counter) = state.entities.get_mut(entity_path) {
             counter
@@ -446,6 +322,8 @@ pub fn metrics_report() -> Result<MetricsReport, crate::error::InternalError> {
 fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> MetricsReport {
     STATE.with(|state| {
         let state = state.borrow();
+        let window_id = state.sequence();
+        let state = state.state();
         let mut remaining_path_bytes = MetricsReport::MAX_PATH_BYTES;
         let mut entities = state
             .entities
@@ -460,29 +338,30 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
             })
             .map(|(path, counter)| EntityMetrics {
                 path: path.clone(),
-                hits: counter.samples(),
-                instructions_total: counter.total(),
-                instructions_max: counter.maximum().unwrap_or(0),
-                samples_saturated: counter.samples_overflowed(),
-                total_saturated: counter.total_overflowed(),
-                instructions_mean: counter.mean().ok().flatten(),
+                instructions: *counter,
             })
             .collect::<Vec<_>>();
         entities.sort_by(|left, right| {
             right
-                .instructions_total
-                .cmp(&left.instructions_total)
-                .then_with(|| right.hits.cmp(&left.hits))
+                .instructions
+                .total()
+                .cmp(&left.instructions.total())
+                .then_with(|| {
+                    right
+                        .instructions
+                        .samples()
+                        .cmp(&left.instructions.samples())
+                })
                 .then_with(|| left.path.cmp(&right.path))
         });
 
         MetricsReport {
-            window_id: state.window_id,
+            window_id,
             window_start_ms: state.window_start_ms,
             window_end_ms: now_millis(),
             total_entities: state.entities.len() as u64,
             entities,
-            schema_lifecycle: state.schema_lifecycle.snapshot(),
+            schema_lifecycle: state.schema_lifecycle.clone(),
             journal_debt,
             convergence: state.convergence.snapshot(),
         }
@@ -496,11 +375,7 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
 pub fn metrics_reset_all() {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
-        state.window_id = state.window_id.and_then(|id| id.checked_add(1));
-        state.entities.clear();
-        state.schema_lifecycle = SchemaLifecycleMeasurements::default();
-        state.convergence = ConvergenceMeasurements::default();
-        state.window_start_ms = now_millis();
+        state.reset(MetricsState::default());
     });
 }
 
@@ -511,6 +386,19 @@ mod tests {
         record_entity_execution, record_owner_execution,
     };
     use crate::metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan};
+
+    #[test]
+    fn entity_report_decode_uses_shared_numeric_admission() {
+        for fields in [
+            (0u64, 1u128, None, false, false),
+            (1, 1, None, false, false),
+            (1, 1, Some(1u64), true, false),
+            (1, 1, Some(1), false, true),
+        ] {
+            let bytes = icydb_schema::wire::encode_one(("entity", fields)).unwrap();
+            assert!(icydb_schema::wire::decode_one::<super::EntityMetrics>(&bytes).is_err());
+        }
+    }
 
     #[test]
     fn repeated_entity_observations_preserve_distinct_paths_and_reset() {
@@ -526,23 +414,23 @@ mod tests {
             .iter()
             .find(|entry| entry.path() == "entity::a")
             .expect("observed entity");
-        assert_eq!(a.hits(), 3);
-        assert_eq!(a.instructions_total(), u128::from(u64::MAX) + 1);
-        assert_eq!(a.instructions_max(), u64::MAX);
+        assert_eq!(a.instructions().samples(), 3);
+        assert_eq!(a.instructions().total(), u128::from(u64::MAX) + 1);
+        assert_eq!(a.instructions().maximum().unwrap_or(0), u64::MAX);
         let b = report
             .entities()
             .iter()
             .find(|entry| entry.path() == "entity::b")
             .expect("distinct entity");
-        assert_eq!(b.hits(), 1);
-        assert_eq!(b.instructions_total(), 7);
+        assert_eq!(b.instructions().samples(), 1);
+        assert_eq!(b.instructions().total(), 7);
         metrics_reset_all();
         record_entity_execution("entity::a", 2);
         let reset = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_ne!(reset.window_id(), report.window_id());
         assert_eq!(reset.total_entities(), 1);
-        assert_eq!(reset.entities()[0].hits(), 1);
-        assert_eq!(reset.entities()[0].instructions_total(), 2);
+        assert_eq!(reset.entities()[0].instructions().samples(), 1);
+        assert_eq!(reset.entities()[0].instructions().total(), 2);
     }
 
     #[test]
@@ -558,7 +446,7 @@ mod tests {
         assert!(report.convergence().overflowed());
         assert_eq!(report.convergence().appended(), Debt::new(u64::MAX, 6, 8));
         assert_eq!(report.convergence().retired(), Debt::new(1, 2, 3));
-        assert_eq!(report.convergence().journal_fold().instructions_total(), 42);
+        assert_eq!(report.convergence().journal_fold().total(), 42);
         let encoded =
             icydb_schema::wire::encode_one(&report).expect("convergence report should encode");
         let decoded: MetricsReport =
@@ -617,15 +505,12 @@ mod tests {
         let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         let lifecycle = report.schema_lifecycle();
         assert_eq!(lifecycle.lowering().samples(), 2);
-        assert_eq!(
-            lifecycle.lowering().instructions_total(),
-            u128::from(u64::MAX) + 1
-        );
-        assert_eq!(lifecycle.lowering().instructions_max(), u64::MAX);
-        assert_eq!(lifecycle.publication().instructions_total(), 12);
-        assert_eq!(lifecycle.runtime_compilation().instructions_total(), 23);
-        assert_eq!(lifecycle.cardinality().instructions_total(), 34);
-        assert_eq!(lifecycle.startup_recovery().instructions_total(), 45);
+        assert_eq!(lifecycle.lowering().total(), u128::from(u64::MAX) + 1);
+        assert_eq!(lifecycle.lowering().maximum().unwrap_or(0), u64::MAX);
+        assert_eq!(lifecycle.publication().total(), 12);
+        assert_eq!(lifecycle.runtime_compilation().total(), 23);
+        assert_eq!(lifecycle.cardinality().total(), 34);
+        assert_eq!(lifecycle.startup_recovery().total(), 45);
         assert_eq!(report.total_entities(), 0);
         let encoded =
             icydb_schema::wire::encode_one(&report).expect("encode observed lifecycle report");
@@ -645,7 +530,7 @@ mod tests {
 
     #[test]
     fn tracked_quality_and_exact_means_survive_every_report_boundary() {
-        use super::{ConvergenceMeasurements, SchemaLifecycleMeasurements};
+        use super::ConvergenceMeasurements;
         use ic_metrics::MeasurementAggregate;
 
         let exact_count =
@@ -669,9 +554,10 @@ mod tests {
             (overflowed_total, true, true, None),
         ] {
             metrics_reset_all();
-            STATE.with_borrow_mut(|state| {
+            STATE.with_borrow_mut(|window| {
+                let state = window.state_mut();
                 state.entities.insert("entity".into(), measurement);
-                state.schema_lifecycle = SchemaLifecycleMeasurements {
+                state.schema_lifecycle = SchemaLifecycleMetrics {
                     lowering: measurement,
                     publication: measurement,
                     runtime_compilation: measurement,
@@ -688,9 +574,12 @@ mod tests {
             let decoded: MetricsReport = icydb_schema::wire::decode_one(&encoded).unwrap();
             assert_eq!(decoded, report);
             let entity = &decoded.entities()[0];
-            assert_eq!(entity.samples_saturated(), samples_saturated);
-            assert_eq!(entity.total_saturated(), total_saturated);
-            assert_eq!(entity.instructions_mean(), mean);
+            assert_eq!(
+                entity.instructions().samples_overflowed(),
+                samples_saturated
+            );
+            assert_eq!(entity.instructions().total_overflowed(), total_saturated);
+            assert_eq!(entity.instructions().mean().ok().flatten(), mean);
             let lifecycle = decoded.schema_lifecycle();
             for owner in [
                 lifecycle.lowering(),
@@ -701,11 +590,14 @@ mod tests {
                 decoded.convergence().journal_fold(),
             ] {
                 assert_eq!(owner.samples(), measurement.samples());
-                assert_eq!(owner.instructions_total(), measurement.total());
-                assert_eq!(owner.instructions_max(), measurement.maximum().unwrap_or(0));
-                assert_eq!(owner.samples_saturated(), samples_saturated);
-                assert_eq!(owner.total_saturated(), total_saturated);
-                assert_eq!(owner.instructions_mean(), mean);
+                assert_eq!(owner.total(), measurement.total());
+                assert_eq!(
+                    owner.maximum().unwrap_or(0),
+                    measurement.maximum().unwrap_or(0)
+                );
+                assert_eq!(owner.samples_overflowed(), samples_saturated);
+                assert_eq!(owner.total_overflowed(), total_saturated);
+                assert_eq!(owner.mean().ok().flatten(), mean);
             }
         }
         metrics_reset_all();
@@ -816,25 +708,6 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_reset_identity_never_wraps_or_reappears() {
-        STATE.with(|state| state.borrow_mut().window_id = Some(u64::MAX));
-        for _ in 0..2 {
-            record_entity_execution("entity", 1);
-            metrics_reset_all();
-            assert_eq!(
-                metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).window_id(),
-                None
-            );
-            assert_eq!(
-                metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).total_entities(),
-                0
-            );
-        }
-        // Restore this thread's fixture without making production IDs reusable.
-        STATE.with(|state| *state.borrow_mut() = super::MetricsState::default());
-    }
-
-    #[test]
     fn report_round_trips_current_wire_shape() {
         metrics_reset_all();
         for _ in 0..2 {
@@ -844,15 +717,9 @@ mod tests {
         }
         let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         let total = u128::from(u64::MAX) * 2;
-        assert_eq!(report.entities()[0].instructions_total(), total);
-        assert_eq!(
-            report.schema_lifecycle().lowering().instructions_total(),
-            total
-        );
-        assert_eq!(
-            report.convergence().journal_fold().instructions_total(),
-            total
-        );
+        assert_eq!(report.entities()[0].instructions().total(), total);
+        assert_eq!(report.schema_lifecycle().lowering().total(), total);
+        assert_eq!(report.convergence().journal_fold().total(), total);
         let encoded = icydb_schema::wire::encode_one(&report).expect("encode current report");
         let decoded: MetricsReport =
             icydb_schema::wire::decode_one(&encoded).expect("decode current report");
@@ -875,8 +742,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(paths, vec!["store::alpha", "store::beta", "store::gamma"]);
-        assert_eq!(report.entities()[0].hits(), 2);
-        assert_eq!(report.entities()[0].instructions_total(), 10);
-        assert_eq!(report.entities()[0].instructions_max(), 5);
+        assert_eq!(report.entities()[0].instructions().samples(), 2);
+        assert_eq!(report.entities()[0].instructions().total(), 10);
+        assert_eq!(
+            report.entities()[0].instructions().maximum().unwrap_or(0),
+            5
+        );
     }
 }

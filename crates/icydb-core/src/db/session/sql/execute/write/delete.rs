@@ -1,4 +1,4 @@
-use super::sql_write_candidate_bounds;
+use super::{sql_write_candidate_bounds, sql_write_mutation_statement_result};
 use crate::db::query::preparation::PreparationWork;
 use crate::{
     db::{
@@ -13,7 +13,7 @@ use crate::{
             SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
             execute::write_returning::{
                 projection_labels_from_accepted_write_descriptor,
-                sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
+                validate_sql_materialized_returning_bounds,
             },
             write_policy::SqlWriteExecutionBounds,
         },
@@ -102,17 +102,7 @@ impl<C: CanisterKind> DbSession<C> {
                         },
                     )
                     .map_err(QueryError::execute)?;
-                let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
-                match returning {
-                    None => Ok(SqlStatementResult::Count { row_count }),
-                    Some(returning) => sql_returning_statement_projection(
-                        catalog.enum_catalog(),
-                        columns,
-                        rows,
-                        row_count,
-                        returning,
-                    ),
-                }
+                sql_write_mutation_statement_result(rows, returning, columns, catalog)
             },
         )
     }

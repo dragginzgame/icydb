@@ -299,35 +299,38 @@ fn derive_semantic_access_path_shape_facts<K>(path: &AccessPath<K>) -> SinglePat
     derive_access_path_shape_facts(&payload)
 }
 
+// Both tree representations project the same passive path facts.
+fn summarize_path_runtime_shape(
+    facts: &SinglePathAccessShapeFacts,
+) -> (Option<IndexShapeDetails>, bool) {
+    (
+        facts.index_range_details(),
+        facts.has_reversible_traversal_shape(),
+    )
+}
+
+// Preserve the first available range detail while visiting every child's reverse flag.
+fn summarize_child_runtime_shapes(
+    children: impl Iterator<Item = (Option<IndexShapeDetails>, bool)>,
+) -> (Option<IndexShapeDetails>, bool) {
+    let mut first_range = None;
+    let mut all_reverse = true;
+    for (range, reverse) in children {
+        if first_range.is_none() {
+            first_range = range;
+        }
+        all_reverse &= reverse;
+    }
+    (first_range, all_reverse)
+}
+
 fn summarize_access_plan_runtime_shape<K>(
     access: &ExecutableAccessPlan<'_, K>,
 ) -> (Option<IndexShapeDetails>, bool) {
     match access.node() {
-        ExecutableAccessNode::Path(path) => {
-            let shape_facts = path.shape_facts();
-
-            (
-                shape_facts.index_range_details(),
-                shape_facts.has_reversible_traversal_shape(),
-            )
-        }
+        ExecutableAccessNode::Path(path) => summarize_path_runtime_shape(&path.shape_facts()),
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            let mut first_index_range_details = None;
-            let mut all_paths_support_reverse_traversal = true;
-            for child in children {
-                let (child_index_range_details, child_reverse_supported) =
-                    summarize_access_plan_runtime_shape(child);
-
-                if first_index_range_details.is_none() {
-                    first_index_range_details = child_index_range_details;
-                }
-                all_paths_support_reverse_traversal &= child_reverse_supported;
-            }
-
-            (
-                first_index_range_details,
-                all_paths_support_reverse_traversal,
-            )
+            summarize_child_runtime_shapes(children.iter().map(summarize_access_plan_runtime_shape))
         }
     }
 }
@@ -336,30 +339,12 @@ fn summarize_semantic_access_plan_runtime_shape<K>(
     access: &AccessPlan<K>,
 ) -> (Option<IndexShapeDetails>, bool) {
     match access {
-        AccessPlan::Path(path) => {
-            let shape_facts = path.shape_facts();
-
-            (
-                shape_facts.index_range_details(),
-                shape_facts.has_reversible_traversal_shape(),
-            )
-        }
+        AccessPlan::Path(path) => summarize_path_runtime_shape(&path.shape_facts()),
         AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            let mut first_index_range_details = None;
-            let mut all_paths_support_reverse_traversal = true;
-            for child in children {
-                let (child_index_range_details, child_reverse_supported) =
-                    summarize_semantic_access_plan_runtime_shape(child);
-
-                if first_index_range_details.is_none() {
-                    first_index_range_details = child_index_range_details;
-                }
-                all_paths_support_reverse_traversal &= child_reverse_supported;
-            }
-
-            (
-                first_index_range_details,
-                all_paths_support_reverse_traversal,
+            summarize_child_runtime_shapes(
+                children
+                    .iter()
+                    .map(summarize_semantic_access_plan_runtime_shape),
             )
         }
     }
@@ -428,5 +413,76 @@ impl<K> ExecutableAccessPlan<'_, K> {
     #[must_use]
     pub(in crate::db) fn shape_facts(&self) -> AccessShapeFacts {
         derive_access_shape_facts(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::access::path::SemanticIndexAccessContractInner;
+    use std::sync::Arc;
+
+    fn detail(name: &str) -> IndexShapeDetails {
+        IndexShapeDetails::from_access_contract(
+            SemanticIndexAccessContract {
+                inner: Arc::new(SemanticIndexAccessContractInner {
+                    ordinal: 0,
+                    physical_generation: 1,
+                    name: name.into(),
+                    store_path: "test".into(),
+                    key_items: vec![SemanticIndexKeyItem::Field("field".into())],
+                    unique: false,
+                    predicate_semantics: None,
+                }),
+            },
+            1,
+        )
+    }
+
+    #[test]
+    fn child_summary_keeps_first_range_and_checks_later_reverse_flags() {
+        let first = detail("first");
+        let second = detail("second");
+        assert_eq!(
+            summarize_child_runtime_shapes(std::iter::empty()),
+            (None, true)
+        );
+        assert_eq!(
+            summarize_child_runtime_shapes(
+                [
+                    (None, true),
+                    (Some(first.clone()), true),
+                    (Some(second), false),
+                ]
+                .into_iter()
+            ),
+            (Some(first), false)
+        );
+    }
+
+    #[test]
+    fn semantic_and_executable_summaries_agree_for_empty_and_nested_trees() {
+        for (plan, reverse) in [
+            (AccessPlan::<u64>::Union(vec![]), true),
+            (AccessPlan::Intersection(vec![]), true),
+            (AccessPlan::full_scan(), true),
+            (AccessPlan::by_keys(vec![1, 2]), false),
+            (
+                AccessPlan::Union(vec![
+                    AccessPlan::full_scan(),
+                    AccessPlan::Intersection(vec![AccessPlan::by_keys(vec![1])]),
+                ]),
+                false,
+            ),
+            (
+                AccessPlan::Intersection(vec![AccessPlan::full_scan(), AccessPlan::Union(vec![])]),
+                true,
+            ),
+        ] {
+            let semantic = plan.shape_facts();
+            let executable = plan.executable_contract().shape_facts();
+            assert_eq!(semantic, executable);
+            assert_eq!(semantic.all_paths_support_reverse_traversal(), reverse);
+        }
     }
 }

@@ -130,11 +130,20 @@ pub(in crate::db::query::plan) const fn and_family_candidate_score_outranks(
     false
 }
 
-// Compare two candidate scores under one family-specific exact-match policy.
-// The remaining structural tie-breaker on index name stays at the call site so
-// local loops can keep their existing selected payload ownership.
+// Resolve equal scores by accepted index name, independently of planner payloads.
 #[must_use]
-pub(in crate::db::query::plan) const fn access_candidate_score_outranks(
+pub(in crate::db::query::plan) fn index_candidate_outranks(
+    candidate: (AccessCandidateScore, &str),
+    best: (AccessCandidateScore, &str),
+    exact_priority: bool,
+) -> bool {
+    access_candidate_score_outranks(candidate.0, best.0, exact_priority)
+        || (candidate.0 == best.0 && candidate.1 < best.1)
+}
+
+// Compare two candidate scores under one family-specific exact-match policy.
+#[must_use]
+const fn access_candidate_score_outranks(
     candidate: AccessCandidateScore,
     best: AccessCandidateScore,
     exact_priority: bool,
@@ -204,4 +213,54 @@ pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
         range_bound_count,
         selected_index_contract_satisfies_secondary_order(order, index, prefix_len),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AccessCandidateScore, index_candidate_outranks};
+
+    #[test]
+    fn candidate_names_only_break_identical_scores() {
+        let base = AccessCandidateScore::new(1, false, false, 0, false);
+        let exact = AccessCandidateScore {
+            exact: true,
+            ..base
+        };
+        let longer = AccessCandidateScore {
+            prefix_len: 2,
+            ..base
+        };
+        for exact_priority in [false, true] {
+            assert!(index_candidate_outranks(
+                (base, "a"),
+                (base, "z"),
+                exact_priority
+            ));
+            assert!(!index_candidate_outranks(
+                (base, "z"),
+                (base, "a"),
+                exact_priority
+            ));
+            assert!(!index_candidate_outranks(
+                (base, "a"),
+                (base, "a"),
+                exact_priority
+            ));
+            assert!(index_candidate_outranks(
+                (longer, "z"),
+                (base, "a"),
+                exact_priority
+            ));
+            assert!(!index_candidate_outranks(
+                (base, "a"),
+                (longer, "z"),
+                exact_priority
+            ));
+        }
+        assert!(index_candidate_outranks((exact, "z"), (base, "a"), true));
+        assert!(!index_candidate_outranks((base, "a"), (exact, "z"), true));
+        // Ignoring exact-match priority does not make distinct scores equal.
+        assert!(!index_candidate_outranks((exact, "a"), (base, "z"), false));
+        assert!(!index_candidate_outranks((base, "a"), (exact, "z"), false));
+    }
 }

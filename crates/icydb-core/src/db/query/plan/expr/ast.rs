@@ -612,36 +612,12 @@ impl Expr {
     /// Visit every planner expression node in this tree through the owner-local
     /// child traversal contract.
     pub(in crate::db) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
-        match self {
-            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {
-                visit(self);
-            }
-            Self::FunctionCall { args, .. } => {
-                visit(self);
-                for arg in args {
-                    arg.for_each_tree_expr(visit);
-                }
-            }
-            Self::Unary { expr, .. } => {
-                visit(self);
-                expr.for_each_tree_expr(visit);
-            }
-            Self::Binary { left, right, .. } => {
-                visit(self);
-                left.for_each_tree_expr(visit);
-                right.for_each_tree_expr(visit);
-            }
-            Self::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                visit(self);
-                for arm in when_then_arms {
-                    arm.condition().for_each_tree_expr(visit);
-                    arm.result().for_each_tree_expr(visit);
-                }
-                else_expr.for_each_tree_expr(visit);
-            }
+        match self.try_for_each_tree_expr(&mut |node| {
+            visit(node);
+            Ok::<_, Infallible>(())
+        }) {
+            Ok(()) => (),
+            Err(never) => match never {},
         }
     }
 
@@ -717,7 +693,110 @@ impl Expr {
 
 #[cfg(test)]
 mod tests {
-    use super::PathSpec;
+    use super::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, PathSpec, UnaryOp};
+
+    fn field(name: &str) -> Expr {
+        Expr::Field(FieldId::new(name))
+    }
+
+    fn label(expr: &Expr) -> &str {
+        match expr {
+            Expr::Field(field) => field.as_str(),
+            Expr::Case { .. } => "case",
+            Expr::Binary { .. } => "binary",
+            Expr::FunctionCall { .. } => "function",
+            Expr::Unary { .. } => "unary",
+            _ => "leaf",
+        }
+    }
+
+    #[test]
+    fn preorder_visitors_share_child_order_and_stop_before_later_children() {
+        let tree = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(field("a")),
+                    right: Box::new(field("b")),
+                },
+                Expr::FunctionCall {
+                    function: Function::Lower,
+                    args: vec![
+                        Expr::Unary {
+                            op: UnaryOp::Not,
+                            expr: Box::new(field("c")),
+                        },
+                        field("d"),
+                    ],
+                },
+            )],
+            else_expr: Box::new(field("else")),
+        };
+        let mut infallible = Vec::new();
+        tree.for_each_tree_expr(&mut |node| infallible.push(label(node).to_owned()));
+        assert_eq!(
+            infallible,
+            [
+                "case", "binary", "a", "b", "function", "unary", "c", "d", "else"
+            ]
+        );
+        let mut fallible = Vec::new();
+        tree.try_for_each_tree_expr(&mut |node| {
+            fallible.push(label(node).to_owned());
+            Ok::<_, u8>(())
+        })
+        .unwrap();
+        assert_eq!(fallible, infallible);
+        let mut stopped = Vec::new();
+        assert!(
+            !tree
+                .try_all_tree_expr(&mut |node| {
+                    stopped.push(label(node).to_owned());
+                    Ok::<_, u8>(label(node) != "b")
+                })
+                .unwrap()
+        );
+        assert_eq!(stopped, ["case", "binary", "a", "b"]);
+        let mut failed = Vec::new();
+        assert_eq!(
+            tree.try_for_each_tree_expr(&mut |node| {
+                failed.push(label(node).to_owned());
+                if label(node) == "b" { Err(7u8) } else { Ok(()) }
+            }),
+            Err(7)
+        );
+        assert_eq!(failed, stopped);
+    }
+
+    #[test]
+    fn compare_index_visitor_remains_postorder_for_every_comparison() {
+        for op in [
+            BinaryOp::Eq,
+            BinaryOp::Ne,
+            BinaryOp::Lt,
+            BinaryOp::Lte,
+            BinaryOp::Gt,
+            BinaryOp::Gte,
+        ] {
+            let tree = Expr::Binary {
+                op,
+                left: Box::new(field("a")),
+                right: Box::new(field("b")),
+            };
+            let mut next = 0;
+            let mut visited = Vec::new();
+            tree.try_for_each_tree_expr_with_compare_index(&mut next, &mut |index, node| {
+                visited.push((index, label(node).to_owned()));
+                Ok::<_, u8>(())
+            })
+            .unwrap();
+            assert_eq!(
+                visited,
+                vec![(0, "a".into()), (0, "b".into()), (0, "binary".into())]
+            );
+            assert_eq!(next, 1);
+        }
+    }
 
     #[test]
     fn path_spec_renders_one_canonical_dotted_label() {

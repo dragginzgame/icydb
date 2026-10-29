@@ -23,6 +23,7 @@ use crate::{
     traits::CanisterKind,
 };
 use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use std::{cell::RefCell, thread::LocalKey};
 
 // Host grants select placement within the dependency's non-governance domain.
 const ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID + 1;
@@ -120,19 +121,15 @@ fn initialize_controls(
     // Fresh proposal admission proved every journal allocation is physically
     // virgin. Do not open its lazy store here: initialization writes a tree
     // header, which would make a later preparation error non-retryable.
-    let replacement = prepare_commit_control_replacement(
-        control_memory.clone(),
+    publish_control_replacement(
+        control_memory,
         incarnation,
         cursor_authentication_key,
         database_commit_sequence,
         &registry,
-    )?;
-    super::publish_preflighted_current_boot_record(control_memory);
-    for tail in tails {
-        tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization);
-    }
-    apply_prepared_commit_control_replacement(replacement);
-    Ok(())
+        tails,
+        || super::publish_preflighted_current_boot_record(control_memory),
+    )
 }
 
 fn reconcile_current_registry(
@@ -198,14 +195,37 @@ fn reconcile_current_registry(
     for tail in &initialize {
         tail.with_borrow(JournalTailStore::preflight_current_tail_control_initialization)?;
     }
+    publish_control_replacement(
+        control_memory,
+        incarnation,
+        cursor_authentication_key,
+        database_commit_sequence,
+        &registry,
+        initialize,
+        || {},
+    )
+}
+
+// Preparation must finish before any publication. Fresh bootstrap supplies its
+// infallible boot write here; reconciliation has already preflighted new tails.
+fn publish_control_replacement(
+    control_memory: &std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
+    incarnation: crate::db::DatabaseIncarnationId,
+    cursor_authentication_key: [u8; 32],
+    database_commit_sequence: u64,
+    registry: &[PersistedStoreAllocation],
+    tails: Vec<&'static LocalKey<RefCell<JournalTailStore>>>,
+    before_tail_initialization: impl FnOnce(),
+) -> Result<(), InternalError> {
     let replacement = prepare_commit_control_replacement(
         control_memory.clone(),
         incarnation,
         cursor_authentication_key,
         database_commit_sequence,
-        &registry,
+        registry,
     )?;
-    for tail in initialize {
+    before_tail_initialization();
+    for tail in tails {
         tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization);
     }
     apply_prepared_commit_control_replacement(replacement);
