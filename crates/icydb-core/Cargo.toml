@@ -23,6 +23,7 @@ ic-memory = { workspace = true }
 ic-metrics = { workspace = true, optional = true }
 ic-platform = { workspace = true, features = ["blake3", "ic0"] }
 ic-storage = { workspace = true }
+ic-wire = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
 rand_chacha = { workspace = true }

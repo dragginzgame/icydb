@@ -320,3 +320,79 @@ fn covering_component_chunks_preserve_bounded_directional_progress() {
         }
     }
 }
+
+#[test]
+fn zero_limit_scans_return_before_entry_charging_or_decoding() {
+    reset_exact_intersection_stores();
+    let raw = covering_keys(false)[0].to_raw().unwrap();
+    EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
+        store.insert(raw, IndexEntryValue::from_persisted_bytes(vec![2]));
+    });
+    for direction in [Direction::Asc, Direction::Desc] {
+        let (budget, context) = exact_intersection_budget();
+        let budget = budget
+            .with_limit_for_tests(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 0);
+        with_query_execution_budget_for_tests(budget, context, || {
+            let continuation = IndexScanContinuationInput::new(None, direction);
+            assert!(
+                IndexScan::resolve_data_values_in_raw_range_limited(
+                    EXACT_INTERSECTION_STORE,
+                    EXACT_INTERSECTION_ENTITY,
+                    &Bound::Unbounded,
+                    &Bound::Unbounded,
+                    continuation,
+                    0,
+                    None,
+                )
+                .map_err(QueryError::execute)?
+                .is_empty()
+            );
+            assert!(
+                IndexScan::components_structural(
+                    EXACT_INTERSECTION_STORE,
+                    EXACT_INTERSECTION_ENTITY,
+                    &Bound::Unbounded,
+                    &Bound::Unbounded,
+                    continuation,
+                    0,
+                    &[usize::MAX],
+                    None,
+                )
+                .map_err(QueryError::execute)?
+                .is_empty()
+            );
+            for (max_entries, output_limit) in [(0, None), (0, Some(0)), (1, Some(0))] {
+                let plain = IndexScan::chunk_structural(
+                    EXACT_INTERSECTION_STORE,
+                    EXACT_INTERSECTION_ENTITY,
+                    &Bound::Unbounded,
+                    &Bound::Unbounded,
+                    continuation,
+                    max_entries,
+                    output_limit,
+                )
+                .map_err(QueryError::execute)?;
+                let components = IndexScan::components_chunk_structural(
+                    EXACT_INTERSECTION_STORE,
+                    EXACT_INTERSECTION_ENTITY,
+                    &Bound::Unbounded,
+                    &Bound::Unbounded,
+                    continuation,
+                    max_entries,
+                    output_limit,
+                    &[usize::MAX],
+                    None,
+                )
+                .map_err(QueryError::execute)?;
+                let (keys, plain_anchor) = plain.into_decoded_keys_and_resume_anchor();
+                let (rows, component_anchor) = components.into_component_rows_and_resume_anchor();
+                assert!(keys.is_empty());
+                assert!(rows.is_empty());
+                assert_eq!(plain_anchor, None);
+                assert_eq!(component_anchor, None);
+            }
+            Ok(())
+        })
+        .unwrap();
+    }
+}

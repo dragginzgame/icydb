@@ -89,6 +89,8 @@ pub use migration_api::{
 
 pub(in crate::db) use accepted_field_kind::AcceptedFieldKind;
 pub(in crate::db) use accepted_value_admission::AcceptedValueAdmissionContract;
+#[doc(hidden)]
+pub use application::generated_schema_application_record_key;
 pub(in crate::db) use application::generated_schema_authority;
 pub use application::{SchemaApplicationStore, SchemaApplicationTarget};
 pub(in crate::db) use application::{

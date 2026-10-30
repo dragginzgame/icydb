@@ -246,6 +246,36 @@ scheduler, or simulate IC timing; use canister integration tests for timer and
 lifecycle behavior. It is available only in native test builds, not as an
 endpoint or a downstream integration-test API for a prebuilt dependency.
 
+Generated stores, bootstrap state and the bound memory runtime are thread-local
+in native execution. Separate native test threads do not share a generated
+database. For multiple independent fixtures inside one test, run each fixture
+on a fresh joined thread, keeping its database setup and operations there.
+Repeated driver calls on the same thread intentionally retain its rows; advancing
+convergence is not a request to clear storage. A global mutex or an in-place
+reset of the runtime and its live exclusive memory handles is unnecessary for
+thread isolation. Tests that explicitly share another resource still own that
+resource's isolation. The [generated facade fixture](../../testing/model-facade-only/src/lib.rs)
+qualifies fresh worker databases and preservation of the caller's rows.
+
+## Readiness And Schema Receipt Retention
+
+The exact terminal receipt for the current generated submission proves that
+source was reconciled. Receipt-capacity turnover preserves that record while
+recycling other eligible terminal records; Pending records are also ineligible.
+If no eligible terminal receipt remains, a new submission returns the existing
+capacity conflict before publication. Exact submission replay needs no new slot.
+
+Generated canister wiring supplies the receipt key through `CanisterKind` and
+the selected database's existing commit context. Key derivation uses the current
+incarnation, store authority and immutable generated submission; it runs only
+when retention needs a victim. A generated-source change updates that owner
+without replacing the physical control-memory lease. Handwritten
+`CanisterKind` implementations that use generated-receipt readiness must supply
+that same read-only hook; its default applies to canisters without generated
+readiness. This adds no persisted readiness record or compatibility reader.
+It prevents future eviction; it does not reconstruct a receipt already lost
+under an earlier binary or silently reapply generated source to repair one.
+
 ## Exposure And Authorization
 
 IcyDB exports no startup-status or startup-failure endpoint automatically.

@@ -300,25 +300,13 @@ mod tests {
     #[test]
     fn serde_calendar_boundaries_and_batches_use_compact_days() {
         let today = Date::try_new(2026, 9, 12).unwrap();
-        for (date, width) in [(Date::EPOCH, 1), (today, 3), (Date::MIN, 5), (Date::MAX, 5)] {
-            let mut encoded = Vec::new();
-            serde_cbor::to_writer(&mut encoded, &date).unwrap();
-            assert_eq!(encoded.len(), width);
-            let wire: serde_cbor::Value = serde_cbor::from_slice(encoded.as_slice()).unwrap();
-            assert_eq!(
-                wire,
-                serde_cbor::Value::Integer(date.as_days_since_epoch().into())
-            );
-            assert_eq!(
-                serde_cbor::from_slice::<Date>(encoded.as_slice()).unwrap(),
-                date
-            );
-
+        for (date, width) in [(Date::EPOCH, 1), (today, 3), (Date::MIN, 3), (Date::MAX, 4)] {
             let json = serde_json::to_string(&date).unwrap();
             assert_eq!(json, format!("\"{date}\""));
             assert_eq!(serde_json::from_str::<Date>(&json).unwrap(), date);
 
             let wire = crate::wire::encode_one(date).unwrap();
+            assert_eq!(wire.len(), width);
             assert_eq!(
                 wire,
                 crate::wire::encode_one(date.as_days_since_epoch()).unwrap()
@@ -326,11 +314,10 @@ mod tests {
             assert_eq!(crate::wire::decode_one::<Date>(&wire).unwrap(), date);
 
             let batch = vec![date; 1_000];
-            encoded.clear();
-            serde_cbor::to_writer(&mut encoded, &batch).unwrap();
-            assert_eq!(encoded.len(), 3 + 1_000 * width);
+            let encoded = crate::wire::encode_one(&batch).unwrap();
+            assert_eq!(encoded.len(), 2 + 1_000 * width);
             assert_eq!(
-                serde_cbor::from_slice::<Vec<Date>>(encoded.as_slice()).unwrap(),
+                crate::wire::decode_one::<Vec<Date>>(&encoded).unwrap(),
                 batch
             );
         }
@@ -344,9 +331,8 @@ mod tests {
             i64::from(Date::MAX.as_days_since_epoch()) + 1,
             i64::MAX,
         ] {
-            let mut encoded = Vec::new();
-            serde_cbor::to_writer(&mut encoded, &day).unwrap();
-            assert!(serde_cbor::from_slice::<Date>(encoded.as_slice()).is_err());
+            let encoded = crate::wire::encode_one(day).unwrap();
+            assert!(crate::wire::decode_one::<Date>(&encoded).is_err());
         }
     }
 

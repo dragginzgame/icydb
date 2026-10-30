@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 
 use sha2::{Digest, Sha256};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     ConstraintSourceKey, EntitySourceKey, FieldSourceKey, MAX_SCHEMA_MIGRATION_ENTITIES,
     MAX_SCHEMA_MIGRATION_RENAMES, MAX_SCHEMA_MIGRATION_TRANSFORMS, RelationSourceKey,
@@ -12,10 +14,10 @@ use crate::{
 };
 
 pub(crate) const MIGRATION_PROGRAM_VERSION_CURRENT: u16 = 1;
-const MIGRATION_PLAN_DIGEST_PROFILE: &[u8] = b"icydb.schema-migration-plan.v1";
+const MIGRATION_PLAN_DIGEST_PROFILE: &[u8] = b"icydb.schema-migration-plan.wire.v1";
 
 /// Positive application-declared source version for one current entity.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct DeclaredEntityVersion(u32);
 
 impl DeclaredEntityVersion {
@@ -38,62 +40,119 @@ impl DeclaredEntityVersion {
     }
 }
 
+impl<'de> Deserialize<'de> for DeclaredEntityVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::try_new(u32::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 /// One exact source-name correspondence applied simultaneously with its plan.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SchemaMigrationRename {
     /// Rename one entity-local field.
     Field {
         /// Accepted-before field name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: FieldSourceKey,
         /// Current target field name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: FieldSourceKey,
     },
     /// Rename one named record, enum, newtype, or collection.
     NamedType {
         /// Accepted-before named-type name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: TypeSourceKey,
         /// Current target named-type name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: TypeSourceKey,
     },
     /// Rename one unit or payload enum variant below an accepted-before enum.
     EnumVariant {
         /// Accepted-before owning enum name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         named_type: TypeSourceKey,
         /// Accepted-before variant name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: TypeSourceKey,
         /// Current target variant name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: TypeSourceKey,
     },
     /// Rename one field below an accepted-before named record.
     RecordField {
         /// Accepted-before owning record name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         named_type: TypeSourceKey,
         /// Accepted-before record-field name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: FieldSourceKey,
         /// Current target record-field name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: FieldSourceKey,
     },
     /// Rename one entity-local relation.
     Relation {
         /// Accepted-before relation name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: RelationSourceKey,
         /// Current target relation name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: RelationSourceKey,
     },
     /// Rename one entity-local accepted constraint.
     Constraint {
         /// Accepted-before constraint name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: ConstraintSourceKey,
         /// Current target constraint name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: ConstraintSourceKey,
     },
     /// Rename one durable rule below an accepted-before named type.
     Rule {
         /// Accepted-before owning named type.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         named_type: TypeSourceKey,
         /// Accepted-before local rule name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: RuleSourceKey,
         /// Current target local rule name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: RuleSourceKey,
     },
 }
@@ -133,11 +192,14 @@ impl SchemaMigrationRename {
 }
 
 /// One closed deterministic historical-row transform declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SchemaMigrationTransform {
     /// Fill one current target field with one exact typed literal.
     Fill {
         /// Current target field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: FieldSourceKey,
         /// Exact target literal.
         literal: ScalarLiteral,
@@ -145,15 +207,27 @@ pub enum SchemaMigrationTransform {
     /// Copy one accepted-before field into one distinct current target field.
     Copy {
         /// Accepted-before source field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: FieldSourceKey,
         /// Current target field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: FieldSourceKey,
     },
     /// Convert one scalar through the closed exact checked-cast matrix.
     CheckedCast {
         /// Accepted-before source field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: FieldSourceKey,
         /// Current target field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: FieldSourceKey,
         /// Exact current target scalar contract.
         target: ScalarType,
@@ -161,8 +235,14 @@ pub enum SchemaMigrationTransform {
     /// Preserve a non-null predecessor value or use one exact fallback.
     Coalesce {
         /// Accepted-before optional source field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         from: FieldSourceKey,
         /// Current required target field.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         to: FieldSourceKey,
         /// Exact fallback literal.
         literal: ScalarLiteral,
@@ -205,12 +285,24 @@ impl SchemaMigrationTransform {
 }
 
 /// One immediate-predecessor transition for a current entity declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntityMigration {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     entity: EntitySourceKey,
     from: DeclaredEntityVersion,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_optional_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     from_name: Option<EntitySourceKey>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_MIGRATION_RENAMES }>"
+    )]
     renames: Vec<SchemaMigrationRename>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_MIGRATION_TRANSFORMS }>"
+    )]
     transforms: Vec<SchemaMigrationTransform>,
 }
 
@@ -268,6 +360,22 @@ impl EntityMigration {
         })
     }
 
+    // Serde restores fields without calling the constructor. Keep its semantic
+    // and canonical guarantees at the plan admission boundary as well.
+    fn validate(&self) -> Result<(), SchemaContractError> {
+        let rebuilt = Self::try_new(
+            self.entity.clone(),
+            self.from,
+            self.from_name.clone(),
+            self.renames.clone(),
+            self.transforms.clone(),
+        )?;
+        if rebuilt != *self {
+            return Err(SchemaContractError::NonCanonical);
+        }
+        Ok(())
+    }
+
     /// Borrow the current target entity key.
     #[must_use]
     pub const fn entity(&self) -> &EntitySourceKey {
@@ -300,10 +408,14 @@ impl EntityMigration {
 }
 
 /// One canonical database-scoped coordinated migration plan.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct SchemaMigrationPlan {
     program_version: u16,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_MIGRATION_ENTITIES }>"
+    )]
     transitions: Vec<EntityMigration>,
+    #[serde(skip)]
     digest: SchemaMigrationPlanDigest,
 }
 
@@ -334,6 +446,7 @@ impl SchemaMigrationPlan {
         }
         let mut predecessor_entities = BTreeSet::new();
         for transition in &transitions {
+            transition.validate()?;
             let predecessor = transition.from_name.as_ref().unwrap_or(&transition.entity);
             if !predecessor_entities.insert(predecessor.clone()) {
                 return Err(SchemaContractError::DuplicateMigrationSource);
@@ -414,6 +527,25 @@ impl SchemaMigrationPlan {
             return Err(SchemaContractError::NonCanonical);
         }
         Ok(())
+    }
+}
+
+// Recompute the derived digest through the canonical constructor; never admit
+// an independently supplied digest as plan authority.
+impl<'de> Deserialize<'de> for SchemaMigrationPlan {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Payload {
+            program_version: u16,
+            #[serde(
+                deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_MIGRATION_ENTITIES }>"
+            )]
+            transitions: Vec<EntityMigration>,
+        }
+        let payload = Payload::deserialize(deserializer)?;
+        let mut plan = Self::try_new(payload.transitions).map_err(serde::de::Error::custom)?;
+        plan.program_version = payload.program_version;
+        Ok(plan)
     }
 }
 
@@ -613,8 +745,8 @@ mod tests {
         assert_eq!(
             plan.digest().to_bytes(),
             [
-                198, 22, 117, 206, 250, 126, 65, 102, 162, 77, 246, 242, 60, 127, 68, 242, 56, 105,
-                141, 56, 136, 233, 54, 180, 100, 187, 24, 63, 167, 158, 239, 93,
+                185, 94, 228, 94, 125, 249, 118, 171, 39, 218, 171, 230, 105, 177, 195, 14, 41, 14,
+                39, 78, 248, 107, 177, 13, 16, 115, 37, 15, 145, 40, 134, 207,
             ],
         );
     }
@@ -671,11 +803,32 @@ mod tests {
     }
 
     #[test]
+    fn wire_plan_restoration_keeps_nested_constructor_admission() {
+        let valid = transition("Account", "User");
+        let mut duplicate = valid.clone();
+        duplicate.renames.push(duplicate.renames[0].clone());
+        let mut same_name = valid.clone();
+        same_name.from_name = Some(same_name.entity.clone());
+        let mut invalid_cast = valid;
+        invalid_cast
+            .transforms
+            .push(SchemaMigrationTransform::CheckedCast {
+                from: field("old_value"),
+                to: field("value"),
+                target: ScalarType::Float64,
+            });
+        for transition in [duplicate, same_name, invalid_cast] {
+            let bytes = crate::wire::encode_one((*b"ICWM\x01", (1_u16, vec![transition]))).unwrap();
+            assert!(decode_schema_migration_plan(&bytes).is_err());
+        }
+    }
+
+    #[test]
     fn unsupported_program_versions_and_oversized_transport_fail_closed() {
         let plan = SchemaMigrationPlan::try_new(vec![transition("Account", "User")])
             .expect("plan should admit");
         let mut bytes = encode_schema_migration_plan(&plan).expect("plan should encode");
-        bytes[5..7].copy_from_slice(&2_u16.to_be_bytes());
+        bytes[5] = 2;
         assert_eq!(
             decode_schema_migration_plan(&bytes),
             Err(SchemaContractError::UnsupportedMigrationProgramVersion {

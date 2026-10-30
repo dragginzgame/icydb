@@ -36,6 +36,7 @@ impl ValidateNode for Set {
     fn validate(&self) -> Result<(), DarlingError> {
         self.validate_traits()?;
         self.item.validate()?;
+        self.item.validate_immutable_key_hooks()?;
 
         Ok(())
     }

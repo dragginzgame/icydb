@@ -5,7 +5,7 @@
 
 #[cfg(not(test))]
 use crate::db::registry::open_committed_memory;
-use crate::error::InternalError;
+use crate::{error::InternalError, traits::CanisterKind};
 use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 use std::{
     cell::{Cell, RefCell},
@@ -13,7 +13,7 @@ use std::{
 };
 
 thread_local! {
-    static CURRENT_COMMIT_STORE_ALLOCATION: Cell<Option<CommitMemoryAllocation>> =
+    static CURRENT_COMMIT_STORE: Cell<Option<CommitMemorySelection>> =
         const { Cell::new(None) };
     static COMMIT_MEMORIES: RefCell<
         Vec<(CommitMemoryAllocation, Rc<RuntimeMemory<DefaultMemoryImpl>>)>
@@ -31,30 +31,70 @@ pub(in crate::db) struct CommitMemoryAllocation {
     pub(in crate::db) stable_key: &'static str,
 }
 
+// Readiness is selected with the database, but is not part of physical lease
+// identity: changing generated source must keep the same sole memory handle.
+#[derive(Clone, Copy)]
+struct CommitMemorySelection {
+    allocation: CommitMemoryAllocation,
+    readiness_record_key: fn() -> Result<Option<[u8; 32]>, InternalError>,
+}
+
 pub(in crate::db) fn current_commit_memory_allocation()
 -> Result<CommitMemoryAllocation, InternalError> {
-    CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| {
+    CURRENT_COMMIT_STORE.with(|cell| {
         cell.get()
+            .map(|selection| selection.allocation)
             .ok_or_else(InternalError::commit_memory_id_unconfigured)
     })
 }
 
 pub(in crate::db) fn current_commit_memory_allocation_if_configured()
 -> Option<CommitMemoryAllocation> {
-    CURRENT_COMMIT_STORE_ALLOCATION.with(Cell::get)
+    CURRENT_COMMIT_STORE.with(|cell| cell.get().map(|selection| selection.allocation))
 }
 
 /// Select an already-resolved commit allocation for this database operation.
 /// Production callers resolve the ID from committed authority first; actual
 /// opens also verify the key/ID pair through that same authority. Selection
 /// neither allocates memory nor maintains a second collision registry.
-pub(in crate::db) fn select_commit_memory_allocation(memory_id: u8, stable_key: &'static str) {
+pub(in crate::db) fn select_commit_memory_allocation_for<C: CanisterKind>(
+    memory_id: u8,
+    stable_key: &'static str,
+) {
     let allocation = CommitMemoryAllocation {
         memory_id,
         stable_key,
     };
 
-    CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| cell.set(Some(allocation)));
+    CURRENT_COMMIT_STORE.with(|cell| {
+        cell.set(Some(CommitMemorySelection {
+            allocation,
+            readiness_record_key: C::generated_schema_application_record_key,
+        }));
+    });
+}
+
+/// Resolve only when retention needs a victim; ordinary database entry does not
+/// compute a schema identity or open an application-record view.
+pub(in crate::db) fn current_schema_application_readiness_key()
+-> Result<Option<[u8; 32]>, InternalError> {
+    CURRENT_COMMIT_STORE
+        .with(Cell::get)
+        .map_or(Ok(None), |selection| (selection.readiness_record_key)())
+}
+
+/// Select a raw fixture allocation without a generated readiness owner.
+#[cfg(test)]
+pub(in crate::db) fn select_commit_memory_allocation(memory_id: u8, stable_key: &'static str) {
+    CURRENT_COMMIT_STORE.with(|cell| {
+        cell.set(Some(CommitMemorySelection {
+            allocation: CommitMemoryAllocation {
+                memory_id,
+                stable_key,
+            },
+            readiness_record_key: || Ok(None),
+        }));
+    });
 }
 
 /// Share the sole physical lease for this database's raw control regions.
@@ -131,6 +171,56 @@ mod tests {
             select_commit_memory_allocation(allocation.memory_id, allocation.stable_key);
             assert_eq!(current_commit_memory_allocation().unwrap(), allocation);
         }
+    }
+
+    #[test]
+    fn readiness_owner_changes_do_not_duplicate_the_control_lease() {
+        struct Generated<const SOURCE: u8>;
+        impl<const SOURCE: u8> crate::traits::Path for Generated<SOURCE> {
+            const PATH: &'static str = "test::Generated";
+        }
+        impl<const SOURCE: u8> CanisterKind for Generated<SOURCE> {
+            const COMMIT_STABLE_KEY: &'static str = "icydb.readiness.commit.v1";
+            const STARTUP_STABLE_KEY: &'static str = "icydb.readiness.startup.v1";
+            const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.readiness.integrity.v1";
+
+            fn generated_schema_application_record_key() -> Result<Option<[u8; 32]>, InternalError>
+            {
+                Ok(Some([SOURCE; 32]))
+            }
+        }
+
+        let allocation = CommitMemoryAllocation {
+            memory_id: 94,
+            stable_key: "icydb.readiness.commit.v1",
+        };
+        select_commit_memory_allocation_for::<Generated<1>>(94, allocation.stable_key);
+        let lease = commit_memory_handle(allocation).unwrap();
+        assert_eq!(
+            current_schema_application_readiness_key().unwrap(),
+            Some([1; 32])
+        );
+        select_commit_memory_allocation_for::<Generated<2>>(94, allocation.stable_key);
+        assert_eq!(
+            current_schema_application_readiness_key().unwrap(),
+            Some([2; 32])
+        );
+        assert!(Rc::ptr_eq(
+            &lease,
+            &commit_memory_handle(allocation).unwrap()
+        ));
+
+        select_commit_memory_allocation(95, "icydb.readiness.other-control.v1");
+        assert_eq!(current_schema_application_readiness_key().unwrap(), None);
+        select_commit_memory_allocation_for::<Generated<1>>(94, allocation.stable_key);
+        assert_eq!(
+            current_schema_application_readiness_key().unwrap(),
+            Some([1; 32])
+        );
+        assert!(Rc::ptr_eq(
+            &lease,
+            &commit_memory_handle(allocation).unwrap()
+        ));
     }
 
     #[test]

@@ -19,7 +19,7 @@ sql = ["icydb/sql"]
 
 [dependencies]
 canic-icydb = { workspace = true }
-ic-platform = { workspace = true, features = ["runtime"] }
+ic-platform = { workspace = true, features = ["principal-self-authenticating", "runtime"] }
 icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

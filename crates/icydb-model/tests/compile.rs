@@ -37,3 +37,9 @@ fn schema_literal_diagnostics() {
     let tests = trybuild::TestCases::new();
     tests.compile_fail("tests/ui/schema_literals/*.rs");
 }
+
+#[test]
+fn collection_normalizer_positions() {
+    let tests = trybuild::TestCases::new();
+    tests.compile_fail("tests/ui/collection_normalizers/*.rs");
+}

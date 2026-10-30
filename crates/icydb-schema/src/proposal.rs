@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Sole maintained proposal contract version.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(transparent)]
 pub struct ProposalContractVersion(u16);
 
@@ -40,7 +40,7 @@ impl ProposalContractVersion {
 }
 
 /// Feature required by one proposal.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(transparent)]
 pub struct SchemaCapability(u16);
 
@@ -104,8 +104,11 @@ impl ExpectedAcceptedHead {
 }
 
 /// Explicit entity-to-store routing in the target database.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntityStoreAssignment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     entity: EntitySourceKey,
     store: TargetStoreIdentity,
 }
@@ -131,52 +134,101 @@ impl EntityStoreAssignment {
 }
 
 /// Explicit hard-cut removal operation.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum SchemaRemoval {
     /// Remove an entity.
-    Entity(EntitySourceKey),
+    Entity(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        EntitySourceKey,
+    ),
     /// Remove one field from an entity.
     Field {
         /// Owning entity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         entity: EntitySourceKey,
         /// Field identity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         field: FieldSourceKey,
     },
     /// Remove a named type.
-    Type(TypeSourceKey),
+    Type(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        TypeSourceKey,
+    ),
     /// Remove one accepted constraint.
     Constraint {
         /// Owning entity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         entity: EntitySourceKey,
         /// Constraint identity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         constraint: ConstraintSourceKey,
     },
     /// Remove one index.
     Index {
         /// Owning entity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         entity: EntitySourceKey,
         /// Index identity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         index: IndexSourceKey,
     },
     /// Remove one relation.
     Relation {
         /// Owning entity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         entity: EntitySourceKey,
         /// Relation identity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         relation: RelationSourceKey,
     },
 }
 
 /// Canonical current-form database-scoped proposal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SchemaProposal {
     version: ProposalContractVersion,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_CAPABILITIES }>"
+    )]
     capabilities: Vec<SchemaCapability>,
     target_database: TargetDatabaseIdentity,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_SUBMISSION_KEY_BYTES }>"
+    )]
     submission_key: SchemaSubmissionKey,
     expected_head: ExpectedAcceptedHead,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_PROPOSAL_FRAGMENTS }>"
+    )]
     fragments: Vec<SchemaFragment>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_ASSIGNMENTS }>"
+    )]
     assignments: Vec<EntityStoreAssignment>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SCHEMA_REMOVALS }>"
+    )]
     removals: Vec<SchemaRemoval>,
     migration: Option<SchemaMigrationPlan>,
 }
@@ -1360,7 +1412,7 @@ mod tests {
     fn decoded_future_contract_version_fails_typed() {
         let proposal = empty_proposal_with(Vec::new());
         let mut bytes = crate::encode_schema_proposal(&proposal).expect("proposal should encode");
-        bytes[5..7].copy_from_slice(&2_u16.to_be_bytes());
+        bytes[5] = 2;
 
         assert_eq!(
             decode_schema_proposal(&bytes),
@@ -1373,9 +1425,9 @@ mod tests {
 
     #[test]
     fn decoded_unknown_capability_fails_typed() {
-        let proposal = empty_proposal_with(vec![SchemaCapability::EXACT_COMPOSITE_TYPES]);
-        let mut bytes = crate::encode_schema_proposal(&proposal).expect("proposal should encode");
-        bytes[11..13].copy_from_slice(&u16::MAX.to_be_bytes());
+        let mut proposal = empty_proposal_with(vec![SchemaCapability::EXACT_COMPOSITE_TYPES]);
+        proposal.capabilities[0] = SchemaCapability::from_raw(u16::MAX);
+        let bytes = crate::wire::encode_one((*b"ICWP\x01", proposal)).unwrap();
 
         assert_eq!(
             decode_schema_proposal(&bytes),

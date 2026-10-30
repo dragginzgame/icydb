@@ -13,7 +13,7 @@ convert_case = { workspace = true }
 icydb-model-macros = { workspace = true }
 icydb-schema = { workspace = true }
 remain = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["std"] }
 thiserror = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

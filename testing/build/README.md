@@ -23,6 +23,12 @@ endpoint contracts and emits browser types, metadata and exact Rust frames.
 Its reflection dependencies are development-only; it does not change runtime
 payloads or library dependencies. See [browser qualification](../wire-browser/README.md).
 
+Run `cargo run --locked -p icydb-testing-build --example wire_bindings -- [OUTPUT]`
+to generate into `OUTPUT`, or `target/wire-browser` when omitted. The example
+uses Clap: `--help` exits without generating files, and unknown options or extra
+positionals reject before output creation. Use `--` before a path beginning with
+`-`; native filesystem path bytes are preserved.
+
 Rust and browser generation use the same workspace-selected registry IC Wire
 package. The
 `typescript` feature is selected only by this package's development dependencies;

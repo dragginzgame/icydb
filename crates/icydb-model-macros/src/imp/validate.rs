@@ -3,7 +3,10 @@
 //! Does not own: runtime trait semantics.
 //! Boundary: parsed nodes to impl tokens.
 
-use crate::{imp::field_walk::field_walk_bindings, prelude::*};
+use crate::{
+    imp::field_walk::{cardinality_wrapper, field_walk_bindings},
+    prelude::*,
+};
 use quote::format_ident;
 
 ///
@@ -314,42 +317,6 @@ fn wrap_validate_self_fn(inner: Option<TokenStream>, paths: &CratePaths) -> Toke
             }
         },
     }
-}
-
-/// Applies cardinality (One / Opt / Many)
-fn cardinality_wrapper(
-    card: Cardinality,
-    rules: Vec<TokenStream>,
-    var_expr: TokenStream,
-) -> Option<TokenStream> {
-    if rules.is_empty() {
-        return None;
-    }
-
-    let body = quote! { #(#rules)* };
-
-    let tokens = match card {
-        Cardinality::One => quote! {
-            let v = #var_expr;
-            #body
-        },
-        Cardinality::Opt => quote! {
-            if let ::core::option::Option::Some(v) = #var_expr {
-                #body
-            }
-        },
-        Cardinality::Many => {
-            let item = format_ident!("__item");
-            quote! {
-                for #item in #var_expr {
-                    let v = #item;
-                    #body
-                }
-            }
-        }
-    };
-
-    Some(tokens)
 }
 
 /// Value-level validation (no path manipulation)

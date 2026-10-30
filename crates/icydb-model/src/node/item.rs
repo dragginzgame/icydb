@@ -41,6 +41,16 @@ pub struct Item {
 }
 
 impl Item {
+    // Also protect manually constructed authoring nodes at model admission.
+    pub(crate) fn validate_immutable_key_hooks(&self, errs: &mut ErrorTree) {
+        if !self.normalizers().is_empty() {
+            err!(
+                errs,
+                "set items and map keys cannot declare item normalizers; normalize keys before insertion or use a container normalizer"
+            );
+        }
+    }
+
     #[must_use]
     pub const fn new(
         target: ItemTarget,

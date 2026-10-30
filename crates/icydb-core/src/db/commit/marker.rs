@@ -22,6 +22,7 @@ use std::cell::Cell;
 use std::{
     borrow::Cow,
     collections::BTreeSet,
+    convert::Infallible,
     ops::Range,
     rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
@@ -261,9 +262,7 @@ impl CommitMarker {
 const COMMIT_MARKER_ID_BYTES: usize = COMMIT_ID_BYTES;
 const COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES: usize = 4;
 const COMMIT_MARKER_DATABASE_CONTROL_COUNT_BYTES: usize = 1;
-const COMMIT_MARKER_DATABASE_CONTROL_TAG_BYTES: usize = 1;
 const COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES: usize = 32;
-const COMMIT_MARKER_CONTROL_BEFORE_TAG_BYTES: usize = 1;
 const COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES: usize = 32;
 const COMMIT_MARKER_MUTATION_JOB_ID_BYTES: usize = 32;
 const COMMIT_MARKER_MUTATION_SEQUENCE_BYTES: usize = 8;
@@ -329,6 +328,43 @@ pub(in crate::db) fn encode_commit_marker_payload(
     Ok(encoded)
 }
 
+// The control layout has two existing consumers: allocation-free sizing and
+// fallible byte emission. Only emission validates u32 lengths; counting remains
+// infallible and saturating so callers retain their existing size-admission order.
+trait DatabaseControlOutput {
+    type Error;
+
+    fn write_bytes(&mut self, bytes: &[u8]);
+    fn write_len_prefixed(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
+}
+
+impl DatabaseControlOutput for usize {
+    type Error = Infallible;
+
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        *self = self.saturating_add(bytes.len());
+    }
+
+    fn write_len_prefixed(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        *self = self
+            .saturating_add(size_of::<u32>())
+            .saturating_add(bytes.len());
+        Ok(())
+    }
+}
+
+impl DatabaseControlOutput for Vec<u8> {
+    type Error = InternalError;
+
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        self.extend_from_slice(bytes);
+    }
+
+    fn write_len_prefixed(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        write_len_prefixed_bytes(self, bytes)
+    }
+}
+
 /// Return the canonical marker payload size without allocating it.
 pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> usize {
     let mut capacity = COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_JOURNAL_BATCH_COUNT_BYTES;
@@ -337,52 +373,48 @@ pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> us
     }
     capacity = capacity.saturating_add(COMMIT_MARKER_DATABASE_CONTROL_COUNT_BYTES);
     for operation in marker.database_control() {
-        capacity = capacity.saturating_add(COMMIT_MARKER_DATABASE_CONTROL_TAG_BYTES);
-        match operation {
-            DatabaseControlOp::SchemaApplication(operation) => {
-                capacity = capacity
-                    .saturating_add(COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES)
-                    .saturating_add(encoded_replace_capacity(
-                        operation.before_bytes(),
-                        operation.after_bytes(),
-                    ));
-            }
-            #[cfg(any(test, feature = "migration"))]
-            DatabaseControlOp::EntitySourceLineage(operation) => {
-                capacity = capacity.saturating_add(encoded_replace_capacity(
-                    operation.before_bytes(),
-                    operation.after_bytes(),
-                ));
-            }
-            #[cfg(any(test, feature = "migration"))]
-            DatabaseControlOp::SchemaMigration(operation) => {
-                capacity = capacity.saturating_add(encoded_replace_capacity(
-                    operation.before_bytes(),
-                    operation.after_bytes(),
-                ));
-            }
-            DatabaseControlOp::MutationProgress(operation) => {
-                capacity = capacity
-                    .saturating_add(COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES)
-                    .saturating_add(COMMIT_MARKER_MUTATION_JOB_ID_BYTES)
-                    .saturating_add(COMMIT_MARKER_MUTATION_SEQUENCE_BYTES)
-                    .saturating_add(COMMIT_MARKER_MUTATION_DIGEST_BYTES)
-                    .saturating_add(size_of::<u32>() + operation.before_bytes().len())
-                    .saturating_add(size_of::<u32>() + operation.after_bytes().len());
-            }
+        match write_database_control_op(&mut capacity, operation) {
+            Ok(()) => {}
+            Err(never) => match never {},
         }
     }
 
     capacity
 }
 
-const fn encoded_replace_capacity(before: Option<&[u8]>, after: &[u8]) -> usize {
-    let mut capacity =
-        COMMIT_MARKER_CONTROL_BEFORE_TAG_BYTES.saturating_add(size_of::<u32>() + after.len());
-    if let Some(before) = before {
-        capacity = capacity.saturating_add(size_of::<u32>() + before.len());
+// One field sequence serves counting and emission without materializing a
+// second encoded control buffer. Decoding remains an independent trust boundary.
+fn write_database_control_op<O: DatabaseControlOutput>(
+    out: &mut O,
+    operation: &DatabaseControlOp,
+) -> Result<(), O::Error> {
+    match operation {
+        DatabaseControlOp::SchemaApplication(operation) => {
+            out.write_bytes(&[1]);
+            out.write_bytes(&operation.key().to_bytes());
+            write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
+        }
+        #[cfg(any(test, feature = "migration"))]
+        DatabaseControlOp::EntitySourceLineage(operation) => {
+            out.write_bytes(&[2]);
+            write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
+        }
+        #[cfg(any(test, feature = "migration"))]
+        DatabaseControlOp::SchemaMigration(operation) => {
+            out.write_bytes(&[3]);
+            write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
+        }
+        DatabaseControlOp::MutationProgress(operation) => {
+            out.write_bytes(&[4]);
+            out.write_bytes(&operation.key());
+            out.write_bytes(&operation.job_id().to_bytes());
+            out.write_bytes(&operation.expected_sequence().to_le_bytes());
+            out.write_bytes(&operation.expected_before_digest());
+            out.write_len_prefixed(operation.before_bytes())?;
+            out.write_len_prefixed(operation.after_bytes())?;
+        }
     }
-    capacity
+    Ok(())
 }
 
 // Write the canonical marker payload into an existing output buffer.
@@ -405,32 +437,7 @@ pub(in crate::db) fn write_commit_marker_payload(
             .map_err(|_| InternalError::commit_corruption())?,
     );
     for operation in marker.database_control() {
-        match operation {
-            DatabaseControlOp::SchemaApplication(operation) => {
-                out.push(1);
-                out.extend_from_slice(&operation.key().to_bytes());
-                write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
-            }
-            #[cfg(any(test, feature = "migration"))]
-            DatabaseControlOp::EntitySourceLineage(operation) => {
-                out.push(2);
-                write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
-            }
-            #[cfg(any(test, feature = "migration"))]
-            DatabaseControlOp::SchemaMigration(operation) => {
-                out.push(3);
-                write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
-            }
-            DatabaseControlOp::MutationProgress(operation) => {
-                out.push(4);
-                out.extend_from_slice(&operation.key());
-                out.extend_from_slice(&operation.job_id().to_bytes());
-                out.extend_from_slice(&operation.expected_sequence().to_le_bytes());
-                out.extend_from_slice(&operation.expected_before_digest());
-                write_len_prefixed_bytes(out, operation.before_bytes())?;
-                write_len_prefixed_bytes(out, operation.after_bytes())?;
-            }
-        }
+        write_database_control_op(out, operation)?;
     }
 
     Ok(journal_batch_ranges)
@@ -578,19 +585,19 @@ fn decode_migration_control_op(
     Err(InternalError::commit_corruption())
 }
 
-fn write_replace_bytes(
-    out: &mut Vec<u8>,
+fn write_replace_bytes<O: DatabaseControlOutput>(
+    out: &mut O,
     before: Option<&[u8]>,
     after: &[u8],
-) -> Result<(), InternalError> {
+) -> Result<(), O::Error> {
     match before {
-        None => out.push(0),
+        None => out.write_bytes(&[0]),
         Some(before) => {
-            out.push(1);
-            write_len_prefixed_bytes(out, before)?;
+            out.write_bytes(&[1]);
+            out.write_len_prefixed(before)?;
         }
     }
-    write_len_prefixed_bytes(out, after)
+    out.write_len_prefixed(after)
 }
 
 fn read_replace_bytes(

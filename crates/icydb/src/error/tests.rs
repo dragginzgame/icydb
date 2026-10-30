@@ -10,6 +10,7 @@ mod typed_adapter;
 use super::*;
 
 use ic_memory::RuntimeBootstrapError;
+use ic_wire::Error as WireError;
 #[cfg(feature = "sql")]
 use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
@@ -758,14 +759,12 @@ fn relation_contract_identity_survives_facade_and_wire() {
 #[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
     let cause: RuntimeBootstrapError<crate::db::MemoryBootstrapAdmissionError> =
-        RuntimeBootstrapError::StableCellLedgerWriteTooLarge {
-            value_size: usize::MAX,
-        };
+        RuntimeBootstrapError::StableCellLedgerEncode(WireError::Limit);
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(matches!(
         &bootstrap,
         crate::db::DatabaseBootstrapError::Bootstrap(source)
-            if matches!(source.as_ref(), RuntimeBootstrapError::StableCellLedgerWriteTooLarge { value_size: usize::MAX })
+            if matches!(source.as_ref(), RuntimeBootstrapError::StableCellLedgerEncode(WireError::Limit))
     ));
 
     let facade = Error::from(bootstrap);

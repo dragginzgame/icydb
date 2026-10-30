@@ -518,6 +518,16 @@ fn store_wiring_tokens(
             const STARTUP_STABLE_KEY: &'static str = #startup_stable_key;
             const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
                 #integrity_progress_stable_key;
+
+            fn generated_schema_application_record_key() -> ::std::result::Result<
+                ::std::option::Option<[u8; 32]>,
+                #icydb::__macro::InternalError,
+            > {
+                #icydb::__macro::generated_schema_application_record_key(
+                    &STORE_REGISTRY,
+                    ICYDB_SCHEMA_SUBMISSION_KEY,
+                ).map(::std::option::Option::Some)
+            }
         }
 
         /// Complete database memory requirements for host composition, without opening stores.

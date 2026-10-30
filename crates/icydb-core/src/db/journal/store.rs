@@ -65,7 +65,7 @@ const MAX_JOURNAL_INSPECTION_BYTES_PER_PAGE: usize =
 /// Duplicate batch IDs require comparing a newly decoded batch with every
 /// earlier live tail batch. `CheckingBatchIdentity` makes that proof resumable
 /// without retaining an unbounded set of IDs.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) enum JournalInspectionCheckpoint {
     /// No live tail batch has been classified.
     BeforeFirst,
@@ -134,7 +134,7 @@ impl JournalInspectionLimits {
 }
 
 /// Stable proof inputs for one physical journal tail.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) struct JournalTailProofIdentity {
     data_mutation_revision: u64,
     fold_sequence: u64,

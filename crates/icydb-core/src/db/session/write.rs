@@ -730,92 +730,31 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         requests: Vec<DynamicMutation>,
     ) -> Result<Vec<DynamicMutationResult>, InternalError> {
-        self.execute_trusted_dynamic_mutation_batch_mixed(requests)
-    }
-
-    fn execute_trusted_dynamic_mutation_batch_mixed(
-        &self,
-        requests: Vec<DynamicMutation>,
-    ) -> Result<Vec<DynamicMutationResult>, InternalError> {
-        if requests.is_empty() {
-            return Err(InternalError::mutation_batch_empty());
-        }
-        if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
-            return Err(InternalError::mutation_batch_too_many_items(
-                requests.len(),
-                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
-            ));
-        }
-        let first = requests
-            .first()
-            .ok_or_else(InternalError::mutation_batch_empty)?;
-        if first.entity().is_empty() {
-            return Err(InternalError::executor_unsupported());
-        }
-        let anchor_catalog =
-            self.accepted_schema_catalog_context_for_entity_name(Some(first.entity()))?;
-        let anchor_identity = anchor_catalog.identity();
-        let mut entity_tags = std::collections::BTreeSet::new();
-        let mut items = Vec::with_capacity(requests.len());
-        let mut result_catalogs = Vec::with_capacity(requests.len());
-        let mut identity_candidate_count = 0_usize;
-
-        let request_count = requests.len();
-        for (batch_position, request) in requests.into_iter().enumerate() {
-            let batch_position = u32::try_from(batch_position).map_err(|_| {
-                InternalError::mutation_batch_too_many_items(
-                    request_count,
-                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
-                )
-            })?;
-            if request.entity().is_empty() {
-                return Err(InternalError::executor_unsupported());
-            }
-            let item_catalog = anchor_catalog
-                .for_entity_name(request.entity())
-                .ok_or_else(|| InternalError::unsupported_entity_path(request.entity()))?;
-            let item_identity = item_catalog.identity();
-            if item_identity.store_path() != anchor_identity.store_path() {
-                return Err(InternalError::mutation_batch_store_mismatch(
-                    batch_position,
-                    anchor_identity.entity_tag().value(),
-                    item_identity.entity_tag().value(),
-                ));
-            }
-            entity_tags.insert(item_identity.entity_tag());
-            if entity_tags.len() > MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES {
-                return Err(InternalError::mutation_batch_too_many_entities(
-                    entity_tags.len(),
-                    MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES,
-                ));
-            }
-            let descriptor =
-                AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
-            let mutation =
-                lower_dynamic_mutation_intent(&item_catalog, &descriptor, request, batch_position)?;
-            if matches!(
-                mutation,
-                AcceptedStructuralMutation::Save {
-                    mode: MutationMode::Insert,
-                    target: AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                    ..
+        self.execute_mixed_mutation_batch(
+            requests,
+            |first| {
+                if first.entity().is_empty() {
+                    return Err(InternalError::executor_unsupported());
                 }
-            ) {
-                identity_candidate_count = identity_candidate_count.saturating_add(1);
-            }
-            result_catalogs.push(item_catalog.clone());
-            items.push(AcceptedStructuralMutationBatchItem {
-                catalog: item_catalog,
-                mutation,
-            });
-        }
-
-        self.execute_lowered_mixed_mutation_batch(
-            &anchor_catalog,
-            items,
-            result_catalogs,
-            identity_candidate_count,
+                self.accepted_schema_catalog_context_for_entity_name(Some(first.entity()))
+                    .map(Some)
+            },
+            |catalog, request| {
+                if request.entity().is_empty() {
+                    return Err(InternalError::executor_unsupported());
+                }
+                catalog
+                    .for_entity_name(request.entity())
+                    .map(Some)
+                    .ok_or_else(|| InternalError::unsupported_entity_path(request.entity()))
+            },
+            |catalog, descriptor, request, position| {
+                lower_dynamic_mutation_intent(catalog, descriptor, request, position).map(Some)
+            },
         )
+        // Dynamic resolution/lowering always returns a catalog and mutation or
+        // a typed error; only typed bindings can decline as stale.
+        .and_then(|result| result.ok_or_else(InternalError::executor_invariant))
     }
 
     fn execute_lowered_mixed_mutation_batch(
@@ -963,6 +902,54 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         requests: Vec<(B, DynamicTypedMutation)>,
     ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
+        self.execute_mixed_mutation_batch(
+            requests,
+            |(binding, _)| self.current_typed_entity_binding_catalog(binding.borrow()),
+            |catalog, (binding, _)| {
+                let binding = binding.borrow();
+                let Some(item_catalog) = catalog.for_entity_path(binding.entity_source.as_str())
+                else {
+                    return Ok(None);
+                };
+                if !self.typed_entity_binding_matches_catalog(
+                    binding,
+                    &item_catalog,
+                    database_incarnation_id()?.to_bytes(),
+                )? {
+                    return Ok(None);
+                }
+                Ok(Some(item_catalog))
+            },
+            |catalog, descriptor, (binding, request), position| {
+                lower_typed_mutation_intent(
+                    catalog,
+                    descriptor,
+                    binding.borrow(),
+                    request,
+                    position,
+                )
+            },
+        )
+    }
+
+    // Capture one accepted root, then admit each item before lowering it. Keep
+    // request-specific lookup and stale-binding refusal ahead of store/entity
+    // limits, and keep lowering after those limits to preserve error precedence.
+    fn execute_mixed_mutation_batch<R>(
+        &self,
+        requests: Vec<R>,
+        capture_catalog: impl FnOnce(&R) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError>,
+        resolve_catalog: impl Fn(
+            &AcceptedSchemaCatalogContext,
+            &R,
+        ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError>,
+        lower: impl Fn(
+            &AcceptedSchemaCatalogContext,
+            &AcceptedRowLayoutRuntimeContract<'_>,
+            R,
+            u32,
+        ) -> Result<Option<AcceptedStructuralMutation>, InternalError>,
+    ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
         if requests.is_empty() {
             return Err(InternalError::mutation_batch_empty());
         }
@@ -972,11 +959,10 @@ impl<C: CanisterKind> DbSession<C> {
                 MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
             ));
         }
-        let first_binding = requests
+        let first = requests
             .first()
-            .map(|(binding, _)| binding.borrow())
             .ok_or_else(InternalError::mutation_batch_empty)?;
-        let Some(catalog) = self.current_typed_entity_binding_catalog(first_binding)? else {
+        let Some(catalog) = capture_catalog(first)? else {
             return Ok(None);
         };
         let anchor_identity = catalog.identity();
@@ -986,24 +972,16 @@ impl<C: CanisterKind> DbSession<C> {
         let mut identity_candidate_count = 0_usize;
 
         let request_count = requests.len();
-        for (batch_position, (binding, request)) in requests.into_iter().enumerate() {
-            let binding = binding.borrow();
+        for (batch_position, request) in requests.into_iter().enumerate() {
             let batch_position = u32::try_from(batch_position).map_err(|_| {
                 InternalError::mutation_batch_too_many_items(
                     request_count,
                     MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
                 )
             })?;
-            let Some(item_catalog) = catalog.for_entity_path(binding.entity_source.as_str()) else {
+            let Some(item_catalog) = resolve_catalog(&catalog, &request)? else {
                 return Ok(None);
             };
-            if !self.typed_entity_binding_matches_catalog(
-                binding,
-                &item_catalog,
-                database_incarnation_id()?.to_bytes(),
-            )? {
-                return Ok(None);
-            }
             let item_identity = item_catalog.identity();
             if item_identity.store_path() != anchor_identity.store_path() {
                 return Err(InternalError::mutation_batch_store_mismatch(
@@ -1021,14 +999,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             let descriptor =
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
-            let Some(mutation) = lower_typed_mutation_intent(
-                &item_catalog,
-                &descriptor,
-                binding,
-                request,
-                batch_position,
-            )?
-            else {
+            let Some(mutation) = lower(&item_catalog, &descriptor, request, batch_position)? else {
                 return Ok(None);
             };
             if matches!(

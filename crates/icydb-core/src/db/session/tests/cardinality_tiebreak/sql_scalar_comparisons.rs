@@ -296,6 +296,53 @@ fn sql_affine_non_numeric_fields_reject_before_writes() {
 }
 
 #[test]
+fn sql_nat128_column_equality_covers_the_full_domain_and_preserves_nulls() {
+    let session = seed_scalar_pairs(
+        AcceptedFieldKind::Nat128,
+        InputValue::nat128(1_u128 << 127),
+        InputValue::nat128(u128::MAX),
+    );
+    for (op, expected) in [("=", vec![1]), ("!=", vec![2, 3])] {
+        for condition in [
+            format!("left_value {op} right_value"),
+            format!("(left_value {op} right_value) AND id + 0 = id"),
+            format!("CASE WHEN left_value {op} right_value THEN true ELSE false END"),
+        ] {
+            assert_eq!(
+                projection_rows(
+                    &session,
+                    &format!("SELECT id FROM PlannerRow WHERE {condition} ORDER BY id")
+                ),
+                expected
+                    .iter()
+                    .map(|id| vec![OutputValue::nat64(*id)])
+                    .collect::<Vec<_>>(),
+                "{condition}",
+            );
+        }
+    }
+    assert_eq!(
+        projection_rows(
+            &session,
+            "SELECT left_value = right_value FROM PlannerRow ORDER BY id"
+        ),
+        [Some(true), Some(false), Some(false), None, None, None]
+            .into_iter()
+            .map(|value| vec![value.map_or_else(OutputValue::null, OutputValue::boolean)])
+            .collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn sql_nat128_column_ordering_covers_the_full_domain_across_execution_lanes() {
+    assert_scalar_column_ordering(
+        AcceptedFieldKind::Nat128,
+        InputValue::nat128(1_u128 << 127),
+        InputValue::nat128(u128::MAX),
+    );
+}
+
+#[test]
 fn sql_issue_timestamp_column_equality_matches_execution_lanes() {
     assert_scalar_column_equality(
         AcceptedFieldKind::Timestamp,

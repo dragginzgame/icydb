@@ -3,10 +3,12 @@
 //! These values are proposal facts. Accepted schema resolves their nominal
 //! target and owns every runtime evaluator.
 
+use serde::{Deserialize, Serialize};
+
 use crate::{ScalarKind, ScalarLiteral, SchemaContractError};
 
 /// One closed durable operation applied to every selected nominal value.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SourceRuleOperation {
     /// Inclusive Unicode-scalar, octet, or collection-cardinality range.
     LengthRangeInclusive {

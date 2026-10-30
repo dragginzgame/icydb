@@ -8,7 +8,7 @@ use crate::{
         StoreRegistry,
         commit::{
             CommitControlObservation, observe_commit_control, observe_commit_control_without_proof,
-            select_commit_memory_allocation, startup_recovery_witness,
+            select_commit_memory_allocation_for, startup_recovery_witness,
         },
         database_format::{DatabaseFormatObservation, observe_database_format},
         schema::{generated_schema_is_reconciled, generated_schema_reconciled},
@@ -28,7 +28,7 @@ pub(super) fn observe<C: CanisterKind>(
 ) -> Result<DatabaseStartupState, StartupFailure> {
     C::commit_memory_id()
         .map_err(|_| InternalError::store_internal())
-        .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
+        .map(|id| select_commit_memory_allocation_for::<C>(id, C::COMMIT_STABLE_KEY))
         .map_err(database_control_failure)?;
     // Queries may observe exact debt immediately after an upgrade, before any
     // entropy-backed recovery page. Rebind the existing exclusive store handles

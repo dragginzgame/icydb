@@ -177,3 +177,11 @@ consumers retain their actual roster, policy and artifact integration proofs.
 A passing adoption check establishes only its declared graph, compilation/lint
 and read-only artifact scope. Managed Wasm builds, installed IC/upgrade behavior,
 native macOS execution and full release validation remain separately qualified.
+
+Use `--json --observations` to include each rendered package identity and its
+sorted effective feature union in the same successful Cargo observation. This
+uses Cargo's `{f}` field, including root/command-line features; feature-edge
+labels alone are insufficient. The optional `observations` array contains
+`name`, `identity` and `features`. Failed or malformed observations emit no
+admission JSON. Existing policy options remain required; this is evidence for
+consumer policy, not deployment or artifact qualification.

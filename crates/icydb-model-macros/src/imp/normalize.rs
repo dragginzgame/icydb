@@ -3,7 +3,10 @@
 //! Does not own: runtime trait semantics.
 //! Boundary: parsed nodes to impl tokens.
 
-use crate::{imp::field_walk::field_walk_bindings, prelude::*};
+use crate::{
+    imp::field_walk::{cardinality_wrapper, field_walk_bindings},
+    prelude::*,
+};
 
 /// ---------------------------------------------------------------------------
 /// NormalizeAuto
@@ -42,7 +45,7 @@ impl_normalize_auto!(Enum, List, Map, Newtype, Set);
 /// ---------------------------------------------------------------------------
 /// Entity / Record
 /// ---------------------------------------------------------------------------
-/// Apply field-level normalizers directly to owned fields.
+/// Apply field-item normalizers using the declared cardinality.
 /// Do NOT recurse.
 impl Imp<Entity> for NormalizeAutoTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
@@ -86,14 +89,30 @@ impl NormalizeAutoFn for Newtype {
 /// ---------------------------------------------------------------------------
 /// List / Set / Map
 /// ---------------------------------------------------------------------------
-/// IMPORTANT:
-/// - Do NOT iterate items here
-/// - List items and map values are normalized via traversal
-/// - Set items and map keys are not visited in mutable traversal
-/// - Only container-level normalizers belong here
+/// Container-declared item hooks run here; the visitor separately visits each
+/// child's own normalization implementation. Sorted keys are never mutated.
 impl NormalizeAutoFn for List {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
-        container_self_tokens(&node.ty.normalizers, paths)
+        let model = &paths.model;
+        let mut statements =
+            generate_normalizers(&node.ty.normalizers, quote!(self.0), None, paths);
+        let items = generate_normalizers(
+            &node.item.normalizers,
+            quote!(*v),
+            Some(quote!(#model::visitor::PathSegment::Index(i))),
+            paths,
+        );
+        if !items.is_empty() {
+            statements.push(quote! {
+                for (i, v) in self.0.iter_mut().enumerate() {
+                    #(#items)*
+                }
+            });
+        }
+        fn_wrap_normalize_self(
+            (!statements.is_empty()).then(|| quote! { #(#statements)* }),
+            paths,
+        )
     }
 }
 
@@ -105,7 +124,26 @@ impl NormalizeAutoFn for Set {
 
 impl NormalizeAutoFn for Map {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
-        container_self_tokens(&node.ty.normalizers, paths)
+        let model = &paths.model;
+        let mut statements =
+            generate_normalizers(&node.ty.normalizers, quote!(self.0), None, paths);
+        let values = generate_normalizers(
+            &node.value.item.normalizers,
+            quote!(*v),
+            Some(quote!(#model::visitor::PathSegment::Index(i))),
+            paths,
+        );
+        if let Some(values) = cardinality_wrapper(node.value.cardinality(), values, quote!(v)) {
+            statements.push(quote! {
+                for (i, v) in self.0.values_mut().enumerate() {
+                    #values
+                }
+            });
+        }
+        fn_wrap_normalize_self(
+            (!statements.is_empty()).then(|| quote! { #(#statements)* }),
+            paths,
+        )
     }
 }
 
@@ -179,7 +217,7 @@ fn container_normalizers(
     }
 }
 
-/// List, set, and map containers share the same direct self-normalizer shape.
+/// Emit container normalization without mutable item callbacks, as required by sets.
 fn container_self_tokens(normalizers: &[TypeNormalizer], paths: &CratePaths) -> TokenStream {
     fn_wrap_normalize_self(
         container_normalizers(normalizers, quote!(self.0), paths),
@@ -188,7 +226,7 @@ fn container_self_tokens(normalizers: &[TypeNormalizer], paths: &CratePaths) -> 
 }
 
 /// Field-level normalizers for Entity / Record.
-/// Applies directly to owned fields.
+/// Applies item callbacks through each field's declared cardinality.
 fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream {
     let model = &paths.model;
     let bindings = field_walk_bindings(fields);
@@ -200,24 +238,25 @@ fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream 
         .filter_map(|(field, binding)| {
             let stmts = generate_normalizers(
                 &field.value.item.normalizers,
-                binding.member_mut_from(quote!(node)),
+                quote!(*v),
                 Some(binding.path_segment(paths)),
                 paths,
             );
+            let stmts = cardinality_wrapper(
+                field.value.cardinality(),
+                stmts,
+                binding.member_mut_from(quote!(node)),
+            )?;
             let fn_ident = binding.normalize_fn_ident();
 
-            if stmts.is_empty() {
-                None
-            } else {
-                Some(quote! {
-                    fn #fn_ident(
-                        node: &mut Self,
-                        ctx: &mut dyn #model::visitor::VisitorContext,
-                    ) {
-                        #(#stmts)*
-                    }
-                })
-            }
+            Some(quote! {
+                fn #fn_ident(
+                    node: &mut Self,
+                    ctx: &mut dyn #model::visitor::VisitorContext,
+                ) {
+                    #stmts
+                }
+            })
         });
 
     let descriptors = bindings

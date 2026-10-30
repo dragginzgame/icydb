@@ -335,16 +335,20 @@ impl SchemaApplicationStore {
     }
 
     fn terminal_retention_candidate(&self) -> Result<Option<ApplicationRecordKey>, InternalError> {
+        let protected = crate::db::commit::current_schema_application_readiness_key()?
+            .map(ApplicationRecordKey::from_bytes);
         for key in self.map.keys() {
             let raw = self
                 .map
                 .get(&key)
                 .ok_or_else(InternalError::store_corruption)?;
             let record = decode_application_record(&raw.0, key)?;
-            if !matches!(
-                record.receipt().outcome(),
-                SchemaChangeOutcome::Pending { .. }
-            ) {
+            if Some(key) != protected
+                && !matches!(
+                    record.receipt().outcome(),
+                    SchemaChangeOutcome::Pending { .. }
+                )
+            {
                 return Ok(Some(key));
             }
         }
@@ -1082,5 +1086,87 @@ mod tests {
                 .expect("new pending record should load"),
             Some(next),
         );
+    }
+
+    #[test]
+    fn application_store_retention_preserves_readiness_and_pending_receipts() {
+        struct Generated;
+        impl crate::traits::Path for Generated {
+            const PATH: &'static str = "retention::Generated";
+        }
+        impl crate::traits::CanisterKind for Generated {
+            const COMMIT_STABLE_KEY: &'static str = "icydb.retention.commit.v1";
+            const STARTUP_STABLE_KEY: &'static str = "icydb.retention.startup.v1";
+            const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.retention.integrity.v1";
+
+            fn generated_schema_application_record_key()
+            -> Result<Option<[u8; 32]>, crate::error::InternalError> {
+                ApplicationRecordKey::from_receipt(pending_record("protected").receipt())
+                    .map(|key| Some(key.to_bytes()))
+            }
+        }
+
+        crate::db::commit::select_commit_memory_allocation_for::<Generated>(
+            225,
+            "icydb.retention.commit.v1",
+        );
+        let memory = std::rc::Rc::new(test_memory(225));
+        let mut store = SchemaApplicationStore::open(memory.clone()).unwrap();
+        let protected = applied_record(&pending_record("protected"));
+        let protected_key = ApplicationRecordKey::from_receipt(protected.receipt()).unwrap();
+        store
+            .apply(&SchemaApplicationRecordOp::insert(&protected).unwrap())
+            .unwrap();
+        for ordinal in 1..MAX_SCHEMA_APPLICATION_RECORDS {
+            let pending = pending_record(&format!("retained-{ordinal}"));
+            store
+                .apply(&SchemaApplicationRecordOp::insert(&pending).unwrap())
+                .unwrap();
+        }
+        let next = pending_record("overflow");
+        let insert = SchemaApplicationRecordOp::insert(&next).unwrap();
+        assert_eq!(
+            store.preflight(&insert).unwrap_err().class,
+            crate::error::ErrorClass::Conflict
+        );
+        assert_eq!(
+            store.apply(&insert).unwrap_err().class,
+            crate::error::ErrorClass::Conflict
+        );
+        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS);
+
+        // Only the explicitly completed pending record becomes eligible.
+        let pending = pending_record("retained-1");
+        let completed = applied_record(&pending);
+        store
+            .apply(&SchemaApplicationRecordOp::replace(&pending, &completed).unwrap())
+            .unwrap();
+        assert_eq!(
+            store.preflight(&insert).unwrap(),
+            super::SchemaApplicationRecordPreflight::Ready {
+                retired_terminal: Some(
+                    ApplicationRecordKey::from_receipt(completed.receipt()).unwrap()
+                ),
+            },
+        );
+        store.apply(&insert).unwrap();
+        store.apply(&insert).unwrap();
+        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS);
+        assert_eq!(
+            store
+                .load_key(ApplicationRecordKey::from_receipt(protected.receipt()).unwrap())
+                .unwrap(),
+            Some(protected)
+        );
+        assert!(
+            store
+                .load_key(ApplicationRecordKey::from_receipt(completed.receipt()).unwrap())
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(store.load_key(insert.key()).unwrap(), Some(next));
+        drop(store);
+        let reopened = SchemaApplicationStore::open(memory).unwrap();
+        assert!(reopened.load_key(protected_key).unwrap().is_some());
     }
 }

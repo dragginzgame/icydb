@@ -58,11 +58,13 @@ pub(in crate::db) use marker::{
     MAX_COMMIT_BYTES, generate_commit_id, generate_marker_batch_id,
 };
 pub(in crate::db) use memory::current_commit_memory_allocation_if_configured;
+#[cfg(test)]
+pub(in crate::db) use memory::select_commit_memory_allocation;
 #[doc(hidden)]
 pub use memory::with_selected_commit_memory;
 pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
-    select_commit_memory_allocation,
+    current_schema_application_readiness_key, select_commit_memory_allocation_for,
 };
 pub(in crate::db) use prepare::{
     CommitPrepareContext, CommitPrepareContextCache, CommitPrepareMode,

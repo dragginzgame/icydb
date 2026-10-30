@@ -5,8 +5,13 @@
 
 #[cfg(test)]
 mod maintenance_tests;
+#[cfg(test)]
+mod ordered_charge_tests;
 
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    iter,
+};
 
 #[cfg(test)]
 use crate::db::QueryError;
@@ -847,18 +852,18 @@ pub(in crate::db) fn try_charge_current_execution_budget_bundle(
     })
 }
 
-/// Charge two maintained physical resources through one active-budget lookup.
+/// Charge maintained physical resources in order through one active-budget lookup.
 ///
-/// The charges retain their declared order: if the first charge exhausts its
-/// budget, the second is not applied, matching two sequential calls to
-/// [`charge_current_execution_budget`].
-pub(in crate::db) fn charge_current_execution_budget_pair(
-    first: (DiagnosticExecutionBudgetResource, u64),
-    second: (DiagnosticExecutionBudgetResource, u64),
+/// Earlier and attempted charges remain accounted when one fails; later charges
+/// are skipped, matching sequential calls to [`charge_current_execution_budget`].
+/// Empty and zero-only sequences do not borrow the active budget.
+pub(in crate::db) fn charge_current_execution_budget_ordered(
+    charges: impl IntoIterator<Item = (DiagnosticExecutionBudgetResource, u64)>,
 ) -> Result<(), InternalError> {
-    if first.1 == 0 && second.1 == 0 {
+    let mut charges = charges.into_iter().filter(|(_, amount)| *amount != 0);
+    let Some(first) = charges.next() else {
         return Ok(());
-    }
+    };
     ACTIVE_EXECUTION_BUDGET.with(|budget| {
         let mut budget = budget
             .try_borrow_mut()
@@ -867,14 +872,9 @@ pub(in crate::db) fn charge_current_execution_budget_pair(
             return Ok(());
         };
 
-        if first.1 != 0 {
+        for (resource, amount) in iter::once(first).chain(charges) {
             budget
-                .charge_periodic(first.0, first.1)
-                .map_err(InternalError::from)?;
-        }
-        if second.1 != 0 {
-            budget
-                .charge_periodic(second.0, second.1)
+                .charge_periodic(resource, amount)
                 .map_err(InternalError::from)?;
         }
         Ok(())
@@ -888,7 +888,7 @@ pub(in crate::db) fn charge_decoded_row(
     row_bytes: usize,
     nested_steps: usize,
 ) -> Result<(), InternalError> {
-    charge_current_execution_budget_pair(
+    charge_current_execution_budget_ordered([
         (
             DiagnosticExecutionBudgetResource::DecodedBytes,
             usize_as_u64(row_bytes),
@@ -897,13 +897,13 @@ pub(in crate::db) fn charge_decoded_row(
             DiagnosticExecutionBudgetResource::NestedValueSteps,
             usize_as_u64(nested_steps),
         ),
-    )
+    ])
 }
 
 /// Charge the stored and materialized bytes for one owned data-row payload.
 pub(in crate::db) fn charge_materialized_data_row(row_bytes: usize) -> Result<(), InternalError> {
     let row_bytes = usize_as_u64(row_bytes);
-    charge_current_execution_budget_pair(
+    charge_current_execution_budget_ordered([
         (
             DiagnosticExecutionBudgetResource::StoredBytesRead,
             row_bytes,
@@ -912,7 +912,7 @@ pub(in crate::db) fn charge_materialized_data_row(row_bytes: usize) -> Result<()
             DiagnosticExecutionBudgetResource::MaterializedBytes,
             row_bytes,
         ),
-    )
+    ])
 }
 
 /// Build one typed budget failure from a stricter operator-local hard limit.
@@ -1060,7 +1060,7 @@ pub(in crate::db) fn charge_runtime_result_work(
     bytes: u64,
     nested_steps: u64,
 ) -> Result<(), InternalError> {
-    charge_current_execution_budget_pair(
+    charge_current_execution_budget_ordered([
         (
             DiagnosticExecutionBudgetResource::ResultRows,
             usize_as_u64(row_count),
@@ -1069,11 +1069,11 @@ pub(in crate::db) fn charge_runtime_result_work(
             DiagnosticExecutionBudgetResource::NestedValueSteps,
             nested_steps,
         ),
-    )?;
-    charge_current_execution_budget_pair(
+    ])?;
+    charge_current_execution_budget_ordered([
         (DiagnosticExecutionBudgetResource::MaterializedBytes, bytes),
         (DiagnosticExecutionBudgetResource::ResultBytes, bytes),
-    )
+    ])
 }
 
 pub(in crate::db) const RUNTIME_VALUE_NODE_OVERHEAD_BYTES: u64 = 32;
@@ -1569,10 +1569,10 @@ mod tests {
                 &root.scope(),
             ),
             || {
-                charge_current_execution_budget_pair(
+                charge_current_execution_budget_ordered([
                     (DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1),
                     (DiagnosticExecutionBudgetResource::CursorSteps, 1),
-                )
+                ])
             },
             std::convert::identity,
             ExecutionBudgetFinish::Automatic,

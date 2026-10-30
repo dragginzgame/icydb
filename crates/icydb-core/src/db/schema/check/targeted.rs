@@ -9,10 +9,10 @@ use super::{
 };
 use crate::{
     db::schema::{
-        AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedFieldKind,
-        AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
-        AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintId,
-        FieldId, MAX_ACCEPTED_RECURSIVE_DEPTH_U16,
+        AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedNamedTypeIdentity,
+        AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaSnapshot,
+        AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintId, FieldId,
+        MAX_ACCEPTED_RECURSIVE_DEPTH_U16,
         composite_catalog::{
             AcceptedCompositeField, AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
         },
@@ -228,32 +228,6 @@ impl CompiledAcceptedTargetedRules {
         }
     }
 
-    pub(super) fn compile(
-        schema: &AcceptedSchemaSnapshot,
-        value_catalog: &AcceptedValueCatalogHandle,
-    ) -> Result<Self, AcceptedTargetedRuleEvaluationError> {
-        let snapshot = schema.persisted_snapshot();
-        let accepted = snapshot.constraints().iter().filter_map(|constraint| {
-            let AcceptedConstraintKind::TargetedRule { target, operation } = constraint.kind()
-            else {
-                return None;
-            };
-            Some((constraint.id(), *target, operation.as_ref(), true))
-        });
-        let activating = snapshot
-            .constraint_activations()
-            .iter()
-            .filter_map(|activation| {
-                let ConstraintActivationKind::TargetedRule { target, operation } =
-                    activation.kind()
-                else {
-                    return None;
-                };
-                Some((activation.id(), *target, operation.as_ref(), false))
-            });
-        Self::compile_sources(schema, value_catalog, accepted.chain(activating))
-    }
-
     pub(super) fn compile_activation(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
@@ -275,7 +249,7 @@ impl CompiledAcceptedTargetedRules {
         )
     }
 
-    fn compile_sources<'a>(
+    pub(super) fn compile_sources<'a>(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
         sources: impl Iterator<

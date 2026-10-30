@@ -800,7 +800,7 @@ fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> 
 #[cfg(any(test, feature = "sql"))]
 fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
-        // Bare integers above u64 reach strict SQL binding as scale-zero Decimal atoms.
+        // Bare integers above u64 within Decimal's range arrive as scale-zero atoms.
         Value::Decimal(inner) => inner.scale_to_integer(0)?,
         Value::Int64(inner) => i128::from(*inner),
         Value::Nat64(inner) => i128::from(*inner),

@@ -31,6 +31,7 @@ ic-wire = { workspace = true, features = ["typescript"] }
 
 [dev-dependencies]
 canic-icydb = { workspace = true }
+ic-platform = { workspace = true, features = ["principal-self-authenticating"] }
 trybuild = { workspace = true }
 
 [[test]]

@@ -32,7 +32,7 @@ pub(crate) fn eq(left: &Value, right: &Value) -> Option<bool> {
     let numeric_widen_enabled =
         semantics::supports_numeric_coercion(left) || semantics::supports_numeric_coercion(right);
     if numeric_widen_enabled {
-        return numeric::compare_decimal_order(left, right)
+        return numeric::compare_numeric_order(left, right)
             .map(|ordering| ordering == Ordering::Equal);
     }
 
@@ -51,7 +51,7 @@ pub(crate) fn order(left: &Value, right: &Value) -> Option<Ordering> {
     let numeric_widen_enabled =
         semantics::supports_numeric_coercion(left) || semantics::supports_numeric_coercion(right);
     if numeric_widen_enabled {
-        return numeric::compare_decimal_order(left, right);
+        return numeric::compare_numeric_order(left, right);
     }
 
     strict_order_cmp(left, right)

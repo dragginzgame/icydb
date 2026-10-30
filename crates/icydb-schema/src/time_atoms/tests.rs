@@ -1,54 +1,41 @@
-use serde::{Serialize, de::DeserializeOwned};
-
 use crate::TypeParseError;
 
 use super::{Duration, Timestamp};
 
-fn cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    serde_cbor::to_writer(&mut bytes, value).expect("value should CBOR-encode");
-    bytes
-}
-
-fn cbor_round_trip<T>(value: &T) -> T
-where
-    T: DeserializeOwned + Serialize,
-{
-    serde_cbor::from_slice(cbor_bytes(value).as_slice()).expect("value should CBOR-decode")
-}
-
 #[test]
 fn time_atoms_keep_primitive_wire_shapes() {
-    let duration = Duration::from_millis(12_345);
-    let timestamp = Timestamp::from_millis(-12_345);
-    let wire = crate::wire::encode_one((duration, timestamp)).expect("time atoms should encode");
-    let primitive = crate::wire::encode_one((duration.as_millis(), timestamp.as_millis()))
-        .expect("primitive time wires should encode");
-    let decoded: (Duration, Timestamp) =
-        crate::wire::decode_one(&wire).expect("time atoms should decode");
-
-    assert_eq!(wire, primitive);
-    assert_eq!(decoded, (duration, timestamp));
-}
-
-#[test]
-fn time_atoms_keep_primitive_cbor_payloads() {
-    let duration = Duration::from_millis(12_345);
-    let timestamp = Timestamp::from_millis(-12_345);
-
-    assert_eq!(cbor_bytes(&duration), cbor_bytes(&duration.as_millis()));
-    assert_eq!(cbor_bytes(&timestamp), cbor_bytes(&timestamp.as_millis()));
-    assert_eq!(cbor_round_trip(&duration), duration);
-    assert_eq!(cbor_round_trip(&timestamp), timestamp);
+    for pair in [
+        (Duration::ZERO, Timestamp::MIN),
+        (Duration::MAX, Timestamp::MAX),
+        (
+            Duration::from_millis(12_345),
+            Timestamp::from_millis(-12_345),
+        ),
+    ] {
+        let wire = crate::wire::encode_one(pair).expect("time atoms should encode");
+        let primitive = crate::wire::encode_one((pair.0.as_millis(), pair.1.as_millis()))
+            .expect("primitive time wires should encode");
+        assert_eq!(wire, primitive);
+        assert_eq!(
+            crate::wire::decode_one::<(Duration, Timestamp)>(&wire).unwrap(),
+            pair
+        );
+        let batch = vec![pair; 1_000];
+        let wire = crate::wire::encode_one(&batch).unwrap();
+        assert_eq!(
+            crate::wire::decode_one::<Vec<(Duration, Timestamp)>>(&wire).unwrap(),
+            batch
+        );
+    }
 }
 
 #[test]
 fn binary_time_atoms_reject_human_readable_text_forms() {
-    let duration = cbor_bytes(&"2s");
-    let timestamp = cbor_bytes(&"1969-12-31T23:59:59.999Z");
+    let duration = crate::wire::encode_one("2s").unwrap();
+    let timestamp = crate::wire::encode_one("1969-12-31T23:59:59.999Z").unwrap();
 
-    assert!(serde_cbor::from_slice::<Duration>(duration.as_slice()).is_err());
-    assert!(serde_cbor::from_slice::<Timestamp>(timestamp.as_slice()).is_err());
+    assert!(crate::wire::decode_one::<Duration>(&duration).is_err());
+    assert!(crate::wire::decode_one::<Timestamp>(&timestamp).is_err());
 }
 
 #[test]

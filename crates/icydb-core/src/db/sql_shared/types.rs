@@ -543,6 +543,11 @@ pub(in crate::db::sql_shared) fn parse_number_literal(raw: &str) -> Result<Value
     if let Ok(value) = Decimal::from_str(raw) {
         return Ok(Value::Decimal(value));
     }
+    // Preserve existing literal typing; the remaining unsigned range cannot
+    // fit Decimal's signed mantissa but is exact in the maintained Nat128 atom.
+    if let Ok(value) = raw.parse::<u128>() {
+        return Ok(Value::Nat128(value));
+    }
 
     Err(SqlParseError::invalid_numeric_literal())
 }

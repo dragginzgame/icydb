@@ -60,7 +60,7 @@ use sha2::Digest;
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, Ref, RefCell};
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
-use std::ops::Bound as RangeBound;
+use std::ops::{Bound as RangeBound, ControlFlow};
 use std::rc::Rc;
 
 const SCHEMA_KEY_BYTES_USIZE: usize = 16;
@@ -3795,50 +3795,43 @@ impl SchemaStore {
         direction: Direction,
         mut visitor: impl FnMut(&RawSchemaKey, &RawSchemaValue) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
+        // Share visitor dispatch and stop/error propagation; iterator direction
+        // stays statically selected before traversal.
+        let mut visit_entry = |entry: OrderedOverlayEntry<
+            <MapIter<'_, RawSchemaKey, RawSchemaValue> as Iterator>::Item,
+            (&RawSchemaKey, &RawSchemaValue),
+        >| {
+            let result = match entry {
+                OrderedOverlayEntry::Canonical(entry) => visitor(entry.key(), &entry.value()),
+                OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot),
+            };
+            match result {
+                Ok(visit) if !visit.should_stop() => ControlFlow::Continue(()),
+                result => ControlFlow::Break(result.map(|_| ())),
+            }
+        };
         match direction {
-            Direction::Asc => {
-                for entry in ordered_overlay_entries(
-                    canonical.range((bounds.0, bounds.1)),
-                    live.range((bounds.0, bounds.1)),
-                    Direction::Asc,
-                    |entry| entry.key(),
-                    |entry| entry.0,
-                    tombstones,
-                ) {
-                    let visit = match entry {
-                        OrderedOverlayEntry::Canonical(canonical_entry) => {
-                            visitor(canonical_entry.key(), &canonical_entry.value())?
-                        }
-                        OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot)?,
-                    };
-                    if visit.should_stop() {
-                        return Ok(());
-                    }
-                }
-            }
-            Direction::Desc => {
-                for entry in ordered_overlay_entries(
-                    canonical.range((bounds.0, bounds.1)).rev(),
-                    live.range((bounds.0, bounds.1)).rev(),
-                    Direction::Desc,
-                    |entry| entry.key(),
-                    |entry| entry.0,
-                    tombstones,
-                ) {
-                    let visit = match entry {
-                        OrderedOverlayEntry::Canonical(canonical_entry) => {
-                            visitor(canonical_entry.key(), &canonical_entry.value())?
-                        }
-                        OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot)?,
-                    };
-                    if visit.should_stop() {
-                        return Ok(());
-                    }
-                }
-            }
+            Direction::Asc => ordered_overlay_entries(
+                canonical.range((bounds.0, bounds.1)),
+                live.range((bounds.0, bounds.1)),
+                Direction::Asc,
+                |entry| entry.key(),
+                |entry| entry.0,
+                tombstones,
+            )
+            .try_for_each(&mut visit_entry),
+            Direction::Desc => ordered_overlay_entries(
+                canonical.range((bounds.0, bounds.1)).rev(),
+                live.range((bounds.0, bounds.1)).rev(),
+                Direction::Desc,
+                |entry| entry.key(),
+                |entry| entry.0,
+                tombstones,
+            )
+            .try_for_each(&mut visit_entry),
         }
-
-        Ok(())
+        .break_value()
+        .unwrap_or(Ok(()))
     }
 }
 

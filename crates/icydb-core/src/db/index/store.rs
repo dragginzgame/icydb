@@ -21,12 +21,12 @@ use crate::db::{
 use crate::error::InternalError;
 
 use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
-use ic_storage::adapter::StableBTreeMap;
+use ic_storage::adapter::{MapIter, StableBTreeMap};
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet, btree_map::Entry};
-use std::ops::Bound;
+use std::ops::{Bound, ControlFlow};
 
 #[cfg(test)]
 thread_local! {
@@ -835,6 +835,7 @@ impl IndexStore {
                         return Ok(());
                     }
                 }
+                return Ok(());
             }
             Direction::Desc if canonical.is_empty() => {
                 for (key, value) in live.range((lower, upper)).rev() {
@@ -842,6 +843,7 @@ impl IndexStore {
                         return Ok(());
                     }
                 }
+                return Ok(());
             }
             Direction::Asc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)) {
@@ -849,6 +851,7 @@ impl IndexStore {
                         return Ok(());
                     }
                 }
+                return Ok(());
             }
             Direction::Desc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)).rev() {
@@ -856,58 +859,52 @@ impl IndexStore {
                         return Ok(());
                     }
                 }
+                return Ok(());
             }
-            Direction::Asc => {
-                for entry in ordered_overlay_entries(
-                    canonical.range((lower, upper)),
-                    live.range((lower, upper)),
-                    direction,
-                    |entry| entry.key(),
-                    |entry| entry.0,
-                    tombstones,
-                ) {
-                    let should_stop = match entry {
-                        OrderedOverlayEntry::Canonical(canonical_entry) => visit_index_store_entry(
-                            canonical_entry.key(),
-                            &canonical_entry.value(),
-                            &mut visit,
-                        )?,
-                        OrderedOverlayEntry::Live((key, value)) => {
-                            visit_index_store_entry(key, value, &mut visit)?
-                        }
-                    };
-                    if should_stop {
-                        return Ok(());
-                    }
-                }
-            }
-            Direction::Desc => {
-                for entry in ordered_overlay_entries(
-                    canonical.range((lower, upper)).rev(),
-                    live.range((lower, upper)).rev(),
-                    direction,
-                    |entry| entry.key(),
-                    |entry| entry.0,
-                    tombstones,
-                ) {
-                    let should_stop = match entry {
-                        OrderedOverlayEntry::Canonical(canonical_entry) => visit_index_store_entry(
-                            canonical_entry.key(),
-                            &canonical_entry.value(),
-                            &mut visit,
-                        )?,
-                        OrderedOverlayEntry::Live((key, value)) => {
-                            visit_index_store_entry(key, value, &mut visit)?
-                        }
-                    };
-                    if should_stop {
-                        return Ok(());
-                    }
-                }
-            }
+            _ => {}
         }
 
-        Ok(())
+        // Share visitor dispatch and stop/error propagation; iterator direction
+        // stays statically selected before traversal.
+        let mut visit_entry = |entry: OrderedOverlayEntry<
+            <MapIter<'_, RawIndexStoreKey, IndexEntryValue> as Iterator>::Item,
+            (&RawIndexStoreKey, &IndexEntryValue),
+        >| {
+            let result = match entry {
+                OrderedOverlayEntry::Canonical(entry) => {
+                    visit_index_store_entry(entry.key(), &entry.value(), &mut visit)
+                }
+                OrderedOverlayEntry::Live((key, value)) => {
+                    visit_index_store_entry(key, value, &mut visit)
+                }
+            };
+            match result {
+                Ok(visit) if !visit => ControlFlow::Continue(()),
+                result => ControlFlow::Break(result.map(|_| ())),
+            }
+        };
+        match direction {
+            Direction::Asc => ordered_overlay_entries(
+                canonical.range((lower, upper)),
+                live.range((lower, upper)),
+                direction,
+                |entry| entry.key(),
+                |entry| entry.0,
+                tombstones,
+            )
+            .try_for_each(&mut visit_entry),
+            Direction::Desc => ordered_overlay_entries(
+                canonical.range((lower, upper)).rev(),
+                live.range((lower, upper)).rev(),
+                direction,
+                |entry| entry.key(),
+                |entry| entry.0,
+                tombstones,
+            )
+            .try_for_each(&mut visit_entry),
+        }
+        .break_value()
+        .unwrap_or(Ok(()))
     }
 }
 

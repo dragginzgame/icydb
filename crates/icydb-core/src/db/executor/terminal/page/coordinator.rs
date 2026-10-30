@@ -9,8 +9,8 @@ use crate::{
         index::IndexKey,
         resource::budget::{
             ExecutionBudgetUsage, RUNTIME_VALUE_NODE_OVERHEAD_BYTES,
-            charge_current_execution_budget, charge_current_execution_budget_pair,
-            current_execution_budget_usage, resource_index, runtime_value_work,
+            charge_current_execution_budget_ordered, current_execution_budget_usage,
+            resource_index, runtime_value_work,
         },
     },
     error::InternalError,
@@ -259,9 +259,11 @@ impl PageWorkTracker {
     // The output owner preflights once, immediately before charging. No callback
     // or tracker mutation intervenes between admission and these ordered charges.
     fn charge_admitted(&mut self, work: PageWork) -> Result<(), InternalError> {
-        for resource in DiagnosticExecutionBudgetResource::ALL {
-            charge_current_execution_budget(resource, work.amount(resource))?;
-        }
+        charge_current_execution_budget_ordered(
+            DiagnosticExecutionBudgetResource::ALL
+                .into_iter()
+                .map(|resource| (resource, work.amount(resource))),
+        )?;
         self.observed = self.observed.merge(work);
         Ok(())
     }
@@ -420,7 +422,7 @@ fn scalar_output_row_work(row: &[Value]) -> PageWork {
 // known. If that row cannot enter this page, retain its completed transient
 // materialization cost in the hard request budget without claiming output.
 fn charge_discarded_output_materialization(work: PageWork) -> Result<(), InternalError> {
-    charge_current_execution_budget_pair(
+    charge_current_execution_budget_ordered([
         (
             DiagnosticExecutionBudgetResource::NestedValueSteps,
             work.amount(DiagnosticExecutionBudgetResource::NestedValueSteps),
@@ -429,7 +431,7 @@ fn charge_discarded_output_materialization(work: PageWork) -> Result<(), Interna
             DiagnosticExecutionBudgetResource::MaterializedBytes,
             work.amount(DiagnosticExecutionBudgetResource::MaterializedBytes),
         ),
-    )
+    ])
 }
 
 impl ProductionScalarPageWork {
@@ -670,7 +672,8 @@ mod tests {
         QueryError,
         resource::budget::{
             HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-            read_hard_budget_limit_for_tests, with_query_execution_budget_for_tests,
+            charge_current_execution_budget, read_hard_budget_limit_for_tests,
+            with_query_execution_budget_for_tests,
         },
     };
     use icydb_diagnostic_code::{

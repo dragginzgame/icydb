@@ -28,9 +28,10 @@ use crate::{
         relation::prove_empty_reverse_relation_domain,
         schema::ensure_schema_migration_ready_for_schema_changes,
         schema::{
-            AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
-            ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
-            ConstraintValidationPhase, ConstraintValidationProgress, ExistingProposalStore,
+            AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, ApplicationRecordKey,
+            CandidateSchemaRevision, ConstraintActivationKind, ConstraintActivationState,
+            ConstraintId, ConstraintOrigin, ConstraintValidationPhase,
+            ConstraintValidationProgress, ExistingProposalStore,
             MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, PersistedSchemaSnapshot, ProposalStoreTarget,
             SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
             SchemaChangeJob, SchemaChangeJobId, SchemaChangeOutcome, SchemaChangeProgress,
@@ -3096,6 +3097,21 @@ fn derive_accepted_head(stores: &[(&str, Option<AcceptedStoreHead>)]) -> Expecte
         revision,
         fingerprint: ExpectedSchemaFingerprint::from_bytes(finalize_hash_sha256(hasher)),
     }
+}
+
+/// Resolve the exact generated receipt using the current database incarnation.
+///
+/// Generated `CanisterKind` wiring supplies the immutable registry and submission;
+/// callers must select its commit allocation before invoking this helper.
+#[doc(hidden)]
+pub fn generated_schema_application_record_key(
+    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
+    submission_key: &str,
+) -> Result<[u8; 32], InternalError> {
+    let submission_key = SchemaSubmissionKey::try_new(submission_key.to_owned())
+        .map_err(|_| InternalError::store_invariant())?;
+    let identity = generated_database_identity(registry, database_incarnation_id()?);
+    ApplicationRecordKey::new(identity, &submission_key).map(ApplicationRecordKey::to_bytes)
 }
 
 pub(in crate::db) fn generated_schema_reconciled(

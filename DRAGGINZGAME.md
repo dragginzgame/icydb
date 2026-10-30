@@ -126,8 +126,11 @@ for justified internal links, packaging and filesystem security boundaries.
 
 ## CLI applications
 
-Use Clap for Rust CLI parsing. Read the [CLI contract](rules/engineering-details.md#cli-applications)
-when adding or changing commands.
+Use Clap for as much Rust CLI behavior as its supported APIs can own, including
+typed values, validation, argument relationships, defaults, help and diagnostics.
+Check its built-ins and extension points before writing custom CLI mechanics.
+Read the [CLI contract](rules/engineering-details.md#cli-applications) when adding,
+changing or reviewing commands.
 
 ## Metrics and logging
 

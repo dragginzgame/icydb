@@ -9,6 +9,7 @@ use ic_memory::{
     MemoryDeclarationError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeConstructionError,
     RuntimeOpenError, StableKey,
 };
+use ic_wire::Error as WireError;
 use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
 
 fn public(cause: RuntimeBootstrapError<MemoryBootstrapAdmissionError>) -> Error {
@@ -131,9 +132,8 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
 #[test]
 fn memory_bootstrap_internal_failures_retain_internal_classification() {
     for cause in [
-        RuntimeBootstrapError::StableCellLedgerWriteTooLarge {
-            value_size: usize::MAX,
-        },
+        RuntimeBootstrapError::StableCellLedgerEncode(WireError::Limit),
+        RuntimeBootstrapError::StableCellLedgerEncode(WireError::Malformed),
         RuntimeBootstrapError::LedgerGrowth(ic_memory::RuntimeGrowError::ReentrantAccess),
     ] {
         let error = public(cause);

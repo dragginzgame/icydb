@@ -43,6 +43,16 @@ pub struct Item {
 }
 
 impl Item {
+    // Mutable item hooks cannot preserve a sorted key's ordering or identity.
+    pub(crate) fn validate_immutable_key_hooks(&self) -> Result<(), DarlingError> {
+        if let Some(normalizer) = self.normalizers.first() {
+            return Err(DarlingError::custom(
+                "set items and map keys cannot declare item normalizers; normalize keys before insertion or use a container normalizer",
+            ).with_span(&normalizer.path));
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), DarlingError> {
         // Phase 1: reject incompatible option pairs.
         if self.is.is_some() && self.primitive.is_some() {

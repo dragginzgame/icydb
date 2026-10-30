@@ -10,7 +10,7 @@ use JSON::PP;
 # remain consumer-owned; this is not artifact/deployment admission.
 Getopt::Long::Configure(qw(no_auto_abbrev no_ignore_case));
 my ($consumer, $target, $features, $all_features, $no_defaults, $depth);
-my ($json, $explain);
+my ($json, $explain, $observations);
 my (@packages, @forbidden, @required, @patterns, @maximums, @forbidden_features);
 GetOptions(
     'consumer=s' => \$consumer, 'target=s' => \$target,
@@ -19,10 +19,11 @@ GetOptions(
     'forbid=s@' => \@forbidden, 'require=s@' => \@required,
     'forbid-pattern=s@' => \@patterns, 'max-count=s@' => \@maximums, 'depth=s' => \$depth,
     'forbid-feature=s@' => \@forbidden_features,
-    'json' => \$json, 'explain' => \$explain,
+    'json' => \$json, 'explain' => \$explain, 'observations' => \$observations,
 ) && !@ARGV && defined($consumer) && defined($target) && @packages
     && (@forbidden || @required || @patterns || @maximums || @forbidden_features)
-    or die "usage: check-cargo-graph.pl --consumer ROOT --package NAME [--package NAME] --target TARGET [--features LIST|--all-features] [--no-default-features] [--forbid-feature PACKAGE/FEATURE] [--depth COUNT] [--forbid NAME] [--forbid-pattern REGEX] [--require NAME=COUNT] [--max-count NAME=COUNT] [--json] [--explain]\n";
+    or die "usage: check-cargo-graph.pl --consumer ROOT --package NAME [--package NAME] --target TARGET [--features LIST|--all-features] [--no-default-features] [--forbid-feature PACKAGE/FEATURE] [--depth COUNT] [--forbid NAME] [--forbid-pattern REGEX] [--require NAME=COUNT] [--max-count NAME=COUNT] [--json] [--explain] [--observations]\n";
+$observations && !$json and die "--observations requires --json\n";
 defined($features) && $all_features and die "select features or all-features, not both\n";
 $consumer !~ /[\r\n]/ or die "consumer directory contains CR/LF\n";
 my $root = abs_path($consumer);
@@ -73,7 +74,7 @@ for my $requirement (@maximums) {
 }
 my @command = ('cargo', 'tree', '--locked', '--offline', '--color', 'never',
     '--target', $target, '--edges', @forbidden_features ? 'normal,build,features' : 'normal,build',
-    '--prefix', $explain ? 'indent' : 'none', '--format', '{p}');
+    '--prefix', $explain ? 'indent' : 'none', '--format', $observations ? "{p}\t{f}" : '{p}');
 push @command, ('--charset', 'ascii') if $explain;
 push @command, ('--package', $_) for @packages;
 push @command, ('--depth', $depth) if defined $depth;
@@ -91,10 +92,19 @@ unless (close $cargo) {
     print STDERR "Cargo graph observation failed; no graph was admitted\n";
     exit(($status & 127) ? 128 + ($status & 127) : ($status >> 8) || 1);
 }
-my (%identities, %observed_features, %paths, @stack);
+my (%identities, %observed_features, %effective_features, %paths, @stack);
 for my $line (split /\n/, $graph) {
     next if $line eq ''; # Cargo separates multiple selected roots with a blank.
     $line =~ s/ \(\*\)\z//;
+    next if $line =~ /\A(?:\|   |    )*\[build-dependencies\]\z/;
+    my $feature_list;
+    if ($observations && $line !~ /\A(?:\|   |    )*(?:\|-- |`-- )?[A-Za-z0-9_-]+ feature "/) {
+        # Split from the right: source paths can themselves contain tabs.
+        $line =~ s/\t([^\t]*)\z// or die "missing effective Cargo features: $line\n";
+        $feature_list = $1;
+        $feature_list =~ /\A(?:[^\s,]+(?:,[^\s,]+)*)?\z/
+            or die "invalid effective Cargo features\n";
+    }
     if ($explain) {
         # ASCII branches delimit numeric-leading package names unambiguously;
         # Cargo depth prefixes concatenate the number directly with the name.
@@ -115,6 +125,7 @@ for my $line (split /\n/, $graph) {
     $line =~ /\A([A-Za-z0-9_-]+) v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?(?: \([^\r\n]+\))?\z/
         or die "invalid flat Cargo package observation: $line\n";
     $identities{$1}{$line} = 1;
+    $effective_features{$line}{$_} = 1 for defined($feature_list) ? split(/,/, $feature_list) : ();
     $paths{$1} //= [@stack] if $explain;
 }
 keys(%identities) or die "empty Cargo graph\n";
@@ -151,6 +162,11 @@ if ($json) {
     print JSON::PP->new->canonical->pretty->encode({
         consumer => $root, command => \@command, target => $target,
         packages => \@packages, violations => \@violations,
+        ($observations ? (observations => [map {
+            my $name = $_;
+            map { +{ name => $name, identity => $_, features => [sort keys %{$effective_features{$_} // {}}] } }
+                sort keys %{$identities{$name}}
+        } sort keys %identities]) : ()),
         passed => @violations ? JSON::PP::false : JSON::PP::true,
         path_scope => 'first observed package/feature path in the selected Cargo rendering, not all paths',
     });

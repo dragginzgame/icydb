@@ -75,6 +75,24 @@ or section banners.
 - Keep defensive validation at independent trust boundaries even when semantic
   decisions are carried from an upstream owner.
 
+## Native operating-system interfaces
+
+- Reuse the maintained higher-level owner first, including Host FS and Host
+  Process where they provide the required contract. Direct native calls must
+  not create a second filesystem, process-custody or cleanup implementation.
+- Prefer safe standard-library APIs when their behavior fits. For remaining
+  supported native operations, prefer Rustix's typed errors and owned/borrowed
+  descriptor APIs over handwritten libc wrappers. Inherit workspace dependencies
+  and select only required, target-gated features; this is not a requirement to
+  add Rustix to Wasm, minimal libraries or unrelated packages.
+- Retain scoped raw FFI where the supported host API is unavailable through
+  Rustix, an external ABI requires it, or a reviewed post-fork path needs explicit
+  async-signal-safe operations. Record the reason and ownership/safety contract.
+  A shorter wrapper is not proof that behavior is equivalent: preserve error
+  variants/errno, descriptor flags and inheritance, cleanup, and failure order.
+  Qualify affected native Linux and macOS behavior separately; named-target
+  compilation alone does not establish native execution.
+
 ## External inputs and native tools
 
 - Admit machine output from its original bytes with strict encoding and the

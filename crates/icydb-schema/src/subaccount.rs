@@ -165,16 +165,6 @@ mod tests {
     fn binary_serde_and_wire_preserve_exact_subaccount_bytes() {
         for byte in [0, 23, 24, 128, 255] {
             let value = Subaccount::from_array([byte; 32]);
-            let mut encoded = Vec::new();
-            serde_cbor::to_writer(&mut encoded, &value).unwrap();
-            assert_eq!(encoded.len(), 34);
-            let wire: serde_cbor::Value = serde_cbor::from_slice(encoded.as_slice()).unwrap();
-            assert_eq!(wire, serde_cbor::Value::Bytes(value.to_bytes().to_vec()));
-            assert_eq!(
-                serde_cbor::from_slice::<Subaccount>(encoded.as_slice()).unwrap(),
-                value
-            );
-
             let json = serde_json::to_string(&value).unwrap();
             assert_eq!(json, serde_json::to_string(&value.to_array()).unwrap());
             assert_eq!(serde_json::from_str::<Subaccount>(&json).unwrap(), value);
@@ -188,11 +178,10 @@ mod tests {
             assert_eq!(crate::wire::decode_one::<Subaccount>(&wire).unwrap(), value);
 
             let batch = vec![value; 1_000];
-            encoded.clear();
-            serde_cbor::to_writer(&mut encoded, &batch).unwrap();
-            assert_eq!(encoded.len(), 34_003);
+            let encoded = crate::wire::encode_one(&batch).unwrap();
+            assert_eq!(encoded.len(), 33_002);
             assert_eq!(
-                serde_cbor::from_slice::<Vec<Subaccount>>(encoded.as_slice()).unwrap(),
+                crate::wire::decode_one::<Vec<Subaccount>>(&encoded).unwrap(),
                 batch
             );
         }
@@ -203,45 +192,38 @@ mod tests {
         for len in [0, 31, 33, 1_024] {
             let wire = crate::wire::encode_one(vec![0_u8; len]).unwrap();
             assert!(crate::wire::decode_one::<Subaccount>(&wire).is_err());
-            let mut encoded = Vec::new();
-            serde_cbor::to_writer(&mut encoded, &serde_bytes::Bytes::new(&vec![0; len])).unwrap();
-            assert!(serde_cbor::from_slice::<Subaccount>(encoded.as_slice()).is_err());
+            let bytes = vec![0_u8; len];
+            let encoded = crate::wire::encode_one(serde_bytes::Bytes::new(&bytes)).unwrap();
+            assert!(crate::wire::decode_one::<Subaccount>(&encoded).is_err());
         }
         // Postcard carries values without source integer-type tags: use a value
         // outside the byte domain rather than zero, which also encodes as u8.
         let wire = crate::wire::encode_one(vec![256_u16; 32]).unwrap();
         assert!(crate::wire::decode_one::<Subaccount>(&wire).is_err());
 
-        // Self-describing binary formats may present bytes as a byte string or
-        // an array. Both retain the exact width and byte-element contract.
-        let array = serde_cbor::to_vec(&vec![255_u8; 32]).unwrap();
-        assert_eq!(
-            serde_cbor::from_slice::<Subaccount>(&array).unwrap(),
-            Subaccount::MAX
+        // Keep sequence width and element admission covered through Serde's
+        // sequence adapter. Wire itself carries no source-type tags.
+        let array = serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(
+            vec![255_u8; 32].into_iter(),
         );
+        assert_eq!(Subaccount::deserialize(array).unwrap(), Subaccount::MAX);
         for array in [vec![0_u16; 31], vec![0; 33], vec![256; 32]] {
-            let encoded = serde_cbor::to_vec(&array).unwrap();
-            assert!(serde_cbor::from_slice::<Subaccount>(&encoded).is_err());
+            let array = serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(
+                array.into_iter(),
+            );
+            assert!(Subaccount::deserialize(array).is_err());
         }
 
-        let mut encoded = Vec::new();
-        serde_cbor::to_writer(&mut encoded, &Subaccount::MAX).unwrap();
+        let encoded = crate::wire::encode_one(Subaccount::MAX).unwrap();
         for end in 0..encoded.len() {
-            assert!(serde_cbor::from_slice::<Subaccount>(&encoded[..end]).is_err());
+            assert!(crate::wire::decode_one::<Subaccount>(&encoded[..end]).is_err());
         }
     }
 
     #[test]
-    fn accounts_roundtrip_optional_subaccounts_in_all_transports() {
+    fn accounts_roundtrip_optional_subaccounts_on_wire_and_json() {
         for subaccount in [None, Some(Subaccount::MIN), Some(Subaccount::MAX)] {
             let account = Account::from_owner_and_subaccount(Principal::anonymous(), subaccount);
-            let mut encoded = Vec::new();
-            serde_cbor::to_writer(&mut encoded, &account).unwrap();
-            assert_eq!(encoded.len(), if subaccount.is_some() { 54 } else { 21 });
-            assert_eq!(
-                serde_cbor::from_slice::<Account>(encoded.as_slice()).unwrap(),
-                account
-            );
             let json = serde_json::to_string(&account).unwrap();
             assert_eq!(serde_json::from_str::<Account>(&json).unwrap(), account);
             let wire = crate::wire::encode_one(account).unwrap();

@@ -28,8 +28,11 @@ thread_local! {
 }
 
 /// Exact physical state read for one participating journaled store.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) struct IntegrityStoreProof {
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_text::<_, { crate::db::integrity::MAX_INTEGRITY_PATH_BYTES }>"
+    )]
     pub(super) store_path: String,
     pub(super) data_generation: u64,
     pub(super) index_generation: u64,
@@ -54,16 +57,22 @@ impl IntegrityStoreProof {
 }
 
 /// Exact active forward-index generation read by the selected plan.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
 pub(in crate::db) struct IntegrityIndexGenerationProof {
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_text::<_, { crate::db::integrity::MAX_INTEGRITY_PATH_BYTES }>"
+    )]
     pub(super) store_path: String,
     pub(super) schema_index_id: u32,
     pub(super) physical_generation: u64,
 }
 
 /// Exact active source-owned reverse generation read by the selected plan.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
 pub(in crate::db) struct IntegrityRelationGenerationProof {
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_text::<_, { crate::db::integrity::MAX_INTEGRITY_PATH_BYTES }>"
+    )]
     pub(super) target_store_path: String,
     pub(super) relation_id: u32,
     pub(super) physical_generation: u64,
@@ -74,7 +83,7 @@ pub(in crate::db) struct IntegrityRelationGenerationProof {
 /// Progress-store bytes are intentionally absent. Equality is the only
 /// advancement authority; no generic "store changed" flag can stand in for
 /// one of these typed components.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) struct IntegrityProofVector {
     pub(super) database_incarnation_id: DatabaseIncarnationId,
     pub(super) accepted_schema_version: u32,
@@ -82,8 +91,17 @@ pub(in crate::db) struct IntegrityProofVector {
     pub(super) inspection_plan_fingerprint: [u8; 32],
     pub(super) database_control_fingerprint: [u8; 32],
     pub(super) allocation_registry_generation: u64,
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_list::<_, _, { crate::db::integrity::progress_codec::MAX_PROOF_STORES }>"
+    )]
     pub(super) stores: Vec<IntegrityStoreProof>,
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_list::<_, _, { icydb_schema::MAX_FRAGMENT_INDEXES }>"
+    )]
     pub(super) index_generations: Vec<IntegrityIndexGenerationProof>,
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_list::<_, _, { icydb_schema::MAX_FRAGMENT_RELATIONS }>"
+    )]
     pub(super) relation_generations: Vec<IntegrityRelationGenerationProof>,
 }
 

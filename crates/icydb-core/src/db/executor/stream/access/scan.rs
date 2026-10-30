@@ -25,7 +25,7 @@ use crate::{
         registry::StoreHandle,
         resource::budget::{
             ExecutionConstructionBudget, charge_current_execution_budget,
-            charge_current_execution_budget_pair,
+            charge_current_execution_budget_ordered,
         },
     },
     error::InternalError,
@@ -390,13 +390,13 @@ impl IndexScan {
         let cursor_steps = expected_cardinality
             .checked_add(additional_cursor_steps)
             .ok_or_else(InternalError::executor_invariant)?;
-        charge_current_execution_budget_pair(
+        charge_current_execution_budget_ordered([
             (
                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
                 expected_cardinality,
             ),
             (DiagnosticExecutionBudgetResource::CursorSteps, cursor_steps),
-        )?;
+        ])?;
         let mut keys = Vec::new();
         keys.try_reserve_exact(expected)
             .map_err(|_| InternalError::executor_internal())?;
@@ -418,10 +418,10 @@ impl IndexScan {
                 |raw_key, entry| {
                     let exceeds_cardinality_proof = keys.len() >= expected;
                     if exceeds_cardinality_proof {
-                        charge_current_execution_budget_pair(
+                        charge_current_execution_budget_ordered([
                             (DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1),
                             (DiagnosticExecutionBudgetResource::CursorSteps, 1),
-                        )?;
+                        ])?;
                     }
                     let raw_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
                     raw_bytes_read = raw_bytes_read
@@ -443,7 +443,7 @@ impl IndexScan {
         });
         // The preflight bounds this atomic route to 256 entries. Charge all
         // completed physical work even when validation reports corruption.
-        charge_current_execution_budget_pair(
+        charge_current_execution_budget_ordered([
             (
                 DiagnosticExecutionBudgetResource::StoredBytesRead,
                 raw_bytes_read,
@@ -452,7 +452,7 @@ impl IndexScan {
                 DiagnosticExecutionBudgetResource::DecodedBytes,
                 raw_bytes_read,
             ),
-        )?;
+        ])?;
         scan_result?;
         if keys.len() != expected {
             return Err(InternalError::store_corruption());
@@ -611,7 +611,7 @@ impl IndexScan {
                 },
             )
         });
-        charge_current_execution_budget_pair(
+        charge_current_execution_budget_ordered([
             (
                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
                 entries_visited,
@@ -620,8 +620,8 @@ impl IndexScan {
                 DiagnosticExecutionBudgetResource::StoredBytesRead,
                 raw_bytes_read,
             ),
-        )?;
-        charge_current_execution_budget_pair(
+        ])?;
+        charge_current_execution_budget_ordered([
             (
                 DiagnosticExecutionBudgetResource::CursorSteps,
                 entries_visited,
@@ -630,7 +630,7 @@ impl IndexScan {
                 DiagnosticExecutionBudgetResource::DecodedBytes,
                 raw_bytes_read,
             ),
-        )?;
+        ])?;
         let supported = scan_result?;
 
         Ok(supported.then_some(rows))
@@ -679,27 +679,17 @@ impl IndexScan {
             return Ok(Vec::new());
         }
 
-        let continuation = ContinuationRuntime::new(continuation);
-        let bounds = continuation.scan_bounds((lower, upper))?;
         let mut out = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
 
-        store.with_index(|index_store| {
-            index_store.visit_raw_entries_in_range(
-                bounds,
-                continuation.direction(),
-                |raw_key, value| {
-                    Self::accept_scan_key(&continuation, raw_key)?;
-
-                    Self::decode_index_entry_and_push_with_components(
-                        entity_tag,
-                        raw_key,
-                        value,
-                        &mut out,
-                        Some(limit),
-                        component_indices,
-                        predicate_execution,
-                    )
-                },
+        Self::visit_raw_range(store, lower, upper, continuation, |raw_key, value| {
+            Self::decode_index_entry_and_push_with_components(
+                entity_tag,
+                raw_key,
+                value,
+                &mut out,
+                Some(limit),
+                component_indices,
+                predicate_execution,
             )
         })?;
 
@@ -792,26 +782,16 @@ impl IndexScan {
             return Ok(Vec::new());
         }
 
-        let continuation = ContinuationRuntime::new(continuation);
-        let bounds = continuation.scan_bounds((lower, upper))?;
         let mut keys = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
 
-        store.with_index(|index_store| {
-            index_store.visit_raw_entries_in_range(
-                bounds,
-                continuation.direction(),
-                |raw_key, value| {
-                    Self::accept_scan_key(&continuation, raw_key)?;
-
-                    Self::decode_index_entry_and_push(
-                        entity_tag,
-                        raw_key,
-                        value,
-                        &mut keys,
-                        Some(limit),
-                        predicate_execution,
-                    )
-                },
+        Self::visit_raw_range(store, lower, upper, continuation, |raw_key, value| {
+            Self::decode_index_entry_and_push(
+                entity_tag,
+                raw_key,
+                value,
+                &mut keys,
+                Some(limit),
+                predicate_execution,
             )
         })?;
 
@@ -832,39 +812,24 @@ impl IndexScan {
             return Ok(IndexDecodedKeyScanChunk::new(Vec::new(), None));
         }
 
-        let continuation = ContinuationRuntime::new(continuation);
-        let bounds = continuation.scan_bounds((lower, upper))?;
         let mut keys = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
-        let mut last_raw_key = None;
-        let mut scanned_entries = 0usize;
-
-        store.with_index(|index_store| {
-            index_store.visit_raw_entries_in_range(
-                bounds,
-                continuation.direction(),
-                |raw_key, value| {
-                    Self::accept_scan_key(&continuation, raw_key)?;
-                    scanned_entries = scanned_entries.saturating_add(1);
-
-                    let output_full = Self::decode_index_entry_and_push(
-                        entity_tag,
-                        raw_key,
-                        value,
-                        &mut keys,
-                        output_limit,
-                        None,
-                    )?;
-                    let stop = output_full || scanned_entries == max_entries;
-                    if stop {
-                        // Only a bounded stop needs an owned resume anchor.
-                        // Natural range exhaustion needs no next chunk.
-                        last_raw_key = Some(raw_key.clone());
-                    }
-
-                    Ok::<_, InternalError>(stop)
-                },
-            )
-        })?;
+        let last_raw_key = Self::visit_raw_chunk(
+            store,
+            lower,
+            upper,
+            continuation,
+            max_entries,
+            |raw_key, value| {
+                Self::decode_index_entry_and_push(
+                    entity_tag,
+                    raw_key,
+                    value,
+                    &mut keys,
+                    output_limit,
+                    None,
+                )
+            },
+        )?;
 
         let chunk = IndexDecodedKeyScanChunk::new(keys, last_raw_key);
 
@@ -888,42 +853,74 @@ impl IndexScan {
             return Ok(IndexComponentScanChunk::new(Vec::new(), None));
         }
 
+        let mut rows = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
+        let last_raw_key = Self::visit_raw_chunk(
+            store,
+            lower,
+            upper,
+            continuation,
+            max_entries,
+            |raw_key, value| {
+                Self::decode_index_entry_and_push_with_components(
+                    entity_tag,
+                    raw_key,
+                    value,
+                    &mut rows,
+                    output_limit,
+                    component_indices,
+                    predicate_execution,
+                )
+            },
+        )?;
+
+        Ok(IndexComponentScanChunk::new(rows, last_raw_key))
+    }
+
+    // Keep resumed bounds and charged directional advancement at one physical
+    // traversal boundary. Decoders retain their output-limit and predicate policy.
+    fn visit_raw_range(
+        store: StoreHandle,
+        lower: &Bound<LoweredKey>,
+        upper: &Bound<LoweredKey>,
+        continuation: IndexScanContinuationInput<'_>,
+        mut visit: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
+    ) -> Result<(), InternalError> {
         let continuation = ContinuationRuntime::new(continuation);
         let bounds = continuation.scan_bounds((lower, upper))?;
-        let mut rows = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
-        let mut last_raw_key = None;
-        let mut scanned_entries = 0usize;
-
         store.with_index(|index_store| {
             index_store.visit_raw_entries_in_range(
                 bounds,
                 continuation.direction(),
-                |raw_key, value| {
-                    Self::accept_scan_key(&continuation, raw_key)?;
-                    scanned_entries = scanned_entries.saturating_add(1);
-
-                    let output_full = Self::decode_index_entry_and_push_with_components(
-                        entity_tag,
-                        raw_key,
-                        value,
-                        &mut rows,
-                        output_limit,
-                        component_indices,
-                        predicate_execution,
-                    )?;
-                    let stop = output_full || scanned_entries == max_entries;
-                    if stop {
-                        // Only a bounded stop needs an owned resume anchor.
-                        // Natural range exhaustion needs no next chunk.
-                        last_raw_key = Some(raw_key.clone());
-                    }
-
-                    Ok::<_, InternalError>(stop)
+                |key, value| {
+                    Self::accept_scan_key(&continuation, key)?;
+                    visit(key, value)
                 },
             )
-        })?;
+        })
+    }
 
-        Ok(IndexComponentScanChunk::new(rows, last_raw_key))
+    // Only bounded chunk stops retain an owned anchor. Ordinary limited scans
+    // reuse the traversal without counting raw entries or cloning a resume key.
+    fn visit_raw_chunk(
+        store: StoreHandle,
+        lower: &Bound<LoweredKey>,
+        upper: &Bound<LoweredKey>,
+        continuation: IndexScanContinuationInput<'_>,
+        max_entries: usize,
+        mut visit: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
+    ) -> Result<Option<RawIndexStoreKey>, InternalError> {
+        let mut last_raw_key = None;
+        let mut scanned_entries = 0usize;
+        Self::visit_raw_range(store, lower, upper, continuation, |key, value| {
+            scanned_entries = scanned_entries.saturating_add(1);
+            let output_full = visit(key, value)?;
+            let stop = output_full || scanned_entries == max_entries;
+            if stop {
+                last_raw_key = Some(key.clone());
+            }
+            Ok(stop)
+        })?;
+        Ok(last_raw_key)
     }
 
     // Apply executor-owned continuation advancement checks for one raw index key.
@@ -931,13 +928,13 @@ impl IndexScan {
         continuation: &ContinuationRuntime<'_>,
         raw_key: &RawIndexStoreKey,
     ) -> Result<(), InternalError> {
-        charge_current_execution_budget_pair(
+        charge_current_execution_budget_ordered([
             (DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 1),
             (
                 DiagnosticExecutionBudgetResource::StoredBytesRead,
                 u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
             ),
-        )?;
+        ])?;
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
         continuation.accept_key(ContinuationKeyRef::scan(raw_key))
     }

@@ -80,6 +80,7 @@ impl ValidateNode for Map {
             self.name(),
             icydb_schema::TypeSourceKey::try_new,
         );
+        self.key().validate_immutable_key_hooks(&mut errs);
         errs.result()
     }
 }

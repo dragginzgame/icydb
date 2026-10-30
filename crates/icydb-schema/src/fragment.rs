@@ -2,6 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     ConstraintSourceKey, Decimal, DeclaredEntityVersion, EntitySourceKey, FieldSourceKey,
     IndexSourceKey, MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS,
@@ -11,18 +13,23 @@ use crate::{
 };
 
 /// Logical type reference in a proposal fragment.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum FieldType {
     /// Exact built-in scalar contract.
     Scalar(ScalarType),
     /// Ordered repeated values with one exact element contract.
     List(Box<Self>),
     /// Named record, enum, newtype, or collection definition.
-    Named(TypeSourceKey),
+    Named(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        TypeSourceKey,
+    ),
 }
 
 /// Exact scalar field contract required by accepted-schema lowering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ScalarType {
     /// ICRC account.
     Account,
@@ -194,7 +201,7 @@ impl FieldType {
 }
 
 /// Insert policy authored for one field.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum FieldInsertPolicy {
     /// Omission rejects.
     Required,
@@ -207,7 +214,7 @@ pub enum FieldInsertPolicy {
 }
 
 /// Accepted database-owned lifecycle policy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum FieldManagementPolicy {
     /// Set once on insert and preserve thereafter.
     CreatedAt,
@@ -216,9 +223,15 @@ pub enum FieldManagementPolicy {
 }
 
 /// One field definition keyed by its current source name.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FieldFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: FieldSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
     field_type: FieldType,
     nullable: bool,
@@ -310,26 +323,71 @@ impl FieldFragment {
 }
 
 /// One ordered index key component.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum IndexKeyFragment {
     /// Direct field key.
-    Field(FieldSourceKey),
+    Field(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Lower-cased text expression.
-    Lower(FieldSourceKey),
+    Lower(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Upper-cased text expression.
-    Upper(FieldSourceKey),
+    Upper(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Trimmed text expression.
-    Trim(FieldSourceKey),
+    Trim(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Lower-cased and trimmed text expression.
-    LowerTrim(FieldSourceKey),
+    LowerTrim(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Date extraction expression.
-    Date(FieldSourceKey),
+    Date(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Year extraction expression.
-    Year(FieldSourceKey),
+    Year(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Month extraction expression.
-    Month(FieldSourceKey),
+    Month(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Day extraction expression.
-    Day(FieldSourceKey),
+    Day(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
 }
 
 impl IndexKeyFragment {
@@ -351,10 +409,19 @@ impl IndexKeyFragment {
 }
 
 /// One secondary-index proposal definition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct IndexFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: IndexSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_INDEX_FIELDS }>"
+    )]
     key: Vec<IndexKeyFragment>,
     unique: bool,
     predicate: Option<SourceCheckExpr>,
@@ -432,14 +499,14 @@ impl IndexFragment {
 }
 
 /// Maintained referential action in the current proposal contract.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RelationDeleteAction {
     /// Reject deletion while a source row refers to the target.
     Restrict,
 }
 
 /// One deterministic step below an entity-root relation field.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RelationPathStepFragment {
     /// Enter one accepted named record, enum, or transparent newtype.
     EnterNamed { r#type: TypeSourceKey },
@@ -448,8 +515,14 @@ pub enum RelationPathStepFragment {
     /// Select one accepted member of an accepted record.
     RecordMember {
         /// Record declaration containing the member.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         record: TypeSourceKey,
         /// Stable proposal key for the member.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         field: FieldSourceKey,
     },
     /// Select one payload-bearing accepted enum variant.
@@ -457,6 +530,9 @@ pub enum RelationPathStepFragment {
         /// Enum declaration containing the variant.
         r#enum: TypeSourceKey,
         /// Stable proposal key for the variant.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         variant: TypeSourceKey,
     },
     /// Traverse every item of an accepted ordered collection.
@@ -468,15 +544,26 @@ pub enum RelationPathStepFragment {
 }
 
 /// Current source program for one relation edge.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RelationSourceFragment {
     /// Ordered entity-root fields for the direct relation fast path.
-    Direct { fields: Vec<FieldSourceKey> },
+    Direct {
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_keys::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+        )]
+        fields: Vec<FieldSourceKey>,
+    },
     /// One deterministic path from an entity-root field to scalar targets.
     Nested {
         /// Entity-root field that owns the finite nested value.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         root: FieldSourceKey,
         /// Complete ordered traversal program below `root`.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_RELATION_PATH_STEPS }>"
+        )]
         steps: Vec<RelationPathStepFragment>,
     },
 }
@@ -523,12 +610,24 @@ impl RelationSourceFragment {
 }
 
 /// One source-owned relation definition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RelationFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: RelationSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
     source: RelationSourceFragment,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     target_entity: EntitySourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_keys::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+    )]
     target_fields: Vec<FieldSourceKey>,
     on_delete: RelationDeleteAction,
 }
@@ -611,7 +710,7 @@ impl RelationFragment {
 }
 
 /// One source constraint kind.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ConstraintFragmentKind {
     /// General row check over top-level source fields.
     Check(SourceCheckExpr),
@@ -629,10 +728,19 @@ impl ConstraintFragmentKind {
 }
 
 /// One source-bound nominal durable-rule target.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TargetedRuleFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     root: FieldSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     target_type: TypeSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     rule: RuleSourceKey,
     operation: SourceRuleOperation,
 }
@@ -684,9 +792,15 @@ impl TargetedRuleFragment {
 }
 
 /// One source constraint declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ConstraintFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: ConstraintSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
     kind: ConstraintFragmentKind,
 }
@@ -752,15 +866,36 @@ impl ConstraintFragment {
 }
 
 /// Store-free logical entity definition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntityFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: EntitySourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
     version: DeclaredEntityVersion,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+    )]
     fields: Vec<FieldFragment>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_keys::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+    )]
     primary_key: Vec<FieldSourceKey>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_INDEXES }>"
+    )]
     indexes: Vec<IndexFragment>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_RELATIONS }>"
+    )]
     relations: Vec<RelationFragment>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_CONSTRAINTS }>"
+    )]
     constraints: Vec<ConstraintFragment>,
 }
 
@@ -999,9 +1134,15 @@ fn validate_insert_generation(
 ///
 /// Composite fields carry exact type and nullability facts only. Insert,
 /// generation, and management policies belong to persisted entity fields.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RecordFieldFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: FieldSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
     field_type: FieldType,
     nullable: bool,
@@ -1053,7 +1194,7 @@ impl RecordFieldFragment {
 
 /// One positional tuple member and its explicit-null policy.
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TupleElementFragment {
     field_type: FieldType,
     nullable: bool,
@@ -1087,10 +1228,19 @@ impl TupleElementFragment {
 }
 
 /// Named record-type definition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RecordTypeFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: TypeSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+    )]
     fields: Vec<RecordFieldFragment>,
 }
 
@@ -1149,9 +1299,15 @@ impl RecordTypeFragment {
 }
 
 /// One named enum variant.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EnumVariantFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: TypeSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
     payload: Option<FieldType>,
 }
@@ -1207,10 +1363,19 @@ impl EnumVariantFragment {
 }
 
 /// Named enum-type definition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EnumTypeFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+    )]
     source_key: TypeSourceKey,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+    )]
     name: SchemaName,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+    )]
     variants: Vec<EnumVariantFragment>,
 }
 
@@ -1272,7 +1437,7 @@ impl EnumTypeFragment {
 }
 
 /// Named reusable type definition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum NamedTypeFragment {
     /// Record type.
     Record(RecordTypeFragment),
@@ -1281,8 +1446,14 @@ pub enum NamedTypeFragment {
     /// Transparent named wrapper.
     Newtype {
         /// Typed proposal key derived from the current name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         source_key: TypeSourceKey,
         /// Current schema name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+        )]
         name: SchemaName,
         /// Wrapped logical type.
         inner: FieldType,
@@ -1290,8 +1461,14 @@ pub enum NamedTypeFragment {
     /// Homogeneous ordered collection.
     List {
         /// Typed proposal key derived from the current name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         source_key: TypeSourceKey,
         /// Current schema name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+        )]
         name: SchemaName,
         /// Element type.
         item: FieldType,
@@ -1299,8 +1476,14 @@ pub enum NamedTypeFragment {
     /// Homogeneous unique collection.
     Set {
         /// Typed proposal key derived from the current name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         source_key: TypeSourceKey,
         /// Current schema name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+        )]
         name: SchemaName,
         /// Element type.
         item: FieldType,
@@ -1308,8 +1491,14 @@ pub enum NamedTypeFragment {
     /// Homogeneous key/value collection.
     Map {
         /// Typed proposal key derived from the current name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         source_key: TypeSourceKey,
         /// Current schema name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+        )]
         name: SchemaName,
         /// Key type.
         key: FieldType,
@@ -1319,10 +1508,19 @@ pub enum NamedTypeFragment {
     /// Ordered heterogeneous product.
     Tuple {
         /// Typed proposal key derived from the current name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         source_key: TypeSourceKey,
         /// Current schema name.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SCHEMA_NAME_BYTES }>"
+        )]
         name: SchemaName,
         /// Ordered member types.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
+        )]
         members: Vec<TupleElementFragment>,
     },
 }
@@ -1467,9 +1665,15 @@ impl NamedTypeFragment {
 }
 
 /// Reusable store-free collection of entity and type definitions.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SchemaFragment {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_ENTITIES }>"
+    )]
     entities: Vec<EntityFragment>,
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_FRAGMENT_TYPES }>"
+    )]
     types: Vec<NamedTypeFragment>,
 }
 

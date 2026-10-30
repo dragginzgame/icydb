@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-guarded-schema = []
+guarded-schema = ["ic-platform/principal-self-authenticating"]
 
 [dependencies]
 canic-icydb = { workspace = true }

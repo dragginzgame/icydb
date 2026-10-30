@@ -93,7 +93,7 @@ Applications that need external ledger types construct them from the components
 or use Platform's explicitly selected external ledger boundary; IcyDB adds no
 ledger dependency or external ledger conversion.
 
-`Decimal` uses decimal text in Wire and Serde, including CBOR. `Int128` and
+`Decimal` uses decimal text in Wire and Serde. `Int128` and
 `Nat128` retain fixed-width numeric domains and use Postcard's signed/unsigned
 integer representations. These atoms do not require an arbitrary-precision
 integer adapter in IcyDB.
@@ -110,6 +110,15 @@ Binary Serde for Blob is a byte string and U256 has one exact-width byte shape.
 There is no previous-format reader. This endpoint change does not modify custom
 row/index/cursor encodings; the pending integer-tag hard cut has its own database
 recreation obligations.
+
+Schema authoring artifacts also use IC Wire, with separate fragment/proposal/
+migration/source-meaning identities. Use the public Schema encoder/decoder APIs
+so validation, per-field bounds and canonical byte checks remain enforced.
+Regenerate embedded actors and external artifacts together. These bytes determine
+retained source-lineage and migration/application digests; they are not a cache
+that may be rebuilt from generated models. The 0.291 hard cut requires fresh/reset
+installations or a separately reviewed retained-data transition, as described in
+the [persisted format inventory](../contracts/PERSISTED_FORMAT_INVENTORY.md#0291-authoring-and-deep-job-codec-cut).
 
 Direct row fields declared `Int8`/`Nat8`, `Int16`/`Nat16`, and `Int32`/`Nat32`
 store 1, 2, and 4 little-endian payload bytes respectively, plus the two-byte
@@ -328,6 +337,34 @@ mutation, model them as entities with an owner key. Lists, sets, and maps stored
 in a row remain whole-field aggregates even when an explicit nested scalar
 relation enforces target lifetime. The exact decision matrix is maintained in
 the [nested storage contract](../contracts/NESTED_STORAGE.md).
+
+## Collection Application Hooks
+
+Normalizers attached to record/entity field items run on the item itself:
+scalar fields run once, optional fields run only for `Some`, and repeated
+fields run once per element. Multiple callbacks retain declaration order and
+field-path diagnostics. A callback on `value(opt, item(...))` therefore implements
+`Normalizer<T>`, rather than `Normalizer<Option<T>>`; the same rule applies to
+`many` and `Vec<T>`. Use a named collection's container normalizer for whole-list
+policy. Existing traversal still runs each child's own hooks.
+
+Explicit `normalize(&mut value)` calls run list-item normalizers and map-value
+normalizers in declaration order. Container normalizers run first, followed by
+the attached item callbacks and the existing traversal of each child's own
+hooks. Map values support scalar, optional and repeated cardinality; absent
+values and empty collections invoke no item callback. Callback issues retain
+their collection-entry index and normalizer identity.
+
+Set items and map keys cannot declare direct item normalizers: mutating a sorted
+key in place would invalidate container ordering. Normalize keys before insertion
+or use an explicit container normalizer that rebuilds the collection. Immutable
+key validators and container normalizers remain supported. Other hook positions
+are still being qualified in [#68](https://github.com/dragginzgame/icydb/issues/68);
+this collection support does not imply every parsed hook position executes.
+
+These application hooks are explicit. Database structural writes, SQL and
+recovery do not invoke them; accepted constraints remain the database admission
+authority.
 
 ## Numeric Application Hooks
 

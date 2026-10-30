@@ -189,7 +189,9 @@ pub mod __macro {
         StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
         StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
-    pub use icydb_core::db::{open_memory, with_selected_commit_memory};
+    pub use icydb_core::db::{
+        generated_schema_application_record_key, open_memory, with_selected_commit_memory,
+    };
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{CanisterKind, Path};
     pub use icydb_core::value::Value;

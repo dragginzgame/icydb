@@ -193,3 +193,50 @@ fn scalar_relation_target_from_field_preserves_metadata_descriptor() {
     assert_eq!(descriptor.scale(), None);
     assert_eq!(descriptor.max_len(), Some(64));
 }
+
+#[test]
+fn manually_constructed_model_nodes_reject_immutable_key_normalizers() {
+    use crate::{
+        node::{self, ValidateNode as _},
+        types::{Cardinality, Primitive},
+    };
+
+    const HOOKS: &[node::TypeNormalizer] = &[node::TypeNormalizer::new(
+        concat!(module_path!(), "::Suffix"),
+        node::Args(&[]),
+    )];
+    let item = |hooks| {
+        node::Item::new(
+            node::ItemTarget::Primitive(Primitive::Text),
+            None,
+            None,
+            None,
+            &[],
+            hooks,
+            false,
+        )
+    };
+    let ty = || node::Type::new(&[], &[], &[]);
+    let set = node::Set::new(
+        node::Def::new("model", "RawSet"),
+        "RawSet",
+        item(HOOKS),
+        ty(),
+    );
+    assert!(set.validate().is_err());
+    let map = node::Map::new(
+        node::Def::new("model", "RawMap"),
+        "RawMap",
+        item(HOOKS),
+        node::Value::new(Cardinality::One, item(&[])),
+        ty(),
+    );
+    assert!(map.validate().is_err());
+    let set = node::Set::new(
+        node::Def::new("model", "RawSet"),
+        "RawSet",
+        item(&[]),
+        node::Type::new(HOOKS, &[], &[]),
+    );
+    assert!(set.validate().is_ok());
+}

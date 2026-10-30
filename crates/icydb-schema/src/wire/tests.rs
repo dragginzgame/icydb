@@ -4,6 +4,7 @@ use crate::wire::{
     Error, MAX_DEPTH, MAX_NODES, MAX_REPLY_BYTES, decode_one, encode_one, encoded_len,
     encoded_reply_len,
 };
+use ic_wire::ByteBuf;
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
 
 #[test]
@@ -55,11 +56,7 @@ fn schema_depth_values_fit_inside_endpoint_record_wrappers() {
 #[test]
 fn reply_sizing_preserves_exact_byte_limits_and_encoded_lengths() {
     for length in [0, 1, 127, 128, 16_383, 16_384] {
-        let value = (
-            "result",
-            Some(serde_bytes::ByteBuf::from(vec![7; length])),
-            None::<u8>,
-        );
+        let value = ("result", Some(ByteBuf::from(vec![7; length])), None::<u8>);
         assert_eq!(
             encoded_reply_len(&value).unwrap(),
             encode_one(&value).unwrap().len()

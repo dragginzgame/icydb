@@ -39,13 +39,16 @@ const MAX_ROW_INSPECTION_BYTES_PER_PAGE: usize = MAX_ROW_BYTES as usize;
 /// Public callers never author this value. The durable Deep job owner encodes
 /// and validates it inside the current job profile.
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) enum PhysicalUnitCheckpoint {
     /// No physical key has been classified.
     BeforeFirst,
 
     /// One verifier atom completed, but the physical row is not complete.
     Within {
+        #[serde(
+            deserialize_with = "crate::db::integrity::progress_codec::deserialize_physical_key"
+        )]
         physical_key: Vec<u8>,
         verifier_family: IntegrityVerifierFamily,
         ordinal: u32,

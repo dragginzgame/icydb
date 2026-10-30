@@ -28,7 +28,7 @@ explicitly retire or recreate affected installations before loading this build.
 Discard old continuations and regenerate serialized artifacts. There is no
 compatibility reader or automatic reset. Fixed-width integer domains remain.
 
-## Memory 0.44 allocation ledger cut
+## Memory 0.56 allocation ledger cut
 
 The application retains one bootstrapped `ic_memory::MemoryRuntime`; composed
 hosts bind it through `icydb::db::bind_memory_runtime` before database startup.
@@ -36,13 +36,52 @@ Standalone generated startup constructs and binds its runtime. Store opens,
 integrity generations and allocation reports use that same committed instance.
 The binding is process-local and grants no authority before Memory bootstrap.
 
-Memory 0.44's sole current allocation ledger uses an `ICMDIRCT` checksummed
-snapshot containing direct ledger CBOR. Earlier allocation-ledger images reject;
-retain required backups and old-binary recovery/export access before explicitly
-retiring or resetting affected installations. This integration changes no
-IcyDB row, journal, checkpoint or cursor bytes and performs no database reset.
-Same-contract interruption recovery remains owned by Memory and IcyDB's existing
-recovery mechanisms.
+Memory 0.56 owns the sole current allocation ledger: bounded IC Wire records
+inside an `ICML` Cell value, with an `ICMWIRE1` checksummed protected snapshot.
+Earlier CBOR ledger/Cell images reject. The maintainer approved this hard cut;
+installations need fresh/reset memory or a separately reviewed transition before
+installation. Never clear only the ledger while retaining collection bytes.
+Retain required backups and old-binary recovery/export access until each
+installation's disposition is qualified. There is no compatibility decoder,
+converter or automatic reset. See Memory's
+[retained-installation contract](https://github.com/dragginzgame/ic-persistence/blob/956b2b92728f82f75dd51d4d10ed52f325529e91/docs/current-ledger.md#hard-cut-and-retained-installations).
+
+Numeric slots, checked custody and the manager/Cell substrate layout remain
+unchanged. This integration changes no IcyDB row, index, schema, journal,
+checkpoint or cursor bytes and performs no database reset. Same-contract
+interruption recovery remains owned by Memory and IcyDB's existing recovery
+mechanisms.
+
+## 0.291 authoring and Deep-job codec cut
+
+IC Wire owns serialization and allocation admission for authoring artifacts and
+Deep-job payloads. IcyDB retains finite field/collection limits, canonical and
+semantic validation, physical keys, store envelopes/checksums and recovery
+authority. The change replaces generic traversal, not accepted-schema storage or
+ordered key formats; it adds no compatibility mode or additional execution route.
+
+Schema artifacts use `ICWF` (fragment), `ICWP` (proposal), `ICWM` (migration) and
+`ICWS` (source meaning), each with version 1. Earlier `ICYF`/`ICYP`/`ICYM`/`ICYS`
+artifacts are retired. Regenerate generated actors and external submissions with
+the same Schema release. Proposal hashes include the new frame; source-meaning
+and migration-plan domains are now `icydb.entity-source-meaning.wire.v1` and
+`icydb.schema-migration-plan.wire.v1`. Retained lineage, application receipts and
+migration state carry the earlier digests: they are not disposable caches and
+must not be reconstructed or rebound from generated models.
+
+Deep jobs use the `ICYIJWIR` version-1 checksummed envelope with a bounded Wire
+payload. The retired `ICYIJPTH` layout is not decoded. The `ICYIPROG` allocation
+header, physical keys, quotas, CRC framing and `ICYRJOB1`/`ICYMJOB1` families are
+unchanged. Never clear the shared progress tree to remove only Deep records.
+
+The selected release disposition is fresh/reset installations, consistent with
+the Memory 0.56 cut above. Existing installations require a separately reviewed
+transition before loading this release; merely updating the allocation ledger
+does not qualify old lineage, migration or Deep-job authority. Preserve old
+binaries, backups and required recovery/export access until all obligations have
+an explicit disposition. This source adoption performs no reset, job retirement,
+acknowledgement or deployment. Recovery and exact replay within the current
+contract remain required.
 
 ## Active Durable Surfaces
 
@@ -52,10 +91,10 @@ recovery mechanisms.
 | Database format gate and live accepted checkpoint | `crates/icydb-core/src/db/database_format/mod.rs`, `crates/icydb-core/src/db/schema/live_schema_checkpoint.rs`, `crates/icydb-core/src/db/schema/migration_lineage.rs`, `crates/icydb-core/src/db/schema/migration_record.rs` | Admits one database-control identity before recovery; durably retains exact accepted candidates for schema allocations without local history; and owns the database-scoped source-lineage and migration lifecycle records. | One current `ICYDBCTL` version-1 boot identity and current bounded, checksummed `ICYSLIVE`, `ICYSLIN1`, and `ICYSMIG1` frames. The migration record is capped at 2 MiB, binds exact database/head/proposal/plan identities plus phase, accepted-ID cursors, counters, staged-generation ownership, and bounded typed findings. ResourceLimit findings retain accepted store/entity/primary-key identity for indivisible page-capacity rejection. Transform findings additionally retain optional source, required target, and one closed typed failure reason. Malformed, noncanonical, unsupported, or retired forms fail closed without reconstruction. |
 | Commit control slot, database incarnation, and cursor authentication | `crates/icydb-core/src/db/integrity.rs`, `crates/icydb-core/src/db/database_format/entropy.rs`, `crates/icydb-core/src/db/commit/store/control_slot.rs` | Durable nonzero database-incarnation identity, nonzero 32-byte scalar/grouped cursor authentication key, database-wide commit-sequence high-water, bounded active-plus-retired store-allocation registry, and the presence envelope for pending commit-marker bytes. The bounded marker region occupies the first 257 Wasm pages of the database-control allocation; the shared schema-control tree uses a disjoint restricted region after it. | Sole current version-1 canonical envelope. Ordinary marker publication advances one database sequence; clear/recovery preserve the incarnation, cursor key, high-water, and registry. Boot admission replaces the cursor key using secure entropy while preserving pending marker bytes and other authority; an empty marker payload means no marker. Fresh installation initializes current authority atomically. Noncurrent state requires reinstall or recreation; zero authority, malformed bytes, and unsupported versions fail closed without synthesis or fallback. |
 | Startup failure receipts | `crates/icydb-core/src/db/startup/receipt.rs`, `crates/icydb-core/src/db/startup/driver.rs`, `crates/icydb-core/src/db/startup/observe.rs` | Bounded terminal startup-failure authority for database-control, journal-recovery, and schema-reconciliation corruption. | Sole current `ICYSUP01` version-1 envelope in the 2,048-byte startup control cell, with a maximum current encoding of 927 bytes. Journal failures bind the database incarnation, exact store allocation, and journal-tail proof without record-level cursor state. Malformed bytes, unknown bindings, proof drift, and unsupported versions fail closed without fallback or compatibility decoding. |
-| Integrity inspection, generic resumable progress, and mutation-job progress | `crates/icydb-core/src/db/integrity/job.rs`, `crates/icydb-core/src/db/integrity/progress_codec.rs`, `crates/icydb-core/src/db/integrity/progress_store.rs`, `crates/icydb-core/src/db/resumable_job.rs`, `crates/icydb-core/src/db/mutation_job.rs` | Separately persists bounded Deep checkpoints, application-owned revision-bound job state, and durable mutation-job intent/continuation/lifecycle/receipt state. | One current version-1 allocation header. Deep jobs retain the checksummed `ICYIJPTH` version-1 envelope; generic resumable and mutation jobs use distinct checksummed `ICYRJOB1`/`ICYMJOB1` version-1 envelopes and key domains. All families share the 512 KiB record and 64-record global ceiling; non-integrity insertion stops at 56 to reserve eight integrity slots. Mutation-intent literals share the cursor value codec: compacted scalar tags, fixed Account and one-byte Decimal scale changes require affected records to be recreated under the same current version-1 checksummed envelope. Mutation records are capped at 64 KiB and marker-owned replacement binds the hashed key, job identity, expected sequence, SHA-256 before digest, and exact current before/after envelopes. Sequence-zero cancellation validates the complete current initial mutation record before removal, while complete inventory decodes every retained slot or fails without a partial result. Unknown versions, malformed headers, corrupt checksums, invalid state/receipt closure, wrong identities, and neither-side replacement state fail closed without fallback. |
+| Integrity inspection, generic resumable progress, and mutation-job progress | `crates/icydb-core/src/db/integrity/job.rs`, `crates/icydb-core/src/db/integrity/progress_codec.rs`, `crates/icydb-core/src/db/integrity/progress_store.rs`, `crates/icydb-core/src/db/resumable_job.rs`, `crates/icydb-core/src/db/mutation_job.rs` | Separately persists bounded Deep checkpoints, application-owned revision-bound job state, and durable mutation-job intent/continuation/lifecycle/receipt state. | One current version-1 allocation header. Deep jobs retain the checksummed `ICYIJWIR` version-1 envelope with bounded IC Wire payloads; generic resumable and mutation jobs use distinct checksummed `ICYRJOB1`/`ICYMJOB1` version-1 envelopes and key domains. All families share the 512 KiB record and 64-record global ceiling; non-integrity insertion stops at 56 to reserve eight integrity slots. Mutation-intent literals share the cursor value codec: compacted scalar tags, fixed Account and one-byte Decimal scale changes require affected records to be recreated under the same current version-1 checksummed envelope. Mutation records are capped at 64 KiB and marker-owned replacement binds the hashed key, job identity, expected sequence, SHA-256 before digest, and exact current before/after envelopes. Sequence-zero cancellation validates the complete current initial mutation record before removal, while complete inventory decodes every retained slot or fails without a partial result. Unknown versions, malformed headers, corrupt checksums, invalid state/receipt closure, wrong identities, and neither-side replacement state fail closed without fallback. |
 | Commit marker payload | `crates/icydb-core/src/db/commit/marker.rs`, `crates/icydb-core/src/db/commit/store/marker_envelope.rs` | Marker-bound journal publication and atomic database-control recovery authority. | Sole current envelope version 1 contains bounded journal batches plus at most four canonically ordered exact compare-and-replace effects for schema-application, source-lineage, migration-progress, and at most one mutation-job progress successor under the existing 16 MiB ceiling. A maximum current mutation replacement contributes exactly 37,797 payload bytes. Unknown versions fail closed without a compatibility decoder. |
 | Shared schema-control tree | `crates/icydb-core/src/db/schema/control_store.rs` | One physical variable-page BTreeMap following the bounded marker region, with 33-byte keys: family prefix plus 32-byte owner key. Application receipts and checkpoints use separate fixed namespaces; lineage and migration remain checkpoint-owned records. | One checksummed `ICYSCMAP` version-1 header at the sole zero key; unknown namespaces reject. Owner codecs and retention limits remain authoritative. Namespace views reload current root/allocator metadata on each operation so interleaved writes cannot use stale roots. This is an internal pre-1.0 hard cut: recreate databases; no partition bridge, old decoder, or automatic shrinking of allocated memory. |
-| Schema-application records | `crates/icydb-core/src/db/schema/application_receipt.rs`, `crates/icydb-core/src/db/schema/application_store.rs` | Database-wide proposal idempotency, pending/applied/aborted receipts, and the exact generated row-local constraint identity owned by a pending schema-change job. | Current bounded record identities in the application namespace of the shared schema-control BTreeMap. Records are capped at 64 KiB and the store at 64 retained submissions; pending evidence is never evicted, while the lowest stable-key terminal receipt is recycled at capacity. Impossible pending/terminal closure, noncanonical bytes, retired magic, key/receipt mismatch, checksum failure, and compare-and-replace drift fail closed. Abort is acknowledgement-bound and marker-atomic with accepted activation/source-binding and validation-job removal. No prior record shape, alias, or fallback exists. |
+| Schema-application records | `crates/icydb-core/src/db/schema/application_receipt.rs`, `crates/icydb-core/src/db/schema/application_store.rs` | Database-wide proposal idempotency, pending/applied/aborted receipts, and the exact generated row-local constraint identity owned by a pending schema-change job. | Current bounded record identities in the application namespace of the shared schema-control BTreeMap. Records are capped at 64 KiB and the store at 64 retained submissions; Pending evidence and the current generated readiness receipt are never evicted; at capacity the lowest stable-key eligible terminal receipt is recycled. Impossible pending/terminal closure, noncanonical bytes, retired magic, key/receipt mismatch, checksum failure, and compare-and-replace drift fail closed. Abort is acknowledgement-bound and marker-atomic with accepted activation/source-binding and validation-job removal. No prior record shape, alias, or fallback exists. |
 | Journal tail batches and sequences | `crates/icydb-core/src/db/journal/codec.rs`, `crates/icydb-core/src/db/journal/store.rs` | Marker-bound row/schema/constraint-validation replay records, one aggregated Identity range per participating owner, exact offline-migration row/index effects, owner-local fold order, and database-wide commit order. | Sole current version-1 bounded batch payload stored under ordered sequence/chunk keys. Its 93-byte fixed `IJBT` envelope binds payload length, batch ID, marker ID, owner-local sequence, database commit sequence, record count, and a domain-separated SHA-256 fingerprint over the complete canonical envelope outside the fingerprint slot. Decode verifies the fingerprint before materializing records; recovery then completes owner-local read-only validation before same-message apply, watermark/control publication, and retirement. Identity ranges carry exact owner, expected/new u128 high-water, and redundant nonzero `u32` count. Constraint-validation and migration records retain their exact current owner bindings. Fingerprint mismatch, malformed bytes, unknown tags, and unsupported versions fail closed; noncurrent state requires reinstall or recreation. |
 | Journal convergence aggregate controls | `crates/icydb-core/src/db/journal/store.rs` | Exact owner-local retained batch count, record count, encoded envelope bytes, and oldest retained database commit sequence. | One current version-1 fixed control under the existing journal allocation. Append adds the exact immutable current envelope contribution, identical replay proves bounded control/head agreement, and complete-batch retirement subtracts the verified selected contribution while advancing the head. Missing current controls, malformed values, overflow, underflow, impossible empty/nonempty closure, and head drift fail closed; routine startup does not claim a history-sized aggregate recomputation. |
 | Fold watermark | `crates/icydb-core/src/db/journal/store.rs`, `crates/icydb-core/src/db/commit/recovery.rs` | Records journal-tail fold progress for recovery/reentry. | Sole durable recovery-progress authority. Recovery advances the watermark only after one complete batch validates and applies in the same replicated message, then stops only between batches. No per-record cursor or replacement progress state is retained. Sequence-zero records include the watermark, data revision, access revision, journal convergence aggregate, and entity-mutation revision control and packed chunks. The entity-revision authority described below checks the exact chunk count; malformed records and missing or surplus chunks fail closed. |
@@ -128,13 +167,12 @@ The following are not persisted-format surfaces by themselves:
 - test-only failpoint names and injected failure sites;
 - generated model descriptors, except where they allocate stable-memory IDs or
   propose schema that later becomes an accepted schema snapshot.
-- `SchemaFragment`, `SchemaProposal`, and `SchemaMigrationPlan` current-form
-  tagged-V1 binary artifacts. They are bounded submission and fingerprint
-  preimage contracts rather than retained stable-memory authority. Their
-  decoder allocates only after checking artifact, collection, string, literal,
-  and nesting bounds. The proposal contract discriminator is version 1;
-  noncurrent artifact bytes are not decoded, translated, or retained through
-  a compatibility shape.
+- `SchemaFragment`, `SchemaProposal`, and `SchemaMigrationPlan` artifacts are
+  not stored directly as accepted snapshots. Their canonical Wire bytes do
+  determine retained lineage/migration/application digest authority, so changes
+  still require the coordinated disposition above. Wire bounds traversal and
+  allocation; IcyDB retains collection/name/literal limits, semantic field-depth
+  validation and exact canonical re-encoding. Noncurrent artifacts reject.
 
 ## 0.274 canonical index-key cut
 

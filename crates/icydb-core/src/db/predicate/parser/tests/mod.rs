@@ -7,13 +7,37 @@ use crate::{
     db::{
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
-            parse_sql_predicate,
+            parse_sql_predicate, render_sql_predicate,
         },
         sql_shared::{MAX_SQL_EXPR_DEPTH, SqlParseError, SqlSyntaxErrorKind},
     },
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
+
+#[test]
+fn parse_sql_predicate_preserves_full_unsigned_literals_and_rendering() {
+    for (op, spelling, coercion) in [
+        (CompareOp::Eq, "=", CoercionId::Strict),
+        (CompareOp::Ne, "!=", CoercionId::Strict),
+        (CompareOp::Lt, "<", CoercionId::NumericWiden),
+        (CompareOp::Lte, "<=", CoercionId::NumericWiden),
+        (CompareOp::Gt, ">", CoercionId::NumericWiden),
+        (CompareOp::Gte, ">=", CoercionId::NumericWiden),
+    ] {
+        let expected = Predicate::Compare(ComparePredicate::with_coercion(
+            "balance",
+            op,
+            Value::Nat128(u128::MAX),
+            coercion,
+        ));
+        let parsed = parse_sql_predicate(&format!("balance {spelling} {}", u128::MAX)).unwrap();
+        assert_eq!(parsed, expected);
+        let rendered =
+            render_sql_predicate(&parsed).expect("fixed-width integer predicate should render");
+        assert_eq!(parse_sql_predicate(&rendered), Ok(expected));
+    }
+}
 
 #[test]
 fn parse_sql_predicate_rejects_numeric_suffixes_at_the_lexical_boundary() {

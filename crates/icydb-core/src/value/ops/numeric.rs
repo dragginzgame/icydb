@@ -96,6 +96,9 @@ fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;
     }
+    if let (Value::Nat128(left), Value::Nat128(right)) = (left, right) {
+        return Some(left.cmp(right));
+    }
 
     match (numeric_repr(left), numeric_repr(right)) {
         (NumericRepr::Decimal(left), NumericRepr::Decimal(right)) => left.partial_cmp(&right),
@@ -104,9 +107,12 @@ fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
     }
 }
 
-/// Compare two values after exact decimal numeric coercion.
+/// Compare Nat128 pairs exactly; other pairs retain Decimal coercion.
 #[must_use]
-pub(crate) fn compare_decimal_order(left: &Value, right: &Value) -> Option<Ordering> {
+pub(crate) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
+    if matches!((left, right), (Value::Nat128(_), Value::Nat128(_))) {
+        return cmp_numeric(left, right);
+    }
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;
     }

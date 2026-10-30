@@ -230,6 +230,114 @@ fn migration_page_limits_validation_carries_between_entities() {
     assert_large_migration_completes(300 * 1024, 450 * 1024);
 }
 
+fn assert_row_limit_migration_completes(first_rows: u64, second_rows: u64) {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, root.scope());
+    drive_startup_recovery_to_completion(&db);
+    apply_schema(
+        &db,
+        &proposal(&schema_application_target(&db).unwrap(), false),
+    )
+    .unwrap();
+    let entities = ordered_entities(&db);
+    let session =
+        DbSession::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, &root);
+    let requests = [(entities[0], first_rows), (entities[1], second_rows)]
+        .into_iter()
+        .flat_map(|(entity, rows)| {
+            (1..=rows).map(move |id| DynamicMutation::Insert {
+                entity: entity.to_string(),
+                patch: DynamicStructuralPatch::new(vec![
+                    ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                    (
+                        "payload".into(),
+                        DynamicWriteCell::Value(InputValue::blob(vec![7; 16])),
+                    ),
+                ]),
+            })
+        })
+        .collect();
+    session
+        .execute_trusted_dynamic_mutation_batch(requests)
+        .unwrap();
+    let next = proposal(&schema_application_target(&db).unwrap(), true);
+    let mut restarted = false;
+    let mut final_validation_pages = 0;
+    let mut applied = None;
+    for _ in 0..24 {
+        let page = advance(&db, &next);
+        if page.phase() == SchemaMigrationPhase::RewritingRows && page.rows_rewritten() == 256 {
+            assert!(
+                !restarted,
+                "the persisted row cursor must advance after restart"
+            );
+            forget_recovered_domain_for_tests(&db).unwrap();
+            drive_startup_recovery_to_completion(&db);
+            restarted = true;
+        }
+        if page.phase() == SchemaMigrationPhase::FinalValidation {
+            final_validation_pages += 1;
+        }
+        if page.phase() == SchemaMigrationPhase::Applied {
+            applied = Some(page);
+            break;
+        }
+    }
+    let applied = applied.expect("row-bounded migration must complete");
+    assert!(restarted);
+    assert!(
+        final_validation_pages >= 2,
+        "final validation must also page at 256 rows"
+    );
+    assert_eq!(applied.rows_validated(), first_rows + second_rows);
+    assert_eq!(applied.rows_rewritten(), first_rows + second_rows);
+    for (entity, count) in [(entities[0], first_rows), (entities[1], second_rows)] {
+        let query = DynamicQuery::new(entity).select(["id", "payload", "copied"]);
+        let mut continuation = None;
+        let mut rows = Vec::new();
+        // Blob admission may reserve a full row per page. Allow one page per
+        // expected row plus empty exhaustion without changing read policy.
+        for _ in 0..=count {
+            let page = session
+                .execute_trusted_live_page(&query, continuation.as_deref())
+                .unwrap();
+            rows.extend(page.rows);
+            continuation = page.continuation;
+            if continuation.is_none() {
+                break;
+            }
+        }
+        assert!(continuation.is_none());
+        assert_eq!(rows.len() as u64, count);
+        for (index, row) in rows.into_iter().enumerate() {
+            assert_eq!(
+                row,
+                vec![
+                    OutputValue::nat64(index as u64 + 1),
+                    OutputValue::blob(vec![7; 16]),
+                    OutputValue::blob(vec![7; 16]),
+                ]
+            );
+        }
+    }
+    assert_eq!(advance(&db, &next), applied);
+}
+
+#[test]
+fn migration_row_limits_resume_in_a_later_entity_after_restart() {
+    assert_row_limit_migration_completes(128, 130);
+}
+
+#[test]
+fn migration_row_limits_retain_progress_before_an_empty_final_entity() {
+    assert_row_limit_migration_completes(256, 0);
+}
+
+#[test]
+fn migration_row_limits_skip_an_empty_predecessor_on_resume() {
+    assert_row_limit_migration_completes(0, 257);
+}
+
 fn assert_capacity_rejection_is_abortable(bytes: usize) {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, root.scope());

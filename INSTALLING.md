@@ -35,6 +35,11 @@ The maintained [facade-only example](testing/model-facade-only/) and
 routes, including renamed Cargo dependencies and generated macro resolution.
 Use the same release tag for every IcyDB package.
 
+Until [#179](https://github.com/dragginzgame/icydb/issues/179) is resolved, runtime
+adapter detection also sees `icydb` in development and inactive target-specific
+dependencies. Keep those declarations out of schema-only manifests; adding one
+can generate runtime references that an ordinary library build cannot resolve.
+
 The public runtime `icydb` crate path supports Rust `1.91.0` and newer.
 Its library dependency path, including `icydb-model` and
 `icydb-model-macros`, retains the same floor. Other workspace-only packages
@@ -47,6 +52,13 @@ call `icydb::build::build_canister!(SchemaCanister)`.
 The [compiled single-package example](testing/model-facade-only/) owns the
 complete host/runtime setup; [schema authoring](docs/guides/schema-authoring.md)
 explains how to adapt it.
+
+Development-branch adoption also requires the current
+[format-cut review](docs/contracts/PERSISTED_FORMAT_INVENTORY.md#0291-authoring-and-deep-job-codec-cut).
+Rebuilding generated schema artifacts does not migrate an earlier allocation
+ledger, source lineage, migration/application receipts or Deep integrity jobs.
+The pending 0.291 release requires fresh/reset installations or a separately
+reviewed retained-data transition; no automatic conversion or reset is provided.
 
 ## Explicit Endpoint Declarations
 

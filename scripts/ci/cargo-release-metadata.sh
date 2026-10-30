@@ -63,15 +63,34 @@ inherited_members() {
         done
 }
 
+# Observe and admit one selected workspace independently at every boundary.
+# Keep Cargo JSON, diagnostics and child/logger statuses as separate evidence.
+admit_workspace_graph() {
+    local directory="$1" version="$2" evidence="$3" lock_directory="$4" status
+    local metadata_status=(0 0)
+    mkdir -p "$evidence" || return
+    lock_packages "$lock_directory" "$version" > "$evidence/local-packages" || return
+    if (cd "$directory" && cargo metadata --locked --offline --format-version 1) \
+        2>&1 > "$evidence/metadata.json" | tee "$evidence/metadata.stderr" >&2; then
+        :
+    else
+        metadata_status=("${PIPESTATUS[@]}")
+    fi
+    printf '%s\n' "${metadata_status[0]}" > "$evidence/cargo-status" || return
+    printf '%s\n' "${metadata_status[1]}" > "$evidence/log-status" || return
+    status="${metadata_status[0]}"
+    [[ "$status" != 0 ]] || status="${metadata_status[1]}"
+    [[ "$status" == 0 ]] || return "$status"
+    workspace_packages "$evidence/metadata.json" "$version" "$evidence/local-packages"
+}
+
 # shellcheck disable=SC2329 # Callback passed to release_metadata_prepare.
 render_cargo_metadata() {
     local original="$1" candidate="$2" source_root package
     local packages=()
     cargo_preparation="${candidate%/*}"
     source_root="$(pwd -P)" || return
-    lock_packages "$original" "$RELEASE_PREVIOUS" > "$cargo_preparation/local-packages" || return
-    cargo metadata --locked --offline --format-version 1 > "$cargo_preparation/metadata.json" || return
-    workspace_packages "$cargo_preparation/metadata.json" "$RELEASE_PREVIOUS" "$cargo_preparation/local-packages" || return
+    admit_workspace_graph "$source_root" "$RELEASE_PREVIOUS" "$cargo_preparation" "$original" || return
     inherited_members "$source_root" "$cargo_preparation/metadata.json" || return
     "${YQ:-yq}" -p toml -o json '.' "$original/Cargo.toml" > "$cargo_preparation/manifest.json" || return
     jq -n --slurpfile manifest "$cargo_preparation/manifest.json" --slurpfile metadata "$cargo_preparation/metadata.json" '
@@ -95,11 +114,9 @@ render_cargo_metadata() {
 # shellcheck disable=SC2329 # Callback passed to release_metadata_prepare.
 check_prepared_cargo_metadata() {
     local observed_version
-    cargo metadata --locked --offline --format-version 1 > "$cargo_preparation/prepared.json" || return
     observed_version="$(bash "$reader" Cargo.toml)" || return
     [[ "$observed_version" == "$RELEASE_VERSION" ]] || return 1
-    lock_packages . "$RELEASE_VERSION" > "$cargo_preparation/prepared-packages" || return
-    workspace_packages "$cargo_preparation/prepared.json" "$RELEASE_VERSION" "$cargo_preparation/prepared-packages"
+    admit_workspace_graph "$PWD" "$RELEASE_VERSION" "$cargo_preparation/prepared" "$PWD"
 }
 
 case "$operation" in
@@ -160,22 +177,7 @@ case "$operation" in
             awk -v heading="## [$RELEASE_VERSION] - ${RELEASE_DATE:?}" \
                 '$0 == heading { count++ } END { if (count != 1) exit 1 }' "$selected_root/CHANGELOG.md"
         fi
-        lock_packages "$selected_root" "$observed_version" > "$temporary/local-packages"
-        # Keep JSON separate from streamed diagnostics. Capture both statuses
-        # immediately: a logger failure must not replace Cargo's original error.
-        metadata_status=(0 0)
-        if (cd "$selected_root" && cargo metadata --locked --offline --format-version 1) \
-            2>&1 > "$temporary/metadata.json" | tee "$temporary/metadata.stderr" >&2; then
-            :
-        else
-            metadata_status=("${PIPESTATUS[@]}")
-        fi
-        printf '%s\n' "${metadata_status[0]}" > "$temporary/cargo-status"
-        printf '%s\n' "${metadata_status[1]}" > "$temporary/log-status"
-        status="${metadata_status[0]}"
-        [[ "$status" != 0 ]] || status="${metadata_status[1]}"
-        [[ "$status" == 0 ]] || exit "$status"
-        workspace_packages "$temporary/metadata.json" "$observed_version" "$temporary/local-packages"
+        admit_workspace_graph "$selected_root" "$observed_version" "$temporary" "$selected_root"
         complete=true
         ;;
     *) echo 'unknown Cargo metadata operation' >&2; exit 2 ;;

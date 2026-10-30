@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-guarded-sql-query = ["sql"]
+guarded-sql-query = ["ic-platform/principal-self-authenticating", "sql"]
 sql = ["icydb/sql"]
 
 [dependencies]

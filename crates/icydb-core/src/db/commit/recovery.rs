@@ -26,7 +26,7 @@ use crate::{
             marker::{COMMIT_ID_BYTES, DatabaseControlOp},
             memory::{
                 CommitMemoryAllocation, current_commit_memory_allocation,
-                select_commit_memory_allocation,
+                select_commit_memory_allocation_for,
             },
             store::{
                 commit_marker_may_be_present, commit_marker_present_fast,
@@ -133,7 +133,7 @@ struct RecoveryContinuation {
 /// This is a state-only defense below generated `db!()` admission. It never
 /// decodes a journal batch, advances a recovery page, or mutates stable state.
 pub(crate) fn ensure_recovery_admitted<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    select_commit_memory_allocation(
+    select_commit_memory_allocation_for::<C>(
         C::commit_memory_id()
             .map_err(|_| InternalError::store_internal())
             .map_err(|error| error.with_origin(ErrorOrigin::Recovery))?,
@@ -216,7 +216,7 @@ pub(in crate::db) fn continue_recovery_with_failure_authority<C: CanisterKind>(
 ) -> Result<RecoveryProgress, StartupRecoveryFailure> {
     C::commit_memory_id()
         .map_err(|_| InternalError::store_internal())
-        .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
+        .map(|id| select_commit_memory_allocation_for::<C>(id, C::COMMIT_STABLE_KEY))
         .map_err(|error| {
             StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
         })?;

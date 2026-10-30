@@ -49,7 +49,7 @@ use crate::{
 };
 
 use ic_storage::adapter::{Storable, storable::Bound};
-use std::{borrow::Cow, convert::Infallible};
+use std::borrow::Cow;
 
 fn overlay_position(sequence: u64) -> JournalOverlayPosition {
     JournalOverlayPosition::new(
@@ -2763,30 +2763,41 @@ fn schema_control_range_merges_ordered_live_values_and_tombstones() {
     live.insert(key(2), value(44));
     live.insert(key(4), value(55));
     for direction in [Direction::Asc, Direction::Desc] {
-        let mut visited = Vec::new();
-        SchemaStore::visit_journaled_raw_value_range(
-            canonical,
-            live,
-            tombstones,
-            RawSchemaKey::all_constraint_validation_job_range_bounds(),
-            direction,
-            |key, value| {
-                visited.push((key.version(), value.as_bytes()[0]));
-                Ok::<_, Infallible>(if visited.len() == 2 {
-                    SchemaStoreVisit::Stop
-                } else {
-                    SchemaStoreVisit::Continue
-                })
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            visited,
-            match direction {
-                Direction::Asc => vec![(2, 44), (3, 33)],
-                Direction::Desc => vec![(4, 55), (3, 33)],
-            }
-        );
+        // Stop and fail on both live and canonical entries, then exhaust the
+        // visible range to prove that an early result never visits its suffix.
+        for (stop_after, fail) in [
+            (1, false),
+            (2, false),
+            (usize::MAX, false),
+            (1, true),
+            (2, true),
+        ] {
+            let mut visited = Vec::new();
+            let result = SchemaStore::visit_journaled_raw_value_range(
+                canonical,
+                live,
+                tombstones,
+                RawSchemaKey::all_constraint_validation_job_range_bounds(),
+                direction,
+                |key, value| {
+                    visited.push((key.version(), value.as_bytes()[0]));
+                    if visited.len() == stop_after {
+                        return if fail {
+                            Err(7_u8)
+                        } else {
+                            Ok(SchemaStoreVisit::Stop)
+                        };
+                    }
+                    Ok(SchemaStoreVisit::Continue)
+                },
+            );
+            assert_eq!(result, if fail { Err(7) } else { Ok(()) });
+            let expected = match direction {
+                Direction::Asc => [(2, 44), (3, 33), (4, 55)],
+                Direction::Desc => [(4, 55), (3, 33), (2, 44)],
+            };
+            assert_eq!(visited, expected[..stop_after.min(expected.len())]);
+        }
     }
 }
 

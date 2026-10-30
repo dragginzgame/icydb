@@ -15,12 +15,12 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
-use ic_storage::adapter::StableBTreeMap;
+use ic_storage::adapter::{MapIter, StableBTreeMap};
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet, btree_map::Entry};
 use std::convert::Infallible;
-use std::ops::{Bound, RangeBounds};
+use std::ops::{Bound, ControlFlow, RangeBounds};
 
 #[cfg(test)]
 thread_local! {
@@ -993,50 +993,43 @@ impl DataStore {
         } else {
             Direction::Asc
         };
+        // Share visitor dispatch and stop/error propagation; iterator direction
+        // stays statically selected before traversal.
+        let mut visit_entry = |entry: OrderedOverlayEntry<
+            <MapIter<'_, RawDataStoreKey, RawRow> as Iterator>::Item,
+            (&RawDataStoreKey, &RawRow),
+        >| {
+            let result = match entry {
+                OrderedOverlayEntry::Canonical(entry) => visitor(entry.key()),
+                OrderedOverlayEntry::Live((key, _row)) => visitor(key),
+            };
+            match result {
+                Ok(visit) if !visit.should_stop() => ControlFlow::Continue(()),
+                result => ControlFlow::Break(result.map(|_| ())),
+            }
+        };
         match direction {
-            Direction::Asc => {
-                for entry in ordered_overlay_entries(
-                    canonical.range(bounds),
-                    live.range(bounds),
-                    direction,
-                    |entry| entry.key(),
-                    |entry| entry.0,
-                    tombstones,
-                ) {
-                    let visit = match entry {
-                        OrderedOverlayEntry::Canonical(canonical_entry) => {
-                            visitor(canonical_entry.key())?
-                        }
-                        OrderedOverlayEntry::Live((key, _row)) => visitor(key)?,
-                    };
-                    if visit.should_stop() {
-                        return Ok(());
-                    }
-                }
-            }
-            Direction::Desc => {
-                for entry in ordered_overlay_entries(
-                    canonical.range(bounds).rev(),
-                    live.range(bounds).rev(),
-                    direction,
-                    |entry| entry.key(),
-                    |entry| entry.0,
-                    tombstones,
-                ) {
-                    let visit = match entry {
-                        OrderedOverlayEntry::Canonical(canonical_entry) => {
-                            visitor(canonical_entry.key())?
-                        }
-                        OrderedOverlayEntry::Live((key, _row)) => visitor(key)?,
-                    };
-                    if visit.should_stop() {
-                        return Ok(());
-                    }
-                }
-            }
+            Direction::Asc => ordered_overlay_entries(
+                canonical.range(bounds),
+                live.range(bounds),
+                direction,
+                |entry| entry.key(),
+                |entry| entry.0,
+                tombstones,
+            )
+            .try_for_each(&mut visit_entry),
+            Direction::Desc => ordered_overlay_entries(
+                canonical.range(bounds).rev(),
+                live.range(bounds).rev(),
+                direction,
+                |entry| entry.key(),
+                |entry| entry.0,
+                tombstones,
+            )
+            .try_for_each(&mut visit_entry),
         }
-
-        Ok(())
+        .break_value()
+        .unwrap_or(Ok(()))
     }
 
     // Keep one journaled row traversal body per error type, independently of

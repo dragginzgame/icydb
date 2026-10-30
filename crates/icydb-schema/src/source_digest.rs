@@ -10,7 +10,7 @@ use crate::{
     SchemaProposal, TypeSourceKey,
 };
 
-const ENTITY_SOURCE_DIGEST_PROFILE: &[u8] = b"icydb.entity-source-meaning.v1";
+const ENTITY_SOURCE_DIGEST_PROFILE: &[u8] = b"icydb.entity-source-meaning.wire.v1";
 
 impl SchemaProposal {
     /// Compute the canonical generated-owned meaning for one current entity.

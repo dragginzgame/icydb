@@ -198,6 +198,21 @@ fn source_keys_are_nonempty_bounded_and_canonical() {
         Err(SchemaContractError::InvalidSourceKey),
     );
     assert!(EntitySourceKey::try_new("module::entity/user-v1").is_ok());
+    // Public key Serde stays a string projection, including owned-reader JSON.
+    let value = serde::de::value::StringDeserializer::<serde::de::value::Error>::new("user".into());
+    assert_eq!(
+        <EntitySourceKey as serde::Deserialize>::deserialize(value)
+            .unwrap()
+            .as_str(),
+        "user"
+    );
+    let json = std::io::Cursor::new(br#""user""#);
+    assert_eq!(
+        serde_json::from_reader::<_, EntitySourceKey>(json)
+            .unwrap()
+            .as_str(),
+        "user"
+    );
 }
 
 #[test]
@@ -208,7 +223,7 @@ fn proposal_construction_is_order_independent_and_roundtrips_exactly() {
     let reverse_bytes = encode_schema_proposal(&reverse_input).expect("proposal should encode");
 
     assert_eq!(reverse_bytes, canonical_bytes);
-    assert_eq!(&canonical_bytes[..5], b"ICYP\x01");
+    assert_eq!(&canonical_bytes[..5], b"ICWP\x01");
     assert_eq!(
         decode_schema_proposal(&canonical_bytes).expect("proposal should decode"),
         canonical,
@@ -715,23 +730,22 @@ fn primary_key_scalar_shapes_preserve_order_and_canonical_transport() {
 
 #[test]
 fn primary_key_shape_validation_also_rejects_invalid_transport() {
-    // Canonical pre-fix fragments with required Float64 and nullable Nat64
-    // keys. Decoding must apply the same admission as direct construction.
-    let invalid_fragments: [&[u8]; 2] = [
-        &[
-            73, 67, 89, 70, 1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 105,
-            100, 0, 7, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 105, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
-        ],
-        &[
-            73, 67, 89, 70, 1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 105,
-            100, 0, 20, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 105, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
-        ],
-    ];
-    for bytes in invalid_fragments {
+    // Bypass the trusted encoder with malformed current Wire domain values.
+    // Decoding must apply the same primary-key admission as construction.
+    let fragment = proposal("Keyed", false).fragments()[0].clone();
+    for (scalar, nullable) in [("Float64", false), ("Nat64", true)] {
+        let mut value = serde_json::to_value(&fragment).unwrap();
+        let fields = value["entities"][0]["fields"].as_array_mut().unwrap();
+        let field = fields
+            .iter_mut()
+            .find(|field| field["name"] == "id")
+            .unwrap();
+        field["field_type"] = serde_json::json!({"Scalar": scalar});
+        field["nullable"] = nullable.into();
+        let invalid: SchemaFragment = serde_json::from_value(value).unwrap();
+        let bytes = crate::wire::encode_one((*b"ICWF\x01", invalid)).unwrap();
         assert_eq!(
-            decode_schema_fragment(bytes),
+            decode_schema_fragment(&bytes),
             Err(SchemaContractError::InvalidFieldPolicy)
         );
     }
@@ -1361,6 +1375,11 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
     .expect("literal entity should admit");
     let fragment =
         SchemaFragment::try_new(vec![entity], Vec::new()).expect("literal fragment should admit");
+    let json = serde_json::to_string(&fragment).unwrap();
+    assert_eq!(
+        serde_json::from_str::<SchemaFragment>(&json).unwrap(),
+        fragment
+    );
     let bytes = encode_schema_fragment(&fragment).expect("fragment should encode");
 
     assert_eq!(
@@ -1377,8 +1396,8 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            166, 100, 221, 241, 154, 254, 128, 252, 29, 108, 56, 176, 167, 71, 80, 95, 213, 251,
-            56, 25, 2, 50, 170, 60, 186, 242, 200, 251, 116, 253, 185, 252,
+            122, 67, 24, 63, 197, 168, 220, 190, 228, 61, 230, 78, 243, 118, 3, 117, 222, 246, 134,
+            128, 134, 105, 245, 1, 83, 75, 241, 231, 169, 9, 144, 46,
         ],
     );
 }

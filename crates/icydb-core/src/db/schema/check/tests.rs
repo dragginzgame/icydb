@@ -1,6 +1,7 @@
 #[cfg(feature = "sql")]
 mod boolean_truth;
 mod source_bounds;
+mod source_partition;
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -84,6 +85,16 @@ fn sql_wide_integer_checks_bind_exact_atoms_and_nominal_kinds() {
             AcceptedFieldKind::Nat128,
             InputValue::nat128(u128::from(u64::MAX) + 1),
             (u128::from(u64::MAX) + 1).to_string(),
+        ),
+        (
+            AcceptedFieldKind::Nat128,
+            InputValue::nat128(1_u128 << 127),
+            (1_u128 << 127).to_string(),
+        ),
+        (
+            AcceptedFieldKind::Nat128,
+            InputValue::nat128(u128::MAX),
+            u128::MAX.to_string(),
         ),
     ] {
         for wrapped in [false, true] {

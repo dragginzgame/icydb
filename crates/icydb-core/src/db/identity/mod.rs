@@ -1,7 +1,8 @@
 //! Module: db::identity
 //! Responsibility: validated entity/index naming and stable byte ordering contracts.
-//! Does not own: schema metadata, relation policy, or storage-layer persistence.
-//! Boundary: all identity construction/decoding for db data/index key domains.
+//! Does not own: accepted EntityTag/IndexId allocation, physical row/index keys,
+//! schema metadata, relation policy, or storage-layer persistence.
+//! Boundary: public naming/lookup values and their bounded byte representations.
 //!
 //! Invariants:
 //! - Identities are ASCII, non-empty, and bounded by MAX_* limits.
@@ -62,7 +63,7 @@ pub enum IdentityDecodeError {
 
 /// Admission error for generated entity names.
 ///
-/// Owned by the identity layer before entity names enter stable key formats.
+/// Owned by the naming layer before entity names enter public lookup contracts.
 
 #[derive(Debug)]
 pub enum EntityNameError {
@@ -108,9 +109,9 @@ pub enum IndexNameError {
     TooLong { len: usize, max: usize },
 }
 
-/// Validated entity identity with fixed-size persisted representation.
+/// Validated public entity name with a bounded fixed-width representation.
 ///
-/// Used by data-key and index-key domains as canonical entity-name bytes.
+/// Used for naming and lookup; accepted EntityTag owns physical row identity.
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct EntityName {
@@ -261,9 +262,9 @@ impl fmt::Debug for EntityName {
     }
 }
 
-/// Validated index identity with fixed-size persisted representation.
+/// Validated public index name with a bounded fixed-width representation.
 ///
-/// Used by index-store key domains as canonical index-name bytes.
+/// Used for naming and lookup; accepted IndexId owns physical index identity.
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct IndexName {

@@ -60,6 +60,17 @@ pub trait CanisterKind: Path + 'static {
 
     /// Durable stable-memory allocation key for integrity-inspection progress.
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str;
+
+    /// Resolve the current generated receipt that must survive terminal retention.
+    ///
+    /// Generated canisters bind this to their immutable submission and registry.
+    /// Canisters without generated readiness have no receipt to protect. The
+    /// control allocation is selected before this read-only hook is invoked.
+    #[doc(hidden)]
+    fn generated_schema_application_record_key()
+    -> Result<Option<[u8; 32]>, crate::error::InternalError> {
+        Ok(None)
+    }
 }
 
 ///

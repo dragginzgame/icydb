@@ -14,12 +14,12 @@ use crate::{
         divide_decimal_terms_checked,
     },
     types::{Decimal, Duration, Float64 as F64, Timestamp, U256},
-    value::Value,
+    value::{Value, ops::ordering as value_ordering},
 };
 use std::cmp::Ordering;
 
 #[test]
-fn exact_numeric_order_matches_decimal_coercion_at_boundaries() {
+fn numeric_order_preserves_decimal_coercion_and_exact_nat128_pairs() {
     let mut cases = Vec::new();
     for value in [i64::MIN, -1, 0, 1, i64::MAX] {
         cases.push(Value::Int64(value));
@@ -53,9 +53,12 @@ fn exact_numeric_order_matches_decimal_coercion_at_boundaries() {
     ]);
     for left in &cases {
         for right in &cases {
-            let expected = coerce_numeric_decimal(left)
-                .zip(coerce_numeric_decimal(right))
-                .map(|(left, right)| left.cmp(&right));
+            let expected = match (left, right) {
+                (Value::Nat128(left), Value::Nat128(right)) => Some(left.cmp(right)),
+                _ => coerce_numeric_decimal(left)
+                    .zip(coerce_numeric_decimal(right))
+                    .map(|(left, right)| left.cmp(&right)),
+            };
             assert_eq!(
                 compare_numeric_order(left, right),
                 expected,
@@ -66,6 +69,33 @@ fn exact_numeric_order_matches_decimal_coercion_at_boundaries() {
                 expected.map(Ordering::is_eq)
             );
         }
+    }
+}
+
+#[test]
+fn nat128_comparison_uses_the_complete_unsigned_domain_without_widening_arithmetic() {
+    for left in [0, i128::MAX.cast_unsigned(), 1_u128 << 127, u128::MAX] {
+        for right in [0, i128::MAX.cast_unsigned(), 1_u128 << 127, u128::MAX] {
+            let expected = left.cmp(&right);
+            let left = Value::Nat128(left);
+            let right = Value::Nat128(right);
+            assert_eq!(left.cmp_numeric(&right), Some(expected));
+            assert_eq!(compare_numeric_order(&left, &right), Some(expected));
+            assert_eq!(compare_numeric_eq(&left, &right), Some(expected.is_eq()));
+            assert_eq!(value_ordering::eq(&left, &right), Some(expected.is_eq()));
+            assert_eq!(value_ordering::lt(&left, &right), Some(expected.is_lt()));
+            assert_eq!(canonical_value_compare(&left, &right), expected);
+        }
+    }
+    let maximum = Value::Nat128(u128::MAX);
+    assert_eq!(coerce_numeric_decimal(&maximum), None);
+    for mixed in [
+        Value::Nat64(1),
+        Value::Int128(i128::MAX),
+        Value::Decimal(Decimal::new(1, 0)),
+    ] {
+        assert_eq!(compare_numeric_order(&maximum, &mixed), None);
+        assert_eq!(compare_numeric_order(&mixed, &maximum), None);
     }
 }
 

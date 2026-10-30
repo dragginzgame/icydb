@@ -78,12 +78,13 @@ Direct `validate` checks the supplied value without normalizing it first. The
 consuming convenience always normalizes before validation. Neither operation
 persists behavior or changes database admission.
 
-## 0.216 Hard Cut
+## Artifact And Storage Boundaries
 
-The former rule `kind = "..."` plus positional rule `args(...)` spelling is
-removed. There is no alias or compatibility parser. Development stores whose
-accepted snapshots use the retired `ICYT` profile must be recreated; the sole
-current accepted profile is `ICYU`.
+Model generation embeds artifacts produced by the canonical `icydb-schema`
+IC Wire encoders. Runtime application decodes and validates the same contract;
+the model package does not maintain another codec or convert retained data.
+Accepted snapshot formats and installation retirement obligations are defined in
+the [persisted-format inventory](../../docs/contracts/PERSISTED_FORMAT_INVENTORY.md).
 
 References:
 

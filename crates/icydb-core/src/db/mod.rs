@@ -174,6 +174,8 @@ pub use resumable_job::{
     ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus,
 };
 #[doc(hidden)]
+pub use schema::generated_schema_application_record_key;
+#[doc(hidden)]
 pub use schema::validate_generated_constraint_name;
 pub use schema::{
     ConstraintValidationProgressDescription, EntityConstraintDescription, EntityFieldDescription,

@@ -146,6 +146,10 @@ fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one stored wide-integer matrix keeps write, predicate and projection parity together"
+)]
 fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
     for (kind, values) in [
         (
@@ -153,6 +157,8 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
             vec![
                 InputValue::nat128(u128::from(u64::MAX) + 1),
                 InputValue::nat128(u128::try_from(i128::MAX).unwrap()),
+                InputValue::nat128(1_u128 << 127),
+                InputValue::nat128(u128::MAX),
             ],
         ),
         (
@@ -215,6 +221,8 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
                             None,
                         )
                         .unwrap();
+                    let matches = matches!(operator, "=" | "<=" | ">=" | "IN");
+                    assert_eq!(control.rows.len(), usize::from(matches));
                     let condition = if operator == "IN" {
                         format!("operand IN ({integer}, {integer})")
                     } else {
@@ -230,6 +238,17 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
                             panic!("expected projection");
                         };
                         assert_eq!(rows, control.rows, "{condition}");
+                    }
+                    if operator != "IN" {
+                        let sql = format!("SELECT operand {operator} {integer} FROM Singleton");
+                        let dispatch = sql_statement_dispatch(&sql).unwrap();
+                        let (result, _) = new_request_session()
+                            .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
+                            .unwrap();
+                        let SqlStatementResult::Projection { rows, .. } = result else {
+                            panic!("expected comparison projection");
+                        };
+                        assert_eq!(rows, vec![vec![OutputValue::boolean(matches)]]);
                     }
                 }
             }

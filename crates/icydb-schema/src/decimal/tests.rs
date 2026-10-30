@@ -778,23 +778,21 @@ proptest! {
 
 #[test]
 fn decimal_text_transports_preserve_values_and_measured_sizes() {
-    for (text, one, batch, binary) in [
-        ("0", 2, 2_002, 2),
-        ("-1", 3, 3_002, 3),
-        ("42.5", 5, 5_002, 5),
-        ("123.45", 7, 7_002, 7),
-        ("0.00000001", 11, 11_002, 11),
-        ("1234567890.123456789", 21, 21_002, 21),
-        ("170141183460469231731687303715884105727", 40, 40_002, 41),
-        ("-170141183460469231731687303715884105728", 41, 41_002, 42),
+    for (text, one, batch) in [
+        ("0", 2, 2_002),
+        ("-1", 3, 3_002),
+        ("42.5", 5, 5_002),
+        ("123.45", 7, 7_002),
+        ("0.00000001", 11, 11_002),
+        ("1234567890.123456789", 21, 21_002),
+        ("170141183460469231731687303715884105727", 40, 40_002),
+        ("-170141183460469231731687303715884105728", 41, 41_002),
     ] {
         let value: Decimal = text.parse().expect("the decimal should parse");
-        assert_eq!(
-            crate::wire::encode_one(value)
-                .expect("Wire should encode")
-                .len(),
-            one
-        );
+        let encoded = crate::wire::encode_one(value).expect("Wire should encode");
+        assert_eq!(encoded.len(), one);
+        assert_eq!(crate::wire::decode_one::<String>(&encoded).unwrap(), text);
+        assert_eq!(crate::wire::decode_one::<Decimal>(&encoded).unwrap(), value);
         let values = vec![value; 1_000];
         let encoded = crate::wire::encode_one(&values).expect("the decimal batch should encode");
         assert_eq!(encoded.len(), batch);
@@ -802,19 +800,6 @@ fn decimal_text_transports_preserve_values_and_measured_sizes() {
             crate::wire::decode_one::<Vec<Decimal>>(&encoded)
                 .expect("the decimal batch should decode"),
             values,
-        );
-        let mut encoded = Vec::new();
-        serde_cbor::to_writer(&mut encoded, &value).expect("CBOR should encode");
-        assert_eq!(encoded.len(), binary);
-        assert_eq!(
-            serde_cbor::from_slice::<String>(encoded.as_slice())
-                .expect("CBOR should contain decimal text"),
-            text,
-        );
-        assert_eq!(
-            serde_cbor::from_slice::<Decimal>(encoded.as_slice())
-                .expect("CBOR should decode the decimal"),
-            value,
         );
         let json = serde_json::to_string(&value).expect("JSON should encode");
         assert_eq!(

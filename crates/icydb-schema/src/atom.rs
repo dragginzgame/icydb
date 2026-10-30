@@ -7,6 +7,7 @@ use std::{
     str::FromStr,
 };
 
+use ic_wire::ByteBuf;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 
 #[cfg(test)]
@@ -273,7 +274,7 @@ impl<'de> Deserialize<'de> for Blob {
     where
         D: Deserializer<'de>,
     {
-        serde_bytes::ByteBuf::deserialize(deserializer).map(|bytes| Self(bytes.into_vec()))
+        ByteBuf::deserialize(deserializer).map(|bytes| Self(bytes.into_vec()))
     }
 }
 

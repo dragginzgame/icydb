@@ -4,9 +4,10 @@ use crate::{
         MutationJobAdvanceRequest, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
         MutationJobStatus,
         commit::marker::{
-            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
-            commit_marker_payload_capacity, decode_commit_marker_payload,
+            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, DatabaseControlOp,
+            MAX_COMMIT_BYTES, commit_marker_payload_capacity, decode_commit_marker_payload,
             encode_commit_marker_payload, generate_commit_id, generate_marker_batch_id,
+            write_commit_marker_payload,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::MutationProgressRecordOp,
@@ -16,12 +17,22 @@ use crate::{
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         mutation_job::{MutationJobRecord, MutationJobTransition},
+        schema::{
+            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
+            SchemaChangeReceipt, schema_migration_record_lifecycle_ops_for_tests,
+            unadopted_entity_source_lineage_op_for_tests,
+        },
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
     types::EntityTag,
 };
 use ic_memory::Memory;
+use ic_platform::blake3;
+use icydb_schema::{
+    ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
+    TargetDatabaseIdentity, TargetStoreIdentity,
+};
 
 #[test]
 fn commit_ids_reuse_frozen_time_and_allocate_distinct_sequences() {
@@ -386,6 +397,103 @@ fn commit_marker_embeds_marker_bound_journal_batches() {
         .expect("marker payload should decode embedded journal batch");
 
     assert_eq!(decoded.journal_batches(), &[journal_batch]);
+}
+
+// Cover every control tag through its owning constructor. The migration
+// replacement exercises an optional predecessor; application and lineage
+// inserts omit it, while mutation progress carries its maximum bounded images.
+fn marker_layout_controls() -> Vec<DatabaseControlOp> {
+    let accepted_head = ExpectedAcceptedHead::Exact {
+        revision: 1,
+        fingerprint: ExpectedSchemaFingerprint::from_bytes([0x12; 32]),
+    };
+    let receipt = SchemaChangeReceipt::new(
+        TargetDatabaseIdentity::from_bytes([0x11; 32]),
+        SchemaSubmissionKey::try_new("marker-layout").unwrap(),
+        SchemaProposalDigest::from_bytes([0x13; 32]),
+        ExpectedAcceptedHead::Empty,
+        SchemaChangeOutcome::Applied {
+            accepted_head: accepted_head.clone(),
+        },
+    )
+    .unwrap();
+    let application = SchemaApplicationRecord::new(receipt, Vec::new()).unwrap();
+    let lineage = unadopted_entity_source_lineage_op_for_tests(
+        TargetStoreIdentity::from_bytes([0x21; 32]),
+        EntityTag::new(1),
+        accepted_head,
+    )
+    .unwrap();
+    let (_, migration, _) = schema_migration_record_lifecycle_ops_for_tests().unwrap();
+    vec![
+        DatabaseControlOp::SchemaApplication(
+            SchemaApplicationRecordOp::insert(&application).unwrap(),
+        ),
+        DatabaseControlOp::EntitySourceLineage(lineage),
+        DatabaseControlOp::SchemaMigration(migration),
+        DatabaseControlOp::MutationProgress(maximal_mutation_progress_operation()),
+    ]
+}
+
+#[test]
+fn marker_layout_preserves_control_bytes_capacity_and_appended_batch_ranges() {
+    // Frozen from the pre-consolidation 0.290.0 writer, with each successive
+    // control tag included. Round-tripping alone cannot establish byte identity.
+    const PAYLOAD_HASHES: [&str; 5] = [
+        "785a342748f1d6235c52d82f188d7f2809277d44991dff3aafbe74ccf71d6cf8",
+        "481a701658df14f7b7ec08a0b80429f88c9f8273a8bcc01b9d160caa5a7139c8",
+        "5dedbe8b829322639b62f885b20857c5db998fca54d956d22341168d983557fe",
+        "b2279d23ce13131ba325393c30355fca953b9a47a442fabced7d2ec98af6ea09",
+        "0db4f5c8a6c2b37aebdfa7f9654557ca930ae83095f60b515412b974cf0d9d39",
+    ];
+    let marker_id = [0xAB; 16];
+    let batches = [1, 2].map(|id| {
+        JournalBatch::new(
+            [id; 16],
+            marker_id,
+            JournalSequence::new(1),
+            vec![
+                JournalRecord::row_put(
+                    "test::Entity",
+                    raw_data_store_key(id),
+                    vec![id; 3],
+                    [0x55; 16],
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap()
+    });
+    let controls = marker_layout_controls();
+    for count in 0..=controls.len() {
+        let marker = CommitMarker::from_parts_with_database_control(
+            marker_id,
+            batches.to_vec(),
+            controls[..count].to_vec(),
+        )
+        .unwrap();
+        let mut encoded = vec![0xEE; 7];
+        let ranges = write_commit_marker_payload(&mut encoded, &marker).unwrap();
+        let payload = &encoded[7..];
+        assert_eq!(&encoded[..7], &[0xEE; 7]);
+        assert_eq!(payload.len(), commit_marker_payload_capacity(&marker));
+        assert_eq!(ranges.len(), batches.len());
+        assert_eq!(ranges[0].start, 7 + 16 + 4 + 4);
+        assert_eq!(ranges[1].start, ranges[0].end + 4);
+        for (range, batch) in ranges.iter().zip(&batches) {
+            assert_eq!(encoded[range.clone()], encode_journal_batch(batch).unwrap());
+        }
+        assert_eq!(blake3::hash(payload).to_string(), PAYLOAD_HASHES[count]);
+        let decoded = decode_commit_marker_payload(payload).unwrap();
+        assert_eq!(encode_commit_marker_payload(&decoded).unwrap(), payload);
+        if count != 0 {
+            let mut unknown_tag = payload.to_vec();
+            unknown_tag[ranges[1].end - 7 + 1] = 255;
+            let error = decode_commit_marker_payload(&unknown_tag).unwrap_err();
+            assert_eq!(error.class(), ErrorClass::Corruption);
+            assert_eq!(error.origin(), ErrorOrigin::Store);
+        }
+    }
 }
 
 #[test]

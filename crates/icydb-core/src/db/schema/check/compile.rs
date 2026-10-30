@@ -14,8 +14,9 @@ use crate::{
         resource::construction::ConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
-            AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-            ConstraintActivationKind, ConstraintId,
+            AcceptedFieldDecodeContract, AcceptedRuleOperation, AcceptedRuleTarget,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, ConstraintActivationKind,
+            ConstraintId,
         },
     },
     error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
@@ -26,6 +27,21 @@ use std::{borrow::Cow, cmp::Ordering};
 
 type CheckConstraintSource<'a> = (ConstraintId, &'a AcceptedCheckExprV1, bool);
 type NotNullConstraintSource = (ConstraintId, crate::db::schema::FieldId, bool);
+type TargetedRuleSource<'a> = (
+    ConstraintId,
+    AcceptedRuleTarget,
+    &'a AcceptedRuleOperation,
+    bool,
+);
+
+// Borrowed source buckets preserve the existing compilation phases. Only
+// classification is shared; no rule payload or compiled program is duplicated.
+#[derive(Default)]
+struct RowConstraintSources<'a> {
+    checks: Vec<CheckConstraintSource<'a>>,
+    not_null: Vec<NotNullConstraintSource>,
+    targeted: Vec<TargetedRuleSource<'a>>,
+}
 
 /// SQL three-valued truth returned by accepted check evaluation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -191,16 +207,23 @@ impl CompiledAcceptedRowConstraints {
         work: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         let snapshot = schema.persisted_snapshot();
-        let check_sources = check_constraint_sources(snapshot);
-        let not_null_sources = not_null_constraint_sources(snapshot);
-        let targeted_rules = compile_targeted_rules(schema, value_catalog)
-            .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        let RowConstraintSources {
+            checks,
+            not_null,
+            targeted,
+        } = row_constraint_sources(snapshot);
+        let targeted_rules = CompiledAcceptedTargetedRules::compile_sources(
+            schema,
+            value_catalog,
+            targeted.into_iter(),
+        )
+        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
         let mut compiled = Self::compile_sources(
             schema,
             value_catalog,
             fingerprint,
-            check_sources,
-            not_null_sources,
+            checks,
+            not_null,
             targeted_rules,
         )
         .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
@@ -688,82 +711,52 @@ fn targeted_rule_violation_error(
     }
 }
 
-fn compile_targeted_rules(
-    schema: &AcceptedSchemaSnapshot,
-    value_catalog: &AcceptedValueCatalogHandle,
-) -> Result<CompiledAcceptedTargetedRules, AcceptedRowConstraintEvaluationError> {
-    CompiledAcceptedTargetedRules::compile(schema, value_catalog)
-        .map_err(AcceptedRowConstraintEvaluationError::from)
-}
-
-fn check_constraint_sources(
+// Each catalog is classified once, retaining accepted sources before pending
+// sources within every family. The family compilers keep their existing order.
+fn row_constraint_sources(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-) -> Vec<CheckConstraintSource<'_>> {
-    snapshot
-        .constraints()
-        .iter()
-        .filter_map(|constraint| match constraint.kind() {
-            AcceptedConstraintKind::Check { expression } => Some((
-                constraint.id(),
-                expression.as_ref(),
-                true,
-            )),
-            AcceptedConstraintKind::PrimaryKey
-            | AcceptedConstraintKind::NotNull { .. }
-            | AcceptedConstraintKind::Unique { .. }
-            | AcceptedConstraintKind::Relation { .. }
-            // Compiled once per root by `CompiledAcceptedTargetedRules`.
-            | AcceptedConstraintKind::TargetedRule { .. } => None,
-        })
-        .chain(
-            snapshot
-                .constraint_activations()
-                .iter()
-                .filter_map(|activation| match activation.kind() {
-                    ConstraintActivationKind::Check { expression } => {
-                        Some((activation.id(), expression.as_ref(), false))
-                    }
-                    ConstraintActivationKind::NotNull { .. }
-                    | ConstraintActivationKind::Unique { .. }
-                    | ConstraintActivationKind::Relation { .. }
-                    | ConstraintActivationKind::TargetedRule { .. } => None,
-                }),
-        )
-        .collect()
-}
-
-fn not_null_constraint_sources(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-) -> Vec<NotNullConstraintSource> {
-    snapshot
-        .constraints()
-        .iter()
-        .filter_map(|constraint| match constraint.kind() {
+) -> RowConstraintSources<'_> {
+    let mut sources = RowConstraintSources::default();
+    for constraint in snapshot.constraints() {
+        match constraint.kind() {
+            AcceptedConstraintKind::Check { expression } => {
+                sources
+                    .checks
+                    .push((constraint.id(), expression.as_ref(), true));
+            }
             AcceptedConstraintKind::NotNull { field_id } => {
-                Some((constraint.id(), *field_id, true))
+                sources.not_null.push((constraint.id(), *field_id, true));
+            }
+            AcceptedConstraintKind::TargetedRule { target, operation } => {
+                sources
+                    .targeted
+                    .push((constraint.id(), *target, operation.as_ref(), true));
             }
             AcceptedConstraintKind::PrimaryKey
             | AcceptedConstraintKind::Unique { .. }
-            | AcceptedConstraintKind::Relation { .. }
-            | AcceptedConstraintKind::Check { .. }
-            // Compiled once per root by `CompiledAcceptedTargetedRules`.
-            | AcceptedConstraintKind::TargetedRule { .. } => None,
-        })
-        .chain(
-            snapshot
-                .constraint_activations()
-                .iter()
-                .filter_map(|activation| match activation.kind() {
-                    ConstraintActivationKind::NotNull { field_id } => {
-                        Some((activation.id(), *field_id, false))
-                    }
-                    ConstraintActivationKind::Unique { .. }
-                    | ConstraintActivationKind::Relation { .. }
-                    | ConstraintActivationKind::Check { .. }
-                    | ConstraintActivationKind::TargetedRule { .. } => None,
-                }),
-        )
-        .collect()
+            | AcceptedConstraintKind::Relation { .. } => {}
+        }
+    }
+    for activation in snapshot.constraint_activations() {
+        match activation.kind() {
+            ConstraintActivationKind::Check { expression } => {
+                sources
+                    .checks
+                    .push((activation.id(), expression.as_ref(), false));
+            }
+            ConstraintActivationKind::NotNull { field_id } => {
+                sources.not_null.push((activation.id(), *field_id, false));
+            }
+            ConstraintActivationKind::TargetedRule { target, operation } => {
+                sources
+                    .targeted
+                    .push((activation.id(), *target, operation.as_ref(), false));
+            }
+            ConstraintActivationKind::Unique { .. } | ConstraintActivationKind::Relation { .. } => {
+            }
+        }
+    }
+    sources
 }
 
 /// Map one row-program result into the shared accepted write diagnostic.

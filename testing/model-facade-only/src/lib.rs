@@ -111,6 +111,58 @@ mod tests {
     }
 
     #[test]
+    fn native_database_threads_are_isolated_and_driving_preserves_rows() {
+        crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
+        super::insert_profile(7).unwrap();
+
+        // Every worker uses the same generated actor and primary key. Its fresh
+        // runtime must neither inherit nor reset the caller's database.
+        for rank in [19, 37] {
+            std::thread::spawn(move || {
+                crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
+                assert_eq!(super::profile_rank().unwrap(), None);
+                super::insert_profile(rank).unwrap();
+                crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
+                assert_eq!(super::profile_rank().unwrap(), Some(rank));
+            })
+            .join()
+            .unwrap();
+            assert_eq!(super::profile_rank().unwrap(), Some(7));
+        }
+    }
+
+    #[test]
+    fn generated_readiness_survives_schema_receipt_retention() {
+        use crate::__icydb_generated::{
+            __drive_native_database_for_tests, ICYDB_SCHEMA_ENTITY_STORES, ICYDB_SCHEMA_FRAGMENT,
+        };
+
+        __drive_native_database_for_tests().unwrap();
+        super::insert_profile(7).unwrap();
+        // More than two full receipt windows: control-only NoOps create no
+        // journal debt whose wakeup could hide a lost readiness receipt.
+        for ordinal in 0..130 {
+            runtime_api::db::with_request_execution(|| {
+                crate::db()
+                    .unwrap()
+                    .apply_generated_schema_fragment(
+                        ICYDB_SCHEMA_FRAGMENT,
+                        None,
+                        &format!("retention-{ordinal}"),
+                        ICYDB_SCHEMA_ENTITY_STORES,
+                    )
+                    .unwrap();
+            });
+            assert!(matches!(
+                crate::startup_state().unwrap(),
+                runtime_api::db::DatabaseStartupState::Ready,
+            ));
+        }
+        __drive_native_database_for_tests().unwrap();
+        assert_eq!(super::profile_rank().unwrap(), Some(7));
+    }
+
+    #[test]
     fn generated_schema_binding_mismatch_keeps_source_context() {
         crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
         runtime_api::db::with_request_execution(|| {

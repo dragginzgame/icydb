@@ -176,16 +176,21 @@ whitespace, for example `SELECT price * 1 e3 FROM Product`, or use `AS e3`.
 This restriction does not apply inside strings, hex blob literals or typed
 `U256` string literals.
 
-Strict field binding for `int128` and `nat128` accepts
-bare integers exactly within the parser's signed 128-bit range, including
-integers above `u64::MAX`. Unsigned fields reject negative values. Decimal-point spellings such as
-`1.0` remain Decimal literals and are rejected for these integer fields.
-For values beyond the bare-literal range, use a quoted decimal integer at these
-field boundaries, for example `balance = '340282366920938463463374607431768211455'`
-for `nat128`. A quoted integer remains text in a general computed expression;
-field context owns this conversion. General numeric literal typing and scalar
-rendered spellings are unchanged; arbitrary wide integers and floating values
-are not guaranteed to round-trip through rendered SQL.
+Strict field binding accepts bare integers across each complete `int128` and
+`nat128` domain, including `balance = 340282366920938463463374607431768211455`
+for `nat128`. Unsigned fields reject negative values; signed fields reject
+values above `i128::MAX`. Decimal-point spellings such as `1.0` remain Decimal
+literals and are rejected for these integer fields. Integers outside
+`i128::MIN..=u128::MAX` fail numeric parsing.
+
+Previously accepted literals keep their existing atom types. Positive integers
+above `i128::MAX` now produce exact `Nat128` atoms. Comparisons between two
+`Nat128` values use their complete unsigned domain in predicates and computed
+expressions; this does not widen Decimal arithmetic or mixed-type numeric
+coercion. Quoted decimal integers remain supported at integer field boundaries
+and remain text in a general computed expression. Rendered integer spellings
+are unchanged; floating values are still not guaranteed to round-trip through
+rendered SQL.
 
 #### Fixed-width `U256`
 

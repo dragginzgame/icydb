@@ -163,7 +163,7 @@ impl IntegritySubmissionKey {
 }
 
 /// Exact private continuation for the current Deep phase.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) enum IntegrityCheckpoint {
     /// Bounded accepted metadata and control closure.
     QuickMetadata,
@@ -257,7 +257,7 @@ impl IntegrityTerminalOutcome {
 }
 
 /// Durable job lifecycle state.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) enum IntegrityJobState {
     /// Physical advancement remains permitted.
     InProgress,
@@ -419,7 +419,7 @@ impl IntegrityJobReceipt {
 }
 
 /// Request identity that produced the cached receipt.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) enum IntegrityReceiptReplayKey {
     /// Initial Deep start.
     Start,
@@ -428,19 +428,23 @@ pub(in crate::db) enum IntegrityReceiptReplayKey {
 }
 
 /// One cached bounded receipt and its exact replay request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) struct IntegrityReceiptEnvelope {
     pub(super) replay_key: IntegrityReceiptReplayKey,
+    #[serde(deserialize_with = "crate::db::integrity::progress_codec::Receipt::deserialize")]
     pub(super) receipt: IntegrityJobReceipt,
 }
 
 /// Current invariant-bearing durable Deep record.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) struct IntegrityJob {
     pub(super) id: IntegrityJobId,
     pub(super) database_incarnation_id: DatabaseIncarnationId,
+    #[serde(deserialize_with = "crate::db::integrity::progress_codec::deserialize_owner")]
     pub(super) owner: IntegrityJobOwner,
+    #[serde(deserialize_with = "crate::db::integrity::progress_codec::deserialize_submission_key")]
     pub(super) submission_key: IntegritySubmissionKey,
+    #[serde(deserialize_with = "crate::db::integrity::progress_codec::EntityPayload::deserialize")]
     pub(super) entity: IntegrityEntityIdentity,
     pub(super) accepted_schema_version: u32,
     pub(super) accepted_schema_fingerprint: [u8; 16],
@@ -451,6 +455,9 @@ pub(in crate::db) struct IntegrityJob {
     pub(super) lease_deadline_nanos: u64,
     pub(super) findings_seen: u64,
     pub(super) pages_completed: u64,
+    #[serde(
+        deserialize_with = "crate::db::integrity::progress_codec::deserialize_list::<_, _, { crate::db::integrity::progress_codec::MAX_BLOCKED_VERIFIER_FAMILIES }>"
+    )]
     pub(super) blocked_verifier_families: Vec<IntegrityVerifierFamily>,
     pub(super) last_receipt: IntegrityReceiptEnvelope,
 }

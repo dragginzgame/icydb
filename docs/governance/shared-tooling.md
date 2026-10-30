@@ -7,9 +7,9 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects Shared Tooling 0.27.7 at published revision
-`11d519c604b1727a2bf6272557a97e770a63b29f`. The canonical exporter owns the
-130 selected payloads and their hashes/modes. Adoption also verifies every
+IcyDB selects Shared Tooling 0.27.9 at published revision
+`3c458c28cca132784e6e70fbaf219bdea1e4cf8f`. The canonical exporter owns the
+131 selected payloads and their hashes/modes. Adoption also verifies every
 payload and mode against that independently selected source commit; ordinary
 checks remain offline local-integrity checks. Refresh them canonically; a
 sibling checkout's uncommitted changes are not part of this snapshot.
@@ -90,58 +90,118 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-Current direct minimums are IC Build/Host/Testkit 0.69.14, Platform 0.7.6,
-Wire 0.7.21, Memory/Storage 0.55.1, Metrics 0.17.2 and Timers 0.31.16.
-The lock selects those requested package versions; the pinned
-Canic adapter retains Platform 0.6.21 and Timers 0.31.16. Timers 0.32 remains
-blocked by that adapter's exclusive global-timer dependency; remediation is
-[Canic #590](https://github.com/dragginzgame/canic/issues/590) (superseding #709). No local supplier
-path override is used.
+Current direct minimums are IC Build/Host/Testkit 0.70.4, Platform 0.8.3,
+Wire 0.7.23, Memory/Storage 0.56.0 and Metrics 0.17.6. Incoming lock updates
+select Wire 0.7.24 and Metrics 0.17.7; the receipt-retention qualification uses
+those selections. Their additive endpoint/method-ID API and unchanged Metrics
+Rust implementation require no IcyDB protocol or measurement-type switch.
+Earlier qualification remains bound to its recorded inputs.
+Timers remains at 0.31.16. Canic remains at
+`45db926a326712f402fa639e0ca2888031988973`, with Platform 0.6.21, while
+Timers retains Platform 0.7.6. Published Timers 0.32.3 remains blocked by the
+adapter's exclusive global-timer dependency; remediation is
+[Canic #590](https://github.com/dragginzgame/canic/issues/590) (superseding #709).
+The public Canic 0.112.0 main commit lacks the adapter package, so selecting that
+revision is not a replacement. No local supplier path override is used.
 
-Shared 0.27.7's 130 payloads match independently reviewed committed source
-`11d519c604b1727a2bf6272557a97e770a63b29f`; consumer adapter regressions,
-declaration pins, graph invariants and external-IC dependency boundaries pass.
-The refresh preserves IcyDB's selected entrypoints and local stricter file policy.
-Scheduled maintenance was not enabled or requalified by this adoption.
+Shared 0.27.9's 131 payloads match released source
+`3c458c28cca132784e6e70fbaf219bdea1e4cf8f`, independently verified against its
+committed source. The runner's new input-checkpoint companion is included in
+both local adapter fixture closures. The newer public-main publication adapter
+belongs to pending 0.27.10 and is not consumed. Scheduled maintenance is not
+enabled by dependency adoption. Earlier qualification belongs to its recorded
+source and dependency identities, rather than the current graph.
 
-Metrics 0.17.2's registry archive identifies IC Observability source
-`775a47fab309c043e5a40ec96e009706d668a49b`. Measurement behavior, native Wire
-transport and optional recording contracts are unchanged from 0.17.0. The
-independent Logging package is not selected by this update. IC Persistence
-retains durable adapter ownership; this adoption adds no storage integration.
+Published Tooling 0.70.4 identifies
+`b275fe7286115e4eb806e58d3fbbe6c22ab5ed2c`; Platform 0.8.3 identifies
+`f69a759bb94e84f054d5f8701461d745b8f8eed4`; Metrics 0.17.6 identifies
+`87759e723b101dea7b483806446c00eff1016c0a`. All declare Rust 1.91.
+Their consumed interfaces remain supported: Host retains file/process APIs,
+Build retains artifact admission, Platform consolidates external Account text
+formatting, and Metrics refactors histogram bounds outside IcyDB's measurement
+consumer. Tooling 0.70.4 changes only Host Process test-support implementation
+relative to 0.70.3; those HTTP/socket helpers are not consumed here. No supplier
+wrapper or new runtime mode is added.
 
-Tooling 0.69.14 registry archives identify source
-`645ae21d387b03e2750f5c7fd5a604a7f5279899`. Memory/Storage 0.55.1 archives
-identify Persistence source `c3700a1c8ac99d13e570a35f3cfe023692df079c`.
-All nine packages declare Rust 1.91 support. Memory and Storage library sources
-match 0.55.0; custody, allocation ledger and B-tree formats remain unchanged.
-The earlier 0.54-to-0.55 crate-identity change affects exposed Memory types, so
-consumers exchanging them must align dependencies. The pending batch remains
-under [0.290](../changelog/0.290.md). Neither stable metrics nor stable logging
-adapters are selected; their checkpoint retirement requires no reset here.
+Published Memory/Storage 0.56.0 identifies
+`956b2b92728f82f75dd51d4d10ed52f325529e91`. Memory's bounded Wire allocation
+ledger and Cell value reject prior CBOR images. The maintainer approved the
+source hard cut: installations need fresh/reset memory or a separately reviewed
+transition before installation, never a ledger-only reset over retained
+collection bytes. No reset or deployment is performed by this adoption.
+Memory's numeric slot/custody and manager/Cell substrate contracts remain
+unchanged; IcyDB's separate artifact and Deep-job cuts are documented in the
+[persisted-format inventory](../contracts/PERSISTED_FORMAT_INVENTORY.md).
 
-Platform 0.7.6 was already locked; this update raises its direct minimum without
-changing features. Wire 0.7.21, Metrics 0.17.2 and compatible Timers 0.31.16 are
-already current. Published Timers 0.32 cannot coexist with the retained adapter's
-0.31 requirement because both own the same exclusive global timer. The canonical
-Canic issue above remains open; its local drafts do not establish an available,
-qualified adapter revision. Keep the supplier pin and single timer owner intact.
+Earlier published Tooling 0.70.0 archives identify source
+`ecc8d61d19f0b711788f7e10e5dd728d0db6ff60`; Platform 0.8.1 identifies
+`10c2610511d6a5525816185c999b25fd159c1d89`. Their declared MSRV remains Rust 1.91.
+Tooling preserves the consumed file/process/build interfaces and Testkit's
+external Principal interface. IcyDB does not consume Tools' changed ledger-value
+identities. Platform's Principal packaging changes the public Rust identity
+exchanged through read-authorization contexts and atom conversions: consumers
+must align on Platform 0.8. Canonical Principal/Account text, bytes and native
+Wire encodings are unchanged. See [0.291 adoption notes](../changelog/0.291.md).
 
-Shared retains the reviewed `11d519c604b1727a2bf6272557a97e770a63b29f` selection,
-which matches the available public revision. Tooling retains public interfaces,
-selected features, cache/report formats and lifecycle responsibilities. Exact
-archive provenance and focused evidence for this refresh are retained under
-`target/evidence/upstream-20261029-latest/`. Fresh Linux qualification passes
-strict facade/Core/CLI/build-adapter and integration-library lint, 5 Core memory/
-replay tests, 7 facade bootstrap tests, 179 CLI tests and 21 build-adapter tests.
-The Rust 1.91 public Wasm path passes with SQL, metrics and migration enabled;
-declaration pins, dependency boundaries, graph invariants, manifest ordering,
-local document links and consumer tooling fixtures pass. Earlier 0.55.0/0.69.13 qualification
-remains under `target/evidence/upstream-20261029-memory055/`; its 308 tests and
-compiler results apply to those recorded inputs, not this newer selection.
-Native macOS, installed-IC and broad release qualification remain outside local
-checks. Substitute Testkit CLI fixtures do not qualify a real PocketIC server;
-performance deltas remain unmeasured.
+Ordinary library consumers select the minimal owned Principal capability.
+Facade tests explicitly select external conversion and self-authentication via a
+development dependency. Authorization fixtures select self-authentication where
+needed. Testkit remains the sole server setup/lifecycle owner; no new codec,
+application protocol, host parser in canisters, or supplier wrapper is added.
+The public IcyDB Wasm graph passes the explicit single-Platform identity and
+Candid/CDK/bigint exclusions, including exclusion of the optional Principal
+conversion/hash features. These graph checks cover normal/build edges; they do
+not establish the dependency graph of a separately composed Canic application.
+The authorization-actor graph still includes Candid through Canic's pinned
+Platform 0.6.21 dependency, separately from IcyDB's minimal production graph.
+
+The Host/Platform adoption qualified Wire 0.7.22 and Metrics 0.17.3 with
+246 focused Linux tests: 23 Schema atom/Account tests,
+8 facade authorization tests, 13 bootstrap tests, 2 endpoint-declaration tests,
+179 CLI tests and 21 build-adapter tests. Strict affected library/test, integration
+and guard-actor lint passes. The public Wasm library checks on Rust 1.91 with
+SQL, metrics and migration, and the CLI checks on its declared Rust 1.96 minimum;
+all three authorization actors check for Wasm with
+their guarded features. Declaration pins, dependency boundaries, graph invariants,
+manifest ordering and the substitute Testkit CLI selection fixture pass. Native
+macOS, installed-IC and full workspace/release qualification are not rerun here;
+substitute fixtures do not qualify a real PocketIC server. Wasm-size and IC
+instruction/cycle deltas remain unmeasured. Subsequent incoming
+Tooling/Platform/Wire/Metrics lockfile updates are preserved; that earlier adoption
+matrix is not qualification of their host, browser or installed-IC behavior.
+
+The Tooling 0.70.2 consumer checks pass strict CLI/build/Wasm-helper target lint,
+integration test compilation against Testkit, 207 focused host tests and the CLI's
+Rust 1.96 check. Those runtime results used Memory/Storage 0.55.2; they do not
+establish compatibility of retained CBOR installations with 0.56.
+
+Memory/Storage 0.56.0 passes 184 focused Linux tests covering runtime binding,
+allocation diagnostics, database-format admission, Data/Index/Commit/Schema
+stores, public error projection and host memory admission/reopening. Strict
+Core/facade library/test lint and the public Rust 1.91 Wasm check with SQL,
+metrics and migration pass on the new graph. Shared declaration boundaries,
+dependency pins and graph invariants pass. The minimal and full-featured public
+Wasm normal/build graphs each use one current Memory/Storage/Platform identity
+and exclude Candid/CDK, bigint, Host packages, `serde_cbor` and `half`.
+The full workspace and composed Canic graphs can still retain upstream packages.
+Evidence is retained under `target/evidence/upstream-adoption-20261029`.
+No native macOS, installed-IC, earlier-format transition, broad workspace/release
+gate or Wasm-size/instruction/cycle qualification was run for this adoption.
+
+The 0.70.4 / Platform 0.8.3 / Metrics 0.17.6 adoption passes strict selected
+Core, CLI and build library/test lint; the shared adapter fixture, including
+changed/missing input refusal; dependency declarations, pins and resolved-graph
+checks; and grouped manifest ordering. Rust 1.91 public-library Wasm and Rust
+1.96 CLI cross-version checks pass. Browser Node qualification preserves the
+reviewed 12-method, 231-type contract and all 90 frames, rejecting 3,103
+truncations plus malformed/value/limit controls. The public Wasm normal/build
+feature graph excludes Candid/CDK, bigint, Host and CBOR, including Platform's
+external Principal and self-authentication features. This is graph admission,
+not final-artifact exclusion enforcement; #378 remains open. Focused runtime
+results and exact source identities are retained under
+`target/evidence/upstream-20261030`. No broad workspace/release gate, native
+macOS, installed IC/Chromium, Wasm-size or IC instruction/cycle qualification is
+claimed. No network lifecycle action was required.
 
 ### Retained earlier qualification
 

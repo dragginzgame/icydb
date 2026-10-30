@@ -15,7 +15,8 @@ use crate::db::{
         },
     },
     resource::budget::{
-        charge_current_execution_budget, charge_current_execution_budget_pair, runtime_value_work,
+        charge_current_execution_budget, charge_current_execution_budget_ordered,
+        runtime_value_work,
     },
 };
 use crate::error::InternalError;
@@ -162,13 +163,13 @@ impl ExecutionBudget {
         }
 
         if new_group_key {
-            charge_current_execution_budget_pair(
+            charge_current_execution_budget_ordered([
                 (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
                 (
                     DiagnosticExecutionBudgetResource::NestedValueSteps,
                     key_work.1,
                 ),
-            )
+            ])
             .map_err(GroupError::from)?;
         }
         charge_current_execution_budget(
@@ -224,13 +225,13 @@ impl ExecutionBudget {
             ));
         }
 
-        charge_current_execution_budget_pair(
+        charge_current_execution_budget_ordered([
             (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
             (
                 DiagnosticExecutionBudgetResource::NestedValueSteps,
                 key_work.1,
             ),
-        )
+        ])
         .map_err(GroupError::from)?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
@@ -303,13 +304,13 @@ impl ExecutionBudget {
                 config.max_group_bytes(),
             ));
         }
-        charge_current_execution_budget_pair(
+        charge_current_execution_budget_ordered([
             (DiagnosticExecutionBudgetResource::GroupDistinctEntries, 1),
             (
                 DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
                 bytes_delta,
             ),
-        )
+        ])
         .map_err(GroupError::from)?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::NestedValueSteps,

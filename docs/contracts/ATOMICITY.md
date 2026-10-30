@@ -142,6 +142,7 @@ All fallible work **must complete before any durable mutation**, including:
 * validated accepted-constraint and pending new-write-gate evaluation
 * query planning
 * index derivation
+* verification that touched index-store generations still match preflight
 * uniqueness resolution
 * mutation planning
 

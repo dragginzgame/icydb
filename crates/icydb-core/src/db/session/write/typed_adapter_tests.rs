@@ -1,3 +1,4 @@
+mod batch_admission_tests;
 mod binding_diagnostics_tests;
 mod incarnation_tests;
 mod input_handoff_tests;

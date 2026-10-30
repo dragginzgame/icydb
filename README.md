@@ -75,8 +75,8 @@ The workspace version is recorded in [Cargo.toml](Cargo.toml).
 2. IcyDB generates typed Rust interfaces from that shared schema.
 3. The canister accepts the schema as runtime metadata and uses it to validate
    storage and query behavior.
-4. Application endpoints authorize callers, then use typed APIs or the optional
-   restricted SQL frontend to read and change data.
+4. Canic adapter or application endpoints authorize callers, then use typed APIs
+   or the optional restricted SQL frontend to read and change data.
 5. IcyDB plans and executes admitted work within explicit resource limits and
    stores durable records through journaled stable-memory operations.
 
@@ -102,21 +102,29 @@ The workspace version is recorded in [Cargo.toml](Cargo.toml).
 ## Add IcyDB
 
 Use the same release for runtime and host-side model generation. This example
-pins the published 0.279.0 release; choose your supported release explicitly:
+pins the released 0.290.0 version; choose your supported release explicitly:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.279.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.290.0" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.279.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.290.0" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
-Optional features are `sql` for session SQL and generated SQL endpoints,
-`metrics` for heap-only entity hit/instruction reports, and `migration` for
-explicit schema-migration operations. Features compile capabilities; public
-endpoints require explicit source declarations.
+Optional features are `sql` for session SQL, `metrics` for replicated-call entity
+hit/instruction recording in a bounded heap table, and `migration` for explicit
+schema-migration operations. Features compile library capabilities; they create
+no public methods. The separately owned `canic-icydb` adapter exports explicitly
+declared endpoints using IC Wire. See [endpoint setup](INSTALLING.md#explicit-endpoint-declarations).
+
+The pending 0.291 upgrade changes the Memory allocation ledger, schema-artifact
+and digest identities, and Deep integrity-job payload format. Regenerate
+artifacts and use fresh/reset storage or a separately reviewed retained-data
+transition. Read the [pending release notes](docs/changelog/0.291.md) and
+[format inventory](docs/contracts/PERSISTED_FORMAT_INVENTORY.md) before adopting
+the development branch; ordinary schema migration does not convert these formats.
 
 Runtime-enabled crates use `icydb` alone and author schemas through
 `icydb::model`. Lightweight model/contract consumers may use `icydb-model`
@@ -250,6 +258,12 @@ The public facade is in `crates/icydb`; runtime internals are in
 in `icydb-diagnostic-code`, and the CLI in `icydb-cli`.
 `schema/`, `canisters/`, and `testing/` hold compiled examples and qualification
 fixtures.
+
+IC Wire owns application and schema-artifact serialization. IC Memory and
+IC Storage own allocation and stable collection infrastructure; IcyDB owns
+database formats, validation and recovery. Canic owns endpoint exports and host
+lifecycle composition. External IC protocol boundaries go through IC Platform;
+IcyDB-owned payloads do not use Candid.
 
 ## Documentation
 

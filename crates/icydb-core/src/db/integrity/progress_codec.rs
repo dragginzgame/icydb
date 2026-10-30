@@ -1,1244 +1,304 @@
-//! Module: db::integrity::progress_codec
-//! Responsibility: bounded direct encoding of the current Deep integrity job payload.
-//! Does not own: the stable-map envelope, checksum, job lifecycle, or public Wire DTOs.
-//! Boundary: invariant-bearing Deep job <-> current big-endian payload bytes.
+//! Bounded IC Wire payload for durable Deep integrity jobs.
+//!
+//! IcyDB owns field limits, semantic restoration and the checksummed store
+//! envelope. Remote Serde projections keep storage admission out of public RPC
+//! DTOs; they describe the same Serde layout, without a second byte codec.
+
+use serde::{Deserialize, Deserializer};
 
 use crate::{
     db::{
-        codec::{ByteDecodeError, ByteReader},
         data::RawDataStoreKey,
         index::IndexKey,
         integrity::{
             DatabaseIncarnationId, DeepIntegrityPage, DeepIntegrityPageStatus,
-            IntegrityAbortReceipt, IntegrityAbortStatus, IntegrityAuthorityClass,
-            IntegrityAuthorityDiagnostic, IntegrityCheckpoint, IntegrityEntityIdentity,
-            IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind, IntegrityJob,
-            IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityJobState,
-            IntegrityPendingTerminal, IntegrityPhase, IntegrityProofVector,
-            IntegrityReceiptEnvelope, IntegrityReceiptReplayKey, IntegrityResourceDiagnostic,
-            IntegritySeverity, IntegritySubmissionKey, IntegrityTerminalOutcome,
-            IntegrityVerifierFamily, MAX_INTEGRITY_PATH_BYTES, PhysicalUnitCheckpoint,
-            job::MAX_INTEGRITY_RECEIPT_FINDINGS,
-            proof::{
-                IntegrityIndexGenerationProof, IntegrityRelationGenerationProof,
-                IntegrityStoreProof,
+            IntegrityAbortReceipt, IntegrityCheckpoint, IntegrityEntityIdentity, IntegrityFinding,
+            IntegrityFindingClass, IntegrityFindingKind, IntegrityJob, IntegrityJobId,
+            IntegrityJobOwner, IntegrityJobReceipt, IntegrityPhase, IntegritySeverity,
+            IntegritySubmissionKey, IntegrityVerifierFamily, MAX_INTEGRITY_PATH_BYTES,
+            job::{
+                MAX_INTEGRITY_OWNER_BYTES, MAX_INTEGRITY_RECEIPT_FINDINGS,
+                MAX_INTEGRITY_SUBMISSION_KEY_BYTES,
             },
         },
-        journal::{JournalInspectionCheckpoint, JournalTailProofIdentity},
         schema::MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
     },
     error::{ConstraintValuePath, ConstraintValuePathComponent},
 };
 
-pub(super) const MAX_INTEGRITY_JOB_PAYLOAD_BYTES: usize = 512 * 1024 - (8 + 1 + 4 + 4);
+#[cfg(test)]
+use crate::db::{
+    integrity::{
+        IntegrityJobState, IntegrityProofVector, IntegrityReceiptEnvelope,
+        IntegrityReceiptReplayKey, IntegrityTerminalOutcome, proof::IntegrityStoreProof,
+    },
+    journal::JournalTailProofIdentity,
+};
 
-const MAX_PROOF_STORES: usize = 256;
-const MAX_BLOCKED_VERIFIER_FAMILIES: usize = 13;
-const MAX_FINDING_FIELD_PATHS: usize = icydb_schema::MAX_FRAGMENT_FIELDS;
-const MAX_FINDING_TEXT_BYTES: usize = MAX_INTEGRITY_JOB_PAYLOAD_BYTES;
+pub(super) const MAX_INTEGRITY_JOB_PAYLOAD_BYTES: usize = 512 * 1024 - (8 + 1 + 4 + 4);
+pub(super) const MAX_PROOF_STORES: usize = 256;
+pub(super) const MAX_BLOCKED_VERIFIER_FAMILIES: usize = 13;
 const MAX_PHYSICAL_KEY_BYTES: usize = IndexKey::MAX_STORED_SIZE_USIZE;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct InternalError;
 
-impl InternalError {
-    const fn store_corruption() -> Self {
-        Self
-    }
-
-    const fn store_unsupported() -> Self {
-        Self
-    }
-}
-
-// Primitive failures retain the integrity payload's compact corruption boundary.
-impl From<ByteDecodeError> for InternalError {
-    fn from(_: ByteDecodeError) -> Self {
-        Self
-    }
-}
-
-struct JobWriter {
-    bytes: Vec<u8>,
-    overflowed: bool,
-}
-
-impl JobWriter {
-    const fn new() -> Self {
-        Self {
-            bytes: Vec::new(),
-            overflowed: false,
-        }
-    }
-
-    fn push_u8(&mut self, value: u8) {
-        self.push_bytes(&[value]);
-    }
-
-    fn push_u16(&mut self, value: u16) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_u32(&mut self, value: u32) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_u64(&mut self, value: u64) {
-        self.push_bytes(&value.to_be_bytes());
-    }
-
-    fn push_bool(&mut self, value: bool) {
-        self.push_u8(u8::from(value));
-    }
-
-    fn push_len(&mut self, value: usize) -> Result<(), InternalError> {
-        self.push_u32(u32::try_from(value).map_err(|_| InternalError)?);
-        Ok(())
-    }
-
-    fn push_bounded_string(&mut self, value: &str, max_bytes: usize) -> Result<(), InternalError> {
-        self.push_bounded_len_prefixed_bytes(value.as_bytes(), max_bytes)
-    }
-
-    fn push_bounded_len_prefixed_bytes(
-        &mut self,
-        value: &[u8],
-        max_bytes: usize,
-    ) -> Result<(), InternalError> {
-        if value.len() > max_bytes {
-            return Err(InternalError);
-        }
-        self.push_len(value.len())?;
-        self.push_bytes(value);
-        Ok(())
-    }
-
-    fn push_optional_u32(&mut self, value: Option<u32>) {
-        match value {
-            Some(value) => {
-                self.push_u8(1);
-                self.push_u32(value);
-            }
-            None => self.push_u8(0),
-        }
-    }
-
-    fn push_bytes(&mut self, value: &[u8]) {
-        if value.len() > MAX_INTEGRITY_JOB_PAYLOAD_BYTES.saturating_sub(self.bytes.len()) {
-            self.overflowed = true;
-            return;
-        }
-        self.bytes.extend_from_slice(value);
-    }
-
-    fn finish(self) -> Result<Vec<u8>, InternalError> {
-        if self.overflowed {
-            return Err(InternalError);
-        }
-        Ok(self.bytes)
-    }
-}
-
-// Tags and collection allocation limits belong to this format, not the byte reader.
-fn decode_bool(reader: &mut ByteReader<'_>) -> Result<bool, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(false),
-        1 => Ok(true),
-        _ => Err(InternalError),
-    }
-}
-
-fn decode_bounded_count(reader: &mut ByteReader<'_>, max: usize) -> Result<usize, InternalError> {
-    let count = reader.read_u32()? as usize;
-    if count > max || count > reader.remaining() {
-        return Err(InternalError);
-    }
-    Ok(count)
-}
-
-fn decode_optional_u32(reader: &mut ByteReader<'_>) -> Result<Option<u32>, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(None),
-        1 => Ok(Some(reader.read_u32()?)),
-        _ => Err(InternalError),
+// Payload bytes retain the store's existing outer ceiling. The allocation
+// allowance includes Wire's eightfold traversal charge, not measured heap use.
+const fn limits() -> ic_wire::Limits {
+    ic_wire::Limits {
+        bytes: MAX_INTEGRITY_JOB_PAYLOAD_BYTES,
+        allocation: 16 * 1024 * 1024,
+        nodes: 1_048_576,
+        depth: 64,
     }
 }
 
 pub(super) fn encode_integrity_job_payload(job: &IntegrityJob) -> Result<Vec<u8>, InternalError> {
-    let mut writer = JobWriter::new();
-    writer.push_bytes(&job.id.to_bytes());
-    writer.push_bytes(&job.database_incarnation_id.to_bytes());
-    writer.push_bounded_string(job.owner.as_str(), super::job::MAX_INTEGRITY_OWNER_BYTES)?;
-    writer.push_bounded_string(
-        job.submission_key.as_str(),
-        super::job::MAX_INTEGRITY_SUBMISSION_KEY_BYTES,
-    )?;
-    encode_entity_identity(&mut writer, &job.entity)?;
-    writer.push_u32(job.accepted_schema_version);
-    writer.push_bytes(&job.accepted_schema_fingerprint);
-    writer.push_bytes(&job.inspection_plan_fingerprint);
-    encode_checkpoint(&mut writer, &job.checkpoint)?;
-    encode_proof_vector(&mut writer, &job.captured_proof_vector)?;
-    encode_job_state(&mut writer, &job.state);
-    writer.push_u64(job.lease_deadline_nanos);
-    writer.push_u64(job.findings_seen);
-    writer.push_u64(job.pages_completed);
-    encode_verifier_families(&mut writer, &job.blocked_verifier_families)?;
-    encode_receipt_envelope(&mut writer, &job.last_receipt)?;
-    writer.finish()
+    job.validate().map_err(|_| InternalError)?;
+    validate_bounds(job)?;
+    ic_wire::native::encode(job, limits()).map_err(|_| InternalError)
 }
 
 pub(super) fn decode_integrity_job_payload(bytes: &[u8]) -> Result<IntegrityJob, InternalError> {
-    if bytes.len() > MAX_INTEGRITY_JOB_PAYLOAD_BYTES {
-        return Err(InternalError::store_corruption());
+    let job: IntegrityJob = ic_wire::native::decode(bytes, limits()).map_err(|_| InternalError)?;
+    IntegrityJobId::try_from_bytes(job.id.to_bytes()).map_err(|_| InternalError)?;
+    DatabaseIncarnationId::try_from_bytes(job.database_incarnation_id.to_bytes())
+        .map_err(|_| InternalError)?;
+    job.validate().map_err(|_| InternalError)?;
+    if encode_integrity_job_payload(&job)? != bytes {
+        return Err(InternalError);
     }
-
-    let mut reader = ByteReader::new(bytes);
-    let id = decode_job_id(&mut reader)?;
-    let database_incarnation_id = decode_database_incarnation_id(&mut reader)?;
-    let owner =
-        IntegrityJobOwner::new(reader.read_bounded_string(super::job::MAX_INTEGRITY_OWNER_BYTES)?)
-            .map_err(|_| InternalError::store_corruption())?;
-    let submission_key = IntegritySubmissionKey::new(
-        reader.read_bounded_string(super::job::MAX_INTEGRITY_SUBMISSION_KEY_BYTES)?,
-    )
-    .map_err(|_| InternalError::store_corruption())?;
-    let entity = decode_entity_identity(&mut reader)?;
-    let accepted_schema_version = reader.read_u32()?;
-    let accepted_schema_fingerprint = reader.read_array()?;
-    let inspection_plan_fingerprint = reader.read_array()?;
-    let checkpoint = decode_checkpoint(&mut reader)?;
-    let captured_proof_vector = decode_proof_vector(&mut reader)?;
-    let state = decode_job_state(&mut reader)?;
-    let lease_deadline_nanos = reader.read_u64()?;
-    let findings_seen = reader.read_u64()?;
-    let pages_completed = reader.read_u64()?;
-    let blocked_verifier_families = decode_verifier_families(&mut reader)?;
-    let last_receipt = decode_receipt_envelope(&mut reader)?;
-    reader.finish()?;
-
-    let job = IntegrityJob {
-        id,
-        database_incarnation_id,
-        owner,
-        submission_key,
-        entity,
-        accepted_schema_version,
-        accepted_schema_fingerprint,
-        inspection_plan_fingerprint,
-        checkpoint,
-        captured_proof_vector,
-        state,
-        lease_deadline_nanos,
-        findings_seen,
-        pages_completed,
-        blocked_verifier_families,
-        last_receipt,
-    };
-    job.validate()
-        .map_err(|_| InternalError::store_corruption())?;
     Ok(job)
 }
 
-fn decode_job_id(reader: &mut ByteReader<'_>) -> Result<IntegrityJobId, InternalError> {
-    IntegrityJobId::try_from_bytes(reader.read_array()?)
-        .map_err(|_| InternalError::store_corruption())
-}
-
-fn decode_database_incarnation_id(
-    reader: &mut ByteReader<'_>,
-) -> Result<DatabaseIncarnationId, InternalError> {
-    DatabaseIncarnationId::try_from_bytes(reader.read_array()?)
-        .map_err(|_| InternalError::store_corruption())
-}
-
-fn encode_entity_identity(
-    writer: &mut JobWriter,
-    identity: &IntegrityEntityIdentity,
-) -> Result<(), InternalError> {
-    writer.push_u64(identity.entity_tag());
-    writer.push_bounded_string(identity.entity_path(), MAX_INTEGRITY_PATH_BYTES)?;
-    writer.push_bounded_string(identity.store_path(), MAX_INTEGRITY_PATH_BYTES)
-}
-
-fn decode_entity_identity(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityEntityIdentity, InternalError> {
-    let identity = IntegrityEntityIdentity {
-        entity_tag: reader.read_u64()?,
-        entity_path: reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?,
-        store_path: reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?,
-    };
-    identity
-        .validate()
-        .map_err(|_| InternalError::store_corruption())?;
-    Ok(identity)
-}
-
-fn encode_checkpoint(
-    writer: &mut JobWriter,
-    checkpoint: &IntegrityCheckpoint,
-) -> Result<(), InternalError> {
-    match checkpoint {
-        IntegrityCheckpoint::QuickMetadata => writer.push_u8(1),
-        IntegrityCheckpoint::Rows(checkpoint) => {
-            writer.push_u8(2);
-            encode_physical_checkpoint(writer, checkpoint)?;
+// Encoding checks the same product ceilings used by the bounded decode
+// projections. Semantic state/receipt/proof closure remains IntegrityJob's job.
+fn validate_bounds(job: &IntegrityJob) -> Result<(), InternalError> {
+    let proof = &job.captured_proof_vector;
+    if proof.stores.len() > MAX_PROOF_STORES
+        || proof.index_generations.len() > icydb_schema::MAX_FRAGMENT_INDEXES
+        || proof.relation_generations.len() > icydb_schema::MAX_FRAGMENT_RELATIONS
+        || job.blocked_verifier_families.len() > MAX_BLOCKED_VERIFIER_FAMILIES
+        || job.entity.entity_path().len() > MAX_INTEGRITY_PATH_BYTES
+        || job.entity.store_path().len() > MAX_INTEGRITY_PATH_BYTES
+        || proof
+            .stores
+            .iter()
+            .any(|store| store.store_path.len() > MAX_INTEGRITY_PATH_BYTES)
+        || proof
+            .index_generations
+            .iter()
+            .any(|index| index.store_path.len() > MAX_INTEGRITY_PATH_BYTES)
+        || proof
+            .relation_generations
+            .iter()
+            .any(|relation| relation.target_store_path.len() > MAX_INTEGRITY_PATH_BYTES)
+    {
+        return Err(InternalError);
+    }
+    match &job.checkpoint {
+        IntegrityCheckpoint::Rows(checkpoint)
+        | IntegrityCheckpoint::Index { checkpoint, .. }
+        | IntegrityCheckpoint::ReverseRelation { checkpoint, .. } => {
+            use crate::db::integrity::PhysicalUnitCheckpoint;
+            let key = match checkpoint {
+                PhysicalUnitCheckpoint::BeforeFirst => &[][..],
+                PhysicalUnitCheckpoint::Within { physical_key, .. }
+                | PhysicalUnitCheckpoint::After { physical_key } => physical_key,
+            };
+            if key.len() > MAX_PHYSICAL_KEY_BYTES {
+                return Err(InternalError);
+            }
         }
-        IntegrityCheckpoint::Index {
-            ordinal,
-            checkpoint,
-        } => {
-            writer.push_u8(3);
-            writer.push_u32(*ordinal);
-            encode_physical_checkpoint(writer, checkpoint)?;
+        IntegrityCheckpoint::QuickMetadata
+        | IntegrityCheckpoint::Journal { .. }
+        | IntegrityCheckpoint::FinalProof => {}
+    }
+    if let IntegrityJobReceipt::Page(page) = &job.last_receipt.receipt {
+        if page.findings.len() > MAX_INTEGRITY_RECEIPT_FINDINGS
+            || page.blocked_verifier_families.len() > MAX_BLOCKED_VERIFIER_FAMILIES
+        {
+            return Err(InternalError);
         }
-        IntegrityCheckpoint::ReverseRelation {
-            ordinal,
-            checkpoint,
-        } => {
-            writer.push_u8(4);
-            writer.push_u32(*ordinal);
-            encode_physical_checkpoint(writer, checkpoint)?;
-        }
-        IntegrityCheckpoint::Journal {
-            store_ordinal,
-            checkpoint,
-        } => {
-            writer.push_u8(5);
-            writer.push_u32(*store_ordinal);
-            encode_journal_checkpoint(writer, checkpoint);
-        }
-        IntegrityCheckpoint::FinalProof => writer.push_u8(6),
-    }
-    Ok(())
-}
-
-fn decode_checkpoint(reader: &mut ByteReader<'_>) -> Result<IntegrityCheckpoint, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityCheckpoint::QuickMetadata),
-        2 => decode_physical_checkpoint(reader).map(IntegrityCheckpoint::Rows),
-        3 => Ok(IntegrityCheckpoint::Index {
-            ordinal: reader.read_u32()?,
-            checkpoint: decode_physical_checkpoint(reader)?,
-        }),
-        4 => Ok(IntegrityCheckpoint::ReverseRelation {
-            ordinal: reader.read_u32()?,
-            checkpoint: decode_physical_checkpoint(reader)?,
-        }),
-        5 => Ok(IntegrityCheckpoint::Journal {
-            store_ordinal: reader.read_u32()?,
-            checkpoint: decode_journal_checkpoint(reader)?,
-        }),
-        6 => Ok(IntegrityCheckpoint::FinalProof),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_physical_checkpoint(
-    writer: &mut JobWriter,
-    checkpoint: &PhysicalUnitCheckpoint,
-) -> Result<(), InternalError> {
-    match checkpoint {
-        PhysicalUnitCheckpoint::BeforeFirst => writer.push_u8(1),
-        PhysicalUnitCheckpoint::Within {
-            physical_key,
-            verifier_family,
-            ordinal,
-        } => {
-            writer.push_u8(2);
-            writer.push_bounded_len_prefixed_bytes(physical_key, MAX_PHYSICAL_KEY_BYTES)?;
-            encode_verifier_family(writer, *verifier_family);
-            writer.push_u32(*ordinal);
-        }
-        PhysicalUnitCheckpoint::After { physical_key } => {
-            writer.push_u8(3);
-            writer.push_bounded_len_prefixed_bytes(physical_key, MAX_PHYSICAL_KEY_BYTES)?;
-        }
-    }
-    Ok(())
-}
-
-fn decode_physical_checkpoint(
-    reader: &mut ByteReader<'_>,
-) -> Result<PhysicalUnitCheckpoint, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(PhysicalUnitCheckpoint::BeforeFirst),
-        2 => Ok(PhysicalUnitCheckpoint::Within {
-            physical_key: reader
-                .read_bounded_len_prefixed_bytes(MAX_PHYSICAL_KEY_BYTES)?
-                .to_vec(),
-            verifier_family: decode_verifier_family(reader)?,
-            ordinal: reader.read_u32()?,
-        }),
-        3 => Ok(PhysicalUnitCheckpoint::After {
-            physical_key: reader
-                .read_bounded_len_prefixed_bytes(MAX_PHYSICAL_KEY_BYTES)?
-                .to_vec(),
-        }),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_journal_checkpoint(writer: &mut JobWriter, checkpoint: &JournalInspectionCheckpoint) {
-    match checkpoint {
-        JournalInspectionCheckpoint::BeforeFirst => writer.push_u8(1),
-        JournalInspectionCheckpoint::BeforeBatch { sequence } => {
-            writer.push_u8(2);
-            writer.push_u64(*sequence);
-        }
-        JournalInspectionCheckpoint::CheckingBatchIdentity {
-            sequence,
-            batch_id,
-            next_prior_sequence,
-        } => {
-            writer.push_u8(3);
-            writer.push_u64(*sequence);
-            writer.push_bytes(batch_id);
-            writer.push_u64(*next_prior_sequence);
-        }
-        JournalInspectionCheckpoint::AfterBatch { sequence } => {
-            writer.push_u8(4);
-            writer.push_u64(*sequence);
-        }
-    }
-}
-
-fn decode_journal_checkpoint(
-    reader: &mut ByteReader<'_>,
-) -> Result<JournalInspectionCheckpoint, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(JournalInspectionCheckpoint::BeforeFirst),
-        2 => Ok(JournalInspectionCheckpoint::BeforeBatch {
-            sequence: reader.read_u64()?,
-        }),
-        3 => Ok(JournalInspectionCheckpoint::CheckingBatchIdentity {
-            sequence: reader.read_u64()?,
-            batch_id: reader.read_array()?,
-            next_prior_sequence: reader.read_u64()?,
-        }),
-        4 => Ok(JournalInspectionCheckpoint::AfterBatch {
-            sequence: reader.read_u64()?,
-        }),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_proof_vector(
-    writer: &mut JobWriter,
-    proof: &IntegrityProofVector,
-) -> Result<(), InternalError> {
-    writer.push_bytes(&proof.database_incarnation_id.to_bytes());
-    writer.push_u32(proof.accepted_schema_version);
-    writer.push_bytes(&proof.accepted_schema_fingerprint);
-    writer.push_bytes(&proof.inspection_plan_fingerprint);
-    writer.push_bytes(&proof.database_control_fingerprint);
-    writer.push_u64(proof.allocation_registry_generation);
-
-    push_bounded_count(writer, proof.stores.len(), MAX_PROOF_STORES)?;
-    for store in &proof.stores {
-        writer.push_bounded_string(&store.store_path, MAX_INTEGRITY_PATH_BYTES)?;
-        writer.push_u64(store.data_generation);
-        writer.push_u64(store.index_generation);
-        encode_journal_proof(writer, store.journal);
-    }
-
-    push_bounded_count(
-        writer,
-        proof.index_generations.len(),
-        icydb_schema::MAX_FRAGMENT_INDEXES,
-    )?;
-    for index in &proof.index_generations {
-        writer.push_bounded_string(&index.store_path, MAX_INTEGRITY_PATH_BYTES)?;
-        writer.push_u32(index.schema_index_id);
-        writer.push_u64(index.physical_generation);
-    }
-
-    push_bounded_count(
-        writer,
-        proof.relation_generations.len(),
-        icydb_schema::MAX_FRAGMENT_RELATIONS,
-    )?;
-    for relation in &proof.relation_generations {
-        writer.push_bounded_string(&relation.target_store_path, MAX_INTEGRITY_PATH_BYTES)?;
-        writer.push_u32(relation.relation_id);
-        writer.push_u64(relation.physical_generation);
-    }
-    Ok(())
-}
-
-fn decode_proof_vector(reader: &mut ByteReader<'_>) -> Result<IntegrityProofVector, InternalError> {
-    let database_incarnation_id = decode_database_incarnation_id(reader)?;
-    let accepted_schema_version = reader.read_u32()?;
-    let accepted_schema_fingerprint = reader.read_array()?;
-    let inspection_plan_fingerprint = reader.read_array()?;
-    let database_control_fingerprint = reader.read_array()?;
-    let allocation_registry_generation = reader.read_u64()?;
-
-    let store_count = decode_bounded_count(reader, MAX_PROOF_STORES)?;
-    let mut stores = Vec::with_capacity(store_count);
-    for _ in 0..store_count {
-        stores.push(IntegrityStoreProof {
-            store_path: reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?,
-            data_generation: reader.read_u64()?,
-            index_generation: reader.read_u64()?,
-            journal: decode_journal_proof(reader)?,
-        });
-    }
-
-    let index_count = decode_bounded_count(reader, icydb_schema::MAX_FRAGMENT_INDEXES)?;
-    let mut index_generations = Vec::with_capacity(index_count);
-    for _ in 0..index_count {
-        index_generations.push(IntegrityIndexGenerationProof {
-            store_path: reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?,
-            schema_index_id: reader.read_u32()?,
-            physical_generation: reader.read_u64()?,
-        });
-    }
-
-    let relation_count = decode_bounded_count(reader, icydb_schema::MAX_FRAGMENT_RELATIONS)?;
-    let mut relation_generations = Vec::with_capacity(relation_count);
-    for _ in 0..relation_count {
-        relation_generations.push(IntegrityRelationGenerationProof {
-            target_store_path: reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?,
-            relation_id: reader.read_u32()?,
-            physical_generation: reader.read_u64()?,
-        });
-    }
-
-    Ok(IntegrityProofVector {
-        database_incarnation_id,
-        accepted_schema_version,
-        accepted_schema_fingerprint,
-        inspection_plan_fingerprint,
-        database_control_fingerprint,
-        allocation_registry_generation,
-        stores,
-        index_generations,
-        relation_generations,
-    })
-}
-
-fn encode_journal_proof(writer: &mut JobWriter, proof: JournalTailProofIdentity) {
-    writer.push_u64(proof.data_mutation_revision());
-    writer.push_u64(proof.fold_sequence());
-    writer.push_u64(proof.fold_epoch());
-    writer.push_u64(proof.next_append_sequence());
-    writer.push_u64(proof.physical_record_count());
-}
-
-fn decode_journal_proof(
-    reader: &mut ByteReader<'_>,
-) -> Result<JournalTailProofIdentity, InternalError> {
-    Ok(JournalTailProofIdentity::from_persisted_parts(
-        reader.read_u64()?,
-        reader.read_u64()?,
-        reader.read_u64()?,
-        reader.read_u64()?,
-        reader.read_u64()?,
-    ))
-}
-
-fn encode_job_state(writer: &mut JobWriter, state: &IntegrityJobState) {
-    match state {
-        IntegrityJobState::InProgress => writer.push_u8(1),
-        IntegrityJobState::TerminalPending(pending) => {
-            writer.push_u8(2);
-            encode_pending_terminal(writer, *pending);
-        }
-        IntegrityJobState::Terminal {
-            outcome,
-            receipt_acknowledged,
-        } => {
-            writer.push_u8(3);
-            encode_terminal_outcome(writer, outcome);
-            writer.push_bool(*receipt_acknowledged);
-        }
-    }
-}
-
-fn decode_job_state(reader: &mut ByteReader<'_>) -> Result<IntegrityJobState, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityJobState::InProgress),
-        2 => decode_pending_terminal(reader).map(IntegrityJobState::TerminalPending),
-        3 => Ok(IntegrityJobState::Terminal {
-            outcome: decode_terminal_outcome(reader)?,
-            receipt_acknowledged: decode_bool(reader)?,
-        }),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_pending_terminal(writer: &mut JobWriter, pending: IntegrityPendingTerminal) {
-    writer.push_u8(match pending {
-        IntegrityPendingTerminal::Expired => 1,
-        IntegrityPendingTerminal::Aborted => 2,
-    });
-}
-
-fn decode_pending_terminal(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityPendingTerminal, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityPendingTerminal::Expired),
-        2 => Ok(IntegrityPendingTerminal::Aborted),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_terminal_outcome(writer: &mut JobWriter, outcome: &IntegrityTerminalOutcome) {
-    match outcome {
-        IntegrityTerminalOutcome::DeepCompleteClean => writer.push_u8(1),
-        IntegrityTerminalOutcome::DeepCompleteWithFindings => writer.push_u8(2),
-        IntegrityTerminalOutcome::Invalidated => writer.push_u8(3),
-        IntegrityTerminalOutcome::Uninspectable(diagnostic) => {
-            writer.push_u8(4);
-            writer.push_u16(diagnostic.diagnostic_code());
-            encode_authority_class(writer, diagnostic.class());
-        }
-        IntegrityTerminalOutcome::ResourceLimited(diagnostic) => {
-            writer.push_u8(5);
-            writer.push_u16(diagnostic.diagnostic_code());
-        }
-        IntegrityTerminalOutcome::Expired => writer.push_u8(6),
-        IntegrityTerminalOutcome::Aborted => writer.push_u8(7),
-    }
-}
-
-fn decode_terminal_outcome(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityTerminalOutcome, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityTerminalOutcome::DeepCompleteClean),
-        2 => Ok(IntegrityTerminalOutcome::DeepCompleteWithFindings),
-        3 => Ok(IntegrityTerminalOutcome::Invalidated),
-        4 => Ok(IntegrityTerminalOutcome::Uninspectable(
-            IntegrityAuthorityDiagnostic {
-                diagnostic_code: reader.read_u16()?,
-                class: decode_authority_class(reader)?,
-            },
-        )),
-        5 => Ok(IntegrityTerminalOutcome::ResourceLimited(
-            IntegrityResourceDiagnostic {
-                diagnostic_code: reader.read_u16()?,
-            },
-        )),
-        6 => Ok(IntegrityTerminalOutcome::Expired),
-        7 => Ok(IntegrityTerminalOutcome::Aborted),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_authority_class(writer: &mut JobWriter, class: IntegrityAuthorityClass) {
-    writer.push_u8(match class {
-        IntegrityAuthorityClass::Corruption => 1,
-        IntegrityAuthorityClass::IncompatiblePersistedFormat => 2,
-        IntegrityAuthorityClass::InvariantViolation => 3,
-        IntegrityAuthorityClass::Unsupported => 4,
-        IntegrityAuthorityClass::Internal => 5,
-    });
-}
-
-fn decode_authority_class(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityAuthorityClass, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityAuthorityClass::Corruption),
-        2 => Ok(IntegrityAuthorityClass::IncompatiblePersistedFormat),
-        3 => Ok(IntegrityAuthorityClass::InvariantViolation),
-        4 => Ok(IntegrityAuthorityClass::Unsupported),
-        5 => Ok(IntegrityAuthorityClass::Internal),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_receipt_envelope(
-    writer: &mut JobWriter,
-    envelope: &IntegrityReceiptEnvelope,
-) -> Result<(), InternalError> {
-    match envelope.replay_key {
-        IntegrityReceiptReplayKey::Start => writer.push_u8(1),
-        IntegrityReceiptReplayKey::Continue {
-            acknowledged_sequence,
-        } => {
-            writer.push_u8(2);
-            writer.push_u64(acknowledged_sequence);
-        }
-    }
-    encode_job_receipt(writer, &envelope.receipt)
-}
-
-fn decode_receipt_envelope(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityReceiptEnvelope, InternalError> {
-    let replay_key = match reader.read_u8()? {
-        1 => IntegrityReceiptReplayKey::Start,
-        2 => IntegrityReceiptReplayKey::Continue {
-            acknowledged_sequence: reader.read_u64()?,
-        },
-        _ => return Err(InternalError::store_corruption()),
-    };
-    Ok(IntegrityReceiptEnvelope {
-        replay_key,
-        receipt: decode_job_receipt(reader)?,
-    })
-}
-
-fn encode_job_receipt(
-    writer: &mut JobWriter,
-    receipt: &IntegrityJobReceipt,
-) -> Result<(), InternalError> {
-    match receipt {
-        IntegrityJobReceipt::Page(page) => {
-            writer.push_u8(1);
-            encode_page(writer, page)?;
-        }
-        IntegrityJobReceipt::Abort(receipt) => {
-            writer.push_u8(2);
-            encode_abort_receipt(writer, receipt);
-        }
-    }
-    Ok(())
-}
-
-fn decode_job_receipt(reader: &mut ByteReader<'_>) -> Result<IntegrityJobReceipt, InternalError> {
-    match reader.read_u8()? {
-        1 => decode_page(reader).map(IntegrityJobReceipt::Page),
-        2 => decode_abort_receipt(reader).map(IntegrityJobReceipt::Abort),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_page(writer: &mut JobWriter, page: &DeepIntegrityPage) -> Result<(), InternalError> {
-    writer.push_bytes(&page.job_id.to_bytes());
-    writer.push_u64(page.page_sequence);
-    encode_phase(writer, page.phase);
-    match &page.status {
-        DeepIntegrityPageStatus::InProgress => writer.push_u8(1),
-        DeepIntegrityPageStatus::Terminal(outcome) => {
-            writer.push_u8(2);
-            encode_terminal_outcome(writer, outcome);
-        }
-    }
-    writer.push_u64(page.pages_completed);
-    writer.push_u64(page.findings_seen);
-    push_bounded_count(writer, page.findings.len(), MAX_INTEGRITY_RECEIPT_FINDINGS)?;
-    for finding in &page.findings {
-        encode_finding(writer, finding)?;
-    }
-    encode_verifier_families(writer, &page.blocked_verifier_families)
-}
-
-fn decode_page(reader: &mut ByteReader<'_>) -> Result<DeepIntegrityPage, InternalError> {
-    let job_id = decode_job_id(reader)?;
-    let page_sequence = reader.read_u64()?;
-    let phase = decode_phase(reader)?;
-    let status = match reader.read_u8()? {
-        1 => DeepIntegrityPageStatus::InProgress,
-        2 => DeepIntegrityPageStatus::Terminal(decode_terminal_outcome(reader)?),
-        _ => return Err(InternalError::store_corruption()),
-    };
-    let pages_completed = reader.read_u64()?;
-    let findings_seen = reader.read_u64()?;
-    let finding_count = decode_bounded_count(reader, MAX_INTEGRITY_RECEIPT_FINDINGS)?;
-    let mut findings = Vec::with_capacity(finding_count);
-    for _ in 0..finding_count {
-        findings.push(decode_finding(reader)?);
-    }
-    let blocked_verifier_families = decode_verifier_families(reader)?;
-    Ok(DeepIntegrityPage {
-        job_id,
-        page_sequence,
-        phase,
-        status,
-        pages_completed,
-        findings_seen,
-        findings,
-        blocked_verifier_families,
-    })
-}
-
-fn encode_abort_receipt(writer: &mut JobWriter, receipt: &IntegrityAbortReceipt) {
-    writer.push_bytes(&receipt.job_id.to_bytes());
-    writer.push_u64(receipt.page_sequence);
-    match &receipt.status {
-        IntegrityAbortStatus::TerminationPending(pending) => {
-            writer.push_u8(1);
-            encode_pending_terminal(writer, *pending);
-        }
-        IntegrityAbortStatus::Terminal(outcome) => {
-            writer.push_u8(2);
-            encode_terminal_outcome(writer, outcome);
-        }
-    }
-}
-
-fn decode_abort_receipt(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityAbortReceipt, InternalError> {
-    let job_id = decode_job_id(reader)?;
-    let page_sequence = reader.read_u64()?;
-    let status = match reader.read_u8()? {
-        1 => IntegrityAbortStatus::TerminationPending(decode_pending_terminal(reader)?),
-        2 => IntegrityAbortStatus::Terminal(decode_terminal_outcome(reader)?),
-        _ => return Err(InternalError::store_corruption()),
-    };
-    Ok(IntegrityAbortReceipt {
-        job_id,
-        page_sequence,
-        status,
-    })
-}
-
-fn encode_verifier_families(
-    writer: &mut JobWriter,
-    families: &[IntegrityVerifierFamily],
-) -> Result<(), InternalError> {
-    push_bounded_count(writer, families.len(), MAX_BLOCKED_VERIFIER_FAMILIES)?;
-    for family in families {
-        encode_verifier_family(writer, *family);
-    }
-    Ok(())
-}
-
-fn decode_verifier_families(
-    reader: &mut ByteReader<'_>,
-) -> Result<Vec<IntegrityVerifierFamily>, InternalError> {
-    let count = decode_bounded_count(reader, MAX_BLOCKED_VERIFIER_FAMILIES)?;
-    let mut families = Vec::with_capacity(count);
-    for _ in 0..count {
-        families.push(decode_verifier_family(reader)?);
-    }
-    Ok(families)
-}
-
-fn encode_verifier_family(writer: &mut JobWriter, family: IntegrityVerifierFamily) {
-    writer.push_u8(match family {
-        IntegrityVerifierFamily::DataKey => 1,
-        IntegrityVerifierFamily::RowEnvelope => 2,
-        IntegrityVerifierFamily::FieldValue => 3,
-        IntegrityVerifierFamily::PrimaryKey => 4,
-        IntegrityVerifierFamily::IdentityState => 5,
-        IntegrityVerifierFamily::ValidatedConstraints => 6,
-        IntegrityVerifierFamily::ForwardIndex => 7,
-        IntegrityVerifierFamily::IndexEntry => 8,
-        IntegrityVerifierFamily::UniqueIndex => 9,
-        IntegrityVerifierFamily::Relation => 10,
-        IntegrityVerifierFamily::ReverseRelationEntry => 11,
-        IntegrityVerifierFamily::JournalEnvelope => 12,
-        IntegrityVerifierFamily::JournalBatchIdentity => 13,
-    });
-}
-
-fn decode_verifier_family(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityVerifierFamily, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityVerifierFamily::DataKey),
-        2 => Ok(IntegrityVerifierFamily::RowEnvelope),
-        3 => Ok(IntegrityVerifierFamily::FieldValue),
-        4 => Ok(IntegrityVerifierFamily::PrimaryKey),
-        5 => Ok(IntegrityVerifierFamily::IdentityState),
-        6 => Ok(IntegrityVerifierFamily::ValidatedConstraints),
-        7 => Ok(IntegrityVerifierFamily::ForwardIndex),
-        8 => Ok(IntegrityVerifierFamily::IndexEntry),
-        9 => Ok(IntegrityVerifierFamily::UniqueIndex),
-        10 => Ok(IntegrityVerifierFamily::Relation),
-        11 => Ok(IntegrityVerifierFamily::ReverseRelationEntry),
-        12 => Ok(IntegrityVerifierFamily::JournalEnvelope),
-        13 => Ok(IntegrityVerifierFamily::JournalBatchIdentity),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_phase(writer: &mut JobWriter, phase: IntegrityPhase) {
-    writer.push_u8(match phase {
-        IntegrityPhase::QuickMetadata => 1,
-        IntegrityPhase::Rows => 2,
-        IntegrityPhase::IndexEntries => 3,
-        IntegrityPhase::ReverseRelations => 4,
-        IntegrityPhase::JournalTails => 5,
-        IntegrityPhase::FinalProofVectorCheck => 6,
-    });
-}
-
-fn decode_phase(reader: &mut ByteReader<'_>) -> Result<IntegrityPhase, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityPhase::QuickMetadata),
-        2 => Ok(IntegrityPhase::Rows),
-        3 => Ok(IntegrityPhase::IndexEntries),
-        4 => Ok(IntegrityPhase::ReverseRelations),
-        5 => Ok(IntegrityPhase::JournalTails),
-        6 => Ok(IntegrityPhase::FinalProofVectorCheck),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_finding(writer: &mut JobWriter, finding: &IntegrityFinding) -> Result<(), InternalError> {
-    writer.push_u16(finding.diagnostic_code);
-    encode_finding_class(writer, finding.class);
-    encode_severity(writer, finding.severity);
-    encode_finding_kind(writer, finding.kind);
-    encode_entity_identity(writer, &finding.entity)?;
-    writer.push_bounded_string(&finding.store_path, MAX_INTEGRITY_PATH_BYTES)?;
-    encode_phase(writer, finding.phase);
-    encode_verifier_family(writer, finding.verifier_family);
-    writer.push_bounded_len_prefixed_bytes(&finding.physical_key, MAX_PHYSICAL_KEY_BYTES)?;
-    encode_optional_bytes(
-        writer,
-        finding.primary_key.as_deref(),
-        RawDataStoreKey::MAX_STORED_SIZE_USIZE,
-    )?;
-
-    push_bounded_count(writer, finding.field_paths.len(), MAX_FINDING_FIELD_PATHS)?;
-    for path in &finding.field_paths {
-        writer.push_bounded_string(path, MAX_INTEGRITY_PATH_BYTES)?;
-    }
-    encode_optional_value_path(writer, finding.value_path.as_deref())?;
-    writer.push_optional_u32(finding.constraint_id);
-    encode_optional_string(
-        writer,
-        finding.constraint_name.as_deref(),
-        MAX_FINDING_TEXT_BYTES,
-    )?;
-    writer.push_optional_u32(finding.schema_index_id);
-    writer.push_optional_u32(finding.relation_id);
-    encode_optional_string(writer, finding.expected.as_deref(), MAX_FINDING_TEXT_BYTES)?;
-    encode_optional_string(writer, finding.observed.as_deref(), MAX_FINDING_TEXT_BYTES)
-}
-
-fn decode_finding(reader: &mut ByteReader<'_>) -> Result<IntegrityFinding, InternalError> {
-    let diagnostic_code = reader.read_u16()?;
-    let class = decode_finding_class(reader)?;
-    let severity = decode_severity(reader)?;
-    let kind = decode_finding_kind(reader)?;
-    let entity = decode_entity_identity(reader)?;
-    let store_path = reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?;
-    let phase = decode_phase(reader)?;
-    let verifier_family = decode_verifier_family(reader)?;
-    let physical_key = reader
-        .read_bounded_len_prefixed_bytes(MAX_PHYSICAL_KEY_BYTES)?
-        .to_vec();
-    let primary_key = decode_optional_bytes(reader, RawDataStoreKey::MAX_STORED_SIZE_USIZE)?;
-
-    let field_path_count = decode_bounded_count(reader, MAX_FINDING_FIELD_PATHS)?;
-    let mut field_paths = Vec::with_capacity(field_path_count);
-    for _ in 0..field_path_count {
-        field_paths.push(reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?);
-    }
-    let value_path = decode_optional_value_path(reader)?.map(Box::new);
-    let constraint_id = decode_optional_u32(reader)?;
-    let constraint_name = decode_optional_string(reader, MAX_FINDING_TEXT_BYTES)?;
-    let schema_index_id = decode_optional_u32(reader)?;
-    let relation_id = decode_optional_u32(reader)?;
-    let expected = decode_optional_string(reader, MAX_FINDING_TEXT_BYTES)?;
-    let observed = decode_optional_string(reader, MAX_FINDING_TEXT_BYTES)?;
-
-    Ok(IntegrityFinding {
-        diagnostic_code,
-        class,
-        severity,
-        kind,
-        entity,
-        store_path,
-        phase,
-        verifier_family,
-        physical_key,
-        primary_key,
-        field_paths,
-        value_path,
-        constraint_id,
-        constraint_name,
-        schema_index_id,
-        relation_id,
-        expected,
-        observed,
-    })
-}
-
-fn encode_finding_class(writer: &mut JobWriter, class: IntegrityFindingClass) {
-    writer.push_u8(match class {
-        IntegrityFindingClass::Corruption => 1,
-        IntegrityFindingClass::IncompatiblePersistedFormat => 2,
-        IntegrityFindingClass::ResourceLimited => 3,
-    });
-}
-
-fn decode_finding_class(
-    reader: &mut ByteReader<'_>,
-) -> Result<IntegrityFindingClass, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityFindingClass::Corruption),
-        2 => Ok(IntegrityFindingClass::IncompatiblePersistedFormat),
-        3 => Ok(IntegrityFindingClass::ResourceLimited),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_severity(writer: &mut JobWriter, severity: IntegritySeverity) {
-    writer.push_u8(match severity {
-        IntegritySeverity::Error => 1,
-        IntegritySeverity::Advisory => 2,
-    });
-}
-
-fn decode_severity(reader: &mut ByteReader<'_>) -> Result<IntegritySeverity, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegritySeverity::Error),
-        2 => Ok(IntegritySeverity::Advisory),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_finding_kind(writer: &mut JobWriter, kind: IntegrityFindingKind) {
-    writer.push_u8(match kind {
-        IntegrityFindingKind::MalformedDataKey => 1,
-        IntegrityFindingKind::MalformedRow => 2,
-        IntegrityFindingKind::OversizedRow => 3,
-        IntegrityFindingKind::InvalidFieldValue => 4,
-        IntegrityFindingKind::PrimaryKeyMismatch => 5,
-        IntegrityFindingKind::InvalidIdentityValue => 6,
-        IntegrityFindingKind::IdentityHighWaterExceeded => 7,
-        IntegrityFindingKind::ConstraintViolation => 8,
-        IntegrityFindingKind::MissingIndexEntry => 9,
-        IntegrityFindingKind::DivergentIndexEntry => 10,
-        IntegrityFindingKind::MalformedIndexEntry => 11,
-        IntegrityFindingKind::OrphanIndexEntry => 12,
-        IntegrityFindingKind::DuplicateUniqueIndexKey => 13,
-        IntegrityFindingKind::MissingRelationTarget => 14,
-        IntegrityFindingKind::MissingReverseRelationEntry => 15,
-        IntegrityFindingKind::DivergentReverseRelationEntry => 16,
-        IntegrityFindingKind::MalformedReverseRelationEntry => 17,
-        IntegrityFindingKind::OrphanReverseRelationEntry => 18,
-        IntegrityFindingKind::MalformedJournalBatch => 19,
-        IntegrityFindingKind::JournalSequenceGap => 20,
-        IntegrityFindingKind::DuplicateJournalBatchIdentity => 21,
-        IntegrityFindingKind::JournalControlMismatch => 22,
-    });
-}
-
-fn decode_finding_kind(reader: &mut ByteReader<'_>) -> Result<IntegrityFindingKind, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(IntegrityFindingKind::MalformedDataKey),
-        2 => Ok(IntegrityFindingKind::MalformedRow),
-        3 => Ok(IntegrityFindingKind::OversizedRow),
-        4 => Ok(IntegrityFindingKind::InvalidFieldValue),
-        5 => Ok(IntegrityFindingKind::PrimaryKeyMismatch),
-        6 => Ok(IntegrityFindingKind::InvalidIdentityValue),
-        7 => Ok(IntegrityFindingKind::IdentityHighWaterExceeded),
-        8 => Ok(IntegrityFindingKind::ConstraintViolation),
-        9 => Ok(IntegrityFindingKind::MissingIndexEntry),
-        10 => Ok(IntegrityFindingKind::DivergentIndexEntry),
-        11 => Ok(IntegrityFindingKind::MalformedIndexEntry),
-        12 => Ok(IntegrityFindingKind::OrphanIndexEntry),
-        13 => Ok(IntegrityFindingKind::DuplicateUniqueIndexKey),
-        14 => Ok(IntegrityFindingKind::MissingRelationTarget),
-        15 => Ok(IntegrityFindingKind::MissingReverseRelationEntry),
-        16 => Ok(IntegrityFindingKind::DivergentReverseRelationEntry),
-        17 => Ok(IntegrityFindingKind::MalformedReverseRelationEntry),
-        18 => Ok(IntegrityFindingKind::OrphanReverseRelationEntry),
-        19 => Ok(IntegrityFindingKind::MalformedJournalBatch),
-        20 => Ok(IntegrityFindingKind::JournalSequenceGap),
-        21 => Ok(IntegrityFindingKind::DuplicateJournalBatchIdentity),
-        22 => Ok(IntegrityFindingKind::JournalControlMismatch),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_optional_bytes(
-    writer: &mut JobWriter,
-    value: Option<&[u8]>,
-    max_bytes: usize,
-) -> Result<(), InternalError> {
-    match value {
-        None => writer.push_u8(0),
-        Some(value) => {
-            writer.push_u8(1);
-            writer.push_bounded_len_prefixed_bytes(value, max_bytes)?;
-        }
-    }
-    Ok(())
-}
-
-fn decode_optional_bytes(
-    reader: &mut ByteReader<'_>,
-    max_bytes: usize,
-) -> Result<Option<Vec<u8>>, InternalError> {
-    Ok(decode_optional_slice(reader, max_bytes)?.map(<[u8]>::to_vec))
-}
-
-fn encode_optional_string(
-    writer: &mut JobWriter,
-    value: Option<&str>,
-    max_bytes: usize,
-) -> Result<(), InternalError> {
-    encode_optional_bytes(writer, value.map(str::as_bytes), max_bytes)
-}
-
-fn decode_optional_string(
-    reader: &mut ByteReader<'_>,
-    max_bytes: usize,
-) -> Result<Option<String>, InternalError> {
-    decode_optional_slice(reader, max_bytes)?
-        .map(|bytes| {
-            std::str::from_utf8(bytes)
-                .map(str::to_string)
-                .map_err(|_| InternalError::store_corruption())
-        })
-        .transpose()
-}
-
-// Admit presence and bounded payload length before either caller allocates;
-// string callers additionally validate UTF-8 before constructing owned text.
-fn decode_optional_slice<'a>(
-    reader: &mut ByteReader<'a>,
-    max_bytes: usize,
-) -> Result<Option<&'a [u8]>, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(None),
-        1 => Ok(Some(reader.read_bounded_len_prefixed_bytes(max_bytes)?)),
-        _ => Err(InternalError::store_corruption()),
-    }
-}
-
-fn encode_optional_value_path(
-    writer: &mut JobWriter,
-    value: Option<&ConstraintValuePath>,
-) -> Result<(), InternalError> {
-    match value {
-        None => writer.push_u8(0),
-        Some(path) => {
-            writer.push_u8(1);
-            push_bounded_count(
-                writer,
-                path.components().len(),
-                MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
-            )?;
-            for component in path.components() {
-                encode_value_path_component(writer, *component);
+        for finding in &page.findings {
+            finding.entity.validate().map_err(|_| InternalError)?;
+            if finding.store_path.len() > MAX_INTEGRITY_PATH_BYTES
+                || finding.physical_key.len() > MAX_PHYSICAL_KEY_BYTES
+                || finding
+                    .primary_key
+                    .as_ref()
+                    .is_some_and(|key| key.len() > RawDataStoreKey::MAX_STORED_SIZE_USIZE)
+                || finding.field_paths.len() > icydb_schema::MAX_FRAGMENT_FIELDS
+                || finding
+                    .field_paths
+                    .iter()
+                    .any(|path| path.len() > MAX_INTEGRITY_PATH_BYTES)
+                || [
+                    &finding.constraint_name,
+                    &finding.expected,
+                    &finding.observed,
+                ]
+                .iter()
+                .any(|value| {
+                    value
+                        .as_ref()
+                        .is_some_and(|value| value.len() > MAX_INTEGRITY_JOB_PAYLOAD_BYTES)
+                })
+            {
+                return Err(InternalError);
             }
         }
     }
     Ok(())
 }
 
-fn decode_optional_value_path(
-    reader: &mut ByteReader<'_>,
-) -> Result<Option<ConstraintValuePath>, InternalError> {
-    match reader.read_u8()? {
-        0 => Ok(None),
-        1 => {
-            let count = decode_bounded_count(reader, MAX_ACCEPTED_TARGET_PATH_COMPONENTS)?;
-            let mut components = Vec::with_capacity(count);
-            for _ in 0..count {
-                components.push(decode_value_path_component(reader)?);
-            }
-            Ok(Some(ConstraintValuePath::new(components)))
-        }
-        _ => Err(InternalError::store_corruption()),
-    }
+// Wire owns bounded traversal and fallible allocation. These adapters only
+// project admitted containers back into the existing domain APIs.
+pub(super) fn deserialize_list<'de, D, T, const N: usize>(d: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    ic_wire::List::<T, N>::deserialize(d).map(ic_wire::List::into_vec)
 }
 
-fn encode_value_path_component(writer: &mut JobWriter, component: ConstraintValuePathComponent) {
-    match component {
-        ConstraintValuePathComponent::RootField { field_id } => {
-            writer.push_u8(1);
-            writer.push_u32(field_id);
-        }
-        ConstraintValuePathComponent::RecordMember {
-            composite_type_id,
-            member_id,
-        } => {
-            writer.push_u8(2);
-            writer.push_u32(composite_type_id);
-            writer.push_u32(member_id);
-        }
-        ConstraintValuePathComponent::TupleElement {
-            composite_type_id,
-            ordinal,
-        } => {
-            writer.push_u8(3);
-            writer.push_u32(composite_type_id);
-            writer.push_u32(ordinal);
-        }
-        ConstraintValuePathComponent::Newtype { composite_type_id } => {
-            writer.push_u8(4);
-            writer.push_u32(composite_type_id);
-        }
-        ConstraintValuePathComponent::EnumVariant {
-            enum_type_id,
-            variant_id,
-        } => {
-            writer.push_u8(5);
-            writer.push_u32(enum_type_id);
-            writer.push_u32(variant_id);
-        }
-        ConstraintValuePathComponent::ListElement { index } => {
-            writer.push_u8(6);
-            writer.push_u32(index);
-        }
-        ConstraintValuePathComponent::SetElement { index } => {
-            writer.push_u8(7);
-            writer.push_u32(index);
-        }
-        ConstraintValuePathComponent::MapEntryKey { index } => {
-            writer.push_u8(8);
-            writer.push_u32(index);
-        }
-        ConstraintValuePathComponent::MapEntryValue { index } => {
-            writer.push_u8(9);
-            writer.push_u32(index);
-        }
-    }
+pub(super) fn deserialize_text<'de, D: Deserializer<'de>, const N: usize>(
+    d: D,
+) -> Result<String, D::Error> {
+    ic_wire::Text::<N>::deserialize(d).map(ic_wire::Text::into_string)
 }
 
-fn decode_value_path_component(
-    reader: &mut ByteReader<'_>,
-) -> Result<ConstraintValuePathComponent, InternalError> {
-    match reader.read_u8()? {
-        1 => Ok(ConstraintValuePathComponent::RootField {
-            field_id: reader.read_u32()?,
-        }),
-        2 => Ok(ConstraintValuePathComponent::RecordMember {
-            composite_type_id: reader.read_u32()?,
-            member_id: reader.read_u32()?,
-        }),
-        3 => Ok(ConstraintValuePathComponent::TupleElement {
-            composite_type_id: reader.read_u32()?,
-            ordinal: reader.read_u32()?,
-        }),
-        4 => Ok(ConstraintValuePathComponent::Newtype {
-            composite_type_id: reader.read_u32()?,
-        }),
-        5 => Ok(ConstraintValuePathComponent::EnumVariant {
-            enum_type_id: reader.read_u32()?,
-            variant_id: reader.read_u32()?,
-        }),
-        6 => Ok(ConstraintValuePathComponent::ListElement {
-            index: reader.read_u32()?,
-        }),
-        7 => Ok(ConstraintValuePathComponent::SetElement {
-            index: reader.read_u32()?,
-        }),
-        8 => Ok(ConstraintValuePathComponent::MapEntryKey {
-            index: reader.read_u32()?,
-        }),
-        9 => Ok(ConstraintValuePathComponent::MapEntryValue {
-            index: reader.read_u32()?,
-        }),
-        _ => Err(InternalError::store_corruption()),
-    }
+pub(super) fn deserialize_physical_key<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<u8>, D::Error> {
+    ic_wire::Bytes::<MAX_PHYSICAL_KEY_BYTES>::deserialize(d).map(ic_wire::Bytes::into_vec)
 }
 
-fn push_bounded_count(
-    writer: &mut JobWriter,
-    count: usize,
-    max: usize,
-) -> Result<(), InternalError> {
-    if count > max {
-        return Err(InternalError::store_unsupported());
-    }
-    writer.push_len(count)
+pub(super) fn deserialize_owner<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<IntegrityJobOwner, D::Error> {
+    IntegrityJobOwner::new(deserialize_text::<D, MAX_INTEGRITY_OWNER_BYTES>(d)?)
+        .map_err(|_| serde::de::Error::custom("invalid integrity owner"))
+}
+
+pub(super) fn deserialize_submission_key<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<IntegritySubmissionKey, D::Error> {
+    IntegritySubmissionKey::new(deserialize_text::<D, MAX_INTEGRITY_SUBMISSION_KEY_BYTES>(
+        d,
+    )?)
+    .map_err(|_| serde::de::Error::custom("invalid integrity submission key"))
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "IntegrityEntityIdentity")]
+pub(super) struct EntityPayload {
+    entity_tag: u64,
+    #[serde(deserialize_with = "deserialize_text::<_, MAX_INTEGRITY_PATH_BYTES>")]
+    entity_path: String,
+    #[serde(deserialize_with = "deserialize_text::<_, MAX_INTEGRITY_PATH_BYTES>")]
+    store_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "IntegrityJobReceipt")]
+pub(super) enum Receipt {
+    Page(#[serde(deserialize_with = "PagePayload::deserialize")] DeepIntegrityPage),
+    Abort(IntegrityAbortReceipt),
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "DeepIntegrityPage")]
+struct PagePayload {
+    job_id: IntegrityJobId,
+    page_sequence: u64,
+    phase: IntegrityPhase,
+    status: DeepIntegrityPageStatus,
+    pages_completed: u64,
+    findings_seen: u64,
+    #[serde(deserialize_with = "deserialize_findings")]
+    findings: Vec<IntegrityFinding>,
+    #[serde(deserialize_with = "deserialize_list::<_, _, MAX_BLOCKED_VERIFIER_FAMILIES>")]
+    blocked_verifier_families: Vec<IntegrityVerifierFamily>,
+}
+
+#[derive(Deserialize)]
+struct BoundedFinding(#[serde(deserialize_with = "Finding::deserialize")] IntegrityFinding);
+
+fn deserialize_findings<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<IntegrityFinding>, D::Error> {
+    // Both the bounded transport and domain projection reserve fallibly.
+    let bounded = ic_wire::List::<BoundedFinding, MAX_INTEGRITY_RECEIPT_FINDINGS>::deserialize(d)?;
+    let mut findings = Vec::new();
+    findings
+        .try_reserve_exact(bounded.as_slice().len())
+        .map_err(serde::de::Error::custom)?;
+    findings.extend(bounded.into_vec().into_iter().map(|finding| finding.0));
+    Ok(findings)
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "IntegrityFinding")]
+struct Finding {
+    diagnostic_code: u16,
+    class: IntegrityFindingClass,
+    severity: IntegritySeverity,
+    kind: IntegrityFindingKind,
+    #[serde(deserialize_with = "EntityPayload::deserialize")]
+    entity: IntegrityEntityIdentity,
+    #[serde(deserialize_with = "deserialize_text::<_, MAX_INTEGRITY_PATH_BYTES>")]
+    store_path: String,
+    phase: IntegrityPhase,
+    verifier_family: IntegrityVerifierFamily,
+    #[serde(deserialize_with = "deserialize_physical_key")]
+    physical_key: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_primary_key")]
+    primary_key: Option<Vec<u8>>,
+    #[serde(deserialize_with = "deserialize_field_paths")]
+    field_paths: Vec<String>,
+    #[serde(deserialize_with = "deserialize_value_path")]
+    value_path: Option<Box<ConstraintValuePath>>,
+    constraint_id: Option<u32>,
+    #[serde(deserialize_with = "deserialize_optional_text")]
+    constraint_name: Option<String>,
+    schema_index_id: Option<u32>,
+    relation_id: Option<u32>,
+    #[serde(deserialize_with = "deserialize_optional_text")]
+    expected: Option<String>,
+    #[serde(deserialize_with = "deserialize_optional_text")]
+    observed: Option<String>,
+}
+
+fn deserialize_primary_key<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
+    Option::<ic_wire::Bytes<{ RawDataStoreKey::MAX_STORED_SIZE_USIZE }>>::deserialize(d)
+        .map(|value| value.map(ic_wire::Bytes::into_vec))
+}
+
+fn deserialize_optional_text<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Option::<ic_wire::Text<MAX_INTEGRITY_JOB_PAYLOAD_BYTES>>::deserialize(d)
+        .map(|value| value.map(ic_wire::Text::into_string))
+}
+
+fn deserialize_field_paths<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    let paths = ic_wire::List::<
+        ic_wire::Text<MAX_INTEGRITY_PATH_BYTES>,
+        { icydb_schema::MAX_FRAGMENT_FIELDS },
+    >::deserialize(d)?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(paths.as_slice().len())
+        .map_err(serde::de::Error::custom)?;
+    values.extend(paths.into_vec().into_iter().map(ic_wire::Text::into_string));
+    Ok(values)
+}
+
+fn deserialize_value_path<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Box<ConstraintValuePath>>, D::Error> {
+    Option::<ic_wire::List<ConstraintValuePathComponent, MAX_ACCEPTED_TARGET_PATH_COMPONENTS>>::deserialize(d)
+        .map(|value| value.map(|components| Box::new(ConstraintValuePath::new(components.into_vec()))))
 }
 
 #[cfg(test)]
@@ -1312,68 +372,44 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     #[test]
-    fn optional_payloads_preserve_bytes_and_utf8_admission() {
-        for (text, expected) in [
-            (None, vec![0]),
-            (Some(""), vec![1, 0, 0, 0, 0]),
-            (Some("é"), vec![1, 0, 0, 0, 2, 0xc3, 0xa9]),
-        ] {
-            let mut bytes = JobWriter::new();
-            encode_optional_bytes(&mut bytes, text.map(str::as_bytes), 2).unwrap();
-            assert_eq!(bytes.finish().unwrap(), expected);
-            let mut string = JobWriter::new();
-            encode_optional_string(&mut string, text, 2).unwrap();
-            assert_eq!(string.finish().unwrap(), expected);
-            let mut reader = ByteReader::new(&expected);
-            assert_eq!(
-                decode_optional_string(&mut reader, 2).unwrap(),
-                text.map(str::to_string)
-            );
-            reader.finish().unwrap();
-            let mut reader = ByteReader::new(&expected);
-            assert_eq!(
-                decode_optional_bytes(&mut reader, 2).unwrap(),
-                text.map(|value| value.as_bytes().to_vec())
-            );
-            reader.finish().unwrap();
-        }
-        let invalid_utf8 = [1, 0, 0, 0, 1, 0xff];
-        assert_eq!(
-            decode_optional_bytes(&mut ByteReader::new(&invalid_utf8), 1),
-            Ok(Some(vec![0xff]))
-        );
-        assert_eq!(
-            decode_optional_string(&mut ByteReader::new(&invalid_utf8), 1),
-            Err(InternalError)
-        );
+    fn current_job_payload_rejects_malformed_wire_and_invalid_authority() {
+        let job = current_job_codec_fixture();
+        let mut alternate = encode_integrity_job_payload(&job).unwrap();
+        // The first string follows the two fixed-width identity arrays.
+        // Noncanonical length encodings must fail at the persisted boundary.
+        assert_eq!(alternate[48], 13);
+        alternate.splice(48..49, [0x8d, 0]);
+        assert_eq!(decode_integrity_job_payload(&alternate), Err(InternalError));
+
+        let mut invalid = job.clone();
+        invalid.accepted_schema_fingerprint[0] ^= 1;
+        let raw = ic_wire::native::encode(&invalid, limits()).unwrap();
+        assert_eq!(decode_integrity_job_payload(&raw), Err(InternalError));
+        let mut invalid = job;
+        invalid.pages_completed = 1;
+        let raw = ic_wire::native::encode(&invalid, limits()).unwrap();
+        assert_eq!(decode_integrity_job_payload(&raw), Err(InternalError));
     }
 
     #[test]
-    fn optional_payloads_reject_bad_tags_truncation_and_byte_limits() {
-        for input in [
-            &[][..],
-            &[2],
-            &[1],
-            &[1, 0, 0, 0, 1],
-            &[1, 0, 0, 0, 2, 1, 2],
-        ] {
-            assert_eq!(
-                decode_optional_bytes(&mut ByteReader::new(input), 1),
-                Err(InternalError)
-            );
-            assert_eq!(
-                decode_optional_string(&mut ByteReader::new(input), 1),
-                Err(InternalError)
-            );
+    fn current_job_payload_preserves_field_specific_allocation_bounds() {
+        let job = current_job_codec_fixture();
+        let mut wide = job.clone();
+        wide.captured_proof_vector.stores[0].store_path = "s".repeat(MAX_INTEGRITY_PATH_BYTES + 1);
+        let mut excessive = job;
+        let store = excessive.captured_proof_vector.stores[0].clone();
+        excessive.captured_proof_vector.stores = (0..=MAX_PROOF_STORES)
+            .map(|index| {
+                let mut store = store.clone();
+                store.store_path = format!("store::{index:03}");
+                store
+            })
+            .collect();
+        for invalid in [wide, excessive] {
+            assert_eq!(encode_integrity_job_payload(&invalid), Err(InternalError));
+            let raw = ic_wire::native::encode(&invalid, limits()).unwrap();
+            assert_eq!(decode_integrity_job_payload(&raw), Err(InternalError));
         }
-        assert_eq!(
-            encode_optional_bytes(&mut JobWriter::new(), Some(&[1, 2]), 1),
-            Err(InternalError)
-        );
-        assert_eq!(
-            encode_optional_string(&mut JobWriter::new(), Some("é"), 1),
-            Err(InternalError)
-        );
     }
 
     #[test]
@@ -1381,17 +417,16 @@ mod tests {
         let job = current_job_codec_fixture();
         let payload = encode_integrity_job_payload(&job).expect("current payload should encode");
 
-        assert!(!payload.starts_with(b"DIDL"));
         assert_eq!(
             decode_integrity_job_payload(&payload).expect("current payload should decode"),
             job,
         );
-        assert_eq!(payload.len(), 476);
+        assert_eq!(payload.len(), 332);
         assert_eq!(
             Sha256::digest(&payload).as_slice(),
             [
-                142, 240, 95, 129, 56, 238, 194, 34, 201, 84, 64, 178, 177, 33, 48, 112, 227, 132,
-                247, 132, 21, 10, 97, 68, 208, 178, 113, 237, 151, 128, 35, 246,
+                222, 35, 143, 11, 103, 162, 33, 100, 19, 68, 153, 128, 156, 33, 54, 209, 253, 189,
+                150, 165, 125, 203, 239, 224, 47, 235, 72, 223, 187, 3, 10, 23,
             ],
         );
     }
@@ -1417,37 +452,6 @@ mod tests {
     fn current_job_payload_rejects_oversized_input_before_decoding() {
         let oversized = vec![0; MAX_INTEGRITY_JOB_PAYLOAD_BYTES + 1];
         assert!(decode_integrity_job_payload(&oversized).is_err());
-    }
-
-    #[test]
-    fn payload_tags_and_collection_counts_keep_format_bounds() {
-        assert_eq!(decode_bool(&mut ByteReader::new(&[0])), Ok(false));
-        assert_eq!(decode_bool(&mut ByteReader::new(&[1])), Ok(true));
-        assert_eq!(decode_optional_u32(&mut ByteReader::new(&[0])), Ok(None));
-        assert_eq!(
-            decode_optional_u32(&mut ByteReader::new(&[1, 0, 0, 0, 7])),
-            Ok(Some(7))
-        );
-        for tag in [2, u8::MAX] {
-            assert_eq!(
-                decode_bool(&mut ByteReader::new(&[tag])),
-                Err(InternalError)
-            );
-            assert_eq!(
-                decode_optional_u32(&mut ByteReader::new(&[tag])),
-                Err(InternalError)
-            );
-        }
-        let bytes = [0, 0, 0, 2, 10, 20];
-        assert_eq!(decode_bounded_count(&mut ByteReader::new(&bytes), 2), Ok(2));
-        assert_eq!(
-            decode_bounded_count(&mut ByteReader::new(&bytes), 1),
-            Err(InternalError)
-        );
-        assert_eq!(
-            decode_bounded_count(&mut ByteReader::new(&bytes[..5]), 2),
-            Err(InternalError)
-        );
     }
 
     #[test]
@@ -1546,6 +550,27 @@ mod tests {
             }),
         };
         job.validate().expect("terminal fixture should be valid");
+
+        for invalid_entity in [
+            IntegrityEntityIdentity {
+                entity_tag: 0,
+                ..job.entity.clone()
+            },
+            IntegrityEntityIdentity {
+                entity_path: String::new(),
+                ..job.entity.clone()
+            },
+        ] {
+            let mut corrupt = job.clone();
+            let IntegrityJobReceipt::Page(page) = &mut corrupt.last_receipt.receipt else {
+                unreachable!("the fixture carries a page receipt")
+            };
+            page.findings[0].entity = invalid_entity;
+            // Bypass the trusted encoder to exercise restoration of corrupt
+            // retained domain fields, rather than constructor-only admission.
+            let raw = ic_wire::native::encode(&corrupt, limits()).unwrap();
+            assert_eq!(decode_integrity_job_payload(&raw), Err(InternalError));
+        }
 
         let payload = encode_integrity_job_payload(&job).expect("terminal job should encode");
         assert_eq!(

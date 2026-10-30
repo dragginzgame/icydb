@@ -3,7 +3,7 @@ use crate::{
         Db,
         data::{DataStore, DecodedDataStoreKey},
         executor::{
-            EntityAuthority, IndexComponentRows,
+            EntityAuthority, IndexComponentRows, IndexComponentValues,
             projection::covering::{
                 PreparedCoveringProjectionRuntime,
                 contracts::{
@@ -143,18 +143,17 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             row_field_slots,
         )?
         .ok_or_else(InternalError::query_executor_invariant)?;
-        let Some(decoded_components) =
-            decode_hybrid_covering_components(component_indices, components)?
+        let Some(projected_row) = project_hybrid_covering_row(
+            &data_key,
+            hybrid.fields.as_slice(),
+            component_indices,
+            components,
+            sparse_row_fields,
+            ownership,
+        )?
         else {
             return Ok(None);
         };
-        let projected_row = project_hybrid_covering_row(
-            &data_key,
-            hybrid.fields.as_slice(),
-            decoded_components,
-            sparse_row_fields,
-            ownership,
-        )?;
 
         projected_rows.push(projected_row);
     }
@@ -196,18 +195,17 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             continue;
         }
 
-        let Some(decoded_components) =
-            decode_hybrid_covering_components(component_indices, components)?
+        let Some(projected_row) = project_hybrid_covering_row(
+            &data_key,
+            hybrid.fields.as_slice(),
+            component_indices,
+            components,
+            sparse_row_fields,
+            ownership,
+        )?
         else {
             return Ok(None);
         };
-        let projected_row = project_hybrid_covering_row(
-            &data_key,
-            hybrid.fields.as_slice(),
-            decoded_components,
-            sparse_row_fields,
-            ownership,
-        )?;
 
         projected_rows.push((data_key, projected_row));
         projected_row_count = projected_row_count.saturating_add(1);
@@ -312,10 +310,18 @@ fn read_hybrid_projection_row_fields_from_store(
 fn project_hybrid_covering_row(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
-    mut decoded_components: Vec<(usize, Value)>,
+    component_indices: &[usize],
+    components: IndexComponentValues,
     mut row_fields: Vec<(usize, Value)>,
     ownership: &HybridProjectionOwnership,
-) -> Result<Vec<Value>, InternalError> {
+) -> Result<Option<Vec<Value>>, InternalError> {
+    // Pages admit row presence and offset before this shared decode/shape step.
+    // Decline unsupported components before charging or accessing output fields.
+    let Some(mut decoded_components) =
+        decode_hybrid_covering_components(component_indices, components)?
+    else {
+        return Ok(None);
+    };
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
         u64::try_from(fields.len()).unwrap_or(u64::MAX),
@@ -345,7 +351,7 @@ fn project_hybrid_covering_row(
         projected.push(value);
     }
 
-    Ok(projected)
+    Ok(Some(projected))
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -418,42 +424,4 @@ fn take_or_clone_compact_value(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn final_hybrid_use_moves_large_value_without_retaining_or_cloning_backing() {
-        let payload = vec![7_u8; 300 * 1_024];
-        let payload_ptr = payload.as_ptr();
-        let mut values = vec![(4, Value::Blob(payload))];
-
-        let moved = take_or_clone_compact_value(&mut values, 4, true)
-            .expect("final use should move the value");
-        let Value::Blob(moved) = moved else {
-            panic!("fixture should remain a blob");
-        };
-
-        assert_eq!(moved.as_ptr(), payload_ptr);
-        assert!(values.is_empty());
-    }
-
-    #[test]
-    fn repeated_hybrid_use_clones_until_the_final_owned_use() {
-        let payload = vec![9_u8; 40 * 1_024];
-        let payload_ptr = payload.as_ptr();
-        let mut values = vec![(2, Value::Blob(payload))];
-
-        let cloned = take_or_clone_compact_value(&mut values, 2, false)
-            .expect("non-final use should clone the value");
-        let Value::Blob(cloned) = cloned else {
-            panic!("fixture should remain a blob");
-        };
-        let retained_ptr = match &values[0].1 {
-            Value::Blob(retained) => retained.as_ptr(),
-            _ => panic!("fixture should remain a blob"),
-        };
-
-        assert_ne!(cloned.as_ptr(), payload_ptr);
-        assert_eq!(retained_ptr, payload_ptr);
-    }
-}
+mod tests;

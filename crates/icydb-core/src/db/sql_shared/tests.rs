@@ -1,4 +1,43 @@
 use crate::db::sql_shared::{Keyword, SqlParseError, SqlSyntaxErrorKind, TokenKind, tokenize_sql};
+use crate::{db::sql_shared::SqlTokenCursor, types::Decimal, value::Value};
+
+#[test]
+fn numeric_literals_cover_nat128_without_changing_existing_atoms() {
+    for (sql, expected) in [
+        ("0".to_string(), Value::Int64(0)),
+        (i64::MIN.to_string(), Value::Int64(i64::MIN)),
+        (u64::MAX.to_string(), Value::Nat64(u64::MAX)),
+        (
+            i128::MAX.to_string(),
+            Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0)),
+        ),
+        (
+            i128::MIN.to_string(),
+            Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 0)),
+        ),
+        (
+            "1.0".to_string(),
+            Value::Decimal(Decimal::from_i128_with_scale(10, 1)),
+        ),
+        ((1_u128 << 127).to_string(), Value::Nat128(1_u128 << 127)),
+        (u128::MAX.to_string(), Value::Nat128(u128::MAX)),
+    ] {
+        let mut cursor = SqlTokenCursor::new(tokenize_sql(&sql).unwrap());
+        assert_eq!(cursor.parse_literal(), Ok(expected), "{sql}");
+    }
+    for sql in [
+        "340282366920938463463374607431768211456",
+        "-170141183460469231731687303715884105729",
+        "340282366920938463463374607431768211455.0",
+    ] {
+        let mut cursor = SqlTokenCursor::new(tokenize_sql(sql).unwrap());
+        assert_eq!(
+            cursor.parse_literal(),
+            Err(SqlParseError::invalid_numeric_literal()),
+            "{sql}"
+        );
+    }
+}
 
 #[test]
 fn tokenize_sql_rejects_numeric_suffixes_before_alias_tokens() {

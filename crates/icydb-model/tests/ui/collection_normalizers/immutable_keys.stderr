@@ -1,0 +1,11 @@
+error: set items and map keys cannot declare item normalizers; normalize keys before insertion or use a container normalizer
+ --> tests/ui/collection_normalizers/immutable_keys.rs:5:23
+  |
+5 |     normalizer(path = "base::normalizer::text::Trim")
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: set items and map keys cannot declare item normalizers; normalize keys before insertion or use a container normalizer
+  --> tests/ui/collection_normalizers/immutable_keys.rs:10:53
+   |
+10 |     key(prim = "Text", unbounded, normalizer(path = "base::normalizer::text::Trim")),
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

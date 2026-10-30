@@ -72,6 +72,7 @@ impl ValidateNode for Map {
             );
         }
 
+        self.key.validate_immutable_key_hooks()?;
         Ok(())
     }
 }

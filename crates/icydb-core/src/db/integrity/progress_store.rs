@@ -42,7 +42,7 @@ const PROGRESS_HEADER_KEY: ProgressRecordKey = ProgressRecordKey([0; 32]);
 const PROGRESS_HEADER_MAGIC: &[u8; 8] = b"ICYIPROG";
 const PROGRESS_HEADER_VERSION: u8 = 1;
 const PROGRESS_HEADER_BYTES: usize = 8 + 1 + 4;
-const JOB_RECORD_MAGIC: &[u8; 8] = b"ICYIJPTH";
+const JOB_RECORD_MAGIC: &[u8; 8] = b"ICYIJWIR";
 const PROGRESS_JOB_RECORD_VERSION: u8 = 1;
 const PROGRESS_JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const RESUMABLE_JOB_KEY_DOMAIN: &[u8] = b"icydb.resumable-job.progress-key.v1";
@@ -1277,12 +1277,66 @@ mod tests {
     }
 
     #[test]
-    fn current_job_record_uses_the_direct_bounded_payload() {
+    fn current_wire_jobs_reopen_without_changing_other_progress_families() {
+        let owner = crate::testing::test_memory_owner(246);
+        let integrity = current_job_codec_fixture();
+        let resumable = current_resumable_record();
+        let mutation = current_mutation_record(7);
+        let mut store = InspectionProgressStore::open(owner.open()).unwrap();
+        store.insert_new(&integrity).unwrap();
+        store.insert_resumable(&resumable).unwrap();
+        store.insert_mutation(&mutation).unwrap();
+        drop(store);
+        let mut store = InspectionProgressStore::open(owner.open()).unwrap();
+        assert_eq!(store.load(integrity.id).unwrap(), integrity);
+        assert_eq!(
+            store.load_resumable(resumable.state().job_id).unwrap(),
+            resumable
+        );
+        assert_eq!(
+            store.load_mutation(mutation.state().job_id).unwrap(),
+            mutation
+        );
+        assert_eq!(store.inventory().unwrap().records.len(), 3);
+        // Replaying a start returns the retained receipt rather than replacing it.
+        assert!(matches!(
+            store.insert_new(&integrity).unwrap(),
+            InsertJobResult::Occupied(_)
+        ));
+    }
+
+    #[test]
+    fn checksummed_wire_corruption_cannot_restore_or_erase_job_authority() {
+        let job = current_job_codec_fixture();
+        let mut payload = encode_integrity_job_payload(&job).unwrap();
+        // The fixture's frozen prefix ends at its first checkpoint tag.
+        assert_eq!(payload[162], 0);
+        payload[162] = 127;
+        let corrupt = encode_progress_record_payload(
+            &payload,
+            *JOB_RECORD_MAGIC,
+            MAX_PROGRESS_RECORD_BYTES as usize,
+            IntegrityJobError::CapacityExceeded,
+            |_| IntegrityJobError::CapacityExceeded,
+        )
+        .unwrap();
+        let mut store = InspectionProgressStore::open(test_memory(245)).unwrap();
+        let key = ProgressRecordKey::from_job_id(job.id);
+        store.map.insert(key, ProgressRecordBytes(corrupt.clone()));
+        assert_eq!(
+            store.load(job.id),
+            Err(IntegrityJobError::CorruptProgressRecord)
+        );
+        assert_eq!(store.map.get(&key).unwrap().0, corrupt);
+    }
+
+    #[test]
+    fn current_wire_job_record_preserves_envelope_and_payload() {
         let job = current_job_codec_fixture();
         let encoded = encode_job_record(&job).expect("current job should encode");
 
         assert_eq!(encoded[JOB_RECORD_MAGIC.len()], 1);
-        assert!(!encoded[PROGRESS_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
+        assert_eq!(&encoded[..8], b"ICYIJWIR");
         assert_eq!(
             decode_job_record(&encoded, job.id).expect("current job should decode"),
             job,

@@ -109,7 +109,6 @@ pub(in crate::db::executor) struct OpenCommitWindow {
     pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
     positioned_rows: Vec<Option<JournalOverlayPosition>>,
     effects: PreparedCommitEffects,
-    pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
 }
 
 pub(in crate::db::executor) struct PreparedJournalAppend {
@@ -139,8 +138,8 @@ struct PreparedIdentityRangeApply {
 ///
 /// IndexStoreGenerationGuard
 ///
-/// Snapshot of one index store generation captured after preflight.
-/// Apply must observe the same generation before it starts mutating state.
+/// Snapshot of one index store generation captured during preflight.
+/// Publication requires the same generation before creating recovery authority.
 ///
 
 pub(in crate::db::executor) struct IndexStoreGenerationGuard {
@@ -593,14 +592,13 @@ fn open_commit_window_structural<C: CanisterKind>(
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
     finish_current_execution_instruction_watermark()?;
-    let commit = begin_commit_window_payload::<C>(&effects.marker)?;
+    let commit = begin_commit_window_payload::<C>(&effects.marker, &index_store_guards)?;
 
     Ok(OpenCommitWindow {
         commit,
         prepared_row_ops,
         positioned_rows,
         effects,
-        index_store_guards,
     })
 }
 
@@ -611,7 +609,6 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
         prepared_row_ops,
         positioned_rows,
         effects,
-        index_store_guards,
     } = window;
     if positioned_rows.len() != prepared_row_ops.len() {
         return Err(InternalError::query_executor_invariant());
@@ -619,10 +616,6 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
     finish_commit(commit, |guard| {
         #[cfg(test)]
         let mut apply_guard = CommitApplyGuard::new();
-        // Enforce that index stores are unchanged between preflight and apply.
-        for index_store_guard in &index_store_guards {
-            index_store_guard.verify()?;
-        }
         #[cfg(test)]
         if take_mutation_commit_interruption(MutationCommitInterruption::MarkerPersisted) {
             std::mem::forget(apply_guard);
@@ -991,7 +984,13 @@ fn apply_identity_range_applies(
 
 fn begin_commit_window_payload<C: CanisterKind>(
     marker: &CommitMarker,
+    index_store_guards: &[IndexStoreGenerationGuard],
 ) -> Result<CommitGuard, InternalError> {
+    // Reject stale preflight while no marker can turn a failed write into
+    // recovery work. Opening and applying this window are synchronous.
+    for index_store_guard in index_store_guards {
+        index_store_guard.verify()?;
+    }
     if marker.mutation_progress().is_some() {
         begin_mutation_progress_commit::<C>(marker)
     } else {
@@ -1064,13 +1063,18 @@ fn key_within_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::commit::CommitRowOp;
     use crate::{
         db::{
+            commit::{
+                CommitRowOp, commit_memory_handle, current_commit_memory_allocation,
+                database_control_proof_identity, observe_commit_control,
+                retained_commit_marker_measurement_for_tests, select_commit_memory_allocation,
+            },
             data::{DataStore, DecodedDataStoreKey},
+            database_format::initialize_current_database_control_for_tests,
             index::IndexStore,
             integrity::DatabaseIncarnationId,
-            journal::JournalTailStore,
+            journal::{FoldWatermark, JournalTailStore},
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
             registry::{
                 StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
@@ -1133,6 +1137,64 @@ mod tests {
     }
 
     const IDENTITY_INCARNATION: DatabaseIncarnationId = DatabaseIncarnationId::for_tests(0x71);
+
+    #[test]
+    fn stale_index_preflight_rejects_before_marker_publication() {
+        select_commit_memory_allocation(230, SchedulerOverlayTestCanister::COMMIT_STABLE_KEY);
+        let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+        initialize_current_database_control_for_tests(&memory);
+        let marker = CommitMarker::from_parts([0x71; 16], Vec::new()).unwrap();
+        let before_control = observe_commit_control().unwrap();
+        let before_proof = database_control_proof_identity().unwrap();
+
+        // Either touched store can invalidate the complete operation. In
+        // particular, an unchanged first guard must not permit publication.
+        for changed_index in [&FIRST_IDENTITY_INDEX, &SECOND_IDENTITY_INDEX] {
+            let guards = [
+                IndexStoreGenerationGuard::capture(&FIRST_IDENTITY_INDEX),
+                IndexStoreGenerationGuard::capture(&SECOND_IDENTITY_INDEX),
+            ];
+            changed_index.with_borrow_mut(|store| {
+                store
+                    .reset_journaled_live_projection(0, FoldWatermark::initial())
+                    .unwrap();
+            });
+            let error =
+                begin_commit_window_payload::<SchedulerOverlayTestCanister>(&marker, &guards)
+                    .expect_err("stale preflight must fail before creating recovery work");
+            assert_eq!(error.class(), ErrorClass::InvariantViolation);
+            assert_eq!(error.origin(), ErrorOrigin::Executor);
+            assert_eq!(
+                error.diagnostic().error_code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION,
+            );
+            assert_eq!(observe_commit_control().unwrap(), before_control);
+            assert_eq!(database_control_proof_identity().unwrap(), before_proof);
+            assert_eq!(
+                retained_commit_marker_measurement_for_tests().unwrap(),
+                None
+            );
+        }
+
+        // Fresh guards still publish normally and leave marker retirement to
+        // the existing commit owner; the rejected attempts need no recovery.
+        let guards = [
+            IndexStoreGenerationGuard::capture(&FIRST_IDENTITY_INDEX),
+            IndexStoreGenerationGuard::capture(&SECOND_IDENTITY_INDEX),
+        ];
+        let guard = begin_commit_window_payload::<SchedulerOverlayTestCanister>(&marker, &guards)
+            .expect("refreshed preflight should publish without a recovery pass");
+        assert!(
+            retained_commit_marker_measurement_for_tests()
+                .unwrap()
+                .is_some()
+        );
+        finish_commit(guard, |_| Ok(())).unwrap();
+        assert_eq!(
+            retained_commit_marker_measurement_for_tests().unwrap(),
+            None
+        );
+    }
 
     #[test]
     fn canonical_commit_work_bound_tracks_exact_prepared_fanout() {

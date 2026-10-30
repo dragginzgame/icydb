@@ -80,32 +80,14 @@ fn ulid_wire_requires_byte_elements() {
 }
 
 #[test]
-fn ulid_binary_serde_round_trip_uses_a_byte_string() {
-    for value in [Ulid::MIN, Ulid::from_u128(42), Ulid::MAX] {
-        let mut encoded = Vec::new();
-        serde_cbor::to_writer(&mut encoded, &value).expect("ULID should encode");
-        let wire: serde_cbor::Value =
-            serde_cbor::from_slice(encoded.as_slice()).expect("wire should decode");
-
-        assert_eq!(wire, serde_cbor::Value::Bytes(value.to_bytes().to_vec()));
-        assert_eq!(encoded.len(), 17);
-        assert_eq!(
-            serde_cbor::from_slice::<Ulid>(encoded.as_slice()).expect("ULID should decode"),
-            value,
-        );
-    }
-}
-
-#[test]
-fn ulid_binary_serde_enforces_width_for_bytes_and_sequences() {
+fn ulid_wire_enforces_width_for_bytes_and_sequences() {
     for len in [0, 15, 16, 17, 1_024] {
-        for wire in [
-            serde_cbor::Value::Bytes(vec![0; len]),
-            serde_cbor::Value::Array(vec![serde_cbor::Value::Integer(0); len]),
+        let bytes = vec![0_u8; len];
+        for encoded in [
+            crate::wire::encode_one(serde_bytes::Bytes::new(&bytes)).unwrap(),
+            crate::wire::encode_one(&bytes).unwrap(),
         ] {
-            let mut encoded = Vec::new();
-            serde_cbor::to_writer(&mut encoded, &wire).expect("wire should encode");
-            let decoded = serde_cbor::from_slice::<Ulid>(encoded.as_slice());
+            let decoded = crate::wire::decode_one::<Ulid>(&encoded);
             if len == 16 {
                 assert_eq!(decoded.expect("exact width should decode"), Ulid::MIN);
             } else {
@@ -153,9 +135,6 @@ fn blob_proposal_literals_retain_their_dedicated_bound() {
 fn principal_platform_identity_preserves_native_wire_bytes() {
     for bytes in [vec![], vec![4], vec![2, 7], vec![0xAB; 29]] {
         let platform = ic_platform::Principal::from_slice(&bytes);
-        let external: ic_platform::principal::ExternalPrincipal = platform.into();
-        assert_eq!(external.as_slice(), bytes);
-        assert_eq!(ic_platform::Principal::from(external), platform);
         let value = Principal::from(platform);
         let recovered: ic_platform::Principal = value.into();
         assert_eq!(recovered, platform);
@@ -168,22 +147,6 @@ fn principal_platform_identity_preserves_native_wire_bytes() {
         assert_eq!(encoded, expected);
         assert_eq!(
             crate::wire::decode_one::<Principal>(&encoded).expect("principal should decode"),
-            value,
-        );
-
-        // The atom's binary Serde representation remains a raw byte string,
-        // including a leading 0x02, for borrowed and reader-backed decoding.
-        let encoded = serde_cbor::to_vec(&value).expect("principal should serialize");
-        let expected = serde_cbor::to_vec(&serde_bytes::Bytes::new(&bytes))
-            .expect("principal bytes should serialize");
-        assert_eq!(encoded, expected);
-        assert_eq!(
-            serde_cbor::from_slice::<Principal>(&encoded).expect("borrowed bytes should decode"),
-            value,
-        );
-        assert_eq!(
-            serde_cbor::from_reader::<Principal, _>(encoded.as_slice())
-                .expect("reader-backed bytes should decode"),
             value,
         );
     }

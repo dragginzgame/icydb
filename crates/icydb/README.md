@@ -6,6 +6,10 @@ This crate exposes accepted-schema database sessions, structural writes,
 optional SQL and typed reads, shared runtime types, and the host build facade
 used by generated canister actor glue.
 
+Public IC endpoint exports belong to the separate `canic-icydb` adapter, with
+explicit declarations and IC Wire payloads. This library can be used without
+mounting endpoints; enabling a feature does not export a public method.
+
 Ordinary database-owning canisters depend on `icydb` alone. Author declarations
 through `icydb::model::prelude::*` and use this facade's runtime, scalar types
 and build surfaces. The runtime-only `#[icydb::request_execution]` and

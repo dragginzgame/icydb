@@ -2,6 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     Account, Blob, Date, Decimal, Duration, FieldSourceKey, Float32, Float64,
     MAX_PROPOSAL_LITERAL_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS, Principal, ScalarKind,
@@ -9,25 +11,31 @@ use crate::{
 };
 
 /// One canonical scalar literal carried by a schema proposal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ScalarLiteral {
     /// Account identifier.
     Account(Account),
     /// Bounded binary value.
-    Blob(Blob),
+    Blob(#[serde(deserialize_with = "crate::codec::deserialize_literal_blob")] Blob),
     /// Boolean value.
     Bool(bool),
     /// Days since the Unix epoch.
     Date(Date),
     /// Canonical fixed-point decimal.
-    Decimal(Decimal),
+    Decimal(#[serde(deserialize_with = "crate::codec::deserialize_literal_decimal")] Decimal),
     /// Millisecond duration.
     Duration(Duration),
     /// Source-keyed unit-enum variant.
     EnumUnit {
         /// Immutable enum type identity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         enum_type: TypeSourceKey,
         /// Immutable unit-variant identity.
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
         variant: TypeSourceKey,
     },
     /// Finite 32-bit float.
@@ -45,7 +53,7 @@ pub enum ScalarLiteral {
     /// Fixed-width subaccount.
     Subaccount(Subaccount),
     /// Bounded text value.
-    Text(String),
+    Text(#[serde(deserialize_with = "crate::codec::deserialize_literal_text")] String),
     /// Unix-millisecond timestamp.
     Timestamp(Timestamp),
     /// Canonical ULID.
@@ -82,6 +90,9 @@ impl ScalarLiteral {
 
     pub(crate) const fn validate(&self) -> Result<(), SchemaContractError> {
         match self {
+            Self::Decimal(value) if value.scale() > crate::decimal::MAX_SUPPORTED_SCALE => {
+                Err(SchemaContractError::InvalidLiteral)
+            }
             Self::Blob(value) if value.len() > MAX_PROPOSAL_LITERAL_BYTES => {
                 Err(SchemaContractError::InvalidLiteral)
             }
@@ -97,10 +108,15 @@ impl ScalarLiteral {
 ///
 /// This is an AST transport, not accepted bytecode: field references remain
 /// typed current-name keys and IcyDB still owns accepted binding and compilation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SourceCheckInstruction {
     /// Push one field value.
-    Field(FieldSourceKey),
+    Field(
+        #[serde(
+            deserialize_with = "crate::codec::deserialize_key::<_, _, { crate::MAX_SOURCE_KEY_BYTES }>"
+        )]
+        FieldSourceKey,
+    ),
     /// Push one admitted proposal literal.
     Literal(ScalarLiteral),
     /// SQL equality.
@@ -130,8 +146,11 @@ pub enum SourceCheckInstruction {
 }
 
 /// Bounded canonical source expression.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SourceCheckExpr {
+    #[serde(
+        deserialize_with = "crate::codec::deserialize_list::<_, _, { crate::MAX_SOURCE_CHECK_INSTRUCTIONS }>"
+    )]
     instructions: Vec<SourceCheckInstruction>,
 }
 

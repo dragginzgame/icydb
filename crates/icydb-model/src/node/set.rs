@@ -67,6 +67,7 @@ impl ValidateNode for Set {
             self.name(),
             icydb_schema::TypeSourceKey::try_new,
         );
+        self.item().validate_immutable_key_hooks(&mut errs);
         errs.result()
     }
 }

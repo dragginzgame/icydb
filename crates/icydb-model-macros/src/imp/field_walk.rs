@@ -90,3 +90,39 @@ impl FieldWalkBinding {
 pub(crate) fn field_walk_bindings(fields: &FieldList) -> Vec<FieldWalkBinding> {
     fields.iter().map(FieldWalkBinding::from_field).collect()
 }
+
+/// Applies cardinality (One / Opt / Many)
+pub(crate) fn cardinality_wrapper(
+    card: Cardinality,
+    rules: Vec<TokenStream>,
+    var_expr: TokenStream,
+) -> Option<TokenStream> {
+    if rules.is_empty() {
+        return None;
+    }
+
+    let body = quote! { #(#rules)* };
+
+    let tokens = match card {
+        Cardinality::One => quote! {
+            let v = #var_expr;
+            #body
+        },
+        Cardinality::Opt => quote! {
+            if let ::core::option::Option::Some(v) = #var_expr {
+                #body
+            }
+        },
+        Cardinality::Many => {
+            let item = format_ident!("__item");
+            quote! {
+                for #item in #var_expr {
+                    let v = #item;
+                    #body
+                }
+            }
+        }
+    };
+
+    Some(tokens)
+}

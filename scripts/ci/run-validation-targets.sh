@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/verify-file-checksum.sh
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/verify-file-checksum.sh scripts/ci/validation-input-checkpoint.pl
 set -euo pipefail
 
 usage() {
@@ -40,6 +40,7 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     cp "$RUNNER_SOURCE" "$RUNNER_SNAPSHOT"
     cp "$(dirname "$RUNNER_SOURCE")/check-make-execution.sh" "$RUNNER_SNAPSHOT_DIR/"
     cp "$(dirname "$RUNNER_SOURCE")/verify-file-checksum.sh" "$RUNNER_SNAPSHOT_DIR/"
+    cp "$(dirname "$RUNNER_SOURCE")/validation-input-checkpoint.pl" "$RUNNER_SNAPSHOT_DIR/"
     bash -n "$RUNNER_SNAPSHOT"
     snapshot_status=0
     VALIDATION_REPOSITORY_ROOT="$REPOSITORY_ROOT" \
@@ -142,59 +143,9 @@ fi
 unset VALIDATION_INPUT_ROOT VALIDATION_INPUT_BASELINE
 
 input_checkpoint() {
-    perl -MJSON::PP - "$REPOSITORY_ROOT" "$input_baseline" "$1" "${RUNNER_SOURCE%/*}/verify-file-checksum.sh" \
-        ${input_paths[@]+"${input_paths[@]}"} <<'PERL'
-use strict;
-use warnings;
-my ($root, $baseline, $output, $checksum, @paths) = @ARGV;
-my $json = JSON::PP->new->canonical;
-my $expected = {};
-if (length $baseline) {
-    open my $in, '<', $baseline or die "error: read checkpoint $baseline: $!\n";
-    local $/;
-    $expected = $json->decode(<$in>);
-    close $in or die "error: close checkpoint: $!\n";
-}
-my %observed;
-my $failed = 0;
-for my $path (sort keys %{{map { $_ => 1 } (keys %$expected, @paths)}}) {
-    die "error: checkpoint inputs must be relative file paths: $path\n"
-        if $path =~ m{^/|[\x00\r\n]|(?:^|/)\.{1,2}(?:/|$)|//|/$};
-    my $hash;
-    eval {
-        my $route = $root;
-        for my $part (split m{/}, $path) {
-            $route .= "/$part";
-            die "symlink in input route" if -l $route;
-        }
-        die "not a regular readable file" unless -f $route && -r $route;
-        open my $in, '-|', 'bash', $checksum, '--print', 'sha256', $route or die "checksum: $!";
-        local $/;
-        $hash = <$in>;
-        close $in or die "checksum observation failed";
-        $hash =~ s/\n\z//;
-        die "invalid checksum" unless $hash =~ /\A[0-9a-f]{64}\z/;
-    };
-    if ($@) {
-        $observed{$path} = {error => "$@"};
-        print STDERR "error: cannot observe validation input $path: $@\n";
-        $failed = 1;
-    } else {
-        $observed{$path} = $hash;
-        if (exists $expected->{$path} && $expected->{$path} ne $hash) {
-            print STDERR "error: validation input changed: $path ($expected->{$path} -> $hash)\n";
-            $failed = 1;
-        }
-    }
-}
-open my $out, '>', $output or die "error: write input evidence $output: $!\n";
-print {$out} $json->encode(\%observed), "\n" or die "error: write input evidence: $!\n";
-close $out or die "error: close input evidence: $!\n";
-if ($failed) {
-    print STDERR "Restart preparation and the full gate against the current inputs; prior validation cannot be reused.\n";
-    exit 1;
-}
-PERL
+    perl "${RUNNER_SOURCE%/*}/validation-input-checkpoint.pl" \
+        "$REPOSITORY_ROOT" "$input_baseline" "$1" "${RUNNER_SOURCE%/*}/verify-file-checksum.sh" \
+        ${input_paths[@]+"${input_paths[@]}"}
 }
 
 if [[ -n "$input_baseline" || ${#input_paths[@]} -gt 0 ]]; then

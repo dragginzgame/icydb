@@ -5,6 +5,79 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.291.0]
+
+### ⚠️ Breaking
+
+- Adopt Metrics 0.18. Consumers sharing exposed measurement types must align
+  their Metrics dependency; existing report encodings and reset behavior remain
+  unchanged.
+- Run declared list-item and map-value normalizers, and apply field-item
+  normalizers per present item. Reject direct set-item/map-key normalizers;
+  normalize keys before insertion or through a container normalizer
+  ([#68](https://github.com/dragginzgame/icydb/issues/68), partial).
+- Adopt Platform 0.8 (minimum 0.8.3). Consumers exchanging Platform Principal
+  values with IcyDB must align on Platform 0.8; Principal and Account encodings
+  are unchanged.
+- Adopt Memory/Storage 0.56's Wire allocation ledger. Earlier CBOR ledgers require
+  fresh/reset installations or a separately reviewed transition before installation;
+  there is no automatic conversion or reset.
+- Replace schema-artifact and Deep integrity-job payload codecs with IC Wire.
+  Regenerate artifacts; earlier lineage/digest and Deep-job authority requires
+  fresh/reset installations or a separately reviewed transition
+  ([#592](https://github.com/dragginzgame/icydb/issues/592),
+  [#594](https://github.com/dragginzgame/icydb/issues/594)).
+
+### 📦 Dependencies
+
+- Adopt Shared Tooling 0.27.9 and published IC Host/Build/Testkit 0.70.4,
+  Platform 0.8.3, Metrics 0.18.0 and Wire 0.7.23. Keep external Principal
+  conversion and self-authentication confined to the consumers that need them.
+  [Details](docs/changelog/0.291.md).
+
+### 🩹 Fixed
+
+- Preserve the current generated schema receipt during bounded retention so
+  receipt turnover cannot revoke database readiness
+  ([#34](https://github.com/dragginzgame/icydb/issues/34)).
+
+- Accept full-range `Nat128` SQL integers and compare `Nat128` pairs exactly
+  in predicates and computed expressions
+  ([#232](https://github.com/dragginzgame/icydb/issues/232),
+  [#110](https://github.com/dragginzgame/icydb/issues/110), partial).
+- Reject stale index generations before publishing a row commit marker
+  ([#152](https://github.com/dragginzgame/icydb/issues/152), partial).
+- Declare the model package's Serde collection support explicitly so standalone
+  Wasm builds do not rely on another dependency enabling it.
+
+### 🧹 Cleanup
+
+- Qualify generated native database isolation without a global reset/guard API
+  ([#314](https://github.com/dragginzgame/icydb/issues/314)).
+- Simplify Wire fixtures and bulk-byte dependencies, validate browser generator
+  arguments with Clap, and refresh setup/codec ownership guidance
+  ([#593](https://github.com/dragginzgame/icydb/issues/593),
+  [#595](https://github.com/dragginzgame/icydb/issues/595)).
+- Share migration program traversal and candidate preparation while preserving
+  phase-specific limits and restart progress
+  ([#566](https://github.com/dragginzgame/icydb/issues/566)).
+- Share mixed mutation-batch admission across dynamic and typed writes while
+  preserving limits, stale-binding refusal and atomicity
+  ([#565](https://github.com/dragginzgame/icydb/issues/565)).
+- Share covering-row preparation and page-output charging while preserving
+  row admission and partial failure accounting
+  ([#293](https://github.com/dragginzgame/icydb/issues/293), partial;
+  [#580](https://github.com/dragginzgame/icydb/issues/580)).
+- Share commit-control sizing and writing through one field layout while
+  preserving stored bytes ([#588](https://github.com/dragginzgame/icydb/issues/588)).
+- Share overlay and index-range traversal while preserving ordering, tombstones,
+  decoding, predicate refusals and bounded continuation
+  ([#559](https://github.com/dragginzgame/icydb/issues/559),
+  [#553](https://github.com/dragginzgame/icydb/issues/553)).
+- Collect row-constraint sources once while preserving compilation order,
+  write gates and integrity scope
+  ([#563](https://github.com/dragginzgame/icydb/issues/563)).
+
 ## [0.290.0] - 2026-10-29
 
 ### ⚠️ Breaking
@@ -7161,7 +7234,7 @@ See detailed breakdown:
 - `0.70.6` finishes the cleanup around planner-visible `Ready` indexes by making the visible-index boundary explicit in planning, extending the same fallback rule to filtered aggregate `EXPLAIN` surfaces, and simplifying the aggregate terminal and numeric runtime shapes while the last matrix checks stayed effectively flat.
 - `0.70.5` completes the new Option A direction for session-backed reads by hiding non-`Ready` indexes from planning entirely, so execution no longer carries index-correctness checks, `SHOW INDEXES` now reports `ready|building|dropping`, and building indexes now fall back to ordinary full-scan/materialized routes across core tests, generated SQL parity, and PocketIC.
 - `0.70.4` keeps the current covering-authority rules unchanged but moves secondary-read authority resolution onto one immutable snapshot taken from the live registry/store boundary, while also broadening aggregate query coverage and PocketIC perf baselines so the typed aggregate lane now has locked success, empty-window, reject, and explain behavior without widening policy by analogy.
-- `0.70.3` keeps the new `0.70.2` authority cohorts intact but finishes the refactor by making one resolved profile the only production source of probe-free covering behavior, leaving the flat authority labels as an optional derived view instead of a second behavior source.
+- `0.70.4` keeps the new `0.70.2` authority cohorts intact but finishes the refactor by making one resolved profile the only production source of probe-free covering behavior, leaving the flat authority labels as an optional derived view instead of a second behavior source.
 - `0.70.2` centralizes the single-component covering line behind one shared flat classifier, extends that same flat authority surface to one proven witness-backed composite family, and keeps stale composite/storage-witness reads on their older conservative route instead of widening policy by resemblance.
 - `0.70.1` does not change query execution, but it makes the new index-validity authority rules much easier to inspect and safer to regress-test by surfacing covering-route downgrade reasons on `EXPLAIN`, showing runtime index state on inspection surfaces, and locking the invalid-index fallback across core tests, generated SQL parity, and PocketIC.
 - `0.70.0` starts the new read-path lifecycle line by giving indexes explicit `Building` / `Ready` / `Dropping` states and by requiring a `Ready` index before any probe-free covering read may use the newer witness-backed execution paths, while leaving aggregate index shortcuts on their older rules for now.
