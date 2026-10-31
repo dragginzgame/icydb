@@ -62,12 +62,14 @@ require_text \
     scripts/app/build.sh \
     '--bin build_fixture_canister' \
     'the maintained application build must use the canonical fixture artifact producer.'
+# Composed canister evidence and packaging belong to adapter qualification;
+# product CI remains independent of the selected Canic stack.
 require_text \
-    .github/workflows/ci.yml \
+    .github/workflows/canic-adapter.yml \
     'bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty' \
     'release evidence must invoke the canonical post-link artifact producer.'
 require_text \
-    .github/workflows/ci.yml \
+    .github/workflows/canic-adapter.yml \
     'cp release-input/default_empty.wasm-release.final-deployable.wasm artifacts/default_empty.wasm' \
     'release packaging must consume the verified canonical post-link artifact.'
 require_text \
