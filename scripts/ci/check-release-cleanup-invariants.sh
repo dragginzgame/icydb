@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAKEFILE="$ROOT/Makefile"
 CLEANUP_SCRIPT="scripts/ci/cleanup-release-workspace.sh"
-CARGO_CLEAN_RECIPE="\$(CARGO_WORK_ENV) cargo clean"
+# Keep Cargo's default whole-workspace target and explicit caller overrides;
+# only the package-cache location is repository-owned for manual clean.
+CARGO_CLEAN_RECIPE="CARGO_HOME=\"\$(CARGO_WORK_HOME)\" cargo clean"
 CLEANUP_TEST_ROOT="$(mktemp -d)"
 
 cleanup() {
@@ -75,14 +77,30 @@ fi
 
 if ! target_recipe ci-workspace | awk '
   $1 == "_ci-workspace-clippy" { workspace_line = NR }
-  $1 == "_ci-workspace-integration-clippy" { integration_line = NR }
   $1 == "_ci-workspace-tests" { test_line = NR }
   END {
-    exit !(workspace_line > 0 && integration_line > workspace_line &&
-           test_line > integration_line)
+    exit !(workspace_line > 0 && test_line > workspace_line)
   }
 '; then
   echo "ci-workspace must complete clippy lanes before executable tests" >&2
+  exit 1
+fi
+
+# Composition lint belongs to its separately locked CI owner, before any of
+# that owner's executable contract, actor or lifecycle tests.
+if ! target_recipe ci-adapter | awk '
+  $1 == "_ci-adapter-workspace-clippy" { workspace_line = NR }
+  $1 == "_ci-workspace-integration-clippy" { integration_line = NR }
+  $1 == "_ci-adapter-feature-clippy" { features_line = NR }
+  $1 == "_ci-adapter-workspace-tests" { test_line = NR }
+  $1 ~ /(^_test-|^test-|^_ci-.*-tests$)/ && !first_test_line { first_test_line = NR }
+  END {
+    exit !(workspace_line > 0 && integration_line > workspace_line &&
+           features_line > integration_line && test_line > features_line &&
+           first_test_line > features_line)
+  }
+'; then
+  echo "ci-adapter must complete clippy lanes before executable tests" >&2
   exit 1
 fi
 
