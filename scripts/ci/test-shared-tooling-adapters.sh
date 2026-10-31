@@ -613,7 +613,9 @@ cp "$ROOT/make/"*.mk "$cleanup/make/"
 bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$cleanup" \
   scripts/ci/check-make-execution.sh ci/tool-versions.env
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$cleanup/scripts/ci/"
-printf '[package]\nname = "cleanup-fixture"\nversion = "0.0.0"\nedition = "2024"\n' > "$cleanup/Cargo.toml"
+# Release scratch can be inside the checkout; stop Cargo's ancestor workspace
+# discovery at this disposable fixture rather than inheriting the product root.
+printf '[workspace]\n\n[package]\nname = "cleanup-fixture"\nversion = "0.0.0"\nedition = "2024"\n' > "$cleanup/Cargo.toml"
 printf 'pub struct Fixture;\n' > "$cleanup/src/lib.rs"
 touch "$cleanup/.cache/keep"
 for directory in icydb canic-adapter wasm-cache evidence; do

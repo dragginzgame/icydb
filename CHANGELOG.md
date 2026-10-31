@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧹 Cleanup
 
 - Make explicit workspace cleanup remove all of `target/`, including nested
-  build caches and evidence. Keep evidence that must survive outside `target/`.
+  build caches and evidence, and fix its validation in repository-local release
+  scratch directories. Keep evidence that must survive outside `target/`.
 - Isolate Canic qualification so the database packages and CLI resolve independently
   of the adapter's SDK requirements. Product validation, CI and release preparation
   are independent; explicit qualification retains endpoint and lifecycle coverage
