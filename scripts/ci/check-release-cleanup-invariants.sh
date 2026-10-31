@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAKEFILE="$ROOT/Makefile"
 CLEANUP_SCRIPT="scripts/ci/cleanup-release-workspace.sh"
-CARGO_CLEAN_RECIPE="\$(CARGO_WORK_ENV) cargo clean"
 CLEANUP_TEST_ROOT="$(mktemp -d)"
 
 cleanup() {
@@ -93,11 +92,6 @@ for target in release-patch release-minor release-major release-resume; do
   fi
 done
 
-if ! target_recipe clean | grep -Fq "$CARGO_CLEAN_RECIPE"; then
-  echo "clean must own repo-local Cargo build-cache deletion" >&2
-  exit 1
-fi
-
 if ! target_recipe release-clean | grep -Fq "$CLEANUP_SCRIPT"; then
   echo "release-clean must remove transient release state" >&2
   exit 1
@@ -165,5 +159,21 @@ for removed in \
   fi
 done
 echo "transient release cleanup behavior passed"
+
+# Exercise the maintained clean recipe with real Cargo in a disposable workspace.
+# Its target must override the build lane's narrower target/icydb.
+mkdir -p "$CLEANUP_FIXTURE_ROOT/src" "$CLEANUP_FIXTURE_ROOT/target/evidence"
+printf '[package]\nname = "cleanup-fixture"\nversion = "0.1.0"\nedition = "2024"\n' > "$CLEANUP_FIXTURE_ROOT/Cargo.toml"
+touch "$CLEANUP_FIXTURE_ROOT/src/lib.rs" "$CLEANUP_FIXTURE_ROOT/target/evidence/sentinel"
+{
+  printf 'ROOT_DIR := %s\n' "$CLEANUP_FIXTURE_ROOT"
+  printf 'CARGO_WORK_HOME := %s/.cache/cargo/icydb\nclean:\n' "$CLEANUP_FIXTURE_ROOT"
+  target_recipe clean
+} > "$CLEANUP_FIXTURE_ROOT/Makefile"
+RUSTC_WRAPPER='' CARGO_TARGET_DIR="$CLEANUP_FIXTURE_ROOT/target/icydb" \
+  make --no-print-directory -C "$CLEANUP_FIXTURE_ROOT" clean
+[[ ! -e "$CLEANUP_FIXTURE_ROOT/target" ]]
+[[ -f "$CLEANUP_FIXTURE_ROOT/src/lib.rs" && -f "$CLEANUP_FIXTURE_ROOT/.cache/unrelated-cache-sentinel" ]]
+echo "explicit clean removes the whole target tree and preserves source and separate caches"
 
 echo "validation ordering and explicit release cleanup invariants passed"
