@@ -40,12 +40,12 @@ fn step() -> Result<bool, icydb::Error> {
     pause_delivery();
     result
 }
-icydb_testing_wasm_helpers::export_wire!(update, "step", Step, step, (), Result<bool, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "step", Step, step, (), Result<bool, icydb::Error>);
 
 fn state() -> Result<DatabaseStartupState, StartupFailure> {
     startup_state()
 }
-icydb_testing_wasm_helpers::export_wire!(query, "state", State, state, (), Result<DatabaseStartupState, StartupFailure>);
+icydb_testing_canic_adapter::export_wire!(query, "state", State, state, (), Result<DatabaseStartupState, StartupFailure>);
 
 fn allocations() -> Vec<(String, u8)> {
     icydb::db::memory_runtime()
@@ -56,7 +56,7 @@ fn allocations() -> Vec<(String, u8)> {
         .map(|allocation| (allocation.stable_key().to_string(), allocation.slot().id()))
         .collect()
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "allocations",
     Allocations,
@@ -73,7 +73,7 @@ fn keep_row_exists() -> Result<bool, String> {
     })
     .map_err(|error| error.to_string())
 }
-icydb_testing_wasm_helpers::export_wire!(query, "keep_row_exists", KeepRowExists, keep_row_exists, (), Result<bool, String>);
+icydb_testing_canic_adapter::export_wire!(query, "keep_row_exists", KeepRowExists, keep_row_exists, (), Result<bool, String>);
 
 fn insert_keep() -> Vec<u8> {
     icydb::db::with_request_execution(|| {
@@ -89,7 +89,7 @@ fn insert_keep() -> Vec<u8> {
     pause_delivery();
     capture_last_marker()
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     update,
     "insert_keep",
     InsertKeep,
@@ -108,7 +108,7 @@ fn retiring_row_exists() -> Result<bool, String> {
     .map_err(|error| error.to_string())
 }
 #[cfg(not(feature = "omit-retiring-store"))]
-icydb_testing_wasm_helpers::export_wire!(query, "retiring_row_exists", RetiringRowExists, retiring_row_exists, (), Result<bool, String>);
+icydb_testing_canic_adapter::export_wire!(query, "retiring_row_exists", RetiringRowExists, retiring_row_exists, (), Result<bool, String>);
 
 #[cfg(not(feature = "omit-retiring-store"))]
 fn insert_retiring() {
@@ -125,7 +125,7 @@ fn insert_retiring() {
     pause_delivery();
 }
 #[cfg(not(feature = "omit-retiring-store"))]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     update,
     "insert_retiring",
     InsertRetiring,
@@ -156,7 +156,7 @@ fn control_frame() -> Vec<u8> {
         frame
     })
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "control_frame",
     ControlFrame,
@@ -217,7 +217,7 @@ fn restore_control_frame(frame: Vec<u8>) {
     control(|memory| memory.write(FRAME_OFFSET, &frame));
     pause_delivery();
 }
-icydb_testing_wasm_helpers::export_wire!(update, "restore_control_frame", RestoreControlFrame, restore_control_frame, (frame: Vec<u8>), ());
+icydb_testing_canic_adapter::export_wire!(update, "restore_control_frame", RestoreControlFrame, restore_control_frame, (frame: Vec<u8>), ());
 
 fn crc32c(bytes: &[u8]) -> u32 {
     let mut crc = !0_u32;

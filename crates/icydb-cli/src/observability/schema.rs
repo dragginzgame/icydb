@@ -5,7 +5,7 @@
 
 mod render;
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 
 use crate::{
     cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},
@@ -52,7 +52,7 @@ pub(super) fn load_schema_report(
     call_endpoint(
         environment,
         canister,
-        Endpoint::Schema,
+        RpcMethod::Schema,
         (),
         "schema",
         IcpCallKind::Query,

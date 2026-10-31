@@ -2,7 +2,9 @@
 
 // IC counter 1 preserves the call-context sample boundary through Platform.
 // Native system calls provide no IC measurement evidence.
+use canic_icydb::__private::cdk as __icydb_host_sdk;
 use ic_platform::ic0::performance_counter;
+use icydb as __icydb_facade;
 
 use std::{cell::RefCell, time::Duration};
 
@@ -29,7 +31,12 @@ fn icydb_memory_pool()
     )
 }
 
-canic_icydb::start!(icydb; participant);
+// This framework-neutral fixture owns the lifecycle exports below and directly
+// exercises the pinned adapter's private participant expansion. Application
+// hosts use start!(...; participant, host = ..., runtime = ..., memory = ...).
+icydb::__icydb_start_actor!();
+canic_icydb::__icydb_host_module!();
+canic_icydb::__icydb_start_participant_lifecycle!();
 
 const APPLICATION_STARTUP_RETRY: Duration = Duration::from_secs(1);
 
@@ -265,7 +272,7 @@ fn lifecycle_composition_snapshot() -> LifecycleCompositionSnapshot {
         snapshot.clone()
     })
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "lifecycle_composition_snapshot",
     LifecycleCompositionSnapshot,
@@ -280,7 +287,7 @@ fn lifecycle_database_probe() -> Result<bool, icydb::Error> {
         Ok(true)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "lifecycle_database_probe", LifecycleDatabaseProbe, lifecycle_database_probe, (), Result<bool, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "lifecycle_database_probe", LifecycleDatabaseProbe, lifecycle_database_probe, (), Result<bool, icydb::Error>);
 
 #[cfg(feature = "population-seed")]
 fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
@@ -306,7 +313,7 @@ fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
     })
 }
 #[cfg(feature = "population-seed")]
-icydb_testing_wasm_helpers::export_wire!(update, "lifecycle_insert_probe_row", LifecycleInsertProbeRow, lifecycle_insert_probe_row, (), Result<Ulid, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "lifecycle_insert_probe_row", LifecycleInsertProbeRow, lifecycle_insert_probe_row, (), Result<Ulid, icydb::Error>);
 
 fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -320,4 +327,4 @@ fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
         }
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "lifecycle_probe_row_exists", LifecycleProbeRowExists, lifecycle_probe_row_exists, (id: Ulid), Result<bool, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "lifecycle_probe_row_exists", LifecycleProbeRowExists, lifecycle_probe_row_exists, (id: Ulid), Result<bool, icydb::Error>);

@@ -1,7 +1,7 @@
 //! One entry owns each maintained actor's configuration and report context.
 
 use crate::{
-    CanisterBuildOptions, ConfiguredCanisterBuild,
+    ADAPTER_WORKSPACE_DIR, CanisterBuildOptions, ConfiguredCanisterBuild,
     canister_artifact::{MAINTAINED_CANISTER_POLICIES, MaintainedCanisterPolicy},
     canister_build_cache::{CargoWasmBatchEntry, cargo_wasm_batch_specs},
     configure_canister_build, target_dir,
@@ -36,7 +36,7 @@ impl MaintainedCanisterBuildPlan {
             })
             .collect::<Vec<_>>();
         cargo_wasm_batch_specs(
-            root,
+            &root.join(ADAPTER_WORKSPACE_DIR),
             &target_dir(root).join(self.options.build_profile.target_dir_name()),
             &entries,
         )

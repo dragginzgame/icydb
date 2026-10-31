@@ -7,9 +7,12 @@ this contract; the [release contract](../docs/releases.md) owns release executio
 
 ## Content and writing
 
-- Root `CHANGELOG.md` is the concise release ledger. Lead with the outcome and
-  practical effect for the repository's users, operators or developers. Use
-  plain language and consolidate related changes into short bullets or summaries.
+- Root `CHANGELOG.md` is the concise release ledger for a single release group.
+  Independently versioned groups use the
+  [group ledger and history rules](#release-group-changelogs-and-shared-history)
+  below. Lead with the outcome and practical effect for the repository's users,
+  operators or developers. Use plain language and consolidate related changes
+  into short bullets or summaries.
 - Update the current draft by default when a meaningful behavior or maintained
   tooling batch is complete. Cover the coherent outcome, including relevant
   public APIs, commands, output fields, diagnostics and operational changes.
@@ -156,19 +159,76 @@ release/deployment admission, as required by the finalization rules below.
   Shared Tooling minor release while its adoption needs only a consumer library
   patch. Product CLI users and deployment operators remain consumers of their
   respective published contracts; this is not a blanket tooling exemption.
-- A workspace with one coordinated version keeps that versioning scheme. Select
-  the increment from the combined consumer impact of its released packages; do
-  not split versions or manufacture breaking changes in sibling repositories to
-  mirror an upstream bump.
+- Select a release group's increment from the combined consumer impact of that
+  group's packages. Preserve established groups until a boundary change is
+  approved under the [workspace versioning rules](rust-workspaces.md#coordinated-versions-and-workspace-boundaries).
+  Do not advance unrelated groups or manufacture breaking changes in sibling
+  repositories to mirror an upstream bump.
 - Correct an unpublished pending heading and matching detail notes if the only
   reason for a minor bump was internal tooling adoption. Check the entire batch
   for independent breaking changes first. Preserve published versions, tags and
   history, and any already-started release's reconciliation obligations. This
   clarification authorizes no manifest/version edit or release execution.
 
+## Release-group changelogs and shared history
+
+Independently versioned groups each own one canonical changelog at
+`releases/<group>/CHANGELOG.md`, declared in `ci/cargo-release-groups.json`.
+Crates released together share that ledger; do not require a separate changelog
+per crate or privilege one group with the root ledger. Each ledger identifies
+its group and covered packages. Root emoji sections, compatibility assessment
+and automatic version selection apply to each group ledger. Single-group
+repositories retain their existing root changelog and version convention.
+
+For example, a workspace with Metrics and Logging uses:
+
+```text
+CHANGELOG.md                       # Index only
+releases/
+  metrics/CHANGELOG.md              # Metrics group ledger
+  logging/CHANGELOG.md              # Logging group ledger
+  history.md                       # Earlier coordinated releases, if any
+```
+
+- Root `CHANGELOG.md` is an index linking every group ledger and, when present,
+  `releases/history.md`. It contains no numbered release entries or aggregate
+  workspace version. Do not keep duplicate release notes in the index or former
+  crate-local ledgers. An old ledger path may remain a short navigation pointer
+  when useful for existing readers; update maintained links to the canonical path.
+- Maintain at most one pending numbered entry per group that has changes, based
+  on its own latest finalized release. Several groups may have pending entries
+  in their separate ledgers. A release of one group does not finalize another
+  group's notes. Shared tooling or integration changes belong in the affected
+  group ledgers only when they change those groups' maintained surfaces.
+- Describe a change once in its owning ledger. When a dependent group requires
+  adoption, its notes explain its own compatibility impact and link to the
+  supplier's entry. Do not copy the supplier's implementation history or label
+  every consumer adoption breaking solely because the supplier's minor changed.
+- Preserve pre-split coordinated history once in `releases/history.md`, including
+  versions, dates, headings, content and original release scope. Identify the last
+  coordinated release. Group ledgers link back and identify where their own
+  series begins; do not retroactively assign shared entries to individual groups.
+  Omit the historical file when no coordinated history exists.
+- During an explicitly requested adoption, move existing independent entries to
+  their group ledgers and coordinated entries to the shared history without
+  rewriting their release identity or prose. Preserve older group-specific history
+  with its original scope. Update relative links and maintained references after
+  moves; retain historical detail files and evidence. The historical ledger gets
+  no new releases. A snapshot refresh alone does not migrate consumer ledgers.
+- New detailed notes belong at `releases/<group>/<major>.<minor>.md`, avoiding
+  collisions between equal version numbers in different groups. Existing linked
+  historical detail paths may remain. Keep a single-group repository's existing
+  paths. State the group alongside a version in cross-group reports or links.
+
+Ledger organization does not authorize package moves, version resets, commits,
+tags or publication. Preserve already-published identities and unfinished release
+recovery. The [release mechanism](../docs/releases.md#explicit-cargo-release-groups)
+selects the group's own ledger; it does not finalize a shared historical file.
+
 ## Automatic next-version selection
 
-- Keep one numbered, undated pending release at the top of `CHANGELOG.md`, using
+- Keep one numbered, undated pending release at the top of the owning group's
+  ledger (`CHANGELOG.md` for a single-group repository), using
   `## [X.Y.Z]` or `## [X.Y.Z] - Unreleased`. Automatically create or update it as
   part of completing meaningful work. Do not use an unnumbered `Unreleased` or
   `Draft` heading or a separate notes queue.
@@ -197,9 +257,9 @@ release/deployment admission, as required by the finalization rules below.
 - Reuse the same pending entry until it is released. If later work makes an
   automatically selected patch breaking before 1.0, relabel that entire entry
   to the next minor from the same released base and carry all pending notes with
-  it. Do not increment again for each slice, create multiple pending versions,
-  or rewrite a tagged/published entry. Keep every maintained changelog view and
-  detail link aligned, including when a candidate changes minor line.
+  it. Do not increment again for each slice, create multiple pending versions in
+  one group, or rewrite a tagged/published entry. Keep every maintained changelog
+  view and detail link aligned, including when a candidate changes minor line.
 - In the handoff, state the selected next version and the compatibility reason,
   including the affected contract and required action for a breaking change.
   Selecting a changelog heading is automatic documentation maintenance; it does
@@ -256,14 +316,15 @@ For a latest finalized release of `0.14.7`:
 
 ## Detailed notes when needed
 
-- A small repository may keep its notes entirely in root `CHANGELOG.md`. Add
-  detailed notes when release volume or explanation makes the root hard to scan,
+- A small single-group repository may keep its notes entirely in root
+  `CHANGELOG.md`. Add detailed notes when release volume or explanation makes the root hard to scan,
   or retain them when the repository already uses that structure.
 - Use one `docs/changelog/<major>.<minor>.md` file for all patches in a minor
   line, rather than one file per patch. Use the automatically selected candidate's
   minor line for pending detail notes. If that candidate changes line, move only
   its unpublished notes to the matching file and update the root link; preserve
-  finalized history in its original files.
+  finalized history in its original files. Independent groups use the
+  group-specific paths described above.
 - A root minor-line index uses a concise overview per patch. A small patch may
   need only one short bullet; a broad release needs separate outcome and upgrade
   bullets or grouped sections under the readable-layout rules above.

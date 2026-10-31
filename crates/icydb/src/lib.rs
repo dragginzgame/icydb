@@ -180,6 +180,7 @@ pub mod __macro {
         execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
+    pub use crate::wire::method::RpcMethod;
     #[cfg(feature = "sql")]
     pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{
@@ -343,26 +344,6 @@ macro_rules! __icydb_with_migration_items {
 #[macro_export]
 macro_rules! __icydb_with_sql_endpoint {
     ($endpoint:literal; $($item:item)*) => { $($item)* };
-}
-
-#[doc(hidden)]
-#[cfg(feature = "metrics")]
-#[macro_export]
-macro_rules! __icydb_with_metrics_endpoint {
-    ($endpoint:literal; $($item:item)*) => { $($item)* };
-}
-
-#[doc(hidden)]
-#[cfg(not(feature = "metrics"))]
-#[macro_export]
-macro_rules! __icydb_with_metrics_endpoint {
-    ($endpoint:literal; $($item:item)*) => {
-        compile_error!(concat!(
-            "endpoint declaration `",
-            $endpoint,
-            "` requires the `icydb/metrics` Cargo feature"
-        ));
-    };
 }
 
 #[doc(hidden)]

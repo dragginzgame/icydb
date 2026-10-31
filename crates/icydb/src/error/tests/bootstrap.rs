@@ -9,7 +9,6 @@ use ic_memory::{
     MemoryDeclarationError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeConstructionError,
     RuntimeOpenError, StableKey,
 };
-use ic_wire::Error as WireError;
 use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
 
 fn public(cause: RuntimeBootstrapError<MemoryBootstrapAdmissionError>) -> Error {
@@ -131,9 +130,17 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
 
 #[test]
 fn memory_bootstrap_internal_failures_retain_internal_classification() {
+    // Obtain codec errors from Memory's own producer. Its codec dependency is
+    // intentionally independent of the application's Wire metadata generation.
+    let oversized = vec![0; ic_memory::MAX_LEDGER_RECORD_BYTES + 1];
+    let limit = ic_memory::testing::decode_stable_cell_commit_store(&oversized)
+        .expect_err("Memory must refuse an oversized ledger record");
+    let malformed = ic_memory::testing::decode_stable_cell_commit_store(&[])
+        .expect_err("Memory must refuse a record without its marker");
+    assert_ne!(limit, malformed);
     for cause in [
-        RuntimeBootstrapError::StableCellLedgerEncode(WireError::Limit),
-        RuntimeBootstrapError::StableCellLedgerEncode(WireError::Malformed),
+        RuntimeBootstrapError::StableCellLedgerEncode(limit),
+        RuntimeBootstrapError::StableCellLedgerEncode(malformed),
         RuntimeBootstrapError::LedgerGrowth(ic_memory::RuntimeGrowError::ReentrantAccess),
     ] {
         let error = public(cause);

@@ -27,7 +27,7 @@ fn icydb_memory_pool()
 
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(all(feature = "sql", not(feature = "guarded-reads")))]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "guarded-reads")]
@@ -87,7 +87,7 @@ fn set_sql_reader_enabled(enabled: bool) -> bool {
     SQL_READER_ENABLED.with(|current| current.set(enabled));
     true
 }
-icydb_testing_wasm_helpers::export_wire!(update, "set_sql_reader_enabled", SetSqlReaderEnabled, set_sql_reader_enabled, (enabled: bool), bool);
+icydb_testing_canic_adapter::export_wire!(update, "set_sql_reader_enabled", SetSqlReaderEnabled, set_sql_reader_enabled, (enabled: bool), bool);
 
 /// Replace the application-owned schema reader policy immediately.
 
@@ -99,4 +99,4 @@ fn set_schema_reader_enabled(enabled: bool) -> bool {
     SCHEMA_READER_ENABLED.with(|current| current.set(enabled));
     true
 }
-icydb_testing_wasm_helpers::export_wire!(update, "set_schema_reader_enabled", SetSchemaReaderEnabled, set_schema_reader_enabled, (enabled: bool), bool);
+icydb_testing_canic_adapter::export_wire!(update, "set_schema_reader_enabled", SetSchemaReaderEnabled, set_schema_reader_enabled, (enabled: bool), bool);

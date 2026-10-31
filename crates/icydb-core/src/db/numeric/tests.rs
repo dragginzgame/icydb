@@ -13,13 +13,13 @@ use crate::{
         decimal_log10_checked, decimal_power_checked, decimal_sqrt_checked,
         divide_decimal_terms_checked,
     },
-    types::{Decimal, Duration, Float64 as F64, Timestamp, U256},
+    types::{Decimal, Duration, Float32 as F32, Float64 as F64, Timestamp, U256},
     value::{Value, ops::ordering as value_ordering},
 };
 use std::cmp::Ordering;
 
 #[test]
-fn numeric_order_preserves_decimal_coercion_and_exact_nat128_pairs() {
+fn numeric_order_preserves_decimal_coercion_outside_native_numeric_pairs() {
     let mut cases = Vec::new();
     for value in [i64::MIN, -1, 0, 1, i64::MAX] {
         cases.push(Value::Int64(value));
@@ -46,6 +46,10 @@ fn numeric_order_preserves_decimal_coercion_and_exact_nat128_pairs() {
         cases.push(Value::Nat128(value));
     }
     cases.extend([
+        Value::Float32(F32::try_new(0.0).unwrap()),
+        Value::Float32(F32::try_new(f32::from_bits(1)).unwrap()),
+        Value::Float32(F32::try_new(f32::MAX).unwrap()),
+        Value::Float64(F64::try_new(0.0).unwrap()),
         Value::Float64(F64::try_new(1.0e-30).unwrap()),
         Value::Float64(F64::try_new(f64::MAX).unwrap()),
         Value::Text("1".to_string()),
@@ -55,6 +59,8 @@ fn numeric_order_preserves_decimal_coercion_and_exact_nat128_pairs() {
         for right in &cases {
             let expected = match (left, right) {
                 (Value::Nat128(left), Value::Nat128(right)) => Some(left.cmp(right)),
+                (Value::Float32(left), Value::Float32(right)) => Some(left.cmp(right)),
+                (Value::Float64(left), Value::Float64(right)) => Some(left.cmp(right)),
                 _ => coerce_numeric_decimal(left)
                     .zip(coerce_numeric_decimal(right))
                     .map(|(left, right)| left.cmp(&right)),
@@ -96,6 +102,60 @@ fn nat128_comparison_uses_the_complete_unsigned_domain_without_widening_arithmet
     ] {
         assert_eq!(compare_numeric_order(&maximum, &mixed), None);
         assert_eq!(compare_numeric_order(&mixed, &maximum), None);
+    }
+}
+
+/// Same-width finite floats must not depend on Decimal's range or precision.
+#[test]
+fn same_width_float_comparisons_preserve_the_complete_finite_domain() {
+    let families = [
+        [
+            f32::MIN,
+            -1.0,
+            0.0,
+            f32::from_bits(1),
+            f32::from_bits(2),
+            f32::MIN_POSITIVE,
+            1.0e-30,
+            1.0,
+            f32::MAX,
+        ]
+        .map(|value| Value::Float32(F32::try_new(value).unwrap()))
+        .to_vec(),
+        [
+            f64::MIN,
+            -1.0,
+            0.0,
+            f64::from_bits(1),
+            f64::from_bits(2),
+            f64::MIN_POSITIVE,
+            1.0e-30,
+            1.0,
+            f64::MAX,
+        ]
+        .map(|value| Value::Float64(F64::try_new(value).unwrap()))
+        .to_vec(),
+    ];
+    for family in families {
+        for (left_index, left) in family.iter().enumerate() {
+            for (right_index, right) in family.iter().enumerate() {
+                let expected = left_index.cmp(&right_index);
+                assert_eq!(
+                    left.cmp_numeric(right),
+                    Some(expected),
+                    "{left:?}, {right:?}"
+                );
+                assert_eq!(compare_numeric_order(left, right), Some(expected));
+                assert_eq!(compare_numeric_eq(left, right), Some(expected.is_eq()));
+                assert_eq!(value_ordering::eq(left, right), Some(expected.is_eq()));
+                assert_eq!(value_ordering::ne(left, right), Some(!expected.is_eq()));
+                assert_eq!(value_ordering::lt(left, right), Some(expected.is_lt()));
+                assert_eq!(value_ordering::lte(left, right), Some(!expected.is_gt()));
+                assert_eq!(value_ordering::gt(left, right), Some(expected.is_gt()));
+                assert_eq!(value_ordering::gte(left, right), Some(!expected.is_lt()));
+                assert_eq!(canonical_value_compare(left, right), expected);
+            }
+        }
     }
 }
 

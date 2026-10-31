@@ -7,8 +7,8 @@ mod vectors;
 
 use std::{error::Error, fs, path::PathBuf};
 
-use canic_icydb::wire::Endpoint;
 use clap::Parser;
+use icydb::__macro::RpcMethod;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use serde_reflection::{Samples, Tracer, TracerConfig};
@@ -29,7 +29,7 @@ struct Generator {
     registry: ic_wire::typescript::SchemaRegistry,
     samples: Samples,
     methods: Vec<Value>,
-    vectors: Vec<(Endpoint, bool, Vec<u8>, serde_reflection::Value)>,
+    vectors: Vec<(RpcMethod, bool, Vec<u8>, serde_reflection::Value)>,
 }
 
 impl Generator {
@@ -53,7 +53,7 @@ impl Generator {
 
     fn vector<T: Serialize>(
         &mut self,
-        endpoint: Endpoint,
+        endpoint: RpcMethod,
         response: bool,
         value: &T,
     ) -> Result<(), Box<dyn Error>> {
@@ -74,7 +74,7 @@ impl Generator {
         Ok(())
     }
 
-    fn method<Q, R, E>(&mut self, endpoint: Endpoint) -> Result<(), Box<dyn Error>>
+    fn method<Q, R, E>(&mut self, endpoint: RpcMethod) -> Result<(), Box<dyn Error>>
     where
         Q: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
         R: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
@@ -84,18 +84,18 @@ impl Generator {
         let (_, responses) = self.tracer.trace_type::<R>(&self.samples)?;
         let (_, errors) = self.tracer.trace_type::<E>(&self.samples)?;
         let mode = match endpoint {
-            Endpoint::Query
-            | Endpoint::Metrics
-            | Endpoint::Snapshot
-            | Endpoint::Schema
-            | Endpoint::SchemaMigration => "query",
-            Endpoint::Ddl
-            | Endpoint::Integrity
-            | Endpoint::Update
-            | Endpoint::FixturesReset
-            | Endpoint::FixturesLoad
-            | Endpoint::MetricsReset
-            | Endpoint::SchemaMigrate => "update",
+            RpcMethod::Query
+            | RpcMethod::Metrics
+            | RpcMethod::Snapshot
+            | RpcMethod::Schema
+            | RpcMethod::SchemaMigration => "query",
+            RpcMethod::Ddl
+            | RpcMethod::Integrity
+            | RpcMethod::Update
+            | RpcMethod::FixturesReset
+            | RpcMethod::FixturesLoad
+            | RpcMethod::MetricsReset
+            | RpcMethod::SchemaMigrate => "update",
         };
         let browser_limits = |bytes| ic_wire::Limits {
             nodes: icydb_schema::wire::BROWSER_MAX_NODES,
@@ -134,20 +134,22 @@ impl Generator {
     }
 
     fn generate(mut self, out: &std::path::Path) -> Result<(), Box<dyn Error>> {
-        self.method::<String, icydb::db::sql::SqlQueryResult, icydb::Error>(Endpoint::Query)?;
-        self.method::<String, icydb::db::sql::SqlQueryResult, icydb::Error>(Endpoint::Ddl)?;
-        self.method::<String, icydb::db::sql::SqlQueryResult, icydb::Error>(Endpoint::Update)?;
+        self.method::<String, icydb::db::sql::SqlQueryResult, icydb::Error>(RpcMethod::Query)?;
+        self.method::<String, icydb::db::sql::SqlQueryResult, icydb::Error>(RpcMethod::Ddl)?;
+        self.method::<String, icydb::db::sql::SqlQueryResult, icydb::Error>(RpcMethod::Update)?;
         self.method::<String, icydb::db::IntegrityCheckResult, icydb::db::SqlIntegrityError>(
-            Endpoint::Integrity,
+            RpcMethod::Integrity,
         )?;
-        self.method::<(), (), icydb::Error>(Endpoint::FixturesReset)?;
-        self.method::<(), (), icydb::Error>(Endpoint::FixturesLoad)?;
-        self.method::<(), icydb::metrics::MetricsReport, icydb::Error>(Endpoint::Metrics)?;
-        self.method::<(), (), icydb::Error>(Endpoint::MetricsReset)?;
-        self.method::<(), icydb::db::StorageReport, icydb::Error>(Endpoint::Snapshot)?;
-        self.method::<(), Vec<icydb::db::EntitySchemaDescription>, icydb::Error>(Endpoint::Schema)?;
-        self.method::<icydb::db::SchemaMigrationCommand, icydb::db::SchemaMigrationStatusPage, icydb::Error>(Endpoint::SchemaMigrate)?;
-        self.method::<icydb::db::SchemaMigrationStatusRequest, icydb::db::SchemaMigrationStatusPage, icydb::Error>(Endpoint::SchemaMigration)?;
+        self.method::<(), (), icydb::Error>(RpcMethod::FixturesReset)?;
+        self.method::<(), (), icydb::Error>(RpcMethod::FixturesLoad)?;
+        self.method::<(), icydb::metrics::MetricsReport, icydb::Error>(RpcMethod::Metrics)?;
+        self.method::<(), (), icydb::Error>(RpcMethod::MetricsReset)?;
+        self.method::<(), icydb::db::StorageReport, icydb::Error>(RpcMethod::Snapshot)?;
+        self.method::<(), Vec<icydb::db::EntitySchemaDescription>, icydb::Error>(
+            RpcMethod::Schema,
+        )?;
+        self.method::<icydb::db::SchemaMigrationCommand, icydb::db::SchemaMigrationStatusPage, icydb::Error>(RpcMethod::SchemaMigrate)?;
+        self.method::<icydb::db::SchemaMigrationStatusRequest, icydb::db::SchemaMigrationStatusPage, icydb::Error>(RpcMethod::SchemaMigration)?;
         vectors::add(&mut self)?;
         let registry = self
             .registry

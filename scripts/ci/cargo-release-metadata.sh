@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/read-cargo-workspace-version.sh scripts/ci/finalize-release-changelog.awk scripts/ci/cargo-workspace-members.jq scripts/ci/compare-stable-versions.pl scripts/ci/release-metadata-transaction.sh
+# Shared companions: scripts/ci/read-cargo-workspace-version.sh scripts/ci/finalize-release-changelog.awk scripts/ci/cargo-workspace-members.jq scripts/ci/compare-stable-versions.pl scripts/ci/release-metadata-transaction.sh scripts/ci/cargo-release-group.sh
 set -euo pipefail
 
-# Coordinated workspace versions only. Consumer adapters retain source admission,
+# Coordinated versions by default; explicit groups opt in. Adapters retain source admission,
 # cache/tool setup, release policy, staging and publication ownership.
 ROOT="${BASH_SOURCE[0]}"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
@@ -20,6 +20,14 @@ if [[ $# == 3 ]]; then
     [[ "$3" != --manifest-order-grouped ]] || group_manifest_order=true
 fi
 [[ "$primary" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo 'invalid primary package identity' >&2; exit 2; }
+if [[ -n "${RELEASE_GROUP:-}" ]]; then
+    group_arguments=("$operation" "$RELEASE_GROUP" "$primary")
+    [[ $# != 3 ]] || group_arguments+=("$3")
+    exec bash "$ROOT/scripts/ci/cargo-release-group.sh" "${group_arguments[@]}"
+fi
+if [[ -z "${RELEASE_COMMIT:-}" && ( -e ci/cargo-release-groups.json || -L ci/cargo-release-groups.json ) ]]; then
+    echo 'grouped workspace requires explicit RELEASE_GROUP' >&2; exit 1
+fi
 reader="$ROOT/scripts/ci/read-cargo-workspace-version.sh"
 
 regular_metadata() {
@@ -158,6 +166,9 @@ case "$operation" in
             selected_root="$(cd "$selected_root" && pwd -P)"
         fi
         regular_metadata "$selected_root" Cargo.toml Cargo.lock
+        if [[ -e "$selected_root/ci/cargo-release-groups.json" || -L "$selected_root/ci/cargo-release-groups.json" ]]; then
+            echo 'selected grouped source requires explicit RELEASE_GROUP' >&2; exit 1
+        fi
         mkdir "$temporary/inputs"
         cp -p "$selected_root/Cargo.toml" "$selected_root/Cargo.lock" "$temporary/inputs/"
         printf '%s\n' "$selected_root" > "$temporary/root"

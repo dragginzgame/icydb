@@ -1,4 +1,5 @@
 [package]
+workspace = "../../../testing/canic-adapter"
 name = "canister_test_lifecycle_participant"
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -22,6 +23,7 @@ ic-platform = { workspace = true, features = ["ic0"] }
 ic-timers = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
+icydb-testing-canic-adapter = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true }
 

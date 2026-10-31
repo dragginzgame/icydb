@@ -10,7 +10,6 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-canic-icydb = { workspace = true }
 clap = { workspace = true }
 ic-build = { workspace = true }
 ic-host-artifacts = { workspace = true, features = ["gzip", "wasm"] }

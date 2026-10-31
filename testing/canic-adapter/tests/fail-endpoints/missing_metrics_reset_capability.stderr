@@ -1,0 +1,9 @@
+error[E0433]: cannot find `endpoint_handlers` in `__icydb_generated`
+  --> tests/fail-endpoints/missing_metrics_reset_capability.rs:8:1
+   |
+ 8 | / canic_icydb::mount! {
+ 9 | |     icydb_metrics_reset;
+10 | | }
+   | |_^ could not find `endpoint_handlers` in `__icydb_generated`
+   |
+   = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)

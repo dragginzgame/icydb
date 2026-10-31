@@ -11,7 +11,7 @@ mod route;
 
 use std::path::PathBuf;
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 use icydb::db::sql::SqlQueryResult;
 
 use crate::{
@@ -94,18 +94,18 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     render_sql_response(endpoint, wire_bytes.as_slice(), kind)
 }
 
-const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
+const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> RpcMethod {
     match call_kind {
-        route::SqlShellCallKind::Query => Endpoint::Query,
-        route::SqlShellCallKind::Ddl => Endpoint::Ddl,
-        route::SqlShellCallKind::Update => Endpoint::Update,
+        route::SqlShellCallKind::Query => RpcMethod::Query,
+        route::SqlShellCallKind::Ddl => RpcMethod::Ddl,
+        route::SqlShellCallKind::Update => RpcMethod::Update,
     }
 }
 
 // Both call lanes decode the same public envelope and retain typed values until
 // the CLI composes a terminal report from SQL display cells.
 fn render_sql_response(
-    endpoint: Endpoint,
+    endpoint: RpcMethod,
     wire_bytes: &[u8],
     kind: IcpCallKind,
 ) -> Result<String, String> {
@@ -164,7 +164,7 @@ pub(crate) mod test_support {
 
     pub(crate) fn render_sql_response(wire_bytes: &[u8]) -> Result<String, String> {
         super::render_sql_response(
-            super::Endpoint::Query,
+            super::RpcMethod::Query,
             wire_bytes,
             super::IcpCallKind::Query,
         )

@@ -15,7 +15,7 @@ pr_select() {
     esac
     pr_repository="${pr_repository%.git}"
     [[ "$pr_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'invalid GitHub release repository'
-    pr_branch="release/v$candidate"
+    pr_branch="release/${tag_prefix}$candidate"
     [[ "$pr_branch" != "$branch" ]] || fail 'release PR head and base must differ'
     pr_state="$plan.pr.json"
     pr_number=""
@@ -88,7 +88,7 @@ pr_prepare_branch() {
 pr_assert_prepared() {
     [[ "$prepared_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ &&
        "$(git log -1 --format=%P "$prepared_commit")" == "$source" &&
-       "$(git log -1 --format=%s "$prepared_commit")" == "Release $candidate" &&
+       "$(git log -1 --format=%s "$prepared_commit")" == "$release_label $candidate" &&
        "$(git rev-parse "$prepared_commit^{tree}")" == "$index_tree" ]] || fail 'prepared PR commit identity changed'
     [[ "$(git rev-parse "refs/heads/$pr_branch")" == "$prepared_commit" ]] || fail 'local PR branch changed'
     git diff --cached --quiet HEAD -- || fail 'release index contains unrelated changes'
@@ -157,7 +157,7 @@ pr_publish() {
         request="$(mktemp "$plan.request.XXXXXX")"
         response="$(mktemp "$plan.response.XXXXXX")"
         errors="$(mktemp "$plan.errors.XXXXXX")"
-        jq -n --arg head "$pr_branch" --arg base "$branch" --arg title "Release $candidate" \
+        jq -n --arg head "$pr_branch" --arg base "$branch" --arg title "$release_label $candidate" \
             --arg body "Prepared release $candidate. Merge after required review/checks, then run make release-resume VERSION=$candidate with the same PR delivery policy to validate the merged commit and publish its tag. Publication and cleanup are separate." \
             '{head:$head,base:$base,title:$title,body:$body}' > "$request"
         pr_attempted=true
@@ -255,8 +255,8 @@ pr_tag() {
     hook release-committed-check
     pr_worktree
     local tags
-    tags="$(git tag --list "v$candidate")"
-    if [[ -z "$tags" ]]; then git tag -a "v$candidate" "$merged_commit" -m "Release $candidate"; fi
+    tags="$(git tag --list "${tag_prefix}$candidate")"
+    if [[ -z "$tags" ]]; then git tag -a "${tag_prefix}$candidate" "$merged_commit" -m "$release_label $candidate"; fi
     assert_release_tag
     hook release-tagged-check
     save_phase pr-push
@@ -267,16 +267,16 @@ pr_push() {
     pr_worktree
     assert_release_tag
     local tag
-    tag="$(git rev-parse "refs/tags/v$candidate")"
+    tag="$(git rev-parse "refs/tags/${tag_prefix}$candidate")"
     hook release-push-check
     pr_worktree
     assert_release_tag
-    [[ "$(git rev-parse "refs/tags/v$candidate")" == "$tag" ]] || fail 'release tag changed during its final check'
+    [[ "$(git rev-parse "refs/tags/${tag_prefix}$candidate")" == "$tag" ]] || fail 'release tag changed during its final check'
     assert_destination
     read_remote_refs
     if [[ "$remote_tag" != "$tag" ]]; then
         [[ -z "$remote_tag" ]] || fail 'remote tag conflicts with the merged release'
-        git push --no-follow-tags --atomic -- "$destination" "refs/tags/v$candidate:refs/tags/v$candidate"
+        git push --no-follow-tags --atomic -- "$destination" "refs/tags/${tag_prefix}$candidate:refs/tags/${tag_prefix}$candidate"
         read_remote_refs
         [[ "$remote_tag" == "$tag" ]] || fail 'release tag push outcome is uncertain; retain and reconcile'
     fi

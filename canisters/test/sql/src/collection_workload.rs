@@ -45,7 +45,7 @@ fn seed_collection_workload(length: u32) -> Result<(), icydb::Error> {
         Ok(())
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "seed_collection_workload", SeedCollectionWorkload, seed_collection_workload, (length: u32), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_collection_workload", SeedCollectionWorkload, seed_collection_workload, (length: u32), Result<(), icydb::Error>);
 
 // Fixed scenarios keep SQL parsing and query construction outside the measured
 // interval. No collection-specific runtime implementation is introduced here.
@@ -86,4 +86,4 @@ fn measure_collection_workload(length: u32, scenario: u8) -> CollectionWorkloadS
         query_instructions,
     }
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_collection_workload", MeasureCollectionWorkload, measure_collection_workload, (length: u32, scenario: u8), CollectionWorkloadSample);
+icydb_testing_canic_adapter::export_wire!(update, "measure_collection_workload", MeasureCollectionWorkload, measure_collection_workload, (length: u32, scenario: u8), CollectionWorkloadSample);

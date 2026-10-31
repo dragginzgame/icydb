@@ -281,3 +281,4 @@ fn quoted_names_escape_keywords_without_widening_identifier_syntax() {
         assert!(tokenize_sql(sql).is_err(), "{sql}");
     }
 }
+mod typed_float;

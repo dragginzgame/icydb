@@ -64,6 +64,20 @@ where
 }
 
 #[expect(dead_code)]
+fn typed_public_error_handler<C, E>(
+    db: &DbSession<C>,
+    continuation: Option<&str>,
+) -> Result<icydb::db::query::LivePage<E::Row>, icydb::Error>
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+{
+    db.query::<E>()?
+        .execute_live_page(continuation)
+        .map_err(icydb::Error::from)
+}
+
+#[expect(dead_code)]
 fn typed_exhaustive_queries_compile_without_sql<C, E>(query: Query<'_, C, E>)
 where
     C: CanisterKind,

@@ -95,7 +95,8 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                 $violations{"$package->{name} -> $name"} = 1
                     if $members{$package->{id}} && (
                         (exists($rules{$name}) && !$rules{$name}{$package->{name}})
-                        || ($common{$name} && $package->{name} ne "ic-platform"));
+                        || ($common{$name} && $package->{name} ne "ic-platform"
+                            && !($package->{name} eq "ic-platform-types" && $name eq "ic_principal")));
             }
         }
         $packages{$_} or die "missing workspace member package\n" for keys %members;

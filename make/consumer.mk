@@ -1,5 +1,5 @@
 # Common consumer entrypoint; set local inputs before including this snapshot.
-# Shared companions: make/tools.mk make/release.mk make/rust-format.mk scripts/dev/install-git-hooks.sh scripts/ci/verify-shared-tooling-snapshot.sh
+# Shared companions: make/tools.mk make/release.mk make/rust-format.mk make/cargo-publication.mk scripts/dev/install-git-hooks.sh scripts/ci/verify-shared-tooling-snapshot.sh
 _shared_consumer_default_goal := $(.DEFAULT_GOAL)
 _shared_consumer_make_dir := $(dir $(lastword $(MAKEFILE_LIST)))
 
@@ -28,3 +28,8 @@ install-hooks:
 endif
 
 .DEFAULT_GOAL := $(_shared_consumer_default_goal)
+
+# Opt in with consumer-owned package policy; existing publication adapters stay local.
+ifneq ($(strip $(CARGO_PUBLISH_PACKAGES)),)
+include $(_shared_consumer_make_dir)cargo-publication.mk
+endif

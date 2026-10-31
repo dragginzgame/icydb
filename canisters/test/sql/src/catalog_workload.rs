@@ -150,7 +150,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     });
     sample
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_catalog_labels", MeasureCatalogLabels, measure_catalog_labels, (selected: bool), CatalogLabelSample);
+icydb_testing_canic_adapter::export_wire!(update, "measure_catalog_labels", MeasureCatalogLabels, measure_catalog_labels, (selected: bool), CatalogLabelSample);
 
 fn record(fields: Vec<(&str, InputValue)>) -> InputValue {
     InputValue::map(
@@ -257,7 +257,7 @@ fn seed_catalog_workload(start: u32, count: u32) -> Result<(), icydb::Error> {
         Ok(())
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "seed_catalog_workload", SeedCatalogWorkload, seed_catalog_workload, (start: u32, count: u32), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_catalog_workload", SeedCatalogWorkload, seed_catalog_workload, (start: u32, count: u32), Result<(), icydb::Error>);
 
 fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     let mut sample = CatalogWorkloadSample {
@@ -354,4 +354,4 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     });
     sample
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_catalog_workload", MeasureCatalogWorkload, measure_catalog_workload, (staged: bool), CatalogWorkloadSample);
+icydb_testing_canic_adapter::export_wire!(update, "measure_catalog_workload", MeasureCatalogWorkload, measure_catalog_workload, (staged: bool), CatalogWorkloadSample);

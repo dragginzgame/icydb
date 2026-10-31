@@ -1,4 +1,5 @@
 [package]
+workspace = "../../../testing/canic-adapter"
 name = "canister_audit_nested_relation_none"
 edition = { workspace = true }
 rust-version = { workspace = true }

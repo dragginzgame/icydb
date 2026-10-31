@@ -201,9 +201,9 @@ mod tests {
     }
 }
 
-icydb_testing_wasm_helpers::export_wire!(update, "open_database", OpenDatabase, open_database, (), Result<u64, String>);
-icydb_testing_wasm_helpers::export_wire!(update, "insert_profile", InsertProfile, insert_profile, (rank: u64), Result<(), String>);
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(update, "open_database", OpenDatabase, open_database, (), Result<u64, String>);
+icydb_testing_canic_adapter::export_wire!(update, "insert_profile", InsertProfile, insert_profile, (rank: u64), Result<(), String>);
+icydb_testing_canic_adapter::export_wire!(
     query,
     "profile_rank",
     ProfileRank,

@@ -571,6 +571,26 @@ pub enum RuntimeBoundaryCode {
     MemoryDeclarationSnapshotMismatch,
     /// A historical allocation required for journal recovery cannot be selected.
     MemoryHistoricalJournalUnavailable,
+    /// A typed batch handle belongs to another result owner.
+    TypedAdapterBatchHandleMismatch,
+    /// A typed batch result row has already been consumed.
+    TypedAdapterBatchRowConsumed,
+    /// Generated source descriptors cannot bind to accepted schema authority.
+    TypedAdapterBindingUnavailable,
+    /// The output row belongs to another accepted entity.
+    TypedAdapterEntityMismatch,
+    /// The requested immutable field source is absent from the binding.
+    TypedAdapterFieldUnavailable,
+    /// A generated field contract disagrees with accepted schema authority.
+    TypedAdapterIncompatibleField,
+    /// A projected output row omits the field needed by its typed adapter.
+    TypedAdapterRowFieldUnavailable,
+    /// Output column and value cardinalities disagree.
+    TypedAdapterRowShapeMismatch,
+    /// A typed binding no longer represents current accepted authority.
+    TypedAdapterStaleBinding,
+    /// An output value cannot be represented by the generated Rust field type.
+    TypedAdapterValueShapeMismatch,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1094,7 +1114,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 282);
+        assert_eq!(last, 292);
     }
 
     #[test]

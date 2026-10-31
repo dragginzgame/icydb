@@ -186,7 +186,7 @@ esac
         let terminated = self.directory.join("success-argument-terminated.bin");
         fs::write(
             &success,
-            canic_icydb::wire::Endpoint::Query
+            icydb::__macro::RpcMethod::Query
                 .encode_request(
                     "SELECT id FROM Character",
                     icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
@@ -196,7 +196,7 @@ esac
         .unwrap();
         fs::write(
             &terminated,
-            canic_icydb::wire::Endpoint::Query
+            icydb::__macro::RpcMethod::Query
                 .encode_request(
                     "SELECT id FROM Character;",
                     icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
@@ -221,19 +221,19 @@ esac
             .env_remove("ICP_FIXTURE_CAPTURE_CASE");
 
         for (name, endpoint) in [
-            ("QUERY", canic_icydb::wire::Endpoint::Query),
-            ("DDL", canic_icydb::wire::Endpoint::Ddl),
-            ("UPDATE", canic_icydb::wire::Endpoint::Update),
-            ("METRICS", canic_icydb::wire::Endpoint::Metrics),
-            ("METRICS_RESET", canic_icydb::wire::Endpoint::MetricsReset),
-            ("SNAPSHOT", canic_icydb::wire::Endpoint::Snapshot),
-            ("SCHEMA", canic_icydb::wire::Endpoint::Schema),
+            ("QUERY", icydb::__macro::RpcMethod::Query),
+            ("DDL", icydb::__macro::RpcMethod::Ddl),
+            ("UPDATE", icydb::__macro::RpcMethod::Update),
+            ("METRICS", icydb::__macro::RpcMethod::Metrics),
+            ("METRICS_RESET", icydb::__macro::RpcMethod::MetricsReset),
+            ("SNAPSHOT", icydb::__macro::RpcMethod::Snapshot),
+            ("SCHEMA", icydb::__macro::RpcMethod::Schema),
             (
                 "SCHEMA_MIGRATION",
-                canic_icydb::wire::Endpoint::SchemaMigration,
+                icydb::__macro::RpcMethod::SchemaMigration,
             ),
-            ("SCHEMA_MIGRATE", canic_icydb::wire::Endpoint::SchemaMigrate),
-            ("FIXTURES_LOAD", canic_icydb::wire::Endpoint::FixturesLoad),
+            ("SCHEMA_MIGRATE", icydb::__macro::RpcMethod::SchemaMigrate),
+            ("FIXTURES_LOAD", icydb::__macro::RpcMethod::FixturesLoad),
         ] {
             let mut prefix = String::new();
             for byte in endpoint
@@ -322,7 +322,7 @@ esac
             }
         }
         for bytes in self.call_arguments("icydb_schema_migration") {
-            let request = canic_icydb::wire::Endpoint::SchemaMigration
+            let request = icydb::__macro::RpcMethod::SchemaMigration
                 .decode_request::<icydb::db::SchemaMigrationStatusRequest>(
                     &bytes,
                     icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
@@ -332,7 +332,7 @@ esac
         }
         let commands = self.call_arguments("icydb_schema_migrate");
         for bytes in &commands {
-            canic_icydb::wire::Endpoint::SchemaMigrate
+            icydb::__macro::RpcMethod::SchemaMigrate
                 .decode_request::<icydb::db::SchemaMigrationCommand>(
                     bytes,
                     icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
@@ -407,7 +407,7 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
         let arguments = fixture.call_arguments("icydb_query");
         assert_eq!(arguments.len(), 1);
         assert_eq!(
-            canic_icydb::wire::Endpoint::Query
+            icydb::__macro::RpcMethod::Query
                 .decode_request::<String>(
                     &arguments[0],
                     icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)
@@ -429,30 +429,30 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
 
 #[test]
 fn report_commands_preserve_endpoint_frames_and_query_update_selection() {
-    use canic_icydb::wire::Endpoint;
+    use icydb::__macro::RpcMethod;
 
     for (arguments, endpoint, query, response) in [
         (
             vec!["metrics"],
-            Endpoint::Metrics,
+            RpcMethod::Metrics,
             true,
             response_hex(Ok(icydb::metrics::MetricsReport::default())),
         ),
         (
             vec!["metrics", "--reset"],
-            Endpoint::MetricsReset,
+            RpcMethod::MetricsReset,
             false,
             response_hex(Ok(())),
         ),
         (
             vec!["snapshot"],
-            Endpoint::Snapshot,
+            RpcMethod::Snapshot,
             true,
             response_hex(Ok(icydb::db::StorageReport::default())),
         ),
         (
             vec!["schema", "show"],
-            Endpoint::Schema,
+            RpcMethod::Schema,
             true,
             response_hex(Ok(Vec::<EntitySchemaDescription>::new())),
         ),

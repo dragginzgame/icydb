@@ -14,6 +14,6 @@ fn icydb_memory_pool()
 
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     icydb_schema(authorization = public);
 }

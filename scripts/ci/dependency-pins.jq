@@ -15,9 +15,10 @@ def package_dependencies:
   (.target[]? | {dependencies, "dev-dependencies": .["dev-dependencies"], "build-dependencies": .["build-dependencies"]})
   | to_entries[] | select(.value != null) | .key as $section
   | .value | to_entries[] | {name: .key, spec: .value, section: $section};
-def inheritance_checks($root; $member):
+def inheritance_checks($root; $member; $group_versions):
   .file as $file | .data as $data |
-  (if $member and $data.package != null and $data.package.version != {workspace: true} then
+  (if $member and $data.package != null and $data.package.version != {workspace: true} and
+      (($data.package.version | type) != "string" or $group_versions[$data.package.name] != $data.package.version) then
     finding($file; "cargo-inheritance"; "package.version"; ($data.package.version | tojson); "member package version must inherit workspace.package.version")
   else empty end),
   (if $data.package.version == {workspace: true} and ($root.workspace.package.version | type) != "string" then
@@ -31,6 +32,8 @@ def inheritance_checks($root; $member):
     elif ($root.workspace.dependencies // {} | has($dependency.name) | not) then
       finding($file; "cargo-inheritance"; .name; (.spec | tojson); "dependency alias is missing from the owning workspace catalog")
     else empty end);
+def inheritance_checks($root; $member): inheritance_checks($root; $member; {});
+
 def action_refs:
   (.jobs[]? | select(has("uses")) | .uses),
   (.jobs[]?.steps[]? | select(has("uses")) | .uses),

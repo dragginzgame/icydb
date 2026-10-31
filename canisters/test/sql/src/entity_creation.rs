@@ -33,7 +33,7 @@ fn check_created_quest_target_delete() -> Result<icydb::Error, icydb::Error> {
         }
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "check_created_quest_target_delete", CheckCreatedQuestTargetDelete, check_created_quest_target_delete, (), Result<icydb::Error, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "check_created_quest_target_delete", CheckCreatedQuestTargetDelete, check_created_quest_target_delete, (), Result<icydb::Error, icydb::Error>);
 
 /// Insert a new row through accepted structural authority, including named values.
 
@@ -64,7 +64,7 @@ fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasur
         local_instructions: ic_platform::ic0::performance_counter(1).saturating_sub(start),
     }
 }
-icydb_testing_wasm_helpers::export_wire!(update, "write_created_quest", WriteCreatedQuest, write_created_quest, (id: u64, item_id: u64, code: u64), EntityCreationMeasurement);
+icydb_testing_canic_adapter::export_wire!(update, "write_created_quest", WriteCreatedQuest, write_created_quest, (id: u64, item_id: u64, code: u64), EntityCreationMeasurement);
 
 /// Decode the added record and enum through the generated entity's accepted binding.
 
@@ -89,7 +89,7 @@ fn check_created_quest() -> EntityCreationMeasurement {
         local_instructions: ic_platform::ic0::performance_counter(1).saturating_sub(start),
     }
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "check_created_quest",
     CheckCreatedQuest,

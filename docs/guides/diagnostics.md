@@ -110,12 +110,24 @@ expose their wrapped causes through Rust's `Error::source()`. Error handlers can
 inspect and downcast that chain without parsing display text or losing the
 underlying database diagnostic.
 
-This adapter error is not an `icydb::Error` JSON payload and cannot be submitted
-to `diagnostic --error-json`. Compare the identified generated declaration with
-the accepted schema and regenerate the current artefacts when they disagree;
-there is no generated-model fallback. A mismatch alone does not establish a
-build-cache invalidation defect. Changed binding-issuance classification and
-exhaustive adapter-error matches require source updates; stored data is unchanged.
+Convert a `TypedAdapterError` or `TypedOperationError` with `icydb::Error::from`
+at a public handler boundary. `Database(error)` is preserved intact, including
+facts and query-field context. Adapter failures use E283–E292 with Interface
+origin: batch-handle mismatch, consumed row, unavailable binding, entity mismatch,
+unavailable field, incompatible field, unavailable row field, inconsistent row
+shape, stale binding and value-shape mismatch, respectively. Consumed rows and
+stale bindings are Conflict; inconsistent column/value cardinality is
+InvariantViolation; unsupported binding/projection contracts are Unsupported.
+
+The compact public projection contains no generated-key strings or invented
+accepted numeric identities. Keep the original Rust error when those local
+source-key details are needed; its accessors and source chain remain available.
+The converted public payload works with `diagnostic --error-json`. Compare the
+identified generated declaration with accepted schema and regenerate artefacts
+when they disagree; no generated-model fallback is supplied. A mismatch alone
+does not establish a build-cache invalidation defect. Consumers exhaustively
+matching `RuntimeBoundaryCode` must handle the new reasons; stored data and the
+numeric public-error Wire record are unchanged.
 
 ## Live schema resolution
 

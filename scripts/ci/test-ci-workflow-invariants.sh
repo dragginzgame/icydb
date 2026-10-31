@@ -22,10 +22,15 @@ cp "$ROOT/Makefile" "$fixture/"
 cp "$ROOT/.github/CODEOWNERS" "$fixture/.github/"
 cp "$ROOT/scripts/ci/"{check-ci-workflow-invariants.sh,ci-workflow-invariants.jq,dependency-pins.jq,run-icydb-validation-targets.sh} "$fixture/scripts/ci/"
 cp "$ROOT/testing/integration/src/lib.rs" "$fixture/testing/integration/src/"
-subject="$fixture/.github/workflows/ci.yml"
+core_subject="$fixture/.github/workflows/ci.yml"
+adapter_subject="$fixture/.github/workflows/canic-adapter.yml"
+subject="$core_subject"
 count=0
 
-reset() { cp "$ROOT/.github/workflows/ci.yml" "$subject"; }
+reset() {
+  cp "$ROOT/.github/workflows/ci.yml" "$core_subject"
+  cp "$ROOT/.github/workflows/canic-adapter.yml" "$adapter_subject"
+}
 check() {
   local expected="$1" name="$2" status=0
   bash "$fixture/scripts/ci/check-ci-workflow-invariants.sh" > "$fixture/$name.log" 2>&1 || status=$?
@@ -127,12 +132,14 @@ check fail ignored-cache-preparation-failure
 reset
 mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")) as $fetch | .jobs.rust.steps |= map(select(.run != "cargo fetch --locked")) | .jobs.static.steps += [$fetch]'
 check fail cache-preparation-wrong-job
+subject="$adapter_subject"
 reset
 mutate '.jobs.static.steps |= map(select(.name != "Prepare locked Testkit CLI for substitute-server fixtures"))'
 check fail missing-static-cli-preparation
 reset
 mutate '(.jobs.static.steps[] | select(.name == "Prepare locked Testkit CLI for substitute-server fixtures") | .run) |= sub("bash scripts/ci/testkit-runner.sh --check"; "true")'
 check fail missing-static-cli-admission
+subject="$core_subject"
 reset
 mutate '.jobs.static.steps += [{"run": "make install-testkit testkit-check"}]'
 check fail static-official-server-prerequisite
@@ -151,6 +158,7 @@ check fail missing-workstation-ic-selection
 reset
 mutate '.jobs.macos_host.env.IC_TOOLS = "wasm-opt"'
 check fail incomplete-workstation-ic-selection
+subject="$adapter_subject"
 for job in rust wire_browser wasm_size_report; do
   reset
   mutate "del(.jobs.$job.env.IC_TOOLS)"
@@ -201,13 +209,13 @@ reset
 mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).if = "matrix.lane == '\''tier-a'\''"'
 check fail server-preparation-wrong-lane
 reset
-mutate '(.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-a")).make_target = "ci-sql-tier-b" | (.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-b")).make_target = "ci-sql-tier-a"'
+mutate '(.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-a")).make_target = "ci-sql-tier-b" | (.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-b")).make_target = "ci-adapter-sql-tier-a"'
 check fail live-target-wrong-lane
 reset
 mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).continue-on-error = true'
 check fail ignored-server-preparation-failure
 reset
-mutate '.jobs.macos_host.steps |= map(select(.run != "make install-dev"))'
+mutate '.jobs.macos_host.steps |= map(select((.run // "" | contains("make install-dev")) | not))'
 check fail missing-native-server-preparation
 reset
 perl -pi -e 's/^(\t\+)\$\(WORKSPACE_TEST_ENV\) (.*cargo test)/$1\$(IC_TESTKIT_ENV) \$(WORKSPACE_TEST_ENV) $2/' "$fixture/Makefile"
@@ -226,6 +234,7 @@ check fail missing-browser-lane
 reset
 mutate '.jobs.check.needs = ["rust", "static", "macos_host"]'
 check fail missing-browser-result-dependency
+subject="$core_subject"
 reset
 # Serialize the same workflow as quoted JSON, a valid YAML representation.
 "$YQ" -o json '.' "$subject" > "$fixture/quoted"
@@ -246,12 +255,14 @@ check fail shared-action-pin
 reset
 mutate '.jobs.rust.uses = "owner/repo/.github/workflows/build.yml@main"'
 check fail shared-reusable-workflow-pin
+subject="$adapter_subject"
 reset
 mutate '.jobs.wasm_size_report.needs = "check"'
 check fail dependent-wasm-evidence
 reset
 mutate '.jobs.release.needs = ["wasm_size_report", "check"]'
 check fail release-prerequisite
+subject="$core_subject"
 # Current providers are credited only by these unfiltered selections. Mutate
 # actual Make inputs: target existence or a similarly named command is insufficient.
 for selection in \
@@ -298,6 +309,26 @@ mv "$fixture/mutated.make" "$fixture/Makefile"
 check pass unfiltered-display-control
 cp "$ROOT/Makefile" "$fixture/Makefile"
 
+subject="$core_subject"
+for command in 'cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml' 'make install-testkit' 'make test-wire-browser'; do
+  reset
+  COMMAND="$command" "$YQ" -i '.jobs.rust.steps += [{"run": strenv(COMMAND)}]' "$subject"
+  check fail product-dispatches-composition
+done
+subject="$adapter_subject"
+reset
+mutate '.jobs.rust.steps += [{"if": "matrix.lane == '\''tier-a'\''", "run": "make install-testkit"}]'
+check fail native-adapter-comparison-server-prerequisite
+reset
+mutate '(.jobs.rust.steps[] | select(.run == "rustup target add wasm32-unknown-unknown")).continue-on-error = true'
+check fail ignored-adapter-wasm-preparation
+reset
+mutate 'del(.on.push.paths)'
+check fail unscoped-adapter-trigger
+reset
+mutate '.on.pull_request.paths += ["crates/**"]'
+check fail adapter-blocks-unrelated-core
+subject="$core_subject"
 reset
 mutate '.jobs.rust.strategy.fail-fast = true'
 check fail matrix-fail-fast

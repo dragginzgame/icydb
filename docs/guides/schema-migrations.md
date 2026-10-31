@@ -19,7 +19,7 @@ both maintained controller endpoints in source:
 ```rust
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     icydb_schema_migration;
     icydb_schema_migrate;
 }
@@ -375,7 +375,7 @@ ordinary Wasm build tools and PocketIC setup, but no externally prepared Wasm
 paths or ignored-test flag:
 
 ```bash
-cargo test -p icydb-testing-integration --test schema_migration_closeout -- --nocapture
+cargo test --locked --manifest-path testing/canic-adapter/Cargo.toml -p icydb-testing-integration --test schema_migration_closeout -- --nocapture
 ```
 
 Three physical-migration tests cover uninterrupted success, upgrades during both `Prepared` and

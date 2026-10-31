@@ -1,5 +1,7 @@
 #[cfg(feature = "sql")]
 mod boolean_truth;
+#[cfg(feature = "sql")]
+mod float_literals;
 mod source_bounds;
 mod source_partition;
 

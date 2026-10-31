@@ -47,6 +47,18 @@ may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
 latest stable Rust channel selected by `rust-toolchain.toml`. Update an existing
 installation with `rustup update stable`.
 
+Repository contributors use two independent Cargo selections. The root workspace
+owns IcyDB libraries, CLI and neutral helpers. Canic-dependent actors and tests
+use `--manifest-path testing/canic-adapter/Cargo.toml` and its own lockfile;
+prepare their dependencies with `make fetch-adapter`. See
+[adapter qualification](testing/canic-adapter/README.md) for focused commands.
+Package directories are unchanged. The current development dependency update
+changes exposed upstream Rust type identities; see the
+[pending 0.292 notes](docs/changelog/0.292.md). Canic 0.113 qualification against
+that family is not yet qualified, as described in the adapter guide; product
+upgrades and releases remain independent. Published 0.291
+examples below refer to their original dependency set.
+
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.
 The [compiled single-package example](testing/model-facade-only/) owns the
@@ -77,7 +89,7 @@ canister source:
 ```rust
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     icydb_ddl;
@@ -119,7 +131,7 @@ fn load_fixtures() -> Result<(), icydb::Error> {
 
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "test-admin-api")]
@@ -140,7 +152,7 @@ required `introspection = true` or `introspection = false` literal first,
 followed by the optional application guard in this order:
 
 ```rust
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     icydb_sql_query(
         introspection = false,
         authorization = guard(sql_read_guard),
@@ -228,9 +240,11 @@ unchanged. The reviewed Shared snapshot owns common executable selections in
 IcyDB Cargo utilities are selected
 by [ci/icydb-tools.env](ci/icydb-tools.env). Changing selections is an explicit
 snapshot adoption or a documented, explicitly selected consumer exception.
-Both setup targets prepare the selected lockfile with `make fetch` in the
-repository-local Cargo cache before offline tool verification. The same cache
-preparation supports explicit locked Testkit runner installation and downloads missing locked packages without upgrading dependency selections.
+Both setup targets prepare the root package lock with `make fetch` in the
+repository-local Cargo cache before offline tool verification. For Canic actors
+or integration tests, also run `make fetch-adapter` to prepare their independent
+lock. Testkit installation selects its CLI from that qualification lock and
+prepares the CLI's locked packages without upgrading dependency selections.
 Dependency upgrades and security audits are separate maintainer actions: review
 any intentional `cargo update` diff, then audit the selected graph with
 `cargo audit`. Neither action runs automatically during workstation setup.
@@ -290,15 +304,17 @@ selected executables alongside the matching receipts.
 Cargo executables now use shared slots selected by their exact compiler,
 native environment, package and packaged-lock identities. The common set stays
 exposed through `.tools/rust/common/bin`; selected adapters use the installer's
-returned path. Rerun `make install-rust-tools` and `make install-testkit`, then
-their offline checks, to select these shared installations. Previous local
+returned path. Rerun `make install-rust-tools` and its offline check to select these shared
+installations. Canic qualification additionally uses `make fetch-adapter
+install-testkit testkit-check`. Previous local
 installations and failed build evidence remain retained. Tool builds use
 Shared's standard environment rather than application flags or wrappers; see
 [the build contract](docs/local-setup.md#standard-cargo-tool-build-environment).
 Shared's selected Cargo installer prepares the locked Testkit CLI; Testkit
 provisions PocketIC under
-`.tools/ic-testkit-server`. The final command checks both owners' selected sets
-offline, including IcyDB's admitted optimizer digest. Tool verification never
+`.tools/ic-testkit-server` when `make install-testkit` is explicitly selected.
+`make tools-check` admits product tools, including IcyDB's optimizer digest;
+`make testkit-check` separately admits the qualification server. Tool verification never
 installs missing tools. Testkit owns server selection, authentication and
 client/server admission. See
 [shared setup](docs/local-setup.md) and [IC executable setup](docs/ic-tools.md)
@@ -348,6 +364,16 @@ Setup also installs `cargo-watch` for `make test-watch`. General analysis tools 
 ```bash
 cargo install cargo-audit --locked
 ```
+
+### Workspace Cleanup
+
+Plain `cargo clean` and `make clean` remove the workspace's entire `target/`,
+including nested compiler outputs, Wasm caches and evidence. Explicit Cargo target
+selections, such as `CARGO_TARGET_DIR`, retain their normal scope. Builds and
+releases do not run cleanup automatically.
+
+Keep evidence that must survive an explicit clean outside `target/`. The separate
+`.cache/` and `.tools/` stores are not removed by Cargo cleanup.
 
 ### Release Metadata Editor
 
@@ -423,7 +449,12 @@ shards remain Tier C-owned:
 ```bash
 make _ci-tier-a-sqlite
 make _ci-tier-a-mutation
-cargo test --locked -p icydb-testing-integration --test sql_correctness
+```
+
+The adapter's native protocol comparison is separate:
+
+```bash
+cargo test --locked --manifest-path testing/canic-adapter/Cargo.toml -p icydb-testing-integration --test sql_correctness
 ```
 
 Run the generated live-canister SQL boundary separately with:
@@ -432,12 +463,13 @@ Run the generated live-canister SQL boundary separately with:
 make test-sql-canister-matrix
 ```
 
-Run the CI-equivalent required Tier B lane on Linux x86-64 with the server
+Run the CI-equivalent adapter Tier B lane on Linux x86-64 with the server
 admitted by the locked Testkit package:
 
 ```bash
-make fetch
-make install-tools
+make fetch fetch-adapter
+make install-tools install-testkit
+make tools-check testkit-check
 make ci-sql-tier-b
 ```
 
@@ -627,9 +659,9 @@ Some integration tests need the PocketIC server binary. Prepare the selected
 local tools before running those tests:
 
 ```bash
-make fetch
-make install-tools
-make tools-check
+make fetch fetch-adapter
+make install-tools install-testkit
+make tools-check testkit-check
 ```
 
 `make testkit-check` prints the absolute server path admitted by Testkit;
@@ -683,9 +715,10 @@ cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
-### `make test` cannot find the IC testkit runner
+### Adapter tests cannot find the IC testkit runner
 
-Run `make fetch install-tools tools-check` to prepare and verify the
+Product `make test` does not use Testkit. Run
+`make fetch fetch-adapter install-tools install-testkit tools-check testkit-check` to prepare and verify the
 selected local server. Make passes that path explicitly; tests do not download
 missing executables. Use `make testkit-check` to obtain Testkit's admitted path.
 

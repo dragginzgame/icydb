@@ -5,7 +5,7 @@
 
 mod render;
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
@@ -25,7 +25,7 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let report = call_endpoint::<icydb::metrics::MetricsReport>(
         target.environment(),
         target.canister_name(),
-        Endpoint::Metrics,
+        RpcMethod::Metrics,
         (),
         "metrics",
         IcpCallKind::Query,
@@ -38,7 +38,7 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
     call_endpoint::<()>(
         target.environment(),
         target.canister_name(),
-        Endpoint::MetricsReset,
+        RpcMethod::MetricsReset,
         (),
         "metrics reset",
         IcpCallKind::Update,

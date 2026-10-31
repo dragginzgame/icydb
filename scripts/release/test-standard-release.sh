@@ -126,6 +126,7 @@ mkdir -p scripts/ci
 cp "$root/scripts/ci/finalize-release-changelog.awk" scripts/ci/
 printf '# Changelog\n\n## [0.1.1]\n\nFixture notes.\n' > CHANGELOG.md
 export CACHE_READY="$fixture/cache-ready"
+export FETCH_EVENTS="$fixture/fetch-events"
 export SELECTED_READY="$fixture/selected-ready"
 export EXPECTED_CARGO_HOME="$root/.cache/cargo/icydb"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/cargo"
@@ -136,9 +137,9 @@ reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 : <&"$reader"
 : >&"$writer"
 [[ "$CARGO_HOME" == "$EXPECTED_CARGO_HOME" ]]
-printf 'cargo %s\n' "$*" >> "$EVENTS"
 case "$*" in
     'fetch --locked')
+        printf '%s\n' "$*" >> "$FETCH_EVENTS"
         if [[ "${CARGO_NET_OFFLINE:-false}" == true ]]; then
             [[ -f "$CACHE_READY" ]]
         fi
@@ -146,6 +147,7 @@ case "$*" in
         touch "$CACHE_READY"
         ;;
     'metadata --locked --offline --no-deps --format-version 1')
+        printf 'cargo %s\n' "$*" >> "$EVENTS"
         [[ "${CARGO_NET_OFFLINE:-false}" == true && -f "$CACHE_READY" ]]
         ;;
     *) exit 99 ;;
@@ -156,12 +158,13 @@ cat >> "$fixture/bin/make" <<'MAKE'
 set -euo pipefail
 case "$*" in
     '--no-print-directory install-tools')
+        [[ -f "$CACHE_READY" ]]
         printf 'selected tools setup\n' >> "$EVENTS"
         [[ "${FAIL_SETUP:-0}" == 0 ]] || exit 23
         touch "$SELECTED_READY"
         ;;
     '--no-print-directory tools-check')
-        [[ "${CARGO_NET_OFFLINE:-false}" == true ]]
+        [[ "${CARGO_NET_OFFLINE:-false}" == true && -f "$CACHE_READY" ]]
         printf 'selected tools check\n' >> "$EVENTS"
         [[ "${FAIL_CHECK:-0}" == 0 && -f "$SELECTED_READY" ]] || exit 29
         ;;
@@ -198,8 +201,17 @@ if FAIL_EDITOR=1 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f 
     echo "release consumer admitted a failed editor observation" >&2; exit 1
 fi
 [[ ! -s "$EVENTS" ]]
+# Product preparation must select only its own locked graph. The substitute
+# rejects every other Cargo transport, including an adapter fetch.
+assert_fetches() {
+    printf '%s\n' 'fetch --locked' \
+        | LC_ALL=C sort > "$fixture/expected-fetches"
+    LC_ALL=C sort "$FETCH_EVENTS" > "$fixture/actual-fetches"
+    cmp "$fixture/expected-fetches" "$fixture/actual-fetches"
+}
 for stage in success fetch setup check; do
     : > "$EVENTS"
+    : > "$FETCH_EVENTS"
     rm -f "$CACHE_READY" "$SELECTED_READY"
     status=0
     fail_fetch=0 fail_setup=0 fail_check=0
@@ -216,7 +228,15 @@ for stage in success fetch setup check; do
             >> "$fixture/output" 2>&1 || status=$?
     fi
     printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
-        'cargo fetch --locked' > "$fixture/expected"
+        > "$fixture/expected"
+    if [[ "$stage" == fetch ]]; then
+        [[ -s "$FETCH_EVENTS" && ! -e "$CACHE_READY" ]]
+        while IFS= read -r fetch; do
+            [[ "$fetch" == 'fetch --locked' ]]
+        done < "$FETCH_EVENTS"
+    else
+        assert_fetches
+    fi
     if [[ "$stage" != fetch ]]; then printf 'selected tools setup\n' >> "$fixture/expected"; fi
     if [[ "$stage" == success || "$stage" == check ]]; then printf 'selected tools check\n' >> "$fixture/expected"; fi
     if [[ "$stage" == success ]]; then
@@ -231,6 +251,7 @@ done
 # Missing selected tools refuse before validation even under parallel Make.
 for ready in prepared missing; do
     : > "$EVENTS"
+    : > "$FETCH_EVENTS"
     touch "$CACHE_READY"
     rm -f "$SELECTED_READY"
     if [[ "$ready" == prepared ]]; then touch "$SELECTED_READY"; fi
@@ -241,7 +262,8 @@ for ready in prepared missing; do
         RELEASE_VERSION=0.1.1 RELEASE_DATE=2026-10-05 \
         "RELEASE_TMP_DIR=$fixture/release-tmp" > "$fixture/output" 2>&1 || status=$?
     printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
-        'cargo fetch --locked' 'selected tools check' > "$fixture/expected"
+        'selected tools check' > "$fixture/expected"
+    assert_fetches
     cmp "$fixture/expected" "$EVENTS"
     if [[ "$ready" == prepared ]]; then [[ "$status" == 0 ]]; else [[ "$status" != 0 ]]; fi
 done

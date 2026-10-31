@@ -292,7 +292,7 @@ impl Parser {
                 index: self.take_param_index(),
             });
         }
-        if self.cursor.peek_u256_literal()
+        if self.cursor.peek_typed_numeric_literal()
             || matches!(
                 self.peek_kind(),
                 Some(

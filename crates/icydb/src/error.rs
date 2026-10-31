@@ -12,9 +12,10 @@ use std::fmt;
 
 use icydb_core::db::QueryError;
 use icydb_core::error::{ErrorOrigin as CoreErrorOrigin, InternalError};
+use icydb_diagnostic_code::RuntimeBoundaryCode;
 use serde::Deserialize;
 
-use crate::db::DatabaseBootstrapError;
+use crate::db::{DatabaseBootstrapError, TypedAdapterError, TypedOperationError};
 
 pub use icydb_core::error::{
     ConstraintValidationFindingOutput, ConstraintValuePath, ConstraintValuePathComponent,
@@ -317,6 +318,52 @@ impl From<QueryError> for Error {
 impl From<DatabaseBootstrapError> for Error {
     fn from(err: DatabaseBootstrapError) -> Self {
         bootstrap::bootstrap_error(&err)
+    }
+}
+
+impl From<TypedAdapterError> for Error {
+    /// Project an adapter refusal into its compact interface diagnostic.
+    /// Generated source strings remain on the original Rust error; they are
+    /// not accepted numeric identities and do not become public facts.
+    fn from(error: TypedAdapterError) -> Self {
+        let boundary = match error {
+            TypedAdapterError::BatchHandleMismatch => {
+                RuntimeBoundaryCode::TypedAdapterBatchHandleMismatch
+            }
+            TypedAdapterError::BatchRowConsumed => {
+                RuntimeBoundaryCode::TypedAdapterBatchRowConsumed
+            }
+            TypedAdapterError::BindingUnavailable(_) => {
+                RuntimeBoundaryCode::TypedAdapterBindingUnavailable
+            }
+            TypedAdapterError::EntityMismatch => RuntimeBoundaryCode::TypedAdapterEntityMismatch,
+            TypedAdapterError::FieldUnavailable => {
+                RuntimeBoundaryCode::TypedAdapterFieldUnavailable
+            }
+            TypedAdapterError::IncompatibleField => {
+                RuntimeBoundaryCode::TypedAdapterIncompatibleField
+            }
+            TypedAdapterError::RowFieldUnavailable => {
+                RuntimeBoundaryCode::TypedAdapterRowFieldUnavailable
+            }
+            TypedAdapterError::RowShapeMismatch => {
+                RuntimeBoundaryCode::TypedAdapterRowShapeMismatch
+            }
+            TypedAdapterError::StaleBinding => RuntimeBoundaryCode::TypedAdapterStaleBinding,
+            TypedAdapterError::ValueShapeMismatch => {
+                RuntimeBoundaryCode::TypedAdapterValueShapeMismatch
+            }
+        };
+        Self::from_runtime_boundary(boundary, ErrorOrigin::Interface)
+    }
+}
+
+impl From<TypedOperationError> for Error {
+    fn from(error: TypedOperationError) -> Self {
+        match error {
+            TypedOperationError::Adapter(error) => error.into(),
+            TypedOperationError::Database(error) => error,
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 //! Deployed-only source-migration command execution and rendering.
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 use icydb::db::{
     SchemaMigrationCommand as RuntimeMigrationCommand, SchemaMigrationPhase,
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest, encode_hex_lower,
@@ -156,7 +156,7 @@ fn load_status(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, Str
     call_endpoint(
         target.environment(),
         target.canister_name(),
-        Endpoint::SchemaMigration,
+        RpcMethod::SchemaMigration,
         SchemaMigrationStatusRequest::default(),
         "schema migration status",
         IcpCallKind::Query,
@@ -216,7 +216,7 @@ fn call_command(
     call_endpoint(
         target.environment(),
         target.canister_name(),
-        Endpoint::SchemaMigrate,
+        RpcMethod::SchemaMigrate,
         command,
         "schema migration",
         IcpCallKind::Update,
@@ -291,7 +291,7 @@ fn print_status(status: &SchemaMigrationStatusPage) {
 
 #[cfg(test)]
 mod tests {
-    use canic_icydb::wire::Endpoint;
+    use icydb::__macro::RpcMethod;
     use icydb::db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity};
     use icydb_schema::{ExpectedSchemaFingerprint, SchemaMigrationPlanDigest};
 
@@ -331,14 +331,14 @@ mod tests {
                     },
                 ] {
                     // The argument carries its own types, without service metadata.
-                    let bytes = Endpoint::SchemaMigrate
+                    let bytes = RpcMethod::SchemaMigrate
                         .encode_request(
                             &command,
                             icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES),
                         )
                         .unwrap();
                     assert_eq!(
-                        canic_icydb::wire::Endpoint::SchemaMigrate
+                        icydb::__macro::RpcMethod::SchemaMigrate
                             .decode_request::<SchemaMigrationCommand>(
                                 &bytes,
                                 icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)

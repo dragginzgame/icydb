@@ -1,0 +1,225 @@
+
+[package]
+name = "icydb-testing-canic-adapter"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+publish = false
+[workspace]
+resolver = "3"
+members = [
+    ".",
+    "../../canisters/audit/codec_wire_query",
+    "../../canisters/audit/default_empty",
+    "../../canisters/audit/default_empty_metrics",
+    "../../canisters/audit/group_path_sql_query",
+    "../../canisters/audit/nested_relation_direct",
+    "../../canisters/audit/nested_relation_none",
+    "../../canisters/audit/nested_relation_repeated",
+    "../../canisters/audit/nested_relation_shallow",
+    "../../canisters/audit/one_entity_dynamic_query",
+    "../../canisters/audit/one_entity_reachable_operations",
+    "../../canisters/audit/one_entity_sql_query",
+    "../../canisters/audit/one_entity_typed_query",
+    "../../canisters/audit/request_future_scale",
+    "../../canisters/audit/sql_perf",
+    "../../canisters/audit/ten_entity_reachable_operations",
+    "../../canisters/audit/ten_entity_typed_query",
+    "../../canisters/demo/rpg",
+    "../../canisters/test/lifecycle_participant",
+    "../../canisters/test/read_authority",
+    "../../canisters/test/schema_guard",
+    "../../canisters/test/schema_public",
+    "../../canisters/test/sql",
+    "../../canisters/test/sql_bounded",
+    "../../canisters/test/sql_guard",
+    "../../canisters/test/wire_rollback",
+    "../../schema/audit/nested_relation",
+    "../../testing/endpoint-installation",
+    "../../testing/integration",
+    "../../testing/logical-memory",
+    "../../testing/model-facade-only",
+]
+
+[workspace.package]
+rust-version = "1.96.0"
+edition = "2024"
+version = "0.291.0"
+authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
+description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
+categories = ["database", "web-programming", "wasm"]
+license-file = "../../LICENSE"
+repository = "https://github.com/dragginzgame/icydb"
+
+[workspace.dependencies]
+# Production dependencies
+# Schema registration runs before main and does not request ordered constructors.
+ic-host-artifacts = { version = "0.73.1", default-features = false }
+ic-memory = "0.60.0"
+ic-platform = { version = "0.8.3", default-features = false }
+ic-wire = "0.13.0"
+icydb = { path = "../../crates/icydb", default-features = false }
+icydb-model = { path = "../../crates/icydb-model" }
+icydb-testing-canic-adapter = { path = "." }
+serde = { version = "1.0", default-features = false }
+serde_json = "1.0"
+syn = "3.0"
+
+# Tests and tooling only
+canic-icydb = "0.113.0"
+ic-testkit = "0.75.0"
+ic-timers = "0.32.4"
+icydb-testing-audit-default-empty-fixtures = { path = "../../schema/audit/default_empty" }
+icydb-testing-audit-group-path-fixtures = { path = "../../schema/audit/group_path" }
+icydb-testing-audit-nested-relation-fixtures = { path = "../../schema/audit/nested_relation" }
+icydb-testing-audit-one-simple-fixtures = { path = "../../schema/audit/one_simple" }
+icydb-testing-audit-sql-perf-fixtures = { path = "../../schema/audit/sql_perf" }
+icydb-testing-audit-ten-simple-fixtures = { path = "../../schema/audit/ten_simple" }
+icydb-testing-build = { path = "../../testing/build" }
+icydb-testing-codec-query = { path = "../../testing/codec-query" }
+icydb-testing-demo-rpg-fixtures = { path = "../../schema/demo/rpg" }
+icydb-testing-sql-generator = { path = "../../testing/sql-generator" }
+icydb-testing-sqlite-reference = { path = "../../testing/sqlite-reference" }
+icydb-testing-test-sql-fixtures = { path = "../../schema/test/sql" }
+icydb-testing-wasm-helpers = { path = "../../testing/wasm-helpers" }
+# Renamed-dependency fixtures exercise generated imports under caller-selected names.
+runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
+trybuild = "1.0"
+
+# ---------------------
+#  CLIPPY CONFIGURATION
+# ---------------------
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# Rust 1.99 empty-comparison suggestions can use ambiguous or inaccessible types.
+# Keep direct is_empty assertions instead of adding type plumbing to tests.
+assert_is_empty = "allow"
+
+missing_const_for_fn = "warn"
+missing_panics_doc = "warn"
+must_use_candidate = "warn"
+redundant_clone = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+unnecessary_cast = "warn"
+use_self = "warn"
+
+doc_markdown = "allow"
+empty_line_after_doc_comments = "allow"
+missing_errors_doc = "allow"
+module_inception = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "allow"
+option_if_let_else = "allow"
+redundant_pub_crate = "allow"
+wildcard_imports = "allow"
+
+[features]
+default = []
+sql = ["icydb/sql"]
+metrics = ["icydb/metrics"]
+migration = ["icydb/migration"]
+
+[dependencies]
+canic-icydb = { workspace = true }
+ic-wire = { workspace = true }
+icydb = { workspace = true, default-features = false }
+icydb-testing-wasm-helpers = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+ic-platform = { workspace = true, features = ["principal"] }
+trybuild = { workspace = true }
+
+[[test]]
+name = "compile"
+path = "tests/compile.rs"
+
+[[test]]
+name = "compile_pass_endpoint_declarations"
+path = "tests/pass/endpoint_declarations.rs"
+
+[[test]]
+name = "compile_pass_lifecycle_declarations"
+path = "tests/pass/lifecycle_declarations.rs"
+
+[[test]]
+name = "lifecycle_participant"
+path = "tests/lifecycle_participant.rs"
+
+[[test]]
+name = "compile_pass_migration_endpoints"
+path = "tests/pass-migration/endpoints.rs"
+required-features = ["migration"]
+
+[[test]]
+name = "compile_pass_sql_query_introspection"
+path = "tests/pass-sql/endpoint_query_introspection.rs"
+required-features = ["sql"]
+
+[[test]]
+name = "compile_pass_sql_update_bounded"
+path = "tests/pass-sql/endpoint_update_bounded.rs"
+required-features = ["sql"]
+
+[[test]]
+name = "compile_pass_sql_update_primary_key"
+path = "tests/pass-sql/endpoint_update_primary_key.rs"
+required-features = ["sql"]
+
+[lints]
+workspace = true
+
+# ---------------------
+#  PATCH SECTION
+# ---------------------
+# Only needed if you override crates.io during dev.
+[patch.crates-io]
+icydb = { path = "../../crates/icydb" }
+icydb-core = { path = "../../crates/icydb-core" }
+icydb-diagnostic-code = { path = "../../crates/icydb-diagnostic-code" }
+icydb-model = { path = "../../crates/icydb-model" }
+icydb-model-macros = { path = "../../crates/icydb-model-macros" }
+icydb-schema = { path = "../../crates/icydb-schema" }
+
+# ---------------------
+#  DEV PROFILE
+# ---------------------
+[profile.dev]
+opt-level = 1
+lto = false
+codegen-units = 16
+strip = "debuginfo"
+debug = false
+overflow-checks = true
+
+# -------------------------
+#  RELEASE / WASM PROFILES
+# -------------------------
+[profile.release]
+strip = "symbols"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Audit-only equivalent of `wasm-release` that retains enough symbol data for
+# attribution tools. Never use this profile as a deploy-size measurement.
+[profile.wasm-attribution]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "none"
+debug = "line-tables-only"

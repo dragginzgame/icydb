@@ -483,6 +483,9 @@ and Make-execution observers in their own publication policy. Keep package
 selection, required remote-tag publication, registry choice, features, credentials
 and interruption reconciliation at that owner. Retain local source and identity
 rechecks after network observations; unknown registry state never admits upload.
+The optional [publication Make adapter](cargo-publication.md#opt-in-make-adapter)
+interprets a consumer-declared roster and `PACKAGE=` subset without moving those
+policy choices into Shared or duplicating Cargo dispatch in each consumer.
 
 IC Jobs owns its complete preflight under `scripts/release/`
 ([PR #67 — Own publication admission locally](https://github.com/dragginzgame/ic-jobs/pull/67)).
@@ -801,6 +804,12 @@ resolution for the final graph check rather than treating `--no-deps` as proof.
 canonical decimal component ordering. It rejects malformed stable identities
 before output and uses no floating-point or shell-integer arithmetic. The release
 finalizer rejects non-increasing previous/target pairs itself.
+
+Approved independently versioned groups use
+[`cargo-release-group.sh`](releases.md#explicit-cargo-release-groups).
+Its complete locked member/lock admission is also used by `--cargo-inheritance`
+before accepting literal package versions. A group declaration alone never
+suppresses inheritance, dependency pinning or graph failures.
 
 ## Downloaded failure-evidence verification
 

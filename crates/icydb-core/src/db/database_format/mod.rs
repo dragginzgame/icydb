@@ -15,7 +15,7 @@ use crate::{
         commit::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
         registry::{StoreAllocationIdentities, StoreAllocationIdentity},
     },
-    error::{InternalError, RecoveryFormatMarkerError},
+    error::{ErrorClass, ErrorOrigin, InternalError, RecoveryFormatMarkerError},
 };
 use ic_memory::Memory;
 #[cfg(test)]
@@ -128,6 +128,24 @@ pub(in crate::db) enum DatabaseFormatObservation {
     Current,
 }
 
+/// Boot-local disposition of the generated registry for one control allocation.
+/// A refused deployment must stop retrying without poisoning retained controls
+/// for a later upgrade restoring the original registry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DatabaseFormatAdmission {
+    Admitted,
+    UnsupportedRegistry,
+}
+
+impl DatabaseFormatAdmission {
+    fn into_result(self) -> Result<(), InternalError> {
+        match self {
+            Self::Admitted => Ok(()),
+            Self::UnsupportedRegistry => Err(InternalError::store_unsupported()),
+        }
+    }
+}
+
 struct StoreRoleExtents {
     pages: [u64; 4],
 }
@@ -154,12 +172,12 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
     db: &crate::db::Db<C>,
 ) -> Result<(), InternalError> {
     let allocation = current_commit_memory_allocation()?;
-    ADMITTED_DATABASE_FORMATS.with(|admitted| {
+    DATABASE_FORMAT_ADMISSIONS.with(|admitted| {
         let mut admitted = admitted
             .try_borrow_mut()
             .map_err(|_| InternalError::store_invariant())?;
-        if admitted.contains(&allocation) {
-            return Ok(());
+        if let Some((_, admission)) = admitted.iter().find(|(key, _)| *key == allocation) {
+            return admission.into_result();
         }
 
         let boot_entropy = entropy::require_boot_entropy()?;
@@ -167,13 +185,25 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
         let store_roles = observe_registered_store_roles(db)?;
         let fresh = admit_or_initialize_database_format(control_memory.as_ref(), &store_roles)
             .map_err(map_admission_error)?;
-        convergence::ensure_current_convergence_format::<C>(
+        if let Err(error) = convergence::ensure_current_convergence_format::<C>(
             db,
             &control_memory,
             fresh,
             boot_entropy,
-        )?;
-        admitted.push(allocation);
+        ) {
+            // These refusals are static registry incompatibilities, established
+            // before publication. Keep their exact detail-free diagnostic in
+            // this heap only; entropy, resource and corrupt-control failures
+            // retain their existing retry/receipt behavior.
+            if error.class() == ErrorClass::Unsupported
+                && error.origin() == ErrorOrigin::Store
+                && error.detail().is_none()
+            {
+                admitted.push((allocation, DatabaseFormatAdmission::UnsupportedRegistry));
+            }
+            return Err(error);
+        }
+        admitted.push((allocation, DatabaseFormatAdmission::Admitted));
         Ok(())
     })
 }
@@ -182,7 +212,9 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
 // this boot's admission has replaced it with an entropy-backed key.
 pub(in crate::db) fn require_cursor_key_admitted() -> Result<(), InternalError> {
     let allocation = current_commit_memory_allocation()?;
-    if ADMITTED_DATABASE_FORMATS.with_borrow(|admitted| admitted.contains(&allocation)) {
+    if DATABASE_FORMAT_ADMISSIONS
+        .with_borrow(|admitted| admitted.contains(&(allocation, DatabaseFormatAdmission::Admitted)))
+    {
         Ok(())
     } else {
         Err(InternalError::recovery_pending())
@@ -192,7 +224,7 @@ pub(in crate::db) fn require_cursor_key_admitted() -> Result<(), InternalError> 
 /// Model the volatile format-admission reset performed by an upgrade.
 #[cfg(test)]
 pub(in crate::db) fn forget_database_format_admission_for_tests() {
-    ADMITTED_DATABASE_FORMATS.with_borrow_mut(Vec::clear);
+    DATABASE_FORMAT_ADMISSIONS.with_borrow_mut(Vec::clear);
 }
 
 /// Inspect the boot record and fresh-control admission without mutation.
@@ -200,6 +232,11 @@ pub(in crate::db) fn observe_database_format(
     stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
 ) -> Result<DatabaseFormatObservation, InternalError> {
     let allocation = current_commit_memory_allocation()?;
+    if DATABASE_FORMAT_ADMISSIONS.with_borrow(|admitted| {
+        admitted.contains(&(allocation, DatabaseFormatAdmission::UnsupportedRegistry))
+    }) {
+        return Err(InternalError::store_unsupported());
+    }
     let control_memory = commit_memory_handle(allocation)?;
     match inspect_boot_record(&control_memory).map_err(map_admission_error)? {
         BootInspection::Present(record)
@@ -440,7 +477,7 @@ thread_local! {
     // Generated stable-memory stores are thread-local. Admission authority
     // must have the same lifetime so one runtime cannot inherit readiness for
     // another runtime's empty memory.
-    static ADMITTED_DATABASE_FORMATS: RefCell<Vec<CommitMemoryAllocation>> =
+    static DATABASE_FORMAT_ADMISSIONS: RefCell<Vec<(CommitMemoryAllocation, DatabaseFormatAdmission)>> =
         const { RefCell::new(Vec::new()) };
 }
 

@@ -5,7 +5,7 @@
 
 mod render;
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 
 use crate::{
     cli::CanisterTarget,
@@ -19,7 +19,7 @@ pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
     let report = call_endpoint::<icydb::db::StorageReport>(
         target.environment(),
         target.canister_name(),
-        Endpoint::Snapshot,
+        RpcMethod::Snapshot,
         (),
         "snapshot",
         IcpCallKind::Query,

@@ -15,7 +15,7 @@ use crate::cli::{
 };
 use crate::icp::{IcpCallKind, call_query_hex, call_update_hex};
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 use serde::de::DeserializeOwned;
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -56,7 +56,7 @@ pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
 fn call_endpoint<T: serde::Serialize + DeserializeOwned>(
     environment: &str,
     canister: &str,
-    endpoint: Endpoint,
+    endpoint: RpcMethod,
     arguments: impl serde::Serialize,
     label: &str,
     kind: IcpCallKind,
@@ -88,7 +88,7 @@ pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
     label: &str,
     environment: &str,
     canister: &str,
-    endpoint: Endpoint,
+    endpoint: RpcMethod,
     kind: IcpCallKind,
 ) -> Result<T, String> {
     let response = endpoint

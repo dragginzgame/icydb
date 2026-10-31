@@ -5,6 +5,7 @@ use crate::{
         Keyword, SqlExpectedToken, SqlParseError, TokenKind,
         types::{Token, parse_number_literal},
     },
+    types::{Float32, Float64},
     value::Value,
 };
 
@@ -41,19 +42,8 @@ impl SqlTokenCursor {
         if matches!(self.peek_kind(), Some(TokenKind::BlobLiteral(_))) {
             return self.take_blob_literal();
         }
-        if self.peek_u256_literal() {
-            self.advance();
-            let Value::Text(value) = self.take_string_literal()? else {
-                return Err(SqlParseError::invalid_numeric_literal());
-            };
-            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(SqlParseError::invalid_numeric_literal());
-            }
-
-            return value
-                .parse()
-                .map(Value::U256)
-                .map_err(|_| SqlParseError::invalid_numeric_literal());
+        if self.peek_typed_numeric_literal() {
+            return self.take_typed_numeric_literal();
         }
         if matches!(self.peek_kind(), Some(TokenKind::StringLiteral(_))) {
             return self.take_string_literal();
@@ -77,12 +67,47 @@ impl SqlTokenCursor {
         Ok(literal)
     }
 
-    /// Return whether the current tokens begin the closed `U256 'decimal'`
-    /// literal form. Requiring the following string keeps a field named
-    /// `u256` unambiguous.
-    pub(in crate::db) fn peek_u256_literal(&self) -> bool {
-        self.peek_identifier_keyword("U256")
+    /// Recognize the closed numeric atom spellings only before a string.
+    /// These type names remain ordinary field identifiers in every other position.
+    pub(in crate::db) fn peek_typed_numeric_literal(&self) -> bool {
+        (self.peek_identifier_keyword("U256")
+            || self.peek_identifier_keyword("FLOAT32")
+            || self.peek_identifier_keyword("FLOAT64"))
             && matches!(self.peek_next_kind(), Some(TokenKind::StringLiteral(_)))
+    }
+
+    // The caller established one of the three prefixes above. Reuse finite
+    // atom admission; bare numbers deliberately retain their existing typing.
+    fn take_typed_numeric_literal(&mut self) -> Result<Value, SqlParseError> {
+        let unsigned = self.peek_identifier_keyword("U256");
+        let float32 = self.peek_identifier_keyword("FLOAT32");
+        self.advance();
+        let Value::Text(value) = self.take_string_literal()? else {
+            return Err(SqlParseError::invalid_numeric_literal());
+        };
+        if unsigned {
+            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(SqlParseError::invalid_numeric_literal());
+            }
+            value
+                .parse()
+                .map(Value::U256)
+                .map_err(|_| SqlParseError::invalid_numeric_literal())
+        } else if float32 {
+            value
+                .parse()
+                .ok()
+                .and_then(Float32::try_new)
+                .map(Value::Float32)
+                .ok_or_else(SqlParseError::invalid_numeric_literal)
+        } else {
+            value
+                .parse()
+                .ok()
+                .and_then(Float64::try_new)
+                .map(Value::Float64)
+                .ok_or_else(SqlParseError::invalid_numeric_literal)
+        }
     }
 
     fn take_string_literal(&mut self) -> Result<Value, SqlParseError> {

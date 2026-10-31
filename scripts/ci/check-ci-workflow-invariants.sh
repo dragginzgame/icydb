@@ -41,7 +41,7 @@ make_target_recipe() {
 ci_provider_test_selection() {
   local target="$1" package="$2" recipe word value index=0
   local cargo_test=false workspace=false all_targets=false excluded=false
-  local selected_package=false locked=false libtest=false
+  local selected_package=false locked=false libtest=false adapter_manifest=false
   local words=() expected_binaries=("${@:3}") selected_binaries=()
   # Join Make continuations before shell tokenization, including on Bash 3.2.
   recipe="$(make_target_recipe "$target" | awk '/^\t/ {
@@ -66,7 +66,10 @@ ci_provider_test_selection() {
       [[ "$word" == --nocapture ]] || return 1
       continue
     fi
+    # Match literal Make expansions; these are not shell substitutions.
+    # shellcheck disable=SC2016
     case "$word" in
+      '$(ADAPTER_MANIFEST_FLAG)') adapter_manifest=true ;;
       --locked) locked=true ;;
       --verbose|-v|--no-fail-fast) ;;
       --workspace) workspace=true ;;
@@ -90,9 +93,14 @@ ci_provider_test_selection() {
   done
   [[ "$cargo_test" == true && "$locked" == true ]] || return 1
   if [[ "$package" == workspace ]]; then
-    [[ "$workspace" == true && "$all_targets" == true && "$excluded" == true ]]
+    [[ "$workspace" == true && "$all_targets" == true ]] || return 1
+    if [[ "$target" == _ci-workspace-tests ]]; then
+      [[ "$adapter_manifest" == false && "$excluded" == false ]]
+    else
+      [[ "$adapter_manifest" == true && "$excluded" == true ]]
+    fi
   else
-    [[ "$workspace" == false && "$all_targets" == false && "$selected_package" == true &&
+    [[ "$adapter_manifest" == true && "$workspace" == false && "$all_targets" == false && "$selected_package" == true &&
        "${#expected_binaries[@]}" -gt 0 && "${#selected_binaries[@]}" == "${#expected_binaries[@]}" ]]
   fi
 }
@@ -105,6 +113,7 @@ if [[ -z "${workflow_files[*]:-}" ]]; then
 fi
 
 ci_json=""
+adapter_json=""
 for workflow in "${workflow_files[@]}"; do
   parsed="$("$YQ" -p yaml -o json -I 0 '.' "$workflow")" || {
     echo "[ERROR] cannot parse workflow: $workflow" >&2; exit 1;
@@ -120,22 +129,16 @@ for workflow in "${workflow_files[@]}"; do
     fail "$workflow: $findings"
   fi
   if [[ "$workflow" == .github/workflows/ci.yml ]]; then ci_json="$parsed"; fi
+  if [[ "$workflow" == .github/workflows/canic-adapter.yml ]]; then adapter_json="$parsed"; fi
 done
-[[ -n "$ci_json" ]] || { echo '[ERROR] central CI workflow is missing' >&2; exit 1; }
+[[ -n "$ci_json" && -n "$adapter_json" ]] || { echo '[ERROR] product or adapter workflow is missing' >&2; exit 1; }
 
-# Cargo observes inherited wrappers even during formatter installation. Each
-# job selecting sccache must provision it; static jobs use Cargo directly.
-unprepared_wrapper_jobs="$(jq -r '
-  . as $workflow | .jobs | to_entries[]
-  | select((.value.env.RUSTC_WRAPPER // $workflow.env.RUSTC_WRAPPER // "") == "sccache")
-  | select(any(.value.steps[]?; (.uses // "" | startswith("mozilla-actions/sccache-action@"))) | not)
-  | .key
-' <<< "$ci_json")"
-if [[ -n "$unprepared_wrapper_jobs" ]]; then
-  fail "jobs select sccache without provisioning it: $unprepared_wrapper_jobs"
+if ! rg -q --fixed-strings 'ADAPTER_MANIFEST := $(ROOT_DIR)/testing/canic-adapter/Cargo.toml' Makefile ||
+   ! rg -q --fixed-strings 'ADAPTER_MANIFEST_FLAG := --manifest-path "$(ADAPTER_MANIFEST)"' Makefile; then
+  fail "adapter selections must use the independently locked qualification workspace"
 fi
 
-for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b; do
+for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-adapter ci-adapter-sql-tier-a ci-sql-tier-b; do
   if ! rg -q "^${target}:$" Makefile; then
     fail "Make is missing the shared $target validation authority"
   fi
@@ -174,9 +177,9 @@ for target in _test-canister-libs test-integration-feedback \
   fi
 done
 
-for route in 'ci-workspace _ci-workspace-tests' 'ci-workspace _test-canister-libs' \
-  'ci-workspace _test-durability-integration' \
-  'ci-workspace test-canister-artifact-contract' \
+for route in 'ci-workspace _ci-workspace-tests' 'ci-adapter _ci-adapter-workspace-tests' 'ci-adapter _test-adapter-contracts' 'ci-adapter _ci-adapter-workspace-clippy' 'ci-adapter _test-canister-libs' \
+  'ci-adapter _test-durability-integration' \
+  'ci-adapter test-canister-artifact-contract' \
   'ci-sql-tier-b _ci-tier-b-sql-canister' 'ci-sql-tier-b _ci-tier-b-sql-perf'; do
   read -r parent child <<< "$route"
   if ! make_target_recipe "$parent" | awk '/^\t/ { print }' |
@@ -185,7 +188,21 @@ for route in 'ci-workspace _ci-workspace-tests' 'ci-workspace _test-canister-lib
   fi
 done
 
+# Product dispatch must not acquire composition inputs or invoke its leaves.
+for target in ci-core ci-workspace ci-sql-tier-a test test-unit _test-workspace \
+  clippy validate validate-fast check-invariants check-portable-automation \
+  test-durability test-documentation release-preflight; do
+  if make_target_recipe "$target" | rg -q '\$\(ADAPTER_|_test-adapter|_test-canister-libs|_test-durability-integration|_ci-adapter|_ci-workspace-integration|_ci-tier-a-integration|test-canister-artifact-contract|fetch-adapter|test-testkit-tooling|test-pocketic-server-wrapper|icydb-testing-model-facade-only'; then
+    fail "$target routes product acceptance into adapter qualification"
+  fi
+done
+if ! rg -q '^VALIDATION_RUNNER := .*--input Cargo.toml --input Cargo.lock --input rust-toolchain.toml$' Makefile ||
+   ! rg -q '^ADAPTER_VALIDATION_RUNNER := .*--input testing/canic-adapter/Cargo.toml --input testing/canic-adapter/Cargo.lock$' Makefile; then
+  fail "validation input custody must follow product and adapter ownership"
+fi
+
 if ! ci_provider_test_selection _ci-workspace-tests workspace ||
+   ! ci_provider_test_selection _ci-adapter-workspace-tests workspace ||
    ! ci_provider_test_selection _ci-tier-b-sql-canister icydb-testing-integration sql_canister ||
    ! ci_provider_test_selection _ci-tier-b-sql-perf icydb-testing-integration sql_perf_audit; then
   fail "SQL coverage providers require unfiltered workspace and Tier B Cargo test selections"
@@ -224,7 +241,7 @@ if [[ "$tier_b_perf_target_refs" -lt 3 ]] ||
   fail "Tier B must retain the total-only SQL performance gate"
 fi
 
-for job in static rust macos_host wasm_size_report; do
+for job in static rust macos_host; do
   if ! ci_job_runs "$job" | rg -q --fixed-strings '.tools/rust/common/bin'; then
     fail "$job must expose the shared Rust tool directory to later CI steps"
   fi

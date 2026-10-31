@@ -3,7 +3,7 @@
 //! Does not own: generic canister lifecycle commands or project discovery.
 //! Boundary: exposes fixture command construction and cycle parsing to the ICP command owner.
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 
 use std::process::Command;
 
@@ -81,7 +81,7 @@ fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128
 }
 
 fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String> {
-    let arguments = canic_icydb::wire::Endpoint::FixturesLoad
+    let arguments = icydb::__macro::RpcMethod::FixturesLoad
         .encode_request((), icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
         .map_err(|error| error.to_string())?;
     let response = crate::icp::call::call_hex(
@@ -96,11 +96,11 @@ fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String
 
 fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, String> {
     let bytes = response.map_err(fixture_load_error)?;
-    let result: Result<(), icydb::Error> = canic_icydb::wire::Endpoint::FixturesLoad
+    let result: Result<(), icydb::Error> = icydb::__macro::RpcMethod::FixturesLoad
         .decode_response(&bytes, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .map_err(|error| {
             fixture_load_error(IcpCallKind::Update.reply_error(
-                crate::diagnostic::render_wire_decode_error(Endpoint::FixturesLoad, error),
+                crate::diagnostic::render_wire_decode_error(RpcMethod::FixturesLoad, error),
             ))
         })?;
     result
@@ -111,7 +111,7 @@ fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, Stri
 fn fixture_load_error(stderr: String) -> String {
     format!(
         "icp canister call {} failed: {stderr}",
-        Endpoint::FixturesLoad.name(),
+        RpcMethod::FixturesLoad.name(),
     )
 }
 
@@ -123,7 +123,7 @@ pub(super) fn fixtures_load_command(
     crate::icp::call::icp_update_command(
         environment,
         canister,
-        Endpoint::FixturesLoad.name(),
+        RpcMethod::FixturesLoad.name(),
         argument_file,
     )
 }

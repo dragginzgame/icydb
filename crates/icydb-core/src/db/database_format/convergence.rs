@@ -873,6 +873,90 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_registry_is_observed_until_boot_reset_without_control_writes() {
+        crate::testing::run_isolated(|| {
+            use crate::db::database_format::{
+                DatabaseFormatObservation, ensure_database_format_admitted,
+                forget_database_format_admission_for_tests, observe_database_format,
+                require_cursor_key_admitted,
+            };
+
+            select_commit_memory_allocation(
+                ConvergenceCanister::commit_memory_id().unwrap(),
+                ConvergenceCanister::COMMIT_STABLE_KEY,
+            );
+            let allocation = current_commit_memory_allocation().unwrap();
+            let control = commit_memory_handle(allocation).unwrap();
+            let (_root, database) = database(&LIFE_A_REGISTRY);
+            ensure_current_convergence_format(&database, &control, true, [0x17; 32]).unwrap();
+            let PersistedCommitControlObservation::Current {
+                incarnation,
+                cursor_authentication_key,
+                database_commit_sequence,
+                registry,
+                ..
+            } = inspect_persisted_commit_control(control.clone()).unwrap()
+            else {
+                panic!("fresh controls must be current");
+            };
+            let retired = registry
+                .into_iter()
+                .map(PersistedStoreAllocation::retired)
+                .collect::<Vec<_>>();
+            let replacement = prepare_commit_control_replacement(
+                control.clone(),
+                incarnation,
+                cursor_authentication_key,
+                database_commit_sequence,
+                &retired,
+            )
+            .unwrap();
+            apply_prepared_commit_control_replacement(replacement);
+            let byte_len = usize::try_from(
+                control
+                    .size()
+                    .checked_mul(super::super::WASM_PAGE_BYTES)
+                    .unwrap(),
+            )
+            .unwrap();
+            let mut before = vec![0; byte_len];
+            control.read(0, &mut before);
+
+            for _ in 0..2 {
+                let error = ensure_database_format_admitted(&database).unwrap_err();
+                assert_eq!(error.class(), ErrorClass::Unsupported);
+                assert_eq!(error.origin(), ErrorOrigin::Store);
+                assert!(error.detail().is_none());
+                let observed = observe_database_format(&LIFE_A_REGISTRY).unwrap_err();
+                assert_eq!(observed.diagnostic(), error.diagnostic());
+                assert!(observed.diagnostic_facts().is_empty());
+                assert!(require_cursor_key_admitted().is_err());
+            }
+            let mut after = vec![0; before.len()];
+            control.read(0, &mut after);
+            assert_eq!(after, before);
+
+            // One refused control allocation cannot poison another selection.
+            select_commit_memory_allocation(250, "icydb.test.refusal.other.v1");
+            assert_eq!(
+                observe_database_format(&LIFE_EMPTY_REGISTRY).unwrap(),
+                DatabaseFormatObservation::Uninitialized
+            );
+            select_commit_memory_allocation(allocation.memory_id, allocation.stable_key);
+            assert!(observe_database_format(&LIFE_A_REGISTRY).is_err());
+
+            // Upgrade drops the volatile refusal, leaving the old controls intact.
+            forget_database_format_admission_for_tests();
+            assert_eq!(
+                observe_database_format(&LIFE_A_REGISTRY).unwrap(),
+                DatabaseFormatObservation::Current
+            );
+            control.read(0, &mut after);
+            assert_eq!(after, before);
+        });
+    }
+
+    #[test]
     fn current_registry_rejects_debt_retirement_and_never_reuses_retired_quartets() {
         let control = std::rc::Rc::new(test_memory(126));
         let (_root, life_a) = database(&LIFE_A_REGISTRY);

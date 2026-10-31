@@ -27,7 +27,7 @@ fn icydb_memory_pool()
 
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "sql")]

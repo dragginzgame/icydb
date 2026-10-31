@@ -33,7 +33,7 @@ fn icydb_memory_pool()
 
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(all(feature = "sql", not(feature = "guarded-sql-query")))]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "guarded-sql-query")]
@@ -156,4 +156,4 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         helper_allowed: false,
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "read_authorization_cost", ReadAuthorizationCost, read_authorization_cost, (), Result<ReadAuthorizationCostResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "read_authorization_cost", ReadAuthorizationCost, read_authorization_cost, (), Result<ReadAuthorizationCostResult, icydb::Error>);

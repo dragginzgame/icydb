@@ -13,7 +13,7 @@ macro_rules! request_future_queries {
                 icydb_testing_wasm_helpers::fixture_wire::$marker::ID,
                 {
                     canic_icydb::__private::cdk::futures::spawn(async {
-                        icydb_testing_wasm_helpers::fixture_wire::serve_async::<_, _, _>(icydb_testing_wasm_helpers::fixture_wire::$marker::ID, |()| $name()).await;
+                        icydb_testing_canic_adapter::serve_async::<_, _, _>(icydb_testing_wasm_helpers::fixture_wire::$marker::ID, |()| $name()).await;
                     });
                 }
             );

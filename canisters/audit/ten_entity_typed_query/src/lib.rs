@@ -29,7 +29,7 @@ fn query_ten_entity_typed_rows() -> u32 {
             .map_or(0, |row| u32::from(row.is_some()))
     })
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "query_ten_entity_typed_rows",
     QueryTenEntityTypedRows,

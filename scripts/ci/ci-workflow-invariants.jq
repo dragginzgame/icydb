@@ -19,12 +19,37 @@ def fetches_locked_workspace:
 # Native-only lanes select the complete common roster without Testkit's server
 # extension; live lanes must explicitly select the existing product owner.
 def admits_server_tools:
-  run_text as $run |
-  ($run | test("(^|\\s)(install-testkit|testkit-check)(\\s|$)")) or
-  (($run | test("(?m)^[ \\t]*make[ \\t]+install-tools([ \\t]|$)")) and
-    ($run | test("(?m)^[ \\t]*make[ \\t]+install-tools[ \\t]+LOCAL_TOOL_INSTALL_TARGETS=[ \\t]*(>|$)") | not)) or
-  (($run | test("(?m)^[ \\t]*make[ \\t]+tools-check([ \\t]|$)")) and
-    ($run | test("(?m)^[ \\t]*make[ \\t]+tools-check[ \\t]+LOCAL_TOOL_CHECK_TARGETS=[ \\t]*(>|$)") | not));
+  run_text | test("(^|\\s)(install-testkit|testkit-check)(\\s|$)");
+def has_run($pattern):
+  any(.steps[]?; (run_text | test($pattern)) and .if == null and (.["continue-on-error"] // false) == false);
+def msrv_gate($script):
+  . as $job |
+  require($job.env.RUSTUP_TOOLCHAIN | if type == "string" then test("^[0-9]+\\.[0-9]+\\.[0-9]+$") else false end;
+    "MSRV must explicitly select its compiler"),
+  require(any($job.steps[]?; (.uses // "" | startswith("dtolnay/rust-toolchain@"))
+    and .with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}" and .with.targets == "wasm32-unknown-unknown");
+    "MSRV must install its selected compiler and Wasm target"),
+  require(all($job.steps[]?; .env.RUSTUP_TOOLCHAIN == null and .if == null and (.["continue-on-error"] // false) == false);
+    "MSRV steps must retain compiler selection and stop on failure"),
+  require($job | has_run("^\\s*bash scripts/ci/" + $script + "\\s*$"); "MSRV must run its owned compiler gate"),
+  ($job.steps as $steps | range(0; $steps|length) as $i |
+    select($steps[$i] | run_text | contains($script)) |
+    require(any($steps[0:$i][]; fetches_locked_workspace); "MSRV needs earlier locked cache preparation"));
+def matrix_routes($routes):
+  . as $job |
+  require($job.strategy["fail-fast"] == false; "parallel Rust validation must retain every lane"),
+  ($routes[] as $route | require(any($job.strategy.matrix.include[]?; .lane==$route[0] and .make_target==$route[1]);
+    "missing owned Rust lane \($route[0])")),
+  require(any($job.steps[]?; (run_text|contains("make \"$MAKE_TARGET\"")) and .env.MAKE_TARGET=="${{ matrix.make_target }}");
+    "Rust validation must select its matrix Make target");
+
+def ic_preparation($when; $caller):
+  .steps as $steps |
+  require(any(range(0; $steps|length); . as $i |
+    ($steps[$i] | .if==$when and (.["continue-on-error"]//false)==false
+      and (run_text|contains("make install-ic-tools >")) and (run_text|contains("make ic-tools-check >")))
+    and any($steps[$i+1:][]; run_text|contains($caller)));
+    "IC tools require setup and admission before the owned build/report");
 
 # One object and an explicit permission owner are required in every workflow.
 require(type == "object" and (.jobs | type == "object") and (.jobs | length > 0);
@@ -50,126 +75,96 @@ require(has("permissions") and (.permissions != null);
 ({file: $file, kind: "workflow", data: .} | checks | select(.rule == "action-ref") |
   "[\(.rule)] \(.subject) = \(.value): \(.message)"),
 
-# Only the central CI workflow owns these product-specific topology rules.
+(. as $workflow | .jobs | to_entries[] |
+  select((.value.env.RUSTC_WRAPPER // $workflow.env.RUSTC_WRAPPER // "") == "sccache") |
+  require(any(.value.steps[]?; (.uses // "" | startswith("mozilla-actions/sccache-action@")));
+    "job \(.key) selects sccache without provisioning it")),
+
+(select($file == ".github/workflows/ci.yml" or $file == ".github/workflows/canic-adapter.yml") |
+  (.jobs | to_entries[] | .key as $job | .value.steps[]? |
+    select(.uses=="./.github/actions/retain-failure-evidence") |
+    require(.with["ic-tools"]=="${{ env.IC_TOOLS }}"; "\($job) evidence needs its IC selection")),
+  require(.jobs.macos_host | has_run("(^|\\n)\\s*make install-dev\\s*($|\\n)"); "native host requires workstation preparation"),
+  require(.env.IC_TOOLS=="icp ic-wasm wasm-opt"; "workstation needs its complete IC selection"),
+  require(.jobs.macos_host.env.IC_TOOLS==null; "native host must retain workstation IC selection"),
+  ([["rust","wasm-opt"],["wire_browser","wasm-opt"]][] as $selection |
+    require(.jobs[$selection[0]].env.IC_TOOLS==$selection[1]; "owned lane needs its IC selection"))),
+
 (select($file == ".github/workflows/ci.yml") |
   . as $ci |
-  (["dependency_msrv", "static", "rust", "macos_host", "wire_browser", "check", "wasm_size_report", "release"][] as $job |
-    require($ci.jobs | has($job); "CI is missing the \($job) validation job")),
-  # Installation alone does not override rust-toolchain.toml. The executable
-  # gate compares the selected compiler with the public manifest's own floor.
-  require(.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN |
-    if type == "string" then test("^[0-9]+\\.[0-9]+\\.[0-9]+$") else false end;
-    "public MSRV must explicitly select its compiler"),
-  require(any(.jobs.dependency_msrv.steps[]?;
-    (.uses // "" | startswith("dtolnay/rust-toolchain@"))
-    and .with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}"
-    and .with.targets == "wasm32-unknown-unknown");
-    "public MSRV must install its selected compiler and Wasm target"),
-  require(all(.jobs.dependency_msrv.steps[]?;
-    .env.RUSTUP_TOOLCHAIN == null and .if == null and (.["continue-on-error"] // false) == false);
-    "public MSRV steps must retain compiler selection and stop on failure"),
-  require(any(.jobs.dependency_msrv.steps[]?;
-    run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$"));
-    "public MSRV must run its compiler and public feature gate"),
-  (.jobs.dependency_msrv.steps as $steps |
-    range(0; ($steps | length)) as $index |
-    select($steps[$index] | run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$")) |
-    require(any($steps[0:$index][]; fetches_locked_workspace);
-      "public MSRV requires earlier locked cache preparation")),
-  # Shared selection identities must match the actual executables each lane uses.
-  require(.env.IC_TOOLS == "icp ic-wasm wasm-opt";
-    "workstation qualification requires the developer IC executable selection"),
-  ([["rust", "wasm-opt"], ["wire_browser", "wasm-opt"],
-    ["wasm_size_report", "ic-wasm wasm-opt"]][] as $selection |
-    require(.jobs[$selection[0]].env.IC_TOOLS == $selection[1];
-      "\($selection[0]) requires its explicit IC executable selection")),
-  require(.jobs.macos_host.env.IC_TOOLS == null;
-    "native workstation qualification must retain the developer IC selection"),
-  # Server setup is selected by lane; each lane must retain its matching body.
-  ([["core", "ci-core"], ["workspace", "ci-workspace"],
-    ["tier-a", "ci-sql-tier-a"], ["tier-b", "ci-sql-tier-b"]][] as $selection |
-    require(any(.jobs.rust.strategy.matrix.include[]?;
-      .lane == $selection[0] and .make_target == $selection[1]);
-      "CI must bind \($selection[0]) to \($selection[1])")),
-  require(.jobs.rust.strategy["fail-fast"] == false;
-    "parallel Rust validation must retain every lane after one fails"),
-  # Workspace build-cache tests compile real Wasm, just like the live Tier B lane.
-  # Require their target before dispatch, independently of any restored cache.
+  (["dependency_msrv","static","rust","macos_host","wire_browser","check"][] as $job |
+    require($ci.jobs|has($job); "CI is missing product job \($job)")),
+  (.jobs.dependency_msrv | msrv_gate("check-public-msrv.sh")),
+  (.jobs.rust | ic_preparation("matrix.lane == 'workspace'"; "make \"$MAKE_TARGET\"")),
+  (.jobs.rust | matrix_routes([["core","ci-core"],["workspace","ci-workspace"],["tier-a","ci-sql-tier-a"]])),
+  require(.jobs.check | needs_are(["static","rust","macos_host","wire_browser"]);
+    "product check must aggregate only product lanes"),
+  require(.jobs | has("wasm_size_report")|not; "Canic Wasm evidence belongs to adapter qualification"),
+  require(.jobs | has("release")|not; "canister artifact delivery belongs to adapter qualification"),
+  require(any(.jobs.static.steps[]?; run_text|test("^\\s*make ci-static\\s*$")); "static must use its local product authority"),
+  require(.jobs.wire_browser | has_run("^\\s*make check-wire-browser\\s*$"); "product browser gate must exercise native codec contracts"),
+  require(any(.jobs.macos_host.steps[]?; run_text|contains("make check-portable-automation")); "native host must execute portable product fixtures"),
+  (.jobs | to_entries[] | .key as $job | .value.steps[]? |
+    require(run_text|test("testing/canic-adapter|fetch-adapter|install-testkit|testkit-check|check-canic-adapter-msrv|icydb-testing-integration|test-wire-browser|build-canister-production")|not;
+      "product job \($job) dispatches adapter qualification")),
+  require(all(.jobs.rust.strategy.matrix.include[]?; .lane != "tier-b"); "installed Tier B belongs to adapter qualification"),
+  (.jobs.rust.steps as $steps | range(0; $steps|length) as $i |
+    select($steps[$i]|run_text|contains("make \"$MAKE_TARGET\"")) |
+    require(any($steps[0:$i][]; fetches_locked_workspace); "Rust product checks require earlier locked fetching"),
+    require(any($steps[0:$i][]; .if=="matrix.lane == 'workspace'" and (run_text|test("^\\s*rustup target add wasm32-unknown-unknown\\s*$"))
+      and (.["continue-on-error"]//false)==false); "workspace cache tests require their Wasm target")),
+  (["static","rust"][] as $job |
+    require(any(.jobs[$job].steps[]?; .if==null and (.["continue-on-error"]//false)==false
+      and (run_text|contains("make install-tools LOCAL_TOOL_INSTALL_TARGETS="))
+      and (run_text|contains("make tools-check LOCAL_TOOL_CHECK_TARGETS="))); "product \($job) needs explicit common setup and admission")),
+  (["static","rust","macos_host"][] as $job |
+    require(any(.jobs[$job].steps[]?; .if=="failure()" and .uses=="./.github/actions/retain-failure-evidence"
+      and .with["temp-root"]=="${{ runner.temp }}" and .with["repository-root"]=="${{ github.workspace }}"
+      and .with["ic-tools"]=="${{ env.IC_TOOLS }}"); "product \($job) must retain tooling failures"))),
+
+(select($file == ".github/workflows/canic-adapter.yml") |
+  . as $adapter |
+  (["dependency_msrv","static","rust","macos_host","wire_browser","check","wasm_size_report","release"][] as $job |
+    require($adapter.jobs|has($job); "adapter qualification is missing \($job)")),
+  require(.on|has("workflow_dispatch"); "adapter qualification must be explicitly dispatchable"),
+  require((.on.push.paths|length)>0 and (.on.pull_request.paths|length)>0;
+    "adapter qualification must scope automatic runs to integration changes"),
+  require(all(.on.push.paths[],.on.pull_request.paths[]; . != "crates/**" and . != "Cargo.toml" and . != "Cargo.lock");
+    "unrelated core edits must not require adapter alignment"),
+  (.jobs.dependency_msrv | msrv_gate("check-canic-adapter-msrv.sh")),
+  require(.jobs.wasm_size_report.env.IC_TOOLS=="ic-wasm wasm-opt"; "adapter Wasm report needs its IC selection"),
+  (.jobs.rust | ic_preparation("matrix.lane == 'workspace' || matrix.lane == 'tier-b'"; "make \"$MAKE_TARGET\"")),
+  (.jobs.wasm_size_report | ic_preparation(null; "bash scripts/ci/wasm-size-report.sh")),
+  require(any(.jobs.static.steps[]?; .if==null and (.["continue-on-error"]//false)==false
+    and (run_text|contains("bash scripts/ci/testkit-runner.sh\n"))
+    and (run_text|contains("bash scripts/ci/testkit-runner.sh --check")));
+    "adapter static fixtures require explicit CLI preparation/admission"),
+  (.jobs.rust | matrix_routes([["workspace","ci-adapter"],["tier-a","ci-adapter-sql-tier-a"],["tier-b","ci-sql-tier-b"]])),
+  require(.jobs.static | has_run("^\\s*make check-adapter-automation\\s*$"); "adapter automation needs its local owner"),
+  require(.jobs.wire_browser | has_run("^\\s*make test-wire-browser\\s*$"); "installed browser qualification must remain selected"),
+  require(.jobs.check | needs_are(["static","rust","macos_host","wire_browser"]); "adapter check must aggregate its own proof"),
+  require(.jobs.wasm_size_report | needs_are([]); "adapter Wasm evidence must run independently"),
+  require(.jobs.release | needs_are(["dependency_msrv","check","wasm_size_report"]);
+    "canister artifacts need adapter MSRV, validation and Wasm evidence"),
   (.jobs.rust.steps as $steps |
-    range(0; ($steps | length)) as $index |
-    select($steps[$index] | run_text | contains("make \"$MAKE_TARGET\"")) |
-    require($steps[$index].env.MAKE_TARGET == "${{ matrix.make_target }}";
-      "Rust validation must select its matrix Make target"),
-    require(any($steps[0:$index][];
-      .if == "matrix.lane == 'workspace' || matrix.lane == 'tier-b'"
-      and (.["continue-on-error"] // false) == false
-      and (run_text | test("^\\s*rustup target add wasm32-unknown-unknown\\s*$")));
-      "workspace and Tier B require earlier Wasm target installation that stops on failure")),
-  require(.jobs.check | needs_are(["static", "rust", "macos_host", "wire_browser"]);
-    "terminal check must aggregate every validation lane"),
-  require(.jobs.wasm_size_report | needs_are([]);
-    "Wasm evidence must run independently from validation"),
-  require(.jobs.release | needs_are(["dependency_msrv", "check", "wasm_size_report"]);
-    "release artifacts must require MSRV, validation and Wasm evidence"),
-  require(if .on | type == "object" then
-    if .on.push | type == "object" then .on.push | has("tags") | not else true end
-    else true end; "CI must not duplicate the release commit through a tag trigger"),
-  # Static wrapper fixtures use the locked CLI with substitute server bytes.
-  require(any(.jobs.static.steps[]?;
-    .if == null and (.["continue-on-error"] // false) == false
-    and (run_text | contains("bash scripts/ci/testkit-runner.sh\n"))
-    and (run_text | contains("bash scripts/ci/testkit-runner.sh --check")));
-    "static wrapper fixtures require explicit locked CLI preparation and admission"),
-  require(all(.jobs.static.steps[]?;
-    admits_server_tools | not);
-    "static fixtures require the CLI without official server provisioning"),
-  (["static", "rust", "wasm_size_report"][] as $job |
-    require(any(.jobs[$job].steps[]?;
-      .if == null and (.["continue-on-error"] // false) == false
-      and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-tools[ \\t]+LOCAL_TOOL_INSTALL_TARGETS=[ \\t]*(>|$)"))
-      and (run_text | test("(?m)^[ \\t]*make[ \\t]+tools-check[ \\t]+LOCAL_TOOL_CHECK_TARGETS=[ \\t]*(>|$)")));
-      "\($job) requires complete common setup and offline admission")),
-  (["static", "rust", "macos_host", "wasm_size_report"][] as $job |
-    require(any(.jobs[$job].steps[]?;
-      .if == "failure()" and .uses == "./.github/actions/retain-failure-evidence"
-      and .with["temp-root"] == "${{ runner.temp }}"
-      and .with["repository-root"] == "${{ github.workspace }}"
-      and .with["ic-tools"] == "${{ env.IC_TOOLS }}");
-      "\($job) requires shared tooling failure retention")),
-  # IC build/report tools are separate from both common tools and Testkit's server.
-  # Credit only explicit setup/admission before the lane's actual caller.
-  ([["rust", "matrix.lane == 'workspace' || matrix.lane == 'tier-b'"],
-    ["wasm_size_report", null]][] as $selection |
-    $selection[0] as $job | .jobs[$job].steps as $steps |
-    require(any(range(0; ($steps | length)); . as $index |
-      ($steps[$index] | .if == $selection[1]
-        and (.["continue-on-error"] // false) == false
-        and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-ic-tools[ \\t]+>"))
-        and (run_text | test("(?m)^[ \\t]*make[ \\t]+ic-tools-check[ \\t]+>")))
-      and any($steps[$index + 1:][];
-        if $job == "rust" then .env.MAKE_TARGET == "${{ matrix.make_target }}"
-        else run_text | contains("bash scripts/ci/wasm-size-report.sh") end));
-      "\($job) requires governed IC tool setup and offline admission before its build/report caller")),
-  # Only workspace durability and Tier B execute live canisters in this matrix.
-  require(any(.jobs.rust.steps[]?;
-    .if == "matrix.lane == 'workspace' || matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
-    and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-testkit[ \\t]+>"))
-    and (run_text | test("(?m)^[ \\t]*make[ \\t]+testkit-check[ \\t]+>")));
-    "workspace and Tier B require explicit Testkit server setup and admission"),
-  require(all(.jobs.rust.steps[]?;
-    if admits_server_tools then
-      .if == "matrix.lane == 'workspace' || matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
-    else true end);
-    "native Rust lanes must not provision or admit an official server"),
-  require(any(.jobs.macos_host.steps[]?;
-    .if == null and (.["continue-on-error"] // false) == false
-    and (run_text | test("^\\s*make\\s+install-dev\\s*$")));
-    "native host qualification requires explicit workstation and server setup"),
-  # Prepare the selected locked graph before explicit tool setup and checking.
-  # A cache action is optional reuse, never a substitute for explicit setup.
-  (.jobs.rust.steps as $steps |
-    range(0; ($steps | length)) as $index |
-    select($steps[$index] | run_text |
-      test("\\bmake\\s+(install-tools|install-testkit)\\b")) |
-    require(any($steps[0:$index][]; fetches_locked_workspace);
-      "Rust tool checks require an earlier unconditional workspace fetch command that stops on failure")))
+    require(any($steps[]; .if=="matrix.lane == 'workspace' || matrix.lane == 'tier-b'"
+      and (.["continue-on-error"]//false)==false and (run_text|contains("make install-testkit >"))
+      and (run_text|contains("make testkit-check >"))); "installed adapter lanes require Testkit preparation/admission")),
+  require(all(.jobs.rust.steps[]?; if admits_server_tools then
+    .if=="matrix.lane == 'workspace' || matrix.lane == 'tier-b'" and (.["continue-on-error"]//false)==false
+    else true end); "native adapter comparisons must not prepare a live server"),
+  (.jobs.rust.steps as $steps | range(0; $steps|length) as $i |
+    select($steps[$i] | run_text | test("\\bmake\\s+(install-tools|install-testkit)\\b")) |
+    require(any($steps[0:$i][]; fetches_locked_workspace); "adapter setup needs earlier locked cache preparation")),
+  (.jobs.rust.steps as $steps | range(0; $steps|length) as $i |
+    select($steps[$i] | run_text | contains("make \"$MAKE_TARGET\"")) |
+    require(any($steps[0:$i][]; .if=="matrix.lane == 'workspace' || matrix.lane == 'tier-b'"
+      and (run_text|test("^\\s*rustup target add wasm32-unknown-unknown\\s*$"))
+      and (.["continue-on-error"]//false)==false); "adapter cache and installed tests need their Wasm target")),
+  require(any(.jobs.macos_host.steps[]?; .if==null and (.["continue-on-error"]//false)==false
+    and (run_text|contains("make install-testkit")) and (run_text|contains("make testkit-check")));
+    "native adapter qualification must prepare its server")),
+
+(select($file == ".github/workflows/ci.yml" or $file == ".github/workflows/canic-adapter.yml") |
+  require(if .on|type=="object" then if .on.push|type=="object" then .on.push|has("tags")|not else true end else true end;
+    "do not duplicate release commits through tag triggers"))

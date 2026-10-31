@@ -1,0 +1,19 @@
+error[E0433]: cannot find `metrics` in `__icydb_facade`
+  --> tests/fail-endpoints/missing_metrics_capability.rs:12:1
+   |
+12 | / canic_icydb::mount! {
+13 | |     icydb_metrics(authorization = public);
+14 | | }
+   | |_^ could not find `metrics` in `__icydb_facade`
+   |
+   = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `endpoint_handlers` in `__icydb_generated`
+  --> tests/fail-endpoints/missing_metrics_capability.rs:12:1
+   |
+12 | / canic_icydb::mount! {
+13 | |     icydb_metrics(authorization = public);
+14 | | }
+   | |_^ could not find `endpoint_handlers` in `__icydb_generated`
+   |
+   = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)

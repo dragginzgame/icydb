@@ -1,0 +1,115 @@
+error[E0433]: cannot find `__icydb_generated` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_generated` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find value `__icydb_endpoints_root_binding` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ not found in the crate root
+  |
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: cannot find `__icydb_facade` in the crate root
+ --> tests/fail-endpoints/nested.rs:5:1
+  |
+5 | canic_icydb::mount! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^ could not find `__icydb_facade` in the crate root
+  |
+  = help: consider importing one of these items:
+          std::error::Error
+          std::fmt::Error
+          std::io::Error
+          core::error::Error
+          core::fmt::Error
+  = note: this error originates in the macro `$crate::__icydb_mount_endpoints` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `icydb as __icydb_facade`
+ --> tests/fail-endpoints/nested.rs:2:9
+  |
+2 |     use icydb as __icydb_facade;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `canic_icydb::__private::cdk as __icydb_host_sdk`
+ --> tests/fail-endpoints/nested.rs:3:5
+  |
+3 | use canic_icydb::__private::cdk as __icydb_host_sdk;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

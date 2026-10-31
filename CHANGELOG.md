@@ -5,6 +5,49 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.292.0]
+
+### ⚠️ Breaking
+
+- Run declared record/entity/enum/tuple type callbacks and tuple/enum payload
+  callbacks instead of silently skipping them. Review application hook declarations
+  when rebuilding; database writes still require explicit application normalization
+  ([#68](https://github.com/dragginzgame/icydb/issues/68)).
+- Convert typed adapter failures to distinct public diagnostics while preserving
+  database errors intact. Exhaustive diagnostic-reason matches must handle the
+  added cases ([#255](https://github.com/dragginzgame/icydb/issues/255)).
+- Render floats with explicit `FLOAT32`/`FLOAT64` literal spellings so SQL
+  descriptions parse back without losing their type or precision. Bare number
+  parsing is unchanged ([#232](https://github.com/dragginzgame/icydb/issues/232)).
+
+### 🩹 Fixed
+
+- Compare same-width finite floats across their full range without Decimal
+  coercion, so predicates and computed comparisons retain tiny and extreme
+  values ([#110](https://github.com/dragginzgame/icydb/issues/110), partial).
+- Stop startup retries after an unsupported allocation-registry transition and
+  expose the typed failure without changing retained controls. Restoring the
+  original actor can still recover ([#87](https://github.com/dragginzgame/icydb/issues/87)).
+
+### 🧹 Cleanup
+
+- Make explicit workspace cleanup remove all of `target/`, including nested
+  build caches and evidence. Keep evidence that must survive outside `target/`.
+- Isolate Canic qualification so the database packages and CLI resolve independently
+  of the adapter's SDK requirements. Product validation, CI and release preparation
+  are independent; explicit qualification retains endpoint and lifecycle coverage
+  ([#596](https://github.com/dragginzgame/icydb/issues/596)).
+
+### 📦 Dependencies
+
+- Adopt Memory/Storage 0.60.0, Metrics 0.24.0, Platform 0.15.2, Wire 0.13.0,
+  Host/Build 0.73.1, Host Tools/Testkit 0.75.0 and the latest committed Shared
+  snapshot. Stored formats are unchanged; exposed upstream Rust
+  types require aligned consumers. [Details](docs/changelog/0.292.md).
+- Retain Canic 0.113 and Timers 0.32.4 in isolated qualification until an aligned
+  adapter is available. Its older runtime/codec requirements do not constrain
+  database package upgrades ([supplier blocker](https://github.com/dragginzgame/canic/issues/590)).
+
 ## [0.291.0] - 2026-10-30
 
 ### ⚠️ Breaking

@@ -61,6 +61,9 @@ BEGIN {
   for (idx in sensitive) {
     sensitive_set[sensitive[idx]] = 1
   }
+  banned_set["canic"] = 1
+  banned_set["canic-icydb"] = 1
+  banned_set["canic-macros"] = 1
   banned_set["canic-cdk"] = 1
   banned_set["ic-agent"] = 1
   # Keep the resolved release aligned with the workspace dependency authority.

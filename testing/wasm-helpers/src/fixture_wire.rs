@@ -3,8 +3,8 @@
 //! The table is shared by raw fixture exports, artifact admission and native
 //! callers. IcyDB's generated endpoints retain their product-owned contracts.
 
-use canic_icydb::wire::Endpoint;
 use ic_wire::Error;
+use icydb::__macro::RpcMethod;
 use icydb::wire::{MAX_REPLY_BYTES, MAX_REQUEST_BYTES};
 use icydb_schema::wire::limits;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -48,7 +48,7 @@ macro_rules! contracts {
         )*
         /// Encode fixture or generated arguments through their current contract.
         pub fn encode_request<Q: Serialize>(name: &str, request: Q) -> Result<Vec<u8>, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.encode_request(request, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)); }
+            if let Some(endpoint) = RpcMethod::from_name(name) { return endpoint.encode_request(request, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)); }
             let id = match name {
                 $($name => $marker::ID,)*
                 _ => return Err(Error::Identity),
@@ -57,7 +57,7 @@ macro_rules! contracts {
         }
         /// Decode one fixture or generated request after resource admission.
         pub fn decode_request<Q: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<Q, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_request(bytes, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)); }
+            if let Some(endpoint) = RpcMethod::from_name(name) { return endpoint.decode_request(bytes, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES)); }
             match name {
                 $($name => ic_wire::native::decode_request($marker::ID, bytes, limits(MAX_REQUEST_BYTES)),)*
                 _ => Err(Error::Identity),
@@ -65,7 +65,7 @@ macro_rules! contracts {
         }
         /// Encode a fixture or generated response, including application errors.
         pub fn encode_response<R: Serialize>(name: &str, response: R) -> Result<Vec<u8>, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.encode_response(response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES)); }
+            if let Some(endpoint) = RpcMethod::from_name(name) { return endpoint.encode_response(response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES)); }
             let id = match name {
                 $($name => $marker::ID,)*
                 _ => return Err(Error::Identity),
@@ -74,7 +74,7 @@ macro_rules! contracts {
         }
         /// Decode a fixture or generated response after resource admission.
         pub fn decode_response<R: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<R, Error> {
-            if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_response(bytes, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES)); }
+            if let Some(endpoint) = RpcMethod::from_name(name) { return endpoint.decode_response(bytes, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES)); }
             match name {
                 $($name => ic_wire::native::decode_response($marker::ID, bytes, limits(MAX_REPLY_BYTES)),)*
                 _ => Err(Error::Identity),
@@ -303,57 +303,4 @@ contracts! {
     WireRollbackApply => ("wire_rollback_apply", false),
     WireRollbackState => ("wire_rollback_state", true),
     WriteCreatedQuest => ("write_created_quest", false),
-}
-
-/// Serve a fixture method through the same raw admission owner as generated endpoints.
-///
-/// # Panics
-/// Panics when called outside an IC canister entry point.
-pub fn serve<Q, R>(id: u64, handler: impl FnOnce(Q) -> R)
-where
-    Q: DeserializeOwned,
-    R: Serialize,
-{
-    // Keep runtime name dispatch on the native caller side. Each Wasm export
-    // instantiates only its own request decoder and identity prefix.
-    canic_icydb::serve_raw(
-        MAX_REQUEST_BYTES,
-        |bytes| ic_wire::native::decode_request(id, bytes, limits(MAX_REQUEST_BYTES)),
-        |response| ic_wire::native::encode_response(id, &response, limits(MAX_REPLY_BYTES)),
-        handler,
-    );
-}
-
-/// Serve an asynchronous fixture handler using Canic's bounded transport.
-///
-/// # Panics
-/// Panics outside an IC entrypoint; reply failure traps the current message.
-pub async fn serve_async<Q, R, F>(id: u64, handler: impl FnOnce(Q) -> F)
-where
-    Q: DeserializeOwned,
-    R: Serialize,
-    F: std::future::Future<Output = R>,
-{
-    canic_icydb::serve_raw_async(
-        MAX_REQUEST_BYTES,
-        |bytes| ic_wire::native::decode_request(id, bytes, limits(MAX_REQUEST_BYTES)),
-        |response| ic_wire::native::encode_response(id, &response, limits(MAX_REPLY_BYTES)),
-        handler,
-    )
-    .await;
-}
-
-/// Declare one raw fixture export alongside its ordinary native Rust handler.
-#[macro_export]
-macro_rules! export_wire {
-    ($(#[$cfg:meta])* $mode:ident, $name:literal, $marker:ident, $function:ident, ($($arg:ident: $ty:ty),* $(,)?), $return:ty) => {
-        canic_icydb::wire_endpoint! {
-            $(#[$cfg])*
-            $mode, $name,
-            $crate::fixture_wire::$marker::ID,
-            {
-                $crate::fixture_wire::serve::<_, _>($crate::fixture_wire::$marker::ID, |($($arg,)*): ($($ty,)*)| -> $return { $function($($arg),*) });
-            }
-        }
-    };
 }

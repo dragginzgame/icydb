@@ -38,14 +38,17 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 - During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
 - Use non-mutating format checks for final release/readiness verification.
-  `make fmt-check` is CI's complete gate for manifests, derive ordering and Rust.
+  `make fmt-check` covers root manifests, derive ordering and Rust;
+  `make fmt-adapter-check` additionally covers Canic qualification.
 - The shared pre-commit hook runs `make fmt` in an isolated index export, then
   refreshes only fully staged selected files. Partial staging rejects before
   formatting. Unselected working edits and the real index survive formatter
   failure. The reviewed hook and installer are immutable snapshot files.
 - `git push` performs no repository validation. `make test`, `make clippy`, and
   `make check` run only the operation they name; `make validate` explicitly
-  composes the complete local validation workflow. Release preparation runs
+  composes the product validation workflow. Canic composition belongs to
+  explicit `test-adapter`, `clippy-adapter` and `validate-adapter` gates and its
+  separate path-scoped CI workflow; it does not block unrelated core upgrades. Release preparation runs
   that workflow against the committed pre-bump source candidate. The shared runner
   requires a clean source tree, saves the exact preparation intent and retains
   recovery plans. Consumer metadata preparation resolves offline, formats its

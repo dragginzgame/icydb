@@ -21,6 +21,7 @@ WASM_TARGET="$ICP_DIR/$CAN.wasm"
 # Every repository ICP deployment builds here. Reuse the complete consumer gate
 # before compiling/staging Wasm; a failed lint cannot replace an older artifact.
 make --no-print-directory -C "$ROOT" clippy
+make --no-print-directory -C "$ROOT" clippy-adapter
 
 cargo run --manifest-path "$ROOT/Cargo.toml" \
     --locked \

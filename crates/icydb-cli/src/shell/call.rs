@@ -3,14 +3,14 @@
 //! Does not own: SQL routing, response decoding, or final shell rendering.
 //! Boundary: exposes shell-call wire helpers to the shell runner.
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 
 use crate::icp::{call_query_hex, call_update_hex};
 
 pub(super) fn icp_query(
     environment: &str,
     canister: &str,
-    endpoint: Endpoint,
+    endpoint: RpcMethod,
     sql: &str,
 ) -> Result<Vec<u8>, String> {
     let method = endpoint.name();
@@ -25,7 +25,7 @@ pub(super) fn icp_query(
 pub(super) fn icp_update(
     environment: &str,
     canister: &str,
-    endpoint: Endpoint,
+    endpoint: RpcMethod,
     sql: &str,
 ) -> Result<Vec<u8>, String> {
     let method = endpoint.name();

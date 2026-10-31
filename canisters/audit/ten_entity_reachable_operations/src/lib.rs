@@ -196,7 +196,7 @@ fn exercise_reachable_entity_read(entity: u8, operation: u8) -> ((u32, u64),) {
     }
     exercise_reachable_entity_operation(entity, operation)
 }
-icydb_testing_wasm_helpers::export_wire!(query, "exercise_reachable_entity_read", ExerciseReachableEntityRead, exercise_reachable_entity_read, (entity: u8, operation: u8), ((u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "exercise_reachable_entity_read", ExerciseReachableEntityRead, exercise_reachable_entity_read, (entity: u8, operation: u8), ((u32, u64),));
 
 fn exercise_reachable_entity_write(entity: u8, operation: u8) -> ((u32, u64),) {
     if !(2..=7).contains(&operation) {
@@ -204,4 +204,4 @@ fn exercise_reachable_entity_write(entity: u8, operation: u8) -> ((u32, u64),) {
     }
     exercise_reachable_entity_operation(entity, operation)
 }
-icydb_testing_wasm_helpers::export_wire!(update, "exercise_reachable_entity_write", ExerciseReachableEntityWrite, exercise_reachable_entity_write, (entity: u8, operation: u8), ((u32, u64),));
+icydb_testing_canic_adapter::export_wire!(update, "exercise_reachable_entity_write", ExerciseReachableEntityWrite, exercise_reachable_entity_write, (entity: u8, operation: u8), ((u32, u64),));

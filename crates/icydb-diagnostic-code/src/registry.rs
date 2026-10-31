@@ -705,5 +705,25 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable });
     SQL_WRITE_RESUMABLE_UPDATE_EXPRESSION_UNSUPPORTED = 282 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateExpressionUnsupported });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_BATCH_HANDLE_MISMATCH = 283 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterBatchHandleMismatch });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_BATCH_ROW_CONSUMED = 284 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterBatchRowConsumed });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_BINDING_UNAVAILABLE = 285 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterBindingUnavailable });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_ENTITY_MISMATCH = 286 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterEntityMismatch });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_FIELD_UNAVAILABLE = 287 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterFieldUnavailable });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_INCOMPATIBLE_FIELD = 288 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterIncompatibleField });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_ROW_FIELD_UNAVAILABLE = 289 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterRowFieldUnavailable });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_ROW_SHAPE_MISMATCH = 290 => RuntimeInvariantViolation,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterRowShapeMismatch });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_STALE_BINDING = 291 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterStaleBinding });
+    RUNTIME_BOUNDARY_TYPED_ADAPTER_VALUE_SHAPE_MISMATCH = 292 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterValueShapeMismatch });
 
 }

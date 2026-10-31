@@ -7,7 +7,6 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-canic-icydb = { workspace = true }
 ic-wire = { workspace = true }
 icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }

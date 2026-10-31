@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Exercise IcyDB's real Make gate in a disposable current-manifest inventory.
-# Git exports/staging are fixture-only; no commits or dependency resolution occur.
+# Git effects are fixture-only; Cargo consumes prepared locked offline inputs.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS GNUMAKEFLAGS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
@@ -22,15 +22,22 @@ git -C "$ROOT" archive --format=tar HEAD > "$fixture/source.tar"
 tar -xf "$fixture/source.tar" -C "$fixture/repo"
 git -C "$ROOT" ls-files --cached --others --exclude-standard -z -- '*Cargo.toml' > "$fixture/manifests"
 while IFS= read -r -d '' path; do
-  [[ ! -f "$ROOT/$path" ]] || cp "$ROOT/$path" "$fixture/repo/$path"
+  if [[ -f "$ROOT/$path" ]]; then
+    mkdir -p "$fixture/repo/$(dirname "$path")"
+    cp "$ROOT/$path" "$fixture/repo/$path"
+  fi
 done < "$fixture/manifests"
+# The pending qualification workspace is not in the committed archive yet.
+# Copy its actual manifest, lock and targets together before Cargo admission.
+cp -R "$ROOT/testing/canic-adapter" "$fixture/repo/testing/"
 for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
-  scripts/ci/check-dependency-pins.sh scripts/ci/dependency-pins.jq \
   scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
   scripts/ci/check-cargo-dependency-boundaries.sh ci/external-ic-dependencies.txt \
   ci/cargo-dependency-boundaries.json; do
   cp "$ROOT/$path" "$fixture/repo/$path"
 done
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/repo" \
+  scripts/ci/check-dependency-pins.sh
 cd "$fixture/repo"
 git init --quiet
 git add -- .
@@ -67,9 +74,10 @@ CARGO_HOME="$ROOT/.cache/cargo/icydb" \
   bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
   > "$fixture/boundaries.log" 2>&1
 cp Cargo.toml "$fixture/catalog.toml"
-for dependency in ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3; do
+for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3; do
   cp "$fixture/catalog.toml" Cargo.toml
   case "$dependency" in
+    canic-icydb) requirement=0.113.0 ;;
     blake3) requirement=1.8.7 ;;
     ic-cdk) requirement=0.20.3 ;;
     ic-stable-structures) requirement=0.7.2 ;;
@@ -98,12 +106,23 @@ for dependency in ic-cdk ic-stable-structures pocket-ic ic-representation-indepe
     if CARGO_HOME="$ROOT/.cache/cargo/icydb" \
       bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
         > "$fixture/boundary-rejection.log" 2>&1; then
-      echo 'consumer boundary admitted an excluded dependency alias' >&2; exit 1
+      echo "consumer boundary admitted excluded dependency alias: $dependency" >&2; exit 1
     fi
   done
 done
 cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
 cp "$fixture/catalog.toml" Cargo.toml
+
+# Core resolution must not even parse the composition workspace. Break only its
+# manifest and inspect the real locked root graph; package selection alone would
+# not provide this boundary if actors were still root workspace members.
+cp testing/canic-adapter/Cargo.toml "$fixture/adapter.toml"
+printf 'not valid TOML\n' > testing/canic-adapter/Cargo.toml
+CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
+  --format-version 1 > "$fixture/core-only-metadata.json"
+jq -e 'all(.packages[]; .name != "canic-icydb" and .name != "canic" and
+  .name != "canic-macros")' "$fixture/core-only-metadata.json" > /dev/null
+cp "$fixture/adapter.toml" testing/canic-adapter/Cargo.toml
 
 # Qualify the selected-source release checker with real Cargo and isolated Git
 # commits. Unused catalog entries expose global-vs-grouped ordering without

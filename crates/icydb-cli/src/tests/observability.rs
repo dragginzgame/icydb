@@ -19,7 +19,7 @@ use crate::observability::test_support::{
 fn decode_metrics_report_accepts_generated_response_shape() {
     let response: Result<icydb::metrics::MetricsReport, icydb::Error> =
         Ok(icydb::metrics::MetricsReport::default());
-    let wire_bytes = canic_icydb::wire::Endpoint::Metrics
+    let wire_bytes = icydb::__macro::RpcMethod::Metrics
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("metrics response should encode");
     let decoded = decode_endpoint_result::<icydb::metrics::MetricsReport>(
@@ -27,7 +27,7 @@ fn decode_metrics_report_accepts_generated_response_shape() {
         "metrics",
         "demo",
         "demo_rpg",
-        canic_icydb::wire::Endpoint::Metrics,
+        icydb::__macro::RpcMethod::Metrics,
         IcpCallKind::Query,
     )
     .expect("metrics response should be ok");
@@ -38,7 +38,7 @@ fn decode_metrics_report_accepts_generated_response_shape() {
 #[test]
 fn decode_metrics_reset_response_accepts_generated_response_shape() {
     let response: Result<(), icydb::Error> = Ok(());
-    let wire_bytes = canic_icydb::wire::Endpoint::MetricsReset
+    let wire_bytes = icydb::__macro::RpcMethod::MetricsReset
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("metrics reset response should encode");
 
@@ -47,7 +47,7 @@ fn decode_metrics_reset_response_accepts_generated_response_shape() {
         "metrics reset",
         "demo",
         "demo_rpg",
-        canic_icydb::wire::Endpoint::MetricsReset,
+        icydb::__macro::RpcMethod::MetricsReset,
         IcpCallKind::Update,
     )
     .expect("metrics reset response should be ok");
@@ -57,7 +57,7 @@ fn decode_metrics_reset_response_accepts_generated_response_shape() {
 fn decode_snapshot_report_accepts_generated_response_shape() {
     let response: Result<icydb::db::StorageReport, icydb::Error> =
         Ok(icydb::db::StorageReport::default());
-    let wire_bytes = canic_icydb::wire::Endpoint::Snapshot
+    let wire_bytes = icydb::__macro::RpcMethod::Snapshot
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("snapshot response should encode");
     let decoded = decode_endpoint_result::<icydb::db::StorageReport>(
@@ -65,7 +65,7 @@ fn decode_snapshot_report_accepts_generated_response_shape() {
         "snapshot",
         "demo",
         "demo_rpg",
-        canic_icydb::wire::Endpoint::Snapshot,
+        icydb::__macro::RpcMethod::Snapshot,
         IcpCallKind::Query,
     )
     .expect("snapshot response should be ok");
@@ -77,7 +77,7 @@ fn decode_snapshot_report_accepts_generated_response_shape() {
 #[test]
 fn decode_schema_report_accepts_generated_response_shape() {
     let response: Result<Vec<EntitySchemaDescription>, icydb::Error> = Ok(Vec::new());
-    let wire_bytes = canic_icydb::wire::Endpoint::Schema
+    let wire_bytes = icydb::__macro::RpcMethod::Schema
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("schema response should encode");
     let decoded = decode_endpoint_result::<Vec<EntitySchemaDescription>>(
@@ -85,7 +85,7 @@ fn decode_schema_report_accepts_generated_response_shape() {
         "schema",
         "demo",
         "demo_rpg",
-        canic_icydb::wire::Endpoint::Schema,
+        icydb::__macro::RpcMethod::Schema,
         IcpCallKind::Query,
     )
     .expect("schema response should be ok");
@@ -95,7 +95,7 @@ fn decode_schema_report_accepts_generated_response_shape() {
 
 #[test]
 fn endpoint_decoder_rejects_malformed_wrong_shape_and_application_errors() {
-    let wrong_shape = canic_icydb::wire::Endpoint::Snapshot
+    let wrong_shape = icydb::__macro::RpcMethod::Snapshot
         .encode_response(42_u64, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .unwrap();
     let response: Result<icydb::db::StorageReport, icydb::Error> =
@@ -103,15 +103,15 @@ fn endpoint_decoder_rejects_malformed_wrong_shape_and_application_errors() {
             icydb::diagnostic::RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
             icydb::ErrorOrigin::Runtime,
         ));
-    let application_error = canic_icydb::wire::Endpoint::Snapshot
+    let application_error = icydb::__macro::RpcMethod::Snapshot
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .unwrap();
     let valid: Result<icydb::db::StorageReport, icydb::Error> =
         Ok(icydb::db::StorageReport::default());
-    let wrong_endpoint = canic_icydb::wire::Endpoint::Metrics
+    let wrong_endpoint = icydb::__macro::RpcMethod::Metrics
         .encode_response(&valid, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .unwrap();
-    let wrong_direction = canic_icydb::wire::Endpoint::Snapshot
+    let wrong_direction = icydb::__macro::RpcMethod::Snapshot
         .encode_request(&valid, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
         .unwrap();
     for bytes in [
@@ -127,7 +127,7 @@ fn endpoint_decoder_rejects_malformed_wrong_shape_and_application_errors() {
                 "snapshot",
                 "demo",
                 "demo_rpg",
-                canic_icydb::wire::Endpoint::Snapshot,
+                icydb::__macro::RpcMethod::Snapshot,
                 IcpCallKind::Query
             )
             .is_err()

@@ -1,0 +1,9 @@
+error: symbol `canister_query.icydb_schema` is already defined
+  --> tests/fail-endpoints/handwritten_duplicate.rs:15:1
+   |
+15 | / canic_icydb::mount! {
+16 | |     icydb_schema(authorization = public);
+17 | | }
+   | |_^
+   |
+   = note: this error originates in the attribute macro `crate::__icydb_entry` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)

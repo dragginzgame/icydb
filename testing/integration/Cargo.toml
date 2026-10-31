@@ -1,4 +1,5 @@
 [package]
+workspace = "../canic-adapter"
 name = "icydb-testing-integration"
 autotests = false
 edition = { workspace = true }
@@ -30,6 +31,10 @@ syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "rpc_contract"
+path = "tests/rpc_contract.rs"
 
 [[test]]
 name = "sql_canister"

@@ -12,7 +12,6 @@ Configure branch protection for `main` to gate merges on reviews and CI.
   - Select checks:
     - `CI / dependency_msrv`
     - `CI / check`
-    - `CI / wasm_size_report`
 - Require branches to be up to date before merging: enabled
 - Include administrators: enabled (recommended)
 - Restrict who can push to matching branches: enabled (optional; maintainers only)
@@ -30,8 +29,19 @@ Protected Tags
 Notes
 
 - Status check names correspond to jobs in `.github/workflows/ci.yml`.
-- The three required checks run independently; release artifact publication
-  explicitly waits for all three after the Wasm and validation lanes converge.
+- Product MSRV and validation run independently. Canic qualification is a
+  path-scoped, manually dispatchable workflow; its adapter MSRV, `check` and
+  `wasm_size_report` jobs gate composed canister artifact delivery, not product
+  library releases. Require those results for affected integration changes or a
+  proposed source/dependency pairing; do not configure them as unconditional
+  required checks on every core PR. A skipped path-scoped workflow can otherwise
+  leave an unrelated PR waiting forever.
+- Live inspection on 2026-10-31 through the admin-authorized GitHub CLI found
+  `main` unprotected, no repository rulesets and no effective branch rules.
+  There was no global `CI / wasm_size_report` requirement to remove, and no
+  remote setting was changed. The earlier HTTP 403 applied to the connector's
+  administration access. If configuring protection, select the product checks
+  above and keep Canic qualification scoped to integration changes.
 - After saving, GitHub will surface these required checks on each PR into `main`.
 - `.github/CODEOWNERS` requires maintainer review for CI, release, hook, and
   toolchain authority.

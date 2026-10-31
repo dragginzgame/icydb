@@ -288,14 +288,14 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "build.sql.update_primary_key_policy",
-        "crates/icydb/tests/pass-sql/endpoint_update_primary_key.rs",
+        "testing/canic-adapter/tests/pass-sql/endpoint_update_primary_key.rs",
         "source_declared_primary_key_update_policy_selects_exact_handler",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_bounded_policy",
-        "crates/icydb/tests/pass-sql/endpoint_update_bounded.rs",
+        "testing/canic-adapter/tests/pass-sql/endpoint_update_bounded.rs",
         "source_declared_bounded_update_policy_selects_exact_handler",
         BoundaryAssertion,
         [Boundary]
@@ -2386,6 +2386,7 @@ fn provider_ci_target(source_path: &str) -> Option<&'static str> {
         "testing/integration/tests/sql_canister.rs" => Some("_ci-tier-b-sql-canister"),
         "testing/integration/tests/sql_perf_audit.rs" => Some("_ci-tier-b-sql-perf"),
         path if path.starts_with("crates/") => Some("_ci-workspace-tests"),
+        path if path.starts_with("testing/canic-adapter/tests/") => Some("_test-adapter-contracts"),
         _ => None,
     }
 }
@@ -2447,26 +2448,35 @@ fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, Str
     let root = repository_root()
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let output = Command::new(env!("CARGO"))
-        .current_dir(&root)
-        .args([
-            "metadata",
-            "--locked",
-            "--offline",
-            "--no-deps",
-            "--format-version",
-            "1",
-        ])
-        .output()
-        .map_err(|error| format!("read Cargo test-target registration: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Cargo test-target registration failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+    // Providers are registered by their own workspace. Inspect both selections
+    // without letting qualification dependencies enter the package resolver.
+    let mut registrations = Vec::new();
+    for manifest in ["Cargo.toml", "testing/canic-adapter/Cargo.toml"] {
+        let output = Command::new(env!("CARGO"))
+            .current_dir(&root)
+            .args([
+                "metadata",
+                "--manifest-path",
+                manifest,
+                "--locked",
+                "--offline",
+                "--no-deps",
+                "--format-version",
+                "1",
+            ])
+            .output()
+            .map_err(|error| format!("read Cargo test-target registration: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Cargo test-target registration failed for {manifest}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        registrations.push(
+            serde_json::from_slice(&output.stdout)
+                .map_err(|error| format!("parse Cargo test-target registration: {error}"))?,
+        );
     }
-    let metadata = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("parse Cargo test-target registration: {error}"))?;
 
     for provider in PROVIDERS {
         if provider.id.is_empty() || provider.evidence.is_empty() {
@@ -2477,7 +2487,9 @@ fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, Str
         }
         validate_source_path(provider.source_path)?;
         if provider_ci_target(provider.source_path).is_none()
-            || !provider_source_is_registered(&metadata, &root, provider.source_path)
+            || !registrations.iter().any(|metadata| {
+                provider_source_is_registered(metadata, &root, provider.source_path)
+            })
         {
             return Err(format!(
                 "provider {:?} is not registered in an automatic CI test selection",
@@ -2900,17 +2912,22 @@ fn provider_test_resolution_uses_rust_items_and_attributes() {
 fn providers_require_workspace_test_registration_and_a_ci_selection() {
     let root = Path::new("/repository");
     let metadata = serde_json::json!({
-        "workspace_members": ["core", "facade", "integration"],
+        "workspace_members": ["core", "facade", "integration", "adapter"],
         "packages": [
             {"id": "core", "targets": [{"kind": ["lib"], "src_path": "/repository/crates/core/src/lib.rs", "test": true}]},
             {"id": "facade", "targets": [{"kind": ["test"], "src_path": "/repository/crates/facade/tests/contract.rs", "test": true}]},
             {"id": "integration", "targets": [{"kind": ["test"], "src_path": "/repository/testing/integration/tests/sql_canister.rs", "test": true}]},
+            {"id": "adapter", "targets": [{"kind": ["test"], "src_path": "/repository/testing/canic-adapter/tests/pass-sql/endpoint_update_bounded.rs", "test": true}]},
             {"id": "orphan", "targets": [{"kind": ["lib"], "src_path": "/repository/crates/orphan/src/lib.rs", "test": true}]}
         ]
     });
     for (source, lane) in [
         ("crates/core/src/nested/tests.rs", "_ci-workspace-tests"),
         ("crates/facade/tests/contract.rs", "_ci-workspace-tests"),
+        (
+            "testing/canic-adapter/tests/pass-sql/endpoint_update_bounded.rs",
+            "_test-adapter-contracts",
+        ),
         (
             "testing/integration/tests/sql_canister.rs",
             "_ci-tier-b-sql-canister",

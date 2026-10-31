@@ -44,7 +44,7 @@ fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64
         entity_creation_startup_count(counters.work_completed())?,
     ))
 }
-icydb_testing_wasm_helpers::export_wire!(query, "entity_creation_startup_snapshot", EntityCreationStartupSnapshot, entity_creation_startup_snapshot, (), Result<(bool, u64, u128, u128, u64, u64), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "entity_creation_startup_snapshot", EntityCreationStartupSnapshot, entity_creation_startup_snapshot, (), Result<(bool, u64, u128, u128, u64, u64), icydb::Error>);
 
 // The fixture reply retains u64 counts and must reject inexact evidence.
 fn entity_creation_startup_count(
@@ -85,7 +85,7 @@ fn measure_entity_creation_schema_application() -> (
         ),
     }
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     update,
     "measure_entity_creation_schema_application",
     MeasureEntityCreationSchemaApplication,
@@ -121,7 +121,7 @@ fn measure_entity_creation_startup_step() -> (
         ),
     }
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     update,
     "measure_entity_creation_startup_step",
     MeasureEntityCreationStartupStep,
@@ -140,7 +140,7 @@ fn entity_creation_lifecycle_metrics()
 -> Result<icydb::metrics::SchemaLifecycleMetrics, icydb::Error> {
     Ok(metrics_report()?.schema_lifecycle().clone())
 }
-icydb_testing_wasm_helpers::export_wire!(query, "entity_creation_lifecycle_metrics", EntityCreationLifecycleMetrics, entity_creation_lifecycle_metrics, (), Result<icydb::metrics::SchemaLifecycleMetrics, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "entity_creation_lifecycle_metrics", EntityCreationLifecycleMetrics, entity_creation_lifecycle_metrics, (), Result<icydb::metrics::SchemaLifecycleMetrics, icydb::Error>);
 
 /// Seed the three fixed rows through ordinary accepted structural writes.
 
@@ -162,7 +162,7 @@ fn seed_entity_rename() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "seed_entity_rename", SeedEntityRename, seed_entity_rename, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_entity_rename", SeedEntityRename, seed_entity_rename, (), Result<(), icydb::Error>);
 
 /// Seed an independent relation target for the entity-creation rehearsal.
 
@@ -178,7 +178,7 @@ fn seed_entity_creation_target() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "seed_entity_creation_target", SeedEntityCreationTarget, seed_entity_creation_target, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_entity_creation_target", SeedEntityCreationTarget, seed_entity_creation_target, (), Result<(), icydb::Error>);
 
 /// Exercise both reverse-relation delete restrictions without caller-owned SQL.
 
@@ -196,7 +196,7 @@ fn check_entity_rename_deletes() -> Result<Vec<icydb::Error>, icydb::Error> {
         Ok(errors)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     update,
     "check_entity_rename_deletes",
     CheckEntityRenameDeletes,
@@ -230,7 +230,7 @@ fn check_entity_rename_bindings() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "check_entity_rename_bindings", CheckEntityRenameBindings, check_entity_rename_bindings, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "check_entity_rename_bindings", CheckEntityRenameBindings, check_entity_rename_bindings, (), Result<(), icydb::Error>);
 
 #[cfg(test)]
 mod tests {

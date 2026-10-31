@@ -222,6 +222,12 @@ offline. The standalone targets are `make install-release-editor` and
 path and never installs it. Its version, profile and fixture byte allowance are
 selected in Shared's root Makefile.
 
+The selection is IC Build 0.73.0 with the explicit `cli` feature. Portable CI
+includes endpoint-only release-group preparation, rollback and delivery/resume
+qualification alongside the coordinated-workspace fixture. An older prepared
+editor cannot qualify that contract; rerun `make install-release-editor` after
+adopting this selection, then use `make release-editor-check` for offline admission.
+
 `make test-portable` checks that prepared selection before starting any fixtures
 and supplies its path and allowance to the suite. CI uses these same setup and
 test targets. The cache key includes the owning Makefile, so a changed selection

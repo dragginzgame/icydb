@@ -70,7 +70,7 @@ canic_icydb::start! {
     post_upgrade() => application_startup_post_upgrade;
 }
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(feature = "test-admin-api")]
     icydb_ddl;
     #[cfg(feature = "test-admin-api")]
@@ -1103,7 +1103,7 @@ fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
     }
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     update,
     "measure_dormant_convergence_candidate",
     MeasureDormantConvergenceCandidate,
@@ -1126,7 +1126,7 @@ fn load_streaming_execution_fixture() -> Result<StreamingExecutionFixtureFacts, 
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_streaming_execution_fixture", LoadStreamingExecutionFixture, load_streaming_execution_fixture, (), Result<StreamingExecutionFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_streaming_execution_fixture", LoadStreamingExecutionFixture, load_streaming_execution_fixture, (), Result<StreamingExecutionFixtureFacts, icydb::Error>);
 
 /// Load the frozen 10,001-row continuation fixture without attempting to
 /// process it in the same message. The bounded insert batches are setup work;
@@ -1148,7 +1148,7 @@ fn load_streaming_execution_continuation_fixture() -> Result<u32, icydb::Error> 
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_streaming_execution_continuation_fixture", LoadStreamingExecutionContinuationFixture, load_streaming_execution_continuation_fixture, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_streaming_execution_continuation_fixture", LoadStreamingExecutionContinuationFixture, load_streaming_execution_continuation_fixture, (), Result<u32, icydb::Error>);
 
 /// Execute one revision-tolerant page of the frozen 10,001-row fixture.
 #[cfg(feature = "test-admin-api")]
@@ -1165,7 +1165,7 @@ fn query_streaming_execution_live_page(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_live_page", QueryStreamingExecutionLivePage, query_streaming_execution_live_page, (continuation: Option<String>), Result<LiveQueryPageOutput, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_streaming_execution_live_page", QueryStreamingExecutionLivePage, query_streaming_execution_live_page, (continuation: Option<String>), Result<LiveQueryPageOutput, icydb::Error>);
 
 /// Exercise one trusted page-driver step and commit only an accepted decode.
 #[cfg(feature = "test-admin-api")]
@@ -1199,7 +1199,7 @@ fn query_streaming_execution_live_page_driver_probe(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_live_page_driver_probe", QueryStreamingExecutionLivePageDriverProbe, query_streaming_execution_live_page_driver_probe, (continuation: Option<String>, accept_page: bool), Result<LivePageDriverProbe, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_streaming_execution_live_page_driver_probe", QueryStreamingExecutionLivePageDriverProbe, query_streaming_execution_live_page_driver_probe, (continuation: Option<String>, accept_page: bool), Result<LivePageDriverProbe, icydb::Error>);
 
 /// Exercise the public page-driver lane through one admitted exact-key page.
 #[cfg(feature = "test-admin-api")]
@@ -1232,7 +1232,7 @@ fn query_streaming_execution_public_live_page_driver_probe()
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_public_live_page_driver_probe", QueryStreamingExecutionPublicLivePageDriverProbe, query_streaming_execution_public_live_page_driver_probe, (), Result<LivePageDriverProbe, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_streaming_execution_public_live_page_driver_probe", QueryStreamingExecutionPublicLivePageDriverProbe, query_streaming_execution_public_live_page_driver_probe, (), Result<LivePageDriverProbe, icydb::Error>);
 
 /// Execute one revision-strict page of the frozen 10,001-row fixture.
 #[cfg(feature = "test-admin-api")]
@@ -1252,7 +1252,7 @@ fn query_streaming_execution_exhaustive_page(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_exhaustive_page", QueryStreamingExecutionExhaustivePage, query_streaming_execution_exhaustive_page, (continuation: Option<String>, proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
+icydb_testing_canic_adapter::export_wire!(query, "query_streaming_execution_exhaustive_page", QueryStreamingExecutionExhaustivePage, query_streaming_execution_exhaustive_page, (continuation: Option<String>, proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
 
 /// Verify a journaled source proof through the public exhaustive-read facade.
 #[cfg(feature = "test-admin-api")]
@@ -1269,7 +1269,7 @@ fn query_journaled_exhaustive_page(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_journaled_exhaustive_page", QueryJournaledExhaustivePage, query_journaled_exhaustive_page, (proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
+icydb_testing_canic_adapter::export_wire!(query, "query_journaled_exhaustive_page", QueryJournaledExhaustivePage, query_journaled_exhaustive_page, (proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
 
 /// Measure one fixed page through the 0.236 tied-index cursor fixture.
 #[cfg(feature = "test-admin-api")]
@@ -1288,7 +1288,7 @@ fn query_cardinality_tiebreak_live_page_with_perf(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_cardinality_tiebreak_live_page_with_perf", QueryCardinalityTiebreakLivePageWithPerf, query_cardinality_tiebreak_live_page_with_perf, (continuation: Option<String>), Result<LiveQueryPagePerfOutput, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_cardinality_tiebreak_live_page_with_perf", QueryCardinalityTiebreakLivePageWithPerf, query_cardinality_tiebreak_live_page_with_perf, (continuation: Option<String>), Result<LiveQueryPagePerfOutput, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn cardinality_tiebreak_continuation_query() -> DynamicQuery {
@@ -1320,7 +1320,7 @@ fn load_cardinality_tiebreak_fixture() -> Result<u32, icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_cardinality_tiebreak_fixture", LoadCardinalityTiebreakFixture, load_cardinality_tiebreak_fixture, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_cardinality_tiebreak_fixture", LoadCardinalityTiebreakFixture, load_cardinality_tiebreak_fixture, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn streaming_execution_continuation_query() -> DynamicQuery {
@@ -1370,7 +1370,7 @@ fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_user_scale_fixture", LoadUserScaleFixture, load_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_user_scale_fixture", LoadUserScaleFixture, load_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load a hostile all-unique leading-Int32 distribution for exact DISTINCT evidence.
 #[cfg(feature = "test-admin-api")]
@@ -1396,7 +1396,7 @@ fn load_user_unique_age_scale_fixture(row_count: u32) -> Result<u32, icydb::Erro
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_user_unique_age_scale_fixture", LoadUserUniqueAgeScaleFixture, load_user_unique_age_scale_fixture, (row_count: u32), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_user_unique_age_scale_fixture", LoadUserUniqueAgeScaleFixture, load_user_unique_age_scale_fixture, (row_count: u32), Result<u32, icydb::Error>);
 
 /// Load only the deterministic account scale surface at one reviewed cardinality.
 #[cfg(feature = "test-admin-api")]
@@ -1424,7 +1424,7 @@ fn load_account_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_account_scale_fixture", LoadAccountScaleFixture, load_account_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_account_scale_fixture", LoadAccountScaleFixture, load_account_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load only the deterministic blob scale surface at one reviewed cardinality.
 #[cfg(feature = "test-admin-api")]
@@ -1450,7 +1450,7 @@ fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_blob_scale_fixture", LoadBlobScaleFixture, load_blob_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_blob_scale_fixture", LoadBlobScaleFixture, load_blob_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load a journaled wide-row surface that crosses both resumable scan and
 /// exact writer-staging page boundaries without approaching the row limit.
@@ -1474,7 +1474,7 @@ fn load_journaled_user_mutation_byte_fixture(row_id: u32) -> Result<u32, icydb::
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_journaled_user_mutation_byte_fixture", LoadJournaledUserMutationByteFixture, load_journaled_user_mutation_byte_fixture, (row_id: u32), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_journaled_user_mutation_byte_fixture", LoadJournaledUserMutationByteFixture, load_journaled_user_mutation_byte_fixture, (row_id: u32), Result<u32, icydb::Error>);
 
 /// Load only the deterministic heap-user scale surface at one reviewed cardinality.
 #[cfg(feature = "test-admin-api")]
@@ -1490,7 +1490,7 @@ fn load_heap_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icy
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_heap_user_scale_fixture", LoadHeapUserScaleFixture, load_heap_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_heap_user_scale_fixture", LoadHeapUserScaleFixture, load_heap_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load only the deterministic journaled-user scale surface at one reviewed cardinality.
 #[cfg(feature = "test-admin-api")]
@@ -1506,7 +1506,7 @@ fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_journaled_user_scale_fixture", LoadJournaledUserScaleFixture, load_journaled_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_journaled_user_scale_fixture", LoadJournaledUserScaleFixture, load_journaled_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load the closed zero-index joint-admission boundary.
 #[cfg(feature = "test-admin-api")]
@@ -1523,7 +1523,7 @@ fn load_joint_zero_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_joint_zero_index_boundary_fixture", LoadJointZeroIndexBoundaryFixture, load_joint_zero_index_boundary_fixture, (), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_joint_zero_index_boundary_fixture", LoadJointZeroIndexBoundaryFixture, load_joint_zero_index_boundary_fixture, (), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load the closed three-index joint-admission boundary.
 #[cfg(feature = "test-admin-api")]
@@ -1550,7 +1550,7 @@ fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb:
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_joint_three_index_boundary_fixture", LoadJointThreeIndexBoundaryFixture, load_joint_three_index_boundary_fixture, (), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_joint_three_index_boundary_fixture", LoadJointThreeIndexBoundaryFixture, load_joint_three_index_boundary_fixture, (), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Fill the cumulative batch ceiling with one three-index row per commit.
 #[cfg(feature = "test-admin-api")]
@@ -1589,7 +1589,7 @@ fn load_convergence_closeout_debt(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_convergence_closeout_debt", LoadConvergenceCloseoutDebt, load_convergence_closeout_debt, (first_id: i32), Result<ConvergenceCloseoutDebtFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_convergence_closeout_debt", LoadConvergenceCloseoutDebt, load_convergence_closeout_debt, (first_id: i32), Result<ConvergenceCloseoutDebtFacts, icydb::Error>);
 
 /// Retry the row rejected by the populated convergence closeout fixture.
 #[cfg(feature = "test-admin-api")]
@@ -1597,7 +1597,7 @@ fn retry_convergence_closeout_row(id: i32) -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| insert_fixture_rows(vec![convergence_closeout_user(id)]))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "retry_convergence_closeout_row", RetryConvergenceCloseoutRow, retry_convergence_closeout_row, (id: i32), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "retry_convergence_closeout_row", RetryConvergenceCloseoutRow, retry_convergence_closeout_row, (id: i32), Result<(), icydb::Error>);
 
 /// Load one near-maximum row with maintained derived-index fanout.
 #[cfg(feature = "test-admin-api")]
@@ -1618,7 +1618,7 @@ fn load_patch1_wide_row_recovery_fixture() -> Result<u32, icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_patch1_wide_row_recovery_fixture", LoadPatch1WideRowRecoveryFixture, load_patch1_wide_row_recovery_fixture, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_patch1_wide_row_recovery_fixture", LoadPatch1WideRowRecoveryFixture, load_patch1_wide_row_recovery_fixture, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn joint_fanout_patches(row_count: u32) -> Result<Vec<StructuralPatch>, icydb::Error> {
@@ -1654,7 +1654,7 @@ fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "reject_joint_fanout_over_boundary_fixture", RejectJointFanoutOverBoundaryFixture, reject_joint_fanout_over_boundary_fixture, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "reject_joint_fanout_over_boundary_fixture", RejectJointFanoutOverBoundaryFixture, reject_joint_fanout_over_boundary_fixture, (), Result<u32, icydb::Error>);
 
 /// Load one closed batch at the admitted 64-secondary-index fanout boundary.
 #[cfg(feature = "test-admin-api")]
@@ -1679,7 +1679,7 @@ fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_joint_fanout_boundary_fixture", LoadJointFanoutBoundaryFixture, load_joint_fanout_boundary_fixture, (), Result<JointFanoutFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_joint_fanout_boundary_fixture", LoadJointFanoutBoundaryFixture, load_joint_fanout_boundary_fixture, (), Result<JointFanoutFixtureFacts, icydb::Error>);
 
 /// Load one row for the 16-candidate by 16-prefix cardinality policy boundary.
 #[cfg(feature = "test-admin-api")]
@@ -1716,7 +1716,7 @@ fn load_cardinality_probe_boundary_fixture() -> Result<u32, icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_cardinality_probe_boundary_fixture", LoadCardinalityProbeBoundaryFixture, load_cardinality_probe_boundary_fixture, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_cardinality_probe_boundary_fixture", LoadCardinalityProbeBoundaryFixture, load_cardinality_probe_boundary_fixture, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn cardinality_probe_value(ordinal: u8) -> String {
@@ -1754,7 +1754,7 @@ fn load_token_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_token_scale_fixture", LoadTokenScaleFixture, load_token_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_token_scale_fixture", LoadTokenScaleFixture, load_token_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Return accepted runtime schema descriptions in stable audit-surface order.
 #[cfg(feature = "test-admin-api")]
@@ -1777,7 +1777,7 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "accepted_schema_descriptions",
     AcceptedSchemaDescriptions,
@@ -1817,7 +1817,7 @@ fn measure_schema_application_query() -> Result<SchemaApplicationPerfResult, icy
     icydb::db::with_request_execution(measure_schema_application)
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_schema_application_query", MeasureSchemaApplicationQuery, measure_schema_application_query, (), Result<SchemaApplicationPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_schema_application_query", MeasureSchemaApplicationQuery, measure_schema_application_query, (), Result<SchemaApplicationPerfResult, icydb::Error>);
 
 /// Measure and persist schema application through an update message.
 #[cfg(feature = "test-admin-api")]
@@ -1825,7 +1825,7 @@ fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, ic
     icydb::db::with_request_execution(measure_schema_application)
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_schema_application_update", MeasureSchemaApplicationUpdate, measure_schema_application_update, (), Result<SchemaApplicationPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_schema_application_update", MeasureSchemaApplicationUpdate, measure_schema_application_update, (), Result<SchemaApplicationPerfResult, icydb::Error>);
 
 /// Measure the generated pure startup observer without opening a session.
 #[cfg(feature = "test-admin-api")]
@@ -1841,7 +1841,7 @@ fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_startup_observation", MeasureStartupObservation, measure_startup_observation, (), Result<StartupObservationPerfResult, icydb::db::StartupFailure>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_startup_observation", MeasureStartupObservation, measure_startup_observation, (), Result<StartupObservationPerfResult, icydb::db::StartupFailure>);
 
 /// Measure one accepted entity-schema read through reopened catalog authority.
 #[cfg(feature = "test-admin-api")]
@@ -1860,7 +1860,7 @@ fn measure_accepted_schema_read_instructions(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_accepted_schema_read_instructions", MeasureAcceptedSchemaReadInstructions, measure_accepted_schema_read_instructions, (entity: String), Result<AcceptedSchemaReadInstructionResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_accepted_schema_read_instructions", MeasureAcceptedSchemaReadInstructions, measure_accepted_schema_read_instructions, (entity: String), Result<AcceptedSchemaReadInstructionResult, icydb::Error>);
 
 /// Read instruction evidence from the real generated startup watchdog.
 #[cfg(feature = "test-admin-api")]
@@ -1868,7 +1868,7 @@ fn startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     engine_startup_watchdog_perf_snapshot()
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "startup_watchdog_perf_snapshot",
     StartupWatchdogPerfSnapshot,
@@ -1883,7 +1883,7 @@ fn startup_watchdog_armed() -> bool {
     engine_startup_watchdog_armed()
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "startup_watchdog_armed",
     StartupWatchdogArmed,
@@ -1898,7 +1898,7 @@ fn application_startup_contract() -> ApplicationStartupSnapshot {
     application_startup_snapshot()
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "application_startup_contract",
     ApplicationStartupContract,
@@ -1915,7 +1915,7 @@ fn observe_application_startup_for_tests(
     apply_application_startup_observation(observation);
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "observe_application_startup_for_tests", ObserveApplicationStartupForTests, observe_application_startup_for_tests, (observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>), ());
+icydb_testing_canic_adapter::export_wire!(update, "observe_application_startup_for_tests", ObserveApplicationStartupForTests, observe_application_startup_for_tests, (observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>), ());
 
 /// Observe ordinary admission without initializing recovery.
 #[cfg(feature = "test-admin-api")]
@@ -1940,7 +1940,7 @@ fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
     result
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "initialize_startup_observation_fixture", InitializeStartupObservationFixture, initialize_startup_observation_fixture, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "initialize_startup_observation_fixture", InitializeStartupObservationFixture, initialize_startup_observation_fixture, (), Result<(), icydb::Error>);
 
 /// Trap after one canonical startup-driver attempt reaches required `Ready`.
 ///
@@ -1962,7 +1962,7 @@ fn trap_after_complete_startup_recovery() -> Result<(), icydb::Error> {
     }
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "trap_after_complete_startup_recovery", TrapAfterCompleteStartupRecovery, trap_after_complete_startup_recovery, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "trap_after_complete_startup_recovery", TrapAfterCompleteStartupRecovery, trap_after_complete_startup_recovery, (), Result<(), icydb::Error>);
 
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry
 /// instruction probes. The full SQL perf corpus intentionally remains larger
@@ -1977,7 +1977,7 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_journaled_reentry_probe_fixture", LoadJournaledReentryProbeFixture, load_journaled_reentry_probe_fixture, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_journaled_reentry_probe_fixture", LoadJournaledReentryProbeFixture, load_journaled_reentry_probe_fixture, (), Result<(), icydb::Error>);
 
 /// Load the deterministic relation pair used by bounded integrity evidence.
 #[cfg(feature = "test-admin-api")]
@@ -1991,7 +1991,7 @@ fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_relation_integrity_fixture", LoadRelationIntegrityFixture, load_relation_integrity_fixture, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_relation_integrity_fixture", LoadRelationIntegrityFixture, load_relation_integrity_fixture, (), Result<(), icydb::Error>);
 
 /// Execute one PerfAuditUser-only SQL query.
 #[cfg(feature = "test-admin-api")]
@@ -1999,7 +1999,7 @@ fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_user", QueryUser, query_user, (sql: String), Result<SqlQueryResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_user", QueryUser, query_user, (sql: String), Result<SqlQueryResult, icydb::Error>);
 
 /// Execute one PerfAuditUser-only SQL query and attach one local instruction
 /// sample.
@@ -2008,7 +2008,7 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_user_with_perf", QueryUserWithPerf, query_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_user_with_perf", QueryUserWithPerf, query_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditUser-only SQL query through the update surface so the
 /// canister can persist any warmed in-heap query caches for later query calls.
@@ -2037,7 +2037,7 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPhasePerfResult, icy
     Ok(sample)
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "warm_user_query_with_perf", WarmUserQueryWithPerf, warm_user_query_with_perf, (sql: String), Result<SqlQueryPhasePerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "warm_user_query_with_perf", WarmUserQueryWithPerf, warm_user_query_with_perf, (sql: String), Result<SqlQueryPhasePerfResult, icydb::Error>);
 
 /// Measure bounded, application-built filters without passing SQL to preparation.
 /// The update boundary permits separate whole-call cycle measurements in PocketIC.
@@ -2071,7 +2071,7 @@ fn measure_typed_filter_preparation(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_typed_filter_preparation", MeasureTypedFilterPreparation, measure_typed_filter_preparation, (shape: u8, terms: u32), Result<ReadTotalOnlyPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_typed_filter_preparation", MeasureTypedFilterPreparation, measure_typed_filter_preparation, (shape: u8, terms: u32), Result<ReadTotalOnlyPerfResult, icydb::Error>);
 
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
 /// query call and report the per-run average instruction sample.
@@ -2080,7 +2080,7 @@ fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResul
     icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_user_loop_with_perf", QueryUserLoopWithPerf, query_user_loop_with_perf, (sql: String, runs: u32), Result<SqlQueryPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_user_loop_with_perf", QueryUserLoopWithPerf, query_user_loop_with_perf, (sql: String, runs: u32), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Consume most of the request DISTINCT budget, then measure either the exact
 /// candidate's bounded metadata probe plus fallback or the prepared control.
@@ -2114,7 +2114,7 @@ fn query_user_distinct_budget_fallback_with_perf(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_user_distinct_budget_fallback_with_perf", QueryUserDistinctBudgetFallbackWithPerf, query_user_distinct_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_user_distinct_budget_fallback_with_perf", QueryUserDistinctBudgetFallbackWithPerf, query_user_distinct_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
 
 /// Exhaust range metadata capacity, then compare exact-probe fallback with prepared execution.
 #[cfg(feature = "test-admin-api")]
@@ -2149,7 +2149,7 @@ fn query_user_range_budget_fallback_with_perf(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_user_range_budget_fallback_with_perf", QueryUserRangeBudgetFallbackWithPerf, query_user_range_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_user_range_budget_fallback_with_perf", QueryUserRangeBudgetFallbackWithPerf, query_user_range_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
 
 /// Exhaust indexed numeric metadata capacity, then compare exact-probe fallback
 /// with unchanged prepared execution.
@@ -2183,7 +2183,7 @@ fn query_user_numeric_budget_fallback_with_perf(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_user_numeric_budget_fallback_with_perf", QueryUserNumericBudgetFallbackWithPerf, query_user_numeric_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_user_numeric_budget_fallback_with_perf", QueryUserNumericBudgetFallbackWithPerf, query_user_numeric_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 const fn unexpected_write_perf_count_error(
@@ -2475,7 +2475,7 @@ fn measure_heap_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_heap_user_write_matrix_perf", MeasureHeapUserWriteMatrixPerf, measure_heap_user_write_matrix_perf, (), Result<StorageWritePerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_heap_user_write_matrix_perf", MeasureHeapUserWriteMatrixPerf, measure_heap_user_write_matrix_perf, (), Result<StorageWritePerfResult, icydb::Error>);
 
 /// Measure the journaled typed write path.
 #[cfg(feature = "test-admin-api")]
@@ -2489,7 +2489,7 @@ fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, 
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_write_matrix_perf", MeasureJournaledUserWriteMatrixPerf, measure_journaled_user_write_matrix_perf, (), Result<StorageWritePerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_journaled_user_write_matrix_perf", MeasureJournaledUserWriteMatrixPerf, measure_journaled_user_write_matrix_perf, (), Result<StorageWritePerfResult, icydb::Error>);
 
 /// Measure the matched journaled typed-write path before and after one simple
 /// accepted check, including the exact bounded publication scan.
@@ -2526,7 +2526,7 @@ fn measure_journaled_user_constraint_write_perf()
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_constraint_write_perf", MeasureJournaledUserConstraintWritePerf, measure_journaled_user_constraint_write_perf, (), Result<ConstraintActivationPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_journaled_user_constraint_write_perf", MeasureJournaledUserConstraintWritePerf, measure_journaled_user_constraint_write_perf, (), Result<ConstraintActivationPerfResult, icydb::Error>);
 
 /// Measure the journaled typed-write path after the preceding audit call has
 /// published its simple accepted check.
@@ -2541,7 +2541,7 @@ fn measure_journaled_user_checked_write_perf() -> Result<StorageWritePerfResult,
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_checked_write_perf", MeasureJournaledUserCheckedWritePerf, measure_journaled_user_checked_write_perf, (), Result<StorageWritePerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_journaled_user_checked_write_perf", MeasureJournaledUserCheckedWritePerf, measure_journaled_user_checked_write_perf, (), Result<StorageWritePerfResult, icydb::Error>);
 
 /// Advance the audit-only journaled check activation to accepted authority.
 #[cfg(feature = "test-admin-api")]
@@ -2569,7 +2569,7 @@ fn validate_journaled_user_perf_check() -> Result<(), icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "validate_journaled_user_perf_check", ValidateJournaledUserPerfCheck, validate_journaled_user_perf_check, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "validate_journaled_user_perf_check", ValidateJournaledUserPerfCheck, validate_journaled_user_perf_check, (), Result<(), icydb::Error>);
 
 /// Measure broad SQL write materialization shapes against heap storage.
 #[cfg(feature = "test-admin-api")]
@@ -2584,7 +2584,7 @@ fn measure_heap_user_sql_write_materialization_perf()
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_heap_user_sql_write_materialization_perf", MeasureHeapUserSqlWriteMaterializationPerf, measure_heap_user_sql_write_materialization_perf, (), Result<SqlWriteMaterializationPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_heap_user_sql_write_materialization_perf", MeasureHeapUserSqlWriteMaterializationPerf, measure_heap_user_sql_write_materialization_perf, (), Result<SqlWriteMaterializationPerfResult, icydb::Error>);
 
 /// Measure broad SQL write materialization shapes against journaled storage.
 #[cfg(feature = "test-admin-api")]
@@ -2599,7 +2599,7 @@ fn measure_journaled_user_sql_write_materialization_perf()
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_sql_write_materialization_perf", MeasureJournaledUserSqlWriteMaterializationPerf, measure_journaled_user_sql_write_materialization_perf, (), Result<SqlWriteMaterializationPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_journaled_user_sql_write_materialization_perf", MeasureJournaledUserSqlWriteMaterializationPerf, measure_journaled_user_sql_write_materialization_perf, (), Result<SqlWriteMaterializationPerfResult, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn mutation_scale_job_id(job: MutationScaleJob) -> Result<MutationJobId, MutationJobError> {
@@ -2674,7 +2674,7 @@ fn load_collection_mutation_scale_page(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "load_collection_mutation_scale_page", LoadCollectionMutationScalePage, load_collection_mutation_scale_page, (first_id: u32, row_count: u32), Result<MutationScaleLoadEvidence, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_collection_mutation_scale_page", LoadCollectionMutationScalePage, load_collection_mutation_scale_page, (first_id: u32, row_count: u32), Result<MutationScaleLoadEvidence, icydb::Error>);
 
 /// Return one count-only fact without resetting the aggregate request budget.
 #[cfg(feature = "test-admin-api")]
@@ -2682,7 +2682,7 @@ fn collection_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb:
     icydb::db::with_request_execution(|| mutation_scale_count(fact.sql()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "collection_mutation_scale_fact", CollectionMutationScaleFact, collection_mutation_scale_fact, (fact: MutationScaleFact), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "collection_mutation_scale_fact", CollectionMutationScaleFact, collection_mutation_scale_fact, (fact: MutationScaleFact), Result<u32, icydb::Error>);
 
 /// Observe lifecycle-driven startup progress independently of mutation-job work.
 #[cfg(feature = "test-admin-api")]
@@ -2714,7 +2714,7 @@ fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvid
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "recover_collection_mutation_scale_store", RecoverCollectionMutationScaleStore, recover_collection_mutation_scale_store, (), Result<MutationScaleRecoveryEvidence, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "recover_collection_mutation_scale_store", RecoverCollectionMutationScaleStore, recover_collection_mutation_scale_store, (), Result<MutationScaleRecoveryEvidence, icydb::Error>);
 
 /// Prove that the one-shot 10,001-row assertion is rejected before mutation.
 #[cfg(feature = "test-admin-api")]
@@ -2727,7 +2727,7 @@ fn try_collection_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "try_collection_eager_tier_reset", TryCollectionEagerTierReset, try_collection_eager_tier_reset, (), Result<SqlQueryResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "try_collection_eager_tier_reset", TryCollectionEagerTierReset, try_collection_eager_tier_reset, (), Result<SqlQueryResult, icydb::Error>);
 
 /// Start or exactly replay one fixed collection-scale application phase.
 #[cfg(feature = "test-admin-api")]
@@ -2740,7 +2740,7 @@ fn start_collection_mutation_scale_job(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "start_collection_mutation_scale_job", StartCollectionMutationScaleJob, start_collection_mutation_scale_job, (job: MutationScaleJob), Result<MutationJobState, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "start_collection_mutation_scale_job", StartCollectionMutationScaleJob, start_collection_mutation_scale_job, (job: MutationScaleJob), Result<MutationJobState, MutationJobError>);
 
 /// Advance exactly one bounded page of one collection-scale application phase.
 #[cfg(feature = "test-admin-api")]
@@ -2769,7 +2769,7 @@ fn advance_collection_mutation_scale_job(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "advance_collection_mutation_scale_job", AdvanceCollectionMutationScaleJob, advance_collection_mutation_scale_job, (job: MutationScaleJob, expected_sequence: u64, idempotency_key: String), Result<MutationScaleAdvancePerfResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "advance_collection_mutation_scale_job", AdvanceCollectionMutationScaleJob, advance_collection_mutation_scale_job, (job: MutationScaleJob, expected_sequence: u64, idempotency_key: String), Result<MutationScaleAdvancePerfResult, MutationJobError>);
 
 /// Load current count-only public state for one collection-scale application phase.
 /// This audit surface is an update so a post-upgrade call retains the IC's
@@ -2785,7 +2785,7 @@ fn collection_mutation_scale_job_state(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "collection_mutation_scale_job_state", CollectionMutationScaleJobState, collection_mutation_scale_job_state, (job: MutationScaleJob), Result<MutationJobState, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "collection_mutation_scale_job_state", CollectionMutationScaleJobState, collection_mutation_scale_job_state, (job: MutationScaleJob), Result<MutationJobState, MutationJobError>);
 
 /// Acknowledge one terminal scale job; repeating after response loss is safe.
 #[cfg(feature = "test-admin-api")]
@@ -2799,7 +2799,7 @@ fn acknowledge_collection_mutation_scale_job(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "acknowledge_collection_mutation_scale_job", AcknowledgeCollectionMutationScaleJob, acknowledge_collection_mutation_scale_job, (job: MutationScaleJob, expected_sequence: u64), Result<(), MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "acknowledge_collection_mutation_scale_job", AcknowledgeCollectionMutationScaleJob, acknowledge_collection_mutation_scale_job, (job: MutationScaleJob, expected_sequence: u64), Result<(), MutationJobError>);
 
 /// Cancel one exact unadvanced audit mutation job.
 #[cfg(feature = "test-admin-api")]
@@ -2819,7 +2819,7 @@ fn cancel_journaled_user_mutation_job(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "cancel_journaled_user_mutation_job", CancelJournaledUserMutationJob, cancel_journaled_user_mutation_job, (job_discriminator: u8, expected_sequence: u64), Result<MutationJobCancellationPerfResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "cancel_journaled_user_mutation_job", CancelJournaledUserMutationJob, cancel_journaled_user_mutation_job, (job_discriminator: u8, expected_sequence: u64), Result<MutationJobCancellationPerfResult, MutationJobError>);
 
 /// Return the complete bounded shared-progress inventory.
 #[cfg(feature = "test-admin-api")]
@@ -2836,7 +2836,7 @@ fn progress_job_inventory_perf() -> Result<ProgressJobInventoryPerfResult, Mutat
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "progress_job_inventory_perf", ProgressJobInventoryPerf, progress_job_inventory_perf, (), Result<ProgressJobInventoryPerfResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "progress_job_inventory_perf", ProgressJobInventoryPerf, progress_job_inventory_perf, (), Result<ProgressJobInventoryPerfResult, MutationJobError>);
 
 /// Measure durable Forward convergence without exposing private intent or continuation bytes.
 #[cfg(feature = "test-admin-api")]
@@ -2939,7 +2939,7 @@ fn measure_journaled_user_mutation_forward_perf()
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_mutation_forward_perf", MeasureJournaledUserMutationForwardPerf, measure_journaled_user_mutation_forward_perf, (), Result<MutationJobForwardPerfResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_journaled_user_mutation_forward_perf", MeasureJournaledUserMutationForwardPerf, measure_journaled_user_mutation_forward_perf, (), Result<MutationJobForwardPerfResult, MutationJobError>);
 
 #[cfg(feature = "test-admin-api")]
 fn advance_audit_mutation_job_to_verify(
@@ -3205,7 +3205,7 @@ fn verify_journaled_user_mutation_job_lifecycle()
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "verify_journaled_user_mutation_job_lifecycle", VerifyJournaledUserMutationJobLifecycle, verify_journaled_user_mutation_job_lifecycle, (), Result<MutationJobVerifyResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "verify_journaled_user_mutation_job_lifecycle", VerifyJournaledUserMutationJobLifecycle, verify_journaled_user_mutation_job_lifecycle, (), Result<MutationJobVerifyResult, MutationJobError>);
 
 /// Start or replay one fixed audit mutation intent without advancing it.
 #[cfg(feature = "test-admin-api")]
@@ -3243,7 +3243,7 @@ fn start_journaled_user_mutation_job(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "start_journaled_user_mutation_job", StartJournaledUserMutationJob, start_journaled_user_mutation_job, (job_discriminator: u8, intent_discriminator: u8), Result<MutationJobStartPerfResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "start_journaled_user_mutation_job", StartJournaledUserMutationJob, start_journaled_user_mutation_job, (job_discriminator: u8, intent_discriminator: u8), Result<MutationJobStartPerfResult, MutationJobError>);
 
 /// Apply one later ordinary write used by the managed-time mutation-job proof.
 #[cfg(feature = "test-admin-api")]
@@ -3257,7 +3257,7 @@ fn update_journaled_user_after_mutation_job_start() -> Result<u32, icydb::Error>
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "update_journaled_user_after_mutation_job_start", UpdateJournaledUserAfterMutationJobStart, update_journaled_user_after_mutation_job_start, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "update_journaled_user_after_mutation_job_start", UpdateJournaledUserAfterMutationJobStart, update_journaled_user_after_mutation_job_start, (), Result<u32, icydb::Error>);
 
 /// Advance one managed-time proof job in exactly one canister message.
 #[cfg(feature = "test-admin-api")]
@@ -3283,7 +3283,7 @@ fn advance_journaled_user_mutation_job(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "advance_journaled_user_mutation_job", AdvanceJournaledUserMutationJob, advance_journaled_user_mutation_job, (job_discriminator: u8, expected_sequence: u64, idempotency_key: String), Result<MutationScaleAdvancePerfResult, MutationJobError>);
+icydb_testing_canic_adapter::export_wire!(update, "advance_journaled_user_mutation_job", AdvanceJournaledUserMutationJob, advance_journaled_user_mutation_job, (job_discriminator: u8, expected_sequence: u64, idempotency_key: String), Result<MutationScaleAdvancePerfResult, MutationJobError>);
 
 /// Measure one canonical administrative integrity SQL operation.
 #[cfg(feature = "test-admin-api")]
@@ -3307,7 +3307,7 @@ fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, Sql
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_integrity_sql_perf", MeasureIntegritySqlPerf, measure_integrity_sql_perf, (sql: String), Result<IntegritySqlPerfResult, SqlIntegrityError>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_integrity_sql_perf", MeasureIntegritySqlPerf, measure_integrity_sql_perf, (sql: String), Result<IntegritySqlPerfResult, SqlIntegrityError>);
 
 /// Execute one PerfAuditHeapUser-only SQL query and attach one local
 /// instruction sample.
@@ -3316,7 +3316,7 @@ fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_heap_user_with_perf", QueryHeapUserWithPerf, query_heap_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_heap_user_with_perf", QueryHeapUserWithPerf, query_heap_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditJournaledUser-only SQL query and attach one local
 /// instruction sample.
@@ -3325,7 +3325,7 @@ fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icy
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_journaled_user_with_perf", QueryJournaledUserWithPerf, query_journaled_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_journaled_user_with_perf", QueryJournaledUserWithPerf, query_journaled_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute the journaled LIMIT 1 shape through an update call. After a
 /// same-WASM upgrade this gives the integration harness one normal guarded
@@ -3349,7 +3349,7 @@ fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Er
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_reentry_perf", MeasureJournaledReentryPerf, measure_journaled_reentry_perf, (), Result<ReadTotalOnlyPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_journaled_reentry_perf", MeasureJournaledReentryPerf, measure_journaled_reentry_perf, (), Result<ReadTotalOnlyPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditBlob-only SQL query and attach one local instruction
 /// sample.
@@ -3358,7 +3358,7 @@ fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_blob_with_perf", QueryBlobWithPerf, query_blob_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_blob_with_perf", QueryBlobWithPerf, query_blob_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditToken-only SQL query and attach one local instruction
 /// sample.
@@ -3367,7 +3367,7 @@ fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_token_with_perf", QueryTokenWithPerf, query_token_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "query_token_with_perf", QueryTokenWithPerf, query_token_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn scale_fixture_facts(
@@ -4171,7 +4171,7 @@ fn mutate_cardinality_closeout_index(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "mutate_cardinality_closeout_index", MutateCardinalityCloseoutIndex, mutate_cardinality_closeout_index, (present: bool, expected_version: u64, next_version: u64), Result<PromotionIndexPublicationFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "mutate_cardinality_closeout_index", MutateCardinalityCloseoutIndex, mutate_cardinality_closeout_index, (present: bool, expected_version: u64, next_version: u64), Result<PromotionIndexPublicationFacts, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
@@ -4206,7 +4206,7 @@ fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "append_promotion_index_fixture_page", AppendPromotionIndexFixturePage, append_promotion_index_fixture_page, (first_id: u32, row_count: u32), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "append_promotion_index_fixture_page", AppendPromotionIndexFixturePage, append_promotion_index_fixture_page, (first_id: u32, row_count: u32), Result<u32, icydb::Error>);
 
 /// Publish the largest maintained accepted-index key set through ordinary DDL.
 #[cfg(feature = "test-admin-api")]
@@ -4242,7 +4242,7 @@ fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, i
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "publish_promotion_index_fixture", PublishPromotionIndexFixture, publish_promotion_index_fixture, (), Result<PromotionIndexPublicationFacts, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "publish_promotion_index_fixture", PublishPromotionIndexFixture, publish_promotion_index_fixture, (), Result<PromotionIndexPublicationFacts, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 use icydb_testing_audit_sql_perf_fixtures::contracts::{ScaleFixtureFacts, ScalePayloadProfile};

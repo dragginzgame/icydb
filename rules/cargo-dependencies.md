@@ -18,7 +18,9 @@ through `bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD"
 --external-ic`. This checks canonical dependency names, including aliases,
 optional, build, development and target-specific declarations, using locked
 offline Cargo metadata. The sole allowed direct package owner for the listed
-external IC dependencies is `ic-platform`.
+external IC dependencies is `ic-platform`. Its canonical `ic-platform-types`
+identity supplier additionally owns only the optional `ic_principal` dependency
+needed for registry conversions and unchanged upstream self-authentication.
 
 This option composes with `ci/cargo-dependency-boundaries.json`: local rules may
 tighten the common boundary but cannot relax it. The local file may be absent
@@ -54,8 +56,11 @@ Do not infer ownership from an `ic-` prefix or prohibit our owned packages.
   must not silently enable features or raise MSRV.
 - Excluded packages, examples, integration harnesses and nested workspaces are
   not implicit exemptions. An independently scoped child workspace requires a
-  maintainer-approved exception naming its authoritative root, scope and reason;
-  record it in the local overlay so dependency ownership remains visible.
+  documented boundary under the
+  [core and integration graph rule](rust-workspaces.md#core-and-integration-graph-boundary)
+  or a maintainer-approved exception. Name its authoritative root, scope and
+  reason in the local overlay so dependency ownership remains visible; each
+  independent workspace still owns its catalog and lockfile.
 - Add or update the root catalog and affected inherited uses in the same batch.
   During manifest review, inspect every child dependency table, including target,
   development and build tables, for standalone version/source declarations.
@@ -70,6 +75,9 @@ Do not infer ownership from an `ic-` prefix or prohibit our owned packages.
 
 All IC-specific dependencies maintained outside `dragginzgame`, including DFINITY
 packages, must be consumed through explicit `ic-platform` features and interfaces.
+The sole additional owner is `ic-platform-types` for `ic_principal`: conversion
+impls must live with the canonical owned type to satisfy Rust coherence. That
+exception admits no Candid, runtime, storage or other external IC dependency.
 The IC Platform repository is the sole direct dependency owner for these upstream
 packages. Other repositories must not declare or import them directly, including
 through renamed dependencies, generated code or proc-macro expansions.

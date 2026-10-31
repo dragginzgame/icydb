@@ -44,7 +44,6 @@ jobs:
         run: cargo fetch --locked
       - name: Check the declared public MSRV
         run: bash scripts/ci/check-public-msrv.sh
-
   static:
     runs-on: ubuntu-24.04
     steps:
@@ -82,10 +81,6 @@ jobs:
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
-      - name: Prepare locked Testkit CLI for substitute-server fixtures
-        run: |
-          bash scripts/ci/testkit-runner.sh
-          bash scripts/ci/testkit-runner.sh --check
       - name: Prepare locked Cargo release editor for fixtures
         run: |
           make install-release-editor
@@ -114,8 +109,6 @@ jobs:
             make_target: ci-workspace
           - lane: tier-a
             make_target: ci-sql-tier-a
-          - lane: tier-b
-            make_target: ci-sql-tier-b
     env:
       RUSTC_WRAPPER: sccache
       TMPDIR: ${{ github.workspace }}/.cache
@@ -132,7 +125,7 @@ jobs:
           components: clippy
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install wasm target
-        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
+        if: matrix.lane == 'workspace'
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
@@ -145,18 +138,6 @@ jobs:
           # Keep registry/git caching, but avoid unstable target-dir probing
           # from ephemeral trybuild workspaces under `target/tests`.
           cache-targets: "false"
-      - name: Cache Tier B Wasm artifacts
-        if: matrix.lane == 'tier-b'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          # Retained outputs are revalidated by ic-testkit. Leave mutable Cargo
-          # and trybuild targets out of this cache.
-          path: |
-            ${{ env.CARGO_TARGET_DIR }}/canister-local/.ic-testkit/wasm-targets
-            ${{ env.CARGO_TARGET_DIR }}/canister-artifact-cache
-          key: icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-${{ github.sha }}
-          restore-keys: |
-            icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
       - name: Install pinned local tools
@@ -166,15 +147,10 @@ jobs:
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Prepare governed IC tools for canister builds
-        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
+        if: matrix.lane == 'workspace'
         run: |
           make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
           make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
-      - name: Prepare locked Testkit CLI and server for live tests
-        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
-        run: |
-          make install-testkit > "$RUNNER_TEMP/tools-testkit-install.log" 2>&1
-          make testkit-check > "$RUNNER_TEMP/tools-testkit-check.log" 2>&1
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           MAKE_TARGET: ${{ matrix.make_target }}
@@ -189,16 +165,6 @@ jobs:
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
           ic-tools: ${{ env.IC_TOOLS }}
-      - name: Retain PocketIC server failure logs
-        if: always() && matrix.lane == 'tier-b'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: pocketic-server-logs-${{ github.run_attempt }}
-          path: |
-            .cache/icydb-pocketic-server.*/stdout
-            .cache/icydb-pocketic-server.*/stderr
-          if-no-files-found: ignore
-
   macos_host:
     strategy:
       fail-fast: false
@@ -248,7 +214,6 @@ jobs:
       - name: Qualify native library and CLI builds
         run: |
           cargo clippy --locked -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
-          cargo clippy --locked -p icydb-testing-integration --lib -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb icp::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
@@ -263,14 +228,9 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --lib renamed_schema_only_dependency_emits_fragment
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib wasm_optimizer::tests
-          POCKET_IC_BIN="$(make --silent testkit-check)"
-          export POCKET_IC_BIN
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
-          bash scripts/ci/run-with-pocketic-server.sh bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --bin write_wasm_size_report
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
-          make build-canister-production CANISTER=default_empty
           make fmt-check
           icp --version
           ic-wasm --version
@@ -306,20 +266,13 @@ jobs:
         run: |
           npm install --global npm@12.2.0 --ignore-scripts
           npm --prefix testing/wire-browser ci --ignore-scripts
-          testing/wire-browser/node_modules/.bin/playwright install --with-deps chromium
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
-      - name: Prepare governed IC tools and Testkit server
-        run: |
-          make install-tools
-          printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
-            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
-      - name: Lint native browser contract owners
+      - name: Lint native browser contract owner
         run: |
           cargo clippy --locked -p icydb-testing-build --example wire_bindings -- -D warnings
-          cargo clippy --locked -p icydb-testing-integration --test query_canister -- -D warnings
-      - name: Qualify installed browser endpoints
-        run: make test-wire-browser
+      - name: Check native and browser codec contracts
+        run: make check-wire-browser
       - name: Retain browser qualification evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -328,9 +281,6 @@ jobs:
           path: |
             target/wire-browser/contracts.json
             target/wire-browser/vectors.mjs
-            target/wire-browser/installed-report.json
-            target/wire-browser/rejected-migration-report.json
-            target/wire-browser/integrity-findings-report.json
           if-no-files-found: ignore
 
   # Preserve the existing required-check identity while the independent lanes
@@ -352,81 +302,3 @@ jobs:
           test "$RUST_RESULT" = "success"
           test "$MACOS_RESULT" = "success"
           test "$WIRE_BROWSER_RESULT" = "success"
-
-  wasm_size_report:
-    runs-on: ubuntu-24.04
-    env:
-      RUSTC_WRAPPER: sccache
-      IC_TOOLS: ic-wasm wasm-opt
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-        with:
-          toolchain: ${{ env.RUST_CURRENT }}
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-      - name: Install wasm target
-        run: rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          workspaces: |
-            . -> target
-          cache-targets: "false"
-      - name: Fetch locked workspace dependencies
-        run: cargo fetch --locked
-      - name: Check shared SQL source in both Wasm profiles
-        run: |
-          cargo check --locked --target wasm32-unknown-unknown \
-            -p canister_test_sql -p canister_test_sql_bounded \
-            --no-default-features --features sql
-          cargo check --locked --target wasm32-unknown-unknown \
-            -p canister_test_sql -p canister_test_sql_bounded \
-            --no-default-features --features local-sql-query,test-admin-api
-      - name: Install pinned local tools
-        run: |
-          make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
-          make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
-          make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
-          make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
-          printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
-            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
-      - name: Report default-empty and request-future-scale wasm sizes
-        run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty --canister request_future_scale
-      - name: Retain tooling failure evidence
-        if: failure()
-        uses: ./.github/actions/retain-failure-evidence
-        with:
-          name: tooling-wasm-${{ github.run_attempt }}
-          temp-root: ${{ runner.temp }}
-          repository-root: ${{ github.workspace }}
-          compact-successful-tools: 'true'
-          ic-tools: ${{ env.IC_TOOLS }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: wasm-size-report
-          path: artifacts/wasm-size/*
-          if-no-files-found: error
-
-  release:
-    if: >-
-      ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'Release ') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    needs: [dependency_msrv, check, wasm_size_report]
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: wasm-size-report
-          path: release-input
-      - name: Stage verified production Wasm
-        run: |
-          mkdir -p artifacts
-          cp release-input/default_empty.wasm-release.final-deployable.wasm artifacts/default_empty.wasm
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: wasm-artifacts
-          path: |
-            artifacts/default_empty.wasm
-          if-no-files-found: error

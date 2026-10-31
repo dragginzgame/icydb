@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
-    db::{DatabaseStartupState, StartupFailure},
+    db::{DatabaseStartupState, StartupFailure, StartupFailureKind},
 };
 use icydb_testing_integration::fixture_variants::build_logical_memory_fixture_wasms;
 
@@ -105,9 +105,17 @@ fn assert_kept_row(fixture: &StandaloneCanisterFixture) {
 
 fn assert_rejected_without_control_publication(fixture: &StandaloneCanisterFixture, before: &[u8]) {
     for _ in 0..2 {
-        let error = step(fixture).expect_err("unsafe registry change must reject");
+        assert!(step(fixture).expect("unsafe registry change must stop the driver"));
+        let state: Result<DatabaseStartupState, StartupFailure> = fixture
+            .pocket_ic()
+            .query_wire(fixture.canister_id(), "state", ())
+            .unwrap();
+        let failure = state.expect_err("rejected registry must be observable as a startup failure");
+        assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+        let error = failure.error();
         assert_eq!(error.code(), ErrorCode::RUNTIME_UNSUPPORTED);
         assert_eq!(error.origin(), ErrorOrigin::Store);
+        assert!(error.facts().is_empty());
         assert_eq!(control(fixture), before);
     }
 }

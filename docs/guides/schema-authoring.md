@@ -338,6 +338,28 @@ in a row remain whole-field aggregates even when an explicit nested scalar
 relation enforces target lifetime. The exact decision matrix is maintained in
 the [nested storage contract](../contracts/NESTED_STORAGE.md).
 
+## Composite Application Hooks
+
+For records, entities, enums and tuples, `ty(normalizer(...))` and
+`ty(validator(...))` receive the complete generated value. They run in declaration
+order before that node's field or payload callbacks. Enum normalizers may change
+the active variant; payload hooks and child traversal then use the resulting
+variant. Newtype hooks continue to receive the inner value, and list/set/map
+type hooks continue to receive the inner collection.
+
+Tuple-value and enum-payload item hooks follow scalar, optional and repeated
+cardinality, just like record/entity field-item hooks. Absent optional values,
+empty repeated values and unit variants invoke no payload callback. Diagnostics
+retain the declared callback's identity and the tuple position or variant name.
+The existing visitor separately runs each child's own hooks after the parent's
+attached callbacks. Callback issues are accumulated using the existing visitor
+contract; normalization is not a transactional database write.
+
+Earlier releases silently skipped composite type hooks and tuple/enum payload
+hooks ([#68](https://github.com/dragginzgame/icydb/issues/68)). Rebuild consumers
+and review those declarations: they now execute and may modify values or reject
+application validation. There is no compatibility switch to keep skipping them.
+
 ## Collection Application Hooks
 
 Normalizers attached to record/entity field items run on the item itself:
@@ -358,9 +380,7 @@ their collection-entry index and normalizer identity.
 Set items and map keys cannot declare direct item normalizers: mutating a sorted
 key in place would invalidate container ordering. Normalize keys before insertion
 or use an explicit container normalizer that rebuilds the collection. Immutable
-key validators and container normalizers remain supported. Other hook positions
-are still being qualified in [#68](https://github.com/dragginzgame/icydb/issues/68);
-this collection support does not imply every parsed hook position executes.
+key validators and container normalizers remain supported.
 
 These application hooks are explicit. Database structural writes, SQL and
 recovery do not invoke them; accepted constraints remain the database admission

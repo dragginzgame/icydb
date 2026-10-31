@@ -3,9 +3,13 @@
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot). This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
-retains existing packages under `crates/`, `canisters/`, `schema/` and `testing/`
-in the single root workspace and lockfile. Adoption does not authorize relocation
-or another workspace; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
+retains existing package directories under `crates/`, `canisters/`, `schema/`
+and `testing/`. The maintainer approved one exception on 2026-10-31: Canic
+qualification uses `testing/canic-adapter/Cargo.toml` and its own lockfile, with
+no package-directory relocation ([#596](https://github.com/dragginzgame/icydb/issues/596)).
+Product packages and product gates remain in the root workspace; explicit Canic
+qualification owns its integration checks and may retain an older qualified stack.
+Ordinary adoption does not authorize further relocation or workspaces; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
 owns future placement decisions. See [shared-tooling adoption](docs/governance/shared-tooling.md)
 for provenance and consumer boundaries. Keep this file small; open detailed docs as needed.
 

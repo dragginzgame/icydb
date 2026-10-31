@@ -4,7 +4,69 @@
 consumer-admitted Cargo command. It owns retained intent, exact arguments,
 command output and exit statuses. It never installs tools, discovers missing
 packages, retries an upload or decides whether a previous upload succeeded.
-The [release contract](releases.md) keeps publication separate from release.
+The [release contract](releases.md) keeps publication separate from release as an
+executable operation. A scoped ship/deploy request can authorize both under
+[delegated delivery](../rules/contributions.md#delegated-delivery); agents select
+the affected approved groups and complete the upload without a second permission
+request. Guidance/readiness questions and Git-only release commands do not imply
+publication. Keep registry/source admission and uncertain-upload recovery intact.
+
+## Opt-in Make adapter
+
+Simple workspace publishers can declare their policy before including the common
+consumer entrypoint, instead of repeating selection and Cargo recipes:
+
+```make
+CARGO_PUBLISH_PACKAGES := example-library example-cli
+CARGO_PUBLISH_REGISTRY := crates-io
+CARGO_PUBLISH_VERIFY_TARGETS := publication-admission clippy
+include make/consumer.mk
+```
+
+This opts into `publish` and `publish-check`. Omission of `PACKAGE` selects the
+declared roster; `make publish PACKAGE=example-library` selects a subset. Only a
+command-line `PACKAGE` overrides the roster, so an unrelated file-level package
+default for development commands does not silently narrow publication. Empty,
+duplicate, malformed or undeclared selections refuse. Package eligibility and
+the default roster remain consumer policy; Shared only interprets the declaration.
+
+The adapter observes locked offline Cargo metadata, admits every declared package
+as a local publishable workspace member for the selected registry, and resolves
+each selected name to its exact stable version. It invokes the consumer's named
+validation targets in order, then delegates once to `run-cargo-publication.sh`.
+`publish-check` selects its `check` mode; `publish` selects upload mode. Neither
+command retries, discovers missing registry versions or uploads on release.
+
+Optional structured declarations preserve explicit Cargo inputs:
+
+| Declaration | Effect |
+| --- | --- |
+| `CARGO_PUBLISH_MANIFEST_PATH` | Select the same regular, checkout-local manifest for metadata and publication. |
+| `CARGO_PUBLISH_TARGET_DIR` | Use an explicitly prepared existing Cargo target directory. |
+| `CARGO_PUBLISH_FEATURES` | Pass one literal Cargo feature-list argument. |
+| `CARGO_PUBLISH_ALL_FEATURES=1` | Select all features; conflicts with a named feature list. |
+| `CARGO_PUBLISH_NO_DEFAULT_FEATURES=1` | Disable default features. |
+| `CARGO_PUBLISH_CHECK_ALLOW_DIRTY=1` | Add `--allow-dirty` only to the check command. Upload still requires clean source. |
+
+Boolean declarations accept only `0` or `1`, defaulting to `0`. Empty paths and
+feature lists select no override. Values are quoted as data, never evaluated as
+shell commands. Raw and resolved path controls refuse before metadata; selected
+path directories must already exist. The runner independently rechecks path and
+source admission after validation, before its protected dispatch.
+
+`CARGO_PUBLISH_EVIDENCE_ROOT` defaults to `target/publication` and must be ignored
+by Git. Unique `selection.*` directories retain metadata, diagnostics, source and
+the admitted NUL-separated selectors. Attempts share that root's existing runner
+lock; a new selection never creates an independent lock namespace. Completed and
+failed evidence stays retained. The source commit is captured before validation
+and rechecked by the runner before dispatch; upload still requires clean source.
+
+Select `make/cargo-publication.mk` or `make/consumer.mk` through the exporter;
+their closure supplies the selection projector, adapter and attempt runner.
+The Make recipe owns no registry credentials or consumer tag/provenance policy.
+Consumers needing resume, registry reconciliation, unsupported Cargo options or
+stronger admission keep their own policy and may call the lower-level runner.
+Do not define competing local `publish` recipes when opting into this adapter.
 
 ## Calling contract
 

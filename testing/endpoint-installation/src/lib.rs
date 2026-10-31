@@ -1,6 +1,6 @@
 //! Released-package-shaped canister installation without IcyDB configuration.
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     icydb_metrics(authorization = public);
     icydb_schema(authorization = controller);
 }

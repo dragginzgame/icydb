@@ -5,13 +5,13 @@
 
 use std::{collections::BTreeSet, fs, path::Path};
 
-use canic_icydb::wire::Endpoint;
 use ic_host_artifacts::{
     artifact::ArtifactError,
     wasm::{InspectionLimits, inspect},
 };
 use ic_host_fs::read::read_opened_file;
 use ic_host_tools::interface;
+use icydb::__macro::RpcMethod;
 use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
 pub use ic_host_tools::interface::MethodMode;
@@ -434,16 +434,16 @@ fn inspect_wire_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, String>
             if !identities.insert(id) {
                 return Err("duplicated IC Wire contract identity".into());
             }
-            let (name, query) = if let Some(endpoint) = Endpoint::from_id(id) {
+            let (name, query) = if let Some(endpoint) = RpcMethod::from_id(id) {
                 (
                     endpoint.name(),
                     matches!(
                         endpoint,
-                        Endpoint::Query
-                            | Endpoint::Metrics
-                            | Endpoint::Snapshot
-                            | Endpoint::Schema
-                            | Endpoint::SchemaMigration
+                        RpcMethod::Query
+                            | RpcMethod::Metrics
+                            | RpcMethod::Snapshot
+                            | RpcMethod::Schema
+                            | RpcMethod::SchemaMigration
                     ),
                 )
             } else if id == DynamicRowsQuery::ID {
@@ -525,7 +525,7 @@ pub fn inspect_wasm_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, Str
 /// Render the current migration endpoints' Wire identities and resource limits.
 #[must_use]
 pub fn render_schema_migration_endpoint_contracts() -> String {
-    let contracts: Vec<_> = [Endpoint::SchemaMigrate, Endpoint::SchemaMigration]
+    let contracts: Vec<_> = [RpcMethod::SchemaMigrate, RpcMethod::SchemaMigration]
         .into_iter()
         .map(|endpoint| {
             serde_json::json!({ "method": endpoint.name(), "id": endpoint.id(),
@@ -612,8 +612,8 @@ mod tests {
             ("canister_update icydb_metrics_reset", 0),
         ]);
         let identities = [
-            canic_icydb::wire::Endpoint::Metrics.id().to_le_bytes(),
-            canic_icydb::wire::Endpoint::MetricsReset.id().to_le_bytes(),
+            icydb::__macro::RpcMethod::Metrics.id().to_le_bytes(),
+            icydb::__macro::RpcMethod::MetricsReset.id().to_le_bytes(),
         ]
         .concat();
         wasm.extend(

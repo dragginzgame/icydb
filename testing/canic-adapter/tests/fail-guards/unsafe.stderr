@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/fail-guards/unsafe.rs:6:1
+  |
+6 | / canic_icydb::mount! {
+7 | |     icydb_sql_query(introspection = true, authorization = guard(unsafe_guard));
+8 | | }
+  | | ^
+  | | |
+  | |_expected safe fn, found unsafe fn
+  |   expected due to this
+  |
+  = note: expected fn pointer `fn(ReadAuthorizationContext) -> ReadAuthorizationDecision`
+                found fn item `unsafe fn(ReadAuthorizationContext) -> ReadAuthorizationDecision {unsafe_guard}`
+  = note: unsafe functions cannot be coerced into safe function pointers
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)

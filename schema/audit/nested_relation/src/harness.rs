@@ -449,9 +449,9 @@ macro_rules! define_relation_cost_measurement_actor {
         }
 
 
-        ::icydb_testing_wasm_helpers::export_wire!(update, "measure_relation_calibration", MeasureRelationCalibration, measure_relation_calibration, (base: i32, count: u16, phase: u8), Result<u64, ::icydb::Error>);
-        ::icydb_testing_wasm_helpers::export_wire!(query, "measure_relation_traversal", MeasureRelationTraversal, measure_relation_traversal, (path_steps: u8, references: u16), ((u64, u64),));
-        ::icydb_testing_wasm_helpers::export_wire!(update, "exercise_relation_flow", ExerciseRelationFlow, exercise_relation_flow, (operation: u8), ((bool, u64),));
+        ::icydb_testing_canic_adapter::export_wire!(update, "measure_relation_calibration", MeasureRelationCalibration, measure_relation_calibration, (base: i32, count: u16, phase: u8), Result<u64, ::icydb::Error>);
+        ::icydb_testing_canic_adapter::export_wire!(query, "measure_relation_traversal", MeasureRelationTraversal, measure_relation_traversal, (path_steps: u8, references: u16), ((u64, u64),));
+        ::icydb_testing_canic_adapter::export_wire!(update, "exercise_relation_flow", ExerciseRelationFlow, exercise_relation_flow, (operation: u8), ((bool, u64),));
     };
 
     () => {
@@ -467,7 +467,7 @@ macro_rules! define_relation_cost_measurement_actor {
                 let Ok(session) = db() else {
                     return ((false, 0),);
 
-        ::icydb_testing_wasm_helpers::export_wire!(update, "exercise_shallow_relation_flow", ExerciseShallowRelationFlow, exercise_shallow_relation_flow, (operation: u8), ((bool, u64),));
+        ::icydb_testing_canic_adapter::export_wire!(update, "exercise_shallow_relation_flow", ExerciseShallowRelationFlow, exercise_shallow_relation_flow, (operation: u8), ((bool, u64),));
     };
                 ($crate::harness::exercise_shallow(&session, operation),)
             })
@@ -483,8 +483,8 @@ macro_rules! define_relation_cost_measurement_actor {
                 let Ok(session) = db() else {
                     return ((false, 0),);
 
-        ::icydb_testing_wasm_helpers::export_wire!(update, "exercise_repeated_relation_flow", ExerciseRepeatedRelationFlow, exercise_repeated_relation_flow, (operation: u8), ((bool, u64),));
-        ::icydb_testing_wasm_helpers::export_wire!(update, "commit_repeated_relation_boundary", CommitRepeatedRelationBoundary, commit_repeated_relation_boundary, (base: i32, references: u16), Result<(), ::icydb::Error>);
+        ::icydb_testing_canic_adapter::export_wire!(update, "exercise_repeated_relation_flow", ExerciseRepeatedRelationFlow, exercise_repeated_relation_flow, (operation: u8), ((bool, u64),));
+        ::icydb_testing_canic_adapter::export_wire!(update, "commit_repeated_relation_boundary", CommitRepeatedRelationBoundary, commit_repeated_relation_boundary, (base: i32, references: u16), Result<(), ::icydb::Error>);
     };
                 ($crate::harness::exercise_repeated(&session, operation),)
             })

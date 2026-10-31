@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/dependency-pins.jq
+# Shared companions: scripts/ci/dependency-pins.jq scripts/ci/cargo-release-group.sh
 set -euo pipefail
 
 # Read-only, offline checks; requires Git, jq and Mike Farah yq v4.47.2+.
@@ -81,6 +81,7 @@ while IFS= read -r evidence; do
     git --literal-pathspecs ls-files --error-unmatch -- "$evidence" >/dev/null || fail "exception evidence must be tracked: $evidence"
 done < "$temporary/evidence"
 
+group_workspace="" group_versions='{}'
 while IFS= read -r -d '' path; do
     case "$path" in
         Cargo.toml|*/Cargo.toml) kind=cargo; format=toml ;;
@@ -120,9 +121,17 @@ while IFS= read -r -d '' path; do
             [[ -f "$workspace" && ! -L "$workspace" ]] || fail "workspace manifest must be a regular file: $workspace"
             "$YQ" -p toml -o json -I 0 '.' "$workspace" > "$temporary/root.json" || fail "cannot parse $workspace"
             jq -se 'length == 1 and (.[0] | type == "object")' "$temporary/root.json" >/dev/null || fail "expected one workspace object: $workspace"
-            jq -c -L "$SCRIPT_DIR" --slurpfile root "$temporary/root.json" \
+            if [[ "$group_workspace" != "$workspace_root" ]]; then
+                group_workspace="$workspace_root" group_versions='{}'
+                if [[ -e "$workspace_root/ci/cargo-release-groups.json" || -L "$workspace_root/ci/cargo-release-groups.json" ]]; then
+                    group="$(jq -er '.groups[0].name' "$workspace_root/ci/cargo-release-groups.json")" || fail 'invalid release groups'
+                    (cd "$workspace_root" && RELEASE_COMMIT='' bash "$SCRIPT_DIR/cargo-release-group.sh" plan "$group") > "$temporary/groups.json" || fail 'release-group graph admission failed'
+                    group_versions="$(jq -c .versions "$temporary/groups.json")" || fail 'invalid group versions'
+                fi
+            fi
+            jq -c -L "$SCRIPT_DIR" --argjson group_versions "$group_versions" --slurpfile root "$temporary/root.json" \
                 --argjson member "$(if [[ "$ROOT/$path" == "$workspace_root/Cargo.toml" ]]; then echo false; else echo true; fi)" \
-                'include "dependency-pins"; inheritance_checks($root[0]; $member)' \
+                'include "dependency-pins"; inheritance_checks($root[0]; $member; $group_versions)' \
                 "$temporary/document" >> "$temporary/findings"
         fi
         jq -c -L "$SCRIPT_DIR" 'include "dependency-pins"; dependencies | select(.spec.path? != null)' \

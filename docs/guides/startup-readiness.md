@@ -176,6 +176,15 @@ startup observation remains `Recovering`. Restore the original store path to
 resume recovery. Repeated polling cannot correct that configuration. This guard
 does not clear failure receipts already recorded by an older deployment.
 
+Unsupported allocation-registry transitions, such as reintroducing a retired
+store or omitting one with retained journal debt, stop the startup driver once
+reconciliation refuses them. `startup_state()` returns the existing
+`DatabaseControl` failure with `RUNTIME_UNSUPPORTED`. This refusal is retained
+only in the current boot's admission cache; no durable failure receipt is written.
+An upgrade restoring the original registry gets a fresh admission attempt and
+can resume its retained recovery work. Polling the refused deployment does not
+retry reconciliation or change its control record.
+
 Do not match `RUNTIME_CONFLICT`, error text, or a guessed delay. Ordinary
 database calls return the dedicated retryable
 `RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING` diagnostic while recovery

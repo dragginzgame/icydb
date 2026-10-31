@@ -90,14 +90,24 @@ fn to_f64_lossless(value: &Value) -> Option<f64> {
     }
 }
 
+/// Preserve complete finite-float and unsigned domains before Decimal coercion.
+fn compare_native_numeric_pair(left: &Value, right: &Value) -> Option<Ordering> {
+    match (left, right) {
+        (Value::Nat128(_), Value::Nat128(_))
+        | (Value::Float32(_), Value::Float32(_))
+        | (Value::Float64(_), Value::Float64(_)) => Value::strict_order_cmp(left, right),
+        _ => None,
+    }
+}
+
 /// Compare two runtime values under value-local numeric coercion semantics.
 #[must_use]
 fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;
     }
-    if let (Value::Nat128(left), Value::Nat128(right)) = (left, right) {
-        return Some(left.cmp(right));
+    if let Some(ordering) = compare_native_numeric_pair(left, right) {
+        return Some(ordering);
     }
 
     match (numeric_repr(left), numeric_repr(right)) {
@@ -107,11 +117,11 @@ fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
     }
 }
 
-/// Compare Nat128 pairs exactly; other pairs retain Decimal coercion.
+/// Compare Nat128 and same-width floats natively; other pairs use Decimal.
 #[must_use]
 pub(crate) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
-    if matches!((left, right), (Value::Nat128(_), Value::Nat128(_))) {
-        return cmp_numeric(left, right);
+    if let Some(ordering) = compare_native_numeric_pair(left, right) {
+        return Some(ordering);
     }
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;

@@ -36,7 +36,7 @@ Standalone generated startup constructs and binds its runtime. Store opens,
 integrity generations and allocation reports use that same committed instance.
 The binding is process-local and grants no authority before Memory bootstrap.
 
-Memory 0.56 owns the sole current allocation ledger: bounded IC Wire records
+The allocation ledger introduced in Memory 0.56 remains unchanged in 0.58.1: bounded IC Wire records
 inside an `ICML` Cell value, with an `ICMWIRE1` checksummed protected snapshot.
 Earlier CBOR ledger/Cell images reject. The maintainer approved this hard cut;
 installations need fresh/reset memory or a separately reviewed transition before

@@ -41,7 +41,7 @@ fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> 
     })
 }
 #[cfg(feature = "typed-explain-measurement")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_typed_explain", MeasureTypedExplain, measure_typed_explain, (kind: u8), Result<Vec<(u64, u64, String, u64)>, u16>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_typed_explain", MeasureTypedExplain, measure_typed_explain, (kind: u8), Result<Vec<(u64, u64, String, u64)>, u16>);
 
 #[cfg(feature = "sql-explain-measurement")]
 fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
@@ -70,7 +70,7 @@ fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
     })
 }
 #[cfg(feature = "sql-explain-measurement")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_sql_explain", MeasureSqlExplain, measure_sql_explain, (kind: u8), Result<Vec<(u64, u64, String)>, u16>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_sql_explain", MeasureSqlExplain, measure_sql_explain, (kind: u8), Result<Vec<(u64, u64, String)>, u16>);
 
 // Retain a real SQL operation in mixed subjects, not just an unused feature.
 #[cfg(all(feature = "sql", not(feature = "sql-explain-measurement")))]
@@ -87,4 +87,4 @@ fn retained_sql_read() -> Result<u32, u16> {
     })
 }
 #[cfg(all(feature = "sql", not(feature = "sql-explain-measurement")))]
-icydb_testing_wasm_helpers::export_wire!(query, "retained_sql_read", RetainedSqlRead, retained_sql_read, (), Result<u32, u16>);
+icydb_testing_canic_adapter::export_wire!(query, "retained_sql_read", RetainedSqlRead, retained_sql_read, (), Result<u32, u16>);

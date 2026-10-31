@@ -49,7 +49,7 @@ fn seed_batch_workload(count: u32, reject_last: bool) -> Result<(), icydb::Error
         Ok(())
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "seed_batch_workload", SeedBatchWorkload, seed_batch_workload, (count: u32, reject_last: bool), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_batch_workload", SeedBatchWorkload, seed_batch_workload, (count: u32, reject_last: bool), Result<(), icydb::Error>);
 
 // One invocation is one real request scope and one atomic output batch. The
 // host, not this endpoint, owns chunking across separate committed requests.
@@ -121,4 +121,4 @@ fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> Bat
         ic_platform::ic0::performance_counter(1).saturating_sub(total_start);
     sample
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_batch_workload", MeasureBatchWorkload, measure_batch_workload, (start: u32, count: u32, individual_reads: bool), BatchWorkloadSample);
+icydb_testing_canic_adapter::export_wire!(update, "measure_batch_workload", MeasureBatchWorkload, measure_batch_workload, (start: u32, count: u32, individual_reads: bool), BatchWorkloadSample);

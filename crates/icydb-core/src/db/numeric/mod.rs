@@ -313,13 +313,15 @@ fn apply_u256_arithmetic_checked(
 /// conversion cannot produce a comparable numeric representation.
 #[must_use]
 pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
-    // Compare exact same-type inputs directly, with Nat128's full-range
-    // comparison owned by Value. Mixed and lossy coercions stay below.
+    // Compare exact same-type inputs directly. Value owns the full unsigned
+    // and finite-float domains; mixed and lossy coercions stay below.
     match (left, right) {
         (Value::Int64(left), Value::Int64(right)) => return Some(left.cmp(right)),
         (Value::Int128(left), Value::Int128(right)) => return Some(left.cmp(right)),
         (Value::Nat64(left), Value::Nat64(right)) => return Some(left.cmp(right)),
-        (Value::Nat128(_), Value::Nat128(_)) => return left.cmp_numeric(right),
+        (Value::Nat128(_), Value::Nat128(_))
+        | (Value::Float32(_), Value::Float32(_))
+        | (Value::Float64(_), Value::Float64(_)) => return left.cmp_numeric(right),
         (Value::Duration(left), Value::Duration(right)) => {
             return Some(left.as_millis().cmp(&right.as_millis()));
         }

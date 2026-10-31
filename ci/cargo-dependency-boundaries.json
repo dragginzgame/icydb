@@ -14,5 +14,17 @@
   {
     "dependency": "blake3",
     "allowed_packages": []
+  },
+  {
+    "dependency": "canic",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "canic-icydb",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "canic-macros",
+    "allowed_packages": []
   }
 ]

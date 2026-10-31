@@ -265,11 +265,14 @@ canister scenario. Current lane selection is:
 | Lane / target | Selected coverage | Execution |
 | --- | --- | --- |
 | `ci-core` | No-default facade/core checks and tests, explicit SQL checks and Clippy | CI |
-| `ci-workspace` | Workspace Clippy/tests, all registered integration targets type-checked/linted, and the nine durability/lifecycle/authority integration binaries below | Native and PocketIC CI |
-| `ci-sql-tier-a` | One seeded sample per scheduled SELECT/mutation obligation, using IcyDB, bundled SQLite and the independent mutation model; plus `sql_correctness` | Native CI |
-| `ci-sql-tier-b` | `sql_canister` and `sql_perf_audit` | PocketIC CI |
-| `test-durability` | Core commit/mutation-job suites plus the shared `_test-durability-integration` selection below | Explicit local selection; integration leaf also runs in workspace CI |
-| `test-canister-artifact-contract` | Production/local Wasm export policy test, explicitly including its ignored test | Explicit local selection; also included by `make test` |
+| `ci-workspace` | Root product workspace Clippy/tests | Native product CI |
+| `ci-adapter` | Qualification workspace lint/tests, endpoint contracts and the nine durability/lifecycle/authority binaries below | Canic qualification CI |
+| `ci-sql-tier-a` | One seeded sample per scheduled SELECT/mutation obligation, using IcyDB, bundled SQLite and the independent mutation model | Native CI |
+| `ci-adapter-sql-tier-a` | Adapter `sql_correctness` protocol comparison | Native Canic qualification CI |
+| `ci-sql-tier-b` | `sql_canister` and `sql_perf_audit` | PocketIC Canic qualification CI |
+| `test-durability` | Core commit/mutation-job suites | Explicit local selection |
+| `_test-durability-integration` | Convergence, upgrade and authority scenarios | Explicit local selection; also runs in `ci-adapter` |
+| `test-canister-artifact-contract` | Production/local Wasm export policy test, explicitly including its ignored test | Explicit local selection; also included by `make test-adapter` |
 | `test-sql-tier-c-shard`, `test-sql-tier-c-merge`, `test-sql-tier-c-replay` | Generated/reference receipts and failure replay | Explicit local selection |
 
 The SQL coverage manifest credits enabled tests registered by Cargo in the
@@ -284,27 +287,31 @@ Provider-to-CI bindings participate in the manifest revision used by Tier C.
 After changing those declarations, rederive its golden identity and regenerate
 receipts for the maintained manifest; do not reuse old receipts as current proof.
 
-`ci-workspace` uses Clippy's `--tests` selection for the integration package,
+`ci-adapter` uses Clippy's `--tests` selection for the integration package,
 including ignored test bodies. It also executes the same unfiltered
-`_test-durability-integration` leaf as `test-durability`: `convergence_candidate`,
+`_test-durability-integration` leaf: `convergence_candidate`,
 `durable_mutation_job_scale`, `recovery_closeout`, `logical_memory`,
 `schema_migration_closeout`, `lifecycle_participant`, `read_authority`, `sql_guard`
-and `schema_guard`. The workspace lane prepares and admits the locked server
-through Testkit before dispatch; the core and Tier A lanes remain native-only.
+and `schema_guard`. The adapter workspace lane prepares and admits the locked server
+through Testkit before dispatch; the product core and workspace lanes remain native-only.
 Workflow fixtures reject missing test families, filters, ignored-only or
 compile-only substitutions and omitted CI routing. Compile coverage alone is
 not recovery, upgrade or authorization qualification; actual installed results
 belong to the CI run
 ([#42 — PR CI durability integration coverage](https://github.com/dragginzgame/icydb/issues/42)).
-`make test-unit` also executes workspace integration test binaries. For
+`make test-unit` selects only product tests. `make test-adapter` executes the
+qualification workspace and endpoint contracts. For
 development, select one binary/test
 or use `test-integration-feedback` with its required `TEST_TARGET` and `TEST_NAME`;
 that target runs one exact test and then the complete selected binary.
 
-The terminal CI `check` job aggregates static, Rust and native macOS host lanes.
-Branch protection and release publication additionally require `dependency_msrv`
-and `wasm_size_report`; [branch-protection guidance](.github/BRANCH_PROTECTION.md)
-owns that selection. Linux portable-shell fixtures do not qualify native macOS
+Product CI `check` aggregates static, Rust, native macOS and native browser-codec
+lanes; product MSRV runs independently. The path-scoped `Canic qualification`
+workflow retains installed browser and two-profile actor Wasm evidence, with its
+own MSRV/check/size requirements for composed canister artifacts. Adapter
+compatibility does not gate unrelated product releases. Requalify changed
+source/dependency pairings explicitly before composition delivery;
+[branch-protection guidance](.github/BRANCH_PROTECTION.md) owns check selection. Linux portable-shell fixtures do not qualify native macOS
 or live canister behavior. Report skipped or ignored scenarios as unrun evidence.
 
 Both native macOS lanes run the CLI observability report and endpoint-decoder

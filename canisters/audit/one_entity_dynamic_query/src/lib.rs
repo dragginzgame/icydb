@@ -112,7 +112,7 @@ fn measure_repeated_point_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
         ((executions, failures, rows, local_instructions),)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_point_queries", MeasureRepeatedPointQueries, measure_repeated_point_queries, (repetitions: u16), ((u16, u16, u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "measure_repeated_point_queries", MeasureRepeatedPointQueries, measure_repeated_point_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 /// Measure point queries with one different key binding per execution.
 
@@ -138,7 +138,7 @@ fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64
         ((executions, failures, rows, local_instructions),)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "measure_parameterized_point_queries", MeasureParameterizedPointQueries, measure_parameterized_point_queries, (repetitions: u16), ((u16, u16, u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "measure_parameterized_point_queries", MeasureParameterizedPointQueries, measure_parameterized_point_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 /// Measure a bounded run of empty scans inside one query message.
 
@@ -165,7 +165,7 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
         ((executions, failures, rows, local_instructions),)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_scan_queries", MeasureRepeatedScanQueries, measure_repeated_scan_queries, (repetitions: u16), ((u16, u16, u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "measure_repeated_scan_queries", MeasureRepeatedScanQueries, measure_repeated_scan_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 /// Measure grouped declaration preparation and empty execution on warm calls.
 
@@ -194,7 +194,7 @@ fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),)
         ((executions, failures, rows, local_instructions),)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_grouped_queries", MeasureRepeatedGroupedQueries, measure_repeated_grouped_queries, (repetitions: u16), ((u16, u16, u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "measure_repeated_grouped_queries", MeasureRepeatedGroupedQueries, measure_repeated_grouped_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 // Export after all endpoints so the generated interface includes every method.
 

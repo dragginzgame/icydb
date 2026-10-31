@@ -13,7 +13,6 @@ name = "icydb"
 path = "src/main.rs"
 
 [dependencies]
-canic-icydb = { workspace = true }
 clap = { workspace = true }
 ic-host-artifacts = { workspace = true }
 ic-host-fs = { workspace = true, features = ["temporary-file"] }

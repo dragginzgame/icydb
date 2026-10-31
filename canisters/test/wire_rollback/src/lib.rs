@@ -42,12 +42,12 @@ fn apply(action: WireRollbackAction) -> Reply {
         fail_encoding: action == WireRollbackAction::EncodingFailure,
     }
 }
-icydb_testing_wasm_helpers::export_wire!(update, "wire_rollback_apply", WireRollbackApply, apply, (action: WireRollbackAction), Reply);
+icydb_testing_canic_adapter::export_wire!(update, "wire_rollback_apply", WireRollbackApply, apply, (action: WireRollbackAction), Reply);
 
 fn state() -> u64 {
     COMMITS.with(Cell::get)
 }
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "wire_rollback_state",
     WireRollbackState,

@@ -407,7 +407,7 @@ fn sql_response_null_rendering_is_shared_by_query_and_returning() {
         row_count: 1,
     });
     let response: Result<SqlQueryResult, icydb::Error> = Ok(result.clone());
-    let bytes = canic_icydb::wire::Endpoint::Query
+    let bytes = icydb::__macro::RpcMethod::Query
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("SQL response should encode");
     let expected = crate::shell::render::reports::render_projection_display_rows_lines(
@@ -445,7 +445,7 @@ fn sql_response_preserves_preformatted_grouped_cells_and_cursor() {
     });
     let expected = crate::shell::render::render_text(&result);
     let response: Result<SqlQueryResult, icydb::Error> = Ok(result);
-    let bytes = canic_icydb::wire::Endpoint::Query
+    let bytes = icydb::__macro::RpcMethod::Query
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("grouped response should encode");
     assert_eq!(render_sql_response(&bytes), Ok(expected));
@@ -461,7 +461,7 @@ fn sql_response_keeps_endpoint_and_decode_failures_as_errors() {
         }),
     ));
     let response: Result<SqlQueryResult, icydb::Error> = Err(error);
-    let bytes = canic_icydb::wire::Endpoint::Query
+    let bytes = icydb::__macro::RpcMethod::Query
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("endpoint failure should encode");
     assert!(render_sql_response(&bytes).is_err());

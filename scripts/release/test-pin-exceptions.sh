@@ -41,6 +41,12 @@ jq -n --arg version "$previous" --argjson names "$packages" --arg root "$fixture
 printf 'version = 3\n' > "$fixture/Cargo.lock"
 jq -r '.packages[] | "\n[[package]]\nname = \"\(.name)\"\nversion = \"\(.version)\""' "$fixture/metadata.json" >> "$fixture/Cargo.lock"
 printf '\n[[package]]\nname = "external"\nversion = "%s"\nsource = "registry+fixture"\nchecksum = "fixed"\n' "$previous" >> "$fixture/Cargo.lock"
+# A separate qualification lock consumes release packages without assigning the
+# root release version to private fixtures or changing supplier selections.
+mkdir -p "$fixture/testing/canic-adapter"
+cp "$fixture/Cargo.lock" "$fixture/testing/canic-adapter/Cargo.lock"
+printf '\n[[package]]\nname = "icydb-testing-canic-adapter"\nversion = "0.0.1"\n' >> "$fixture/testing/canic-adapter/Cargo.lock"
+cp "$fixture/testing/canic-adapter/Cargo.lock" "$fixture/original-adapter.lock"
 # Backticks are literal Markdown delimiters in the release fixture.
 # shellcheck disable=SC2016
 printf 'Current workspace version: `%s`\ntag = "v%s"\n' "$previous" "$previous" > "$fixture/README.md"
@@ -182,6 +188,9 @@ done
   CARGO_HOME="$fixture/cargo" CARGO_TARGET_DIR="$fixture/target" \
     RELEASE_VERSION="$release" PATH="$fixture/bin:$PATH" bash scripts/ci/bump-version.sh patch
 ) > "$fixture/output" 2>&1 || { cat "$fixture/output" >&2; exit 1; }
+
+# Product preparation must leave independently selected qualification bytes intact.
+cmp "$fixture/original-adapter.lock" "$fixture/testing/canic-adapter/Cargo.lock"
 
 # Prose stays outside automatic version editing.
 cmp "$fixture/original-readme" "$fixture/README.md"

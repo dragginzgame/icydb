@@ -24,8 +24,8 @@ for source in \
   canisters/test/sql/src/lib.rs \
   canisters/demo/rpg/src/lib.rs
 do
-  if ! rg -q 'canic_icydb::endpoints!\s*\{' "$source"; then
-    echo "[ERROR] $source must own one explicit endpoints! block." >&2
+  if ! rg -q 'canic_icydb::mount!\s*\{' "$source"; then
+    echo "[ERROR] $source must own one explicit mount! block." >&2
     status=1
   fi
 done

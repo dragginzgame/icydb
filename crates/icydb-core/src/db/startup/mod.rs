@@ -28,7 +28,7 @@ pub enum DatabaseStartupState {
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GeneratedStartupDriverStep {
-    /// Startup is already ready or has one durably observable terminal failure.
+    /// Startup is already ready or has an observable terminal failure for this boot.
     Terminal,
     /// Recovery or optional derived-evidence work remains after one bounded page.
     Recovering,

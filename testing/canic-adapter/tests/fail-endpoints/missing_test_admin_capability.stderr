@@ -1,0 +1,17 @@
+error: endpoint declaration `icydb_fixtures_reset` requires the canister `test-admin-api` Cargo feature
+  --> tests/fail-endpoints/missing_test_admin_capability.rs:10:1
+   |
+10 | / canic_icydb::mount! {
+11 | |     icydb_fixtures_reset;
+12 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `canic_icydb::__private::cdk as __icydb_host_sdk`
+ --> tests/fail-endpoints/missing_test_admin_capability.rs:4:5
+  |
+4 | use canic_icydb::__private::cdk as __icydb_host_sdk;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

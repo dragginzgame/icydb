@@ -1,4 +1,5 @@
 [package]
+workspace = "../../../testing/canic-adapter"
 name = "canister_audit_ten_entity_typed_query"
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -19,6 +20,7 @@ default = []
 canic-icydb = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-ten-simple-fixtures = { workspace = true }
+icydb-testing-canic-adapter = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 
 [build-dependencies]

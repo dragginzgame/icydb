@@ -14,6 +14,8 @@ mod explain_measurement;
 ))]
 use ic_platform::ic0::performance_counter;
 
+#[cfg(feature = "lifecycle-participant")]
+use icydb as __icydb_facade;
 use icydb::types::{Id, Ulid};
 #[cfg(feature = "exact-key-measurement")]
 use icydb::{db::DynamicQuery, db::query::FieldRef};
@@ -35,7 +37,13 @@ fn icydb_memory_pool()
 canic_icydb::start!(icydb);
 
 #[cfg(feature = "lifecycle-participant")]
-canic_icydb::start!(icydb; participant);
+icydb::__icydb_start_actor!();
+// This audit isolates private participant code without mounting host lifecycle
+// exports. Applications select the adapter's complete public host composition.
+#[cfg(feature = "lifecycle-participant")]
+canic_icydb::__icydb_host_module!();
+#[cfg(feature = "lifecycle-participant")]
+canic_icydb::__icydb_start_participant_lifecycle!();
 
 #[cfg(feature = "exact-key-measurement")]
 const MAX_EXACT_KEY_MEASUREMENT_ITEMS: u16 = 1_000;
@@ -62,7 +70,7 @@ fn query_one_entity_typed_rows() -> u32 {
     })
 }
 #[cfg(not(feature = "lifecycle-audit"))]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "query_one_entity_typed_rows",
     QueryOneEntityTypedRows,
@@ -99,7 +107,7 @@ fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),
     })
 }
 #[cfg(feature = "exact-key-measurement")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_exact_key_batch", MeasureExactKeyBatch, measure_exact_key_batch, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "measure_exact_key_batch", MeasureExactKeyBatch, measure_exact_key_batch, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
 
 /// Measure the former one-dynamic-query-per-key workload in the same binary.
 
@@ -130,7 +138,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
     })
 }
 #[cfg(feature = "exact-key-measurement")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_dynamic_key_loop", MeasureDynamicKeyLoop, measure_dynamic_key_loop, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
+icydb_testing_canic_adapter::export_wire!(query, "measure_dynamic_key_loop", MeasureDynamicKeyLoop, measure_dynamic_key_loop, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
 
 #[cfg(feature = "lifecycle-audit")]
 fn query_one_entity_typed_lifecycle_rows() -> Result<u32, u16> {
@@ -147,7 +155,7 @@ fn query_one_entity_typed_lifecycle_rows() -> Result<u32, u16> {
     })
 }
 #[cfg(feature = "lifecycle-audit")]
-icydb_testing_wasm_helpers::export_wire!(query, "query_one_entity_typed_lifecycle_rows", QueryOneEntityTypedLifecycleRows, query_one_entity_typed_lifecycle_rows, (), Result<u32, u16>);
+icydb_testing_canic_adapter::export_wire!(query, "query_one_entity_typed_lifecycle_rows", QueryOneEntityTypedLifecycleRows, query_one_entity_typed_lifecycle_rows, (), Result<u32, u16>);
 
 #[cfg(test)]
 mod tests {

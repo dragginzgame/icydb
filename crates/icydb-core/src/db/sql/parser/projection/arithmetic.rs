@@ -99,7 +99,7 @@ impl Parser {
                 1,
             ));
         }
-        if self.cursor.peek_u256_literal() {
+        if self.cursor.peek_typed_numeric_literal() {
             return self
                 .parse_literal()
                 .map(|value| (SqlExpr::Literal(value), 1));

@@ -1,7 +1,7 @@
 //! Actual native encoders are the byte oracle for generated browser codecs.
 
 use crate::{Generator, samples};
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::Path};
 
 use icydb::{
@@ -48,7 +48,7 @@ pub(super) fn add(generator: &mut Generator) -> Result<()> {
                 rows: vec![vec![value]],
                 row_count: 1,
             }));
-        generator.vector(Endpoint::Query, true, &reply)?;
+        generator.vector(RpcMethod::Query, true, &reply)?;
     }
     let grouped: std::result::Result<_, PublicError> =
         Ok(SqlQueryResult::Grouped(SqlGroupedRowsOutput {
@@ -61,14 +61,14 @@ pub(super) fn add(generator: &mut Generator) -> Result<()> {
             row_count: 2,
             next_cursor: Some("opaque-authenticated-cursor".into()),
         }));
-    generator.vector(Endpoint::Query, true, &grouped)?;
+    generator.vector(RpcMethod::Query, true, &grouped)?;
     let reply: std::result::Result<SqlQueryResult, _> = Err(PublicError::from_kind(
         ErrorKind::Runtime(RuntimeErrorKind::Internal),
         ErrorOrigin::Response,
     ));
-    generator.vector(Endpoint::Query, true, &reply)?;
+    generator.vector(RpcMethod::Query, true, &reply)?;
     generator.vector(
-        Endpoint::Query,
+        RpcMethod::Query,
         false,
         &"SELECT value, COUNT(*) FROM Entry GROUP BY value /* é🦀 */",
     )?;
@@ -170,7 +170,7 @@ pub(super) fn write(
     out: &Path,
     types: &BTreeMap<String, Value>,
     methods: &[Value],
-    vectors: &[(Endpoint, bool, Vec<u8>, Sample)],
+    vectors: &[(RpcMethod, bool, Vec<u8>, Sample)],
 ) -> Result<()> {
     let mut source = String::from(
         "// Exact frames emitted by the current native IcyDB encoder.\nexport const vectors = [\n",

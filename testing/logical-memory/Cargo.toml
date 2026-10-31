@@ -1,4 +1,5 @@
 [package]
+workspace = "../canic-adapter"
 name = "canister_test_logical_memory"
 build = "src/build.rs"
 edition = { workspace = true }
@@ -18,6 +19,7 @@ canic-icydb = { workspace = true }
 ic-memory = { workspace = true }
 ic-platform = { workspace = true, features = ["ic0"] }
 icydb = { workspace = true, default-features = true }
+icydb-testing-canic-adapter = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 
 [build-dependencies]

@@ -1,0 +1,7 @@
+error: IcyDB participant requires host, runtime and memory; start! wires both synchronous lifecycle hooks through the host macro
+ --> tests/fail-lifecycle/participant_malformed.rs:1:1
+  |
+1 | canic_icydb::start!(icydb; participant,);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `canic_icydb::start` (in Nightly builds, run with -Z macro-backtrace for more info)

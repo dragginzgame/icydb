@@ -102,14 +102,14 @@ The workspace version is recorded in [Cargo.toml](Cargo.toml).
 ## Add IcyDB
 
 Use the same release for runtime and host-side model generation. This example
-pins the released 0.290.0 version; choose your supported release explicitly:
+pins the released 0.291.0 version; choose your supported release explicitly:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.290.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.291.0" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.290.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.291.0" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
@@ -119,10 +119,16 @@ schema-migration operations. Features compile library capabilities; they create
 no public methods. The separately owned `canic-icydb` adapter exports explicitly
 declared endpoints using IC Wire. See [endpoint setup](INSTALLING.md#explicit-endpoint-declarations).
 
-The pending 0.291 upgrade changes the Memory allocation ledger, schema-artifact
+The development branch selects the newer dependency family described in the
+[pending 0.292 notes](docs/changelog/0.292.md). Its
+[Canic qualification](testing/canic-adapter/README.md) requires a matching adapter;
+the current 0.113 composition is unqualified against these updated libraries.
+The published 0.291 examples retain their original dependency set.
+
+The 0.291 upgrade changes the Memory allocation ledger, schema-artifact
 and digest identities, and Deep integrity-job payload format. Regenerate
 artifacts and use fresh/reset storage or a separately reviewed retained-data
-transition. Read the [pending release notes](docs/changelog/0.291.md) and
+transition. Read the [release notes](docs/changelog/0.291.md) and
 [format inventory](docs/contracts/PERSISTED_FORMAT_INVENTORY.md) before adopting
 the development branch; ordinary schema migration does not convert these formats.
 
@@ -140,7 +146,7 @@ validation, and troubleshooting.
 ## Start From A Compiled Example
 
 The maintained [single-package example](testing/model-facade-only/) is compiled
-by the workspace. Its native test exercises generated startup, a typed insert,
+by the isolated Canic qualification workspace. Its native test exercises generated startup, a typed insert,
 and a typed read; its separate PocketIC test covers install and same-code
 upgrade.
 
@@ -257,7 +263,9 @@ The public facade is in `crates/icydb`; runtime internals are in
 `icydb-model-macros`, proposal/scalar contracts in `icydb-schema`, diagnostics
 in `icydb-diagnostic-code`, and the CLI in `icydb-cli`.
 `schema/`, `canisters/`, and `testing/` hold compiled examples and qualification
-fixtures.
+fixtures. The [Canic qualification workspace](testing/canic-adapter/README.md)
+has its own lockfile, so its aligned host dependencies do not constrain the root
+IcyDB packages or CLI. Package directories are unchanged.
 
 IC Wire owns application and schema-artifact serialization. IC Memory and
 IC Storage own allocation and stable collection infrastructure; IcyDB owns

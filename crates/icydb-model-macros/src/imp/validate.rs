@@ -42,7 +42,7 @@ macro_rules! impl_validate_auto {
     };
 }
 
-impl_validate_auto!(Enum, List, Map, Newtype, Set);
+impl_validate_auto!(Enum, List, Map, Newtype, Set, Tuple);
 
 ///
 /// ---------------------------------------------------------------------------
@@ -55,6 +55,7 @@ impl Imp<Entity> for ValidateAutoTrait {
         let paths = node.def().paths();
         Some(field_list_validate_strategy(
             node.def(),
+            &node.ty,
             &node.fields,
             paths,
         ))
@@ -66,13 +67,70 @@ impl Imp<Record> for ValidateAutoTrait {
         let paths = node.def().paths();
         Some(field_list_validate_strategy(
             node.def(),
+            &node.ty,
             &node.fields,
             paths,
         ))
     }
 }
 
-impl ValidateAutoFn for Enum {}
+impl ValidateAutoFn for Enum {
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        let type_rules =
+            generate_validators_inner(&node.ty.validators, quote!(self), quote!(ctx), paths);
+        let payload_rules = node
+            .variants
+            .iter()
+            .any(|variant| {
+                variant
+                    .value
+                    .as_ref()
+                    .is_some_and(|value| !value.item.validators.is_empty())
+            })
+            .then(|| {
+                let model = &paths.model;
+                let arms = node.variants.iter().map(|variant| {
+                    let ident = &variant.name;
+                    let Some(value) = &variant.value else {
+                        return quote! { Self::#ident => {} };
+                    };
+                    let name = ident.to_string();
+                    if let Some(rules) = generate_field_value_validation_inner(
+                        value,
+                        quote!(value),
+                        quote!(#model::visitor::PathSegment::Field(#name)),
+                        paths,
+                    ) {
+                        quote! { Self::#ident(value) => { #rules } }
+                    } else {
+                        quote! { Self::#ident(_) => {} }
+                    }
+                });
+                quote! { match self { #(#arms),* } }
+            });
+        wrap_validate_self_fn(merge_rules(type_rules, payload_rules), paths)
+    }
+}
+
+impl ValidateAutoFn for Tuple {
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let mut rules =
+            generate_validators_inner(&node.ty.validators, quote!(self), quote!(ctx), paths);
+        for (index, value) in node.values.iter().enumerate() {
+            let name = index.to_string();
+            let index = syn::Index::from(index);
+            let item_rules = generate_field_value_validation_inner(
+                value,
+                quote!(&self.#index),
+                quote!(#model::visitor::PathSegment::Field(#name)),
+                paths,
+            );
+            rules = merge_rules(rules, item_rules);
+        }
+        wrap_validate_self_fn(rules, paths)
+    }
+}
 
 ///
 /// ---------------------------------------------------------------------------
@@ -173,10 +231,11 @@ fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenSt
 
 fn field_list_validate_strategy(
     def: &Def,
+    ty: &Type,
     fields: &FieldList,
     paths: &CratePaths,
 ) -> TraitStrategy {
-    TraitStrategy::from_impl(field_list(def, fields, paths))
+    TraitStrategy::from_impl(field_list(def, ty, fields, paths))
 }
 
 // List and set item validators share the same indexed traversal shape.
@@ -211,7 +270,7 @@ fn collection_validate_self_tokens(
 }
 
 /// Field-level validators for Records / Entities
-fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream {
+fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> TokenStream {
     let model = &paths.model;
     let bindings = field_walk_bindings(fields);
     let field_table_ident = format_ident!("__VALIDATE_FIELDS");
@@ -262,9 +321,11 @@ fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream 
         })
         .impl_tokens(paths);
 
+    let type_rules = generate_validators_inner(&ty.validators, quote!(self), quote!(ctx), paths);
     let trait_tokens = Implementor::new(def, TraitKind::ValidateAuto)
         .set_tokens(wrap_validate_self_fn(
             Some(quote! {
+                #type_rules
                 #model::visitor::drive_validate_fields(self, ctx, Self::#field_table_ident);
             }),
             paths,

@@ -29,10 +29,15 @@ A PR, DCO sign-off or agent-generated checkbox does not establish a signed CLA;
 agents must not sign on another person's or entity's behalf. Publishing an
 agreement does not establish acceptance or configure fleet-wide signing checks.
 
-## User-owned Git and release flow
+<a id="user-owned-git-and-release-flow"></a>
 
-The user owns staging, commits, version changes, tags, pushes and release
-execution by default in the current working repository. The standing
+## Implementation and delivery authority
+
+Ordinary implementation does not automatically include staging, commits, version
+changes, tags, pushes or release execution. A request to release, publish, ship or
+deploy delegates the corresponding delivery workflow under
+[delegated delivery](#delegated-delivery), without requiring the user to choose
+every command or release group. The standing
 [cross-repository PR workflow](#cross-repository-pull-requests) is the scoped
 exception for contributions elsewhere. An ordinary local coding task ends with reviewable working-tree
 changes, numbered changelog notes and the appropriate validation. Leave existing
@@ -48,8 +53,10 @@ Documented isolated fixture effects, where local validation policy permits them,
 stay confined to their disposable test repositories; they grant no authority
 over the real checkout or remote.
 
-"Keep going", "finish this", "prepare the release", "work on 0.4", "new
-changelog" and "ready to push?" do not delegate Git or release operations.
+During implementation, "keep going", "finish this", "prepare the release",
+"work on 0.4", "new changelog" and "ready to push?" do not newly delegate
+release operations. During an already delegated delivery workflow, continuation
+retains that authority; do not stop for permission at each group or command.
 A release number selects the work/notes; it is not permission to update
 `VERSION`, application/workspace/package versions, matching release lock entries
 or generated release metadata. Explicit dependency-update authority remains
@@ -83,6 +90,9 @@ permission for already-authorized steps.
 | Merge a PR or push directly to a named integration branch | Perform the specifically authorized action, subject to repository protections and required checks. |
 | Change the repository version to an exact value | Make the named metadata edit and its required consistency updates; no commit, tag, push or release execution. |
 | Run a selected standard release command | Execute its documented release effects under the [release contract](../docs/releases.md); package publication and deployment remain separate. |
+| Release the scoped changes | Select affected approved groups and appropriate semantic-version increments, prepare scoped commits and execute the existing release workflow. Publication is included when the established request includes registry delivery. |
+| Ship or deploy the scoped crate changes | Complete the established Git release and registry publication workflow for the affected groups, including necessary integration, validation and verification. |
+| Deploy an application to an established environment | Complete its documented build/release/deployment workflow for the named or already established target. Resolve an unknown destination before deployment. |
 
 Carry the repository, base branch, destination and scope already established in
 the task forward. Resolve an actual ambiguity before making an external change;
@@ -90,6 +100,39 @@ do not ask again merely because PR creation involves a commit and branch push.
 A request to change these rules is not itself a request to commit or open a PR.
 An explicit limit, such as "draft the description only" or "do not push yet",
 narrows the authorized steps.
+
+## Delegated delivery
+
+Interpret delivery requests by their outcome and session context, not by requiring
+exact command names. "Ship these changes" in a crate-publication task authorizes
+the release and upload; "how do I deploy?" asks for guidance only. A request to
+run only `release-patch` retains that command's Git-only effects. A rules update,
+readiness check, implementation task or PR request is not itself delivery authority.
+
+- Select affected existing groups, compatible version increments, supplier-first
+  order and the established repository/branch/registry or environment. Explain
+  the selected plan briefly, then execute without asking for routine choices or
+  repeating approval. Pass `RELEASE_GROUP` explicitly; leave unaffected groups
+  unchanged. Respect any exact version or narrower user-selected scope.
+- Complete necessary source preparation, scoped staging/commits, the configured
+  PR or direct integration path, required validation, version preparation, tags,
+  pushes and the requested publication/deployment. A full delivery request covers
+  merging its own scoped PR when required checks/reviews permit; a PR-only or
+  release-command-only request does not. Never self-approve or bypass protections.
+- Keep release and publication as separate executable commands and evidence
+  boundaries. One delivery request can authorize both; do not ask again between
+  them. Use the existing adapters and recovery flow, retain failed evidence, and
+  verify destination/registry state before recovering an uncertain effect.
+- Ask only for missing information that changes the authorized outcome, such as
+  an unknown production target, ambiguous package scope or destructive migration.
+  Generic user-owned/maintainer-operated wording is a default for ordinary work,
+  not a second approval requirement after delegation. Explicit target restrictions,
+  no-push/no-publication instructions and runtime approval decisions still apply.
+- Delivery authority does not extend to unrelated repositories, new release
+  boundaries, force pushes, rewritten published history, artifact cleanup or
+  unrelated paid effects. Preserve unrelated dirty/staged work and the isolated
+  sibling contribution workflow. Report actual blockers; do not weaken release
+  gates to complete delivery.
 
 ## Cross-repository pull requests
 
@@ -171,6 +214,8 @@ The standard release runner defaults to an atomic selected-branch/tag push.
 Consumers can explicitly adopt `RELEASE_DELIVERY=pr` under the
 [release contract](../docs/releases.md#pr-delivery): prepare a release PR, then
 validate its exact merged commit and push only its tag. The release request
-authorizes that documented delivery, including creating the PR, but never an
-automatic approval or merge. Both policies are separately authorized release
+authorizes that documented delivery, including creating the PR. The runner never
+approves or merges it; an agent may merge only with the authority described in
+[delegated delivery](#delegated-delivery) or an explicit merge request.
+Both policies are authorized release
 workflows; ordinary contributions still use PRs. Do not bypass branch protection.

@@ -80,7 +80,7 @@ fn query_one_entity_sql() -> u32 {
     }
 }
 #[cfg(feature = "sql")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "query_one_entity_sql",
     QueryOneEntitySql,

@@ -40,7 +40,7 @@ macro_rules! impl_normalize_auto {
     };
 }
 
-impl_normalize_auto!(Enum, List, Map, Newtype, Set);
+impl_normalize_auto!(Enum, List, Map, Newtype, Set, Tuple);
 
 /// ---------------------------------------------------------------------------
 /// Entity / Record
@@ -52,6 +52,7 @@ impl Imp<Entity> for NormalizeAutoTrait {
         let paths = node.def().paths();
         Some(field_list_normalize_strategy(
             node.def(),
+            &node.ty,
             &node.fields,
             paths,
         ))
@@ -63,6 +64,7 @@ impl Imp<Record> for NormalizeAutoTrait {
         let paths = node.def().paths();
         Some(field_list_normalize_strategy(
             node.def(),
+            &node.ty,
             &node.fields,
             paths,
         ))
@@ -72,9 +74,71 @@ impl Imp<Record> for NormalizeAutoTrait {
 /// ---------------------------------------------------------------------------
 /// Enum
 /// ---------------------------------------------------------------------------
-/// No direct normalization for enum selection.
-/// Payload normalization occurs when payload node is visited.
-impl NormalizeAutoFn for Enum {}
+/// Whole-type hooks run before selecting the active payload's item hooks.
+/// The visitor still owns traversal into the resulting payload's children.
+impl NormalizeAutoFn for Enum {
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        let mut statements = generate_normalizers(&node.ty.normalizers, quote!(*self), None, paths);
+        if node.variants.iter().any(|variant| {
+            variant
+                .value
+                .as_ref()
+                .is_some_and(|value| !value.item.normalizers.is_empty())
+        }) {
+            let model = &paths.model;
+            let arms = node.variants.iter().map(|variant| {
+                let ident = &variant.name;
+                let Some(value) = &variant.value else {
+                    return quote! { Self::#ident => {} };
+                };
+                let name = ident.to_string();
+                let rules = generate_normalizers(
+                    &value.item.normalizers,
+                    quote!(*v),
+                    Some(quote!(#model::visitor::PathSegment::Field(#name))),
+                    paths,
+                );
+                if let Some(rules) = cardinality_wrapper(value.cardinality(), rules, quote!(value))
+                {
+                    quote! { Self::#ident(value) => { #rules } }
+                } else {
+                    quote! { Self::#ident(_) => {} }
+                }
+            });
+            statements.push(quote! { match self { #(#arms),* } });
+        }
+        fn_wrap_normalize_self(
+            (!statements.is_empty()).then(|| quote! { #(#statements)* }),
+            paths,
+        )
+    }
+}
+
+impl NormalizeAutoFn for Tuple {
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let mut statements = generate_normalizers(&node.ty.normalizers, quote!(*self), None, paths);
+        for (index, value) in node.values.iter().enumerate() {
+            let name = index.to_string();
+            let index = syn::Index::from(index);
+            let rules = generate_normalizers(
+                &value.item.normalizers,
+                quote!(*v),
+                Some(quote!(#model::visitor::PathSegment::Field(#name))),
+                paths,
+            );
+            if let Some(rules) =
+                cardinality_wrapper(value.cardinality(), rules, quote!(&mut self.#index))
+            {
+                statements.push(quote! { { #rules } });
+            }
+        }
+        fn_wrap_normalize_self(
+            (!statements.is_empty()).then(|| quote! { #(#statements)* }),
+            paths,
+        )
+    }
+}
 
 /// ---------------------------------------------------------------------------
 /// Newtype
@@ -227,7 +291,7 @@ fn container_self_tokens(normalizers: &[TypeNormalizer], paths: &CratePaths) -> 
 
 /// Field-level normalizers for Entity / Record.
 /// Applies item callbacks through each field's declared cardinality.
-fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream {
+fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> TokenStream {
     let model = &paths.model;
     let bindings = field_walk_bindings(fields);
     let field_table_ident = format_ident!("__NORMALIZE_FIELDS");
@@ -283,9 +347,11 @@ fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream 
         })
         .impl_tokens(paths);
 
+    let type_rules = generate_normalizers(&ty.normalizers, quote!(*self), None, paths);
     let trait_tokens = Implementor::new(def, TraitKind::NormalizeAuto)
         .add_tokens(fn_wrap_normalize_self(
             Some(quote! {
+                #(#type_rules)*
                 #model::visitor::drive_normalize_fields(self, ctx, Self::#field_table_ident);
             }),
             paths,
@@ -301,10 +367,11 @@ fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream 
 /// Entity and record normalize generation share the same field-driven strategy.
 fn field_list_normalize_strategy(
     def: &Def,
+    ty: &Type,
     fields: &FieldList,
     paths: &CratePaths,
 ) -> TraitStrategy {
-    TraitStrategy::from_impl(field_list(def, fields, paths))
+    TraitStrategy::from_impl(field_list(def, ty, fields, paths))
 }
 
 /// Normalizers for a newtype’s inner value (`self.0`).

@@ -57,7 +57,7 @@ fn icydb_memory_pool()
 
 canic_icydb::start!(icydb);
 
-canic_icydb::endpoints! {
+canic_icydb::mount! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "sql")]
@@ -117,7 +117,7 @@ fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult 
     }
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_sql_query_instructions", MeasureSqlQueryInstructions, measure_sql_query_instructions, (sql: String), SqlExecutionInstructionResult);
+icydb_testing_canic_adapter::export_wire!(query, "measure_sql_query_instructions", MeasureSqlQueryInstructions, measure_sql_query_instructions, (sql: String), SqlExecutionInstructionResult);
 
 /// Exercise fixed NULL-binding cases against the non-test library in Wasm.
 /// This fixture accepts neither SQL nor bindings from its caller.
@@ -172,7 +172,7 @@ fn check_bound_sql_null_parity() -> Vec<Result<icydb::db::sql::SqlQueryResult, i
     results
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(
+icydb_testing_canic_adapter::export_wire!(
     query,
     "check_bound_sql_null_parity",
     CheckBoundSqlNullParity,
@@ -195,7 +195,7 @@ fn measure_sql_ddl_admission_instructions(sql: String) -> SqlExecutionInstructio
     }
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_sql_ddl_admission_instructions", MeasureSqlDdlAdmissionInstructions, measure_sql_ddl_admission_instructions, (sql: String), SqlExecutionInstructionResult);
+icydb_testing_canic_adapter::export_wire!(update, "measure_sql_ddl_admission_instructions", MeasureSqlDdlAdmissionInstructions, measure_sql_ddl_admission_instructions, (sql: String), SqlExecutionInstructionResult);
 
 /// Measure one trusted exact update through the existing complete write path.
 #[cfg(feature = "test-admin-api")]
@@ -212,7 +212,7 @@ fn measure_trusted_sql_exact_update_instructions(sql: String) -> SqlExecutionIns
     }
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_trusted_sql_exact_update_instructions", MeasureTrustedSqlExactUpdateInstructions, measure_trusted_sql_exact_update_instructions, (sql: String), SqlExecutionInstructionResult);
+icydb_testing_canic_adapter::export_wire!(update, "measure_trusted_sql_exact_update_instructions", MeasureTrustedSqlExactUpdateInstructions, measure_trusted_sql_exact_update_instructions, (sql: String), SqlExecutionInstructionResult);
 
 /// Measure an accepted schema read after startup has reopened catalog authority.
 #[cfg(feature = "test-admin-api")]
@@ -231,14 +231,14 @@ fn measure_accepted_schema_read_instructions(
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_accepted_schema_read_instructions", MeasureAcceptedSchemaReadInstructions, measure_accepted_schema_read_instructions, (entity: String), Result<AcceptedSchemaReadInstructionResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_accepted_schema_read_instructions", MeasureAcceptedSchemaReadInstructions, measure_accepted_schema_read_instructions, (entity: String), Result<AcceptedSchemaReadInstructionResult, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn audit_metrics_query_trap() -> Result<(), icydb::Error> {
     ic_platform::ic0::trap(b"intentional metrics query rollback probe")
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "audit_metrics_query_trap", AuditMetricsQueryTrap, audit_metrics_query_trap, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(query, "audit_metrics_query_trap", AuditMetricsQueryTrap, audit_metrics_query_trap, (), Result<(), icydb::Error>);
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
@@ -313,7 +313,7 @@ fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, 
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(query, "measure_application_behavior_perf", MeasureApplicationBehaviorPerf, measure_application_behavior_perf, (), Result<ApplicationBehaviorPerfResult, String>);
+icydb_testing_canic_adapter::export_wire!(query, "measure_application_behavior_perf", MeasureApplicationBehaviorPerf, measure_application_behavior_perf, (), Result<ApplicationBehaviorPerfResult, String>);
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
 #[cfg(feature = "test-admin-api")]
@@ -337,7 +337,7 @@ fn seed_migration_unrelated_indexes() -> Result<(), icydb::Error> {
     })
 }
 #[cfg(all(feature = "test-admin-api", feature = "schema-migration-api"))]
-icydb_testing_wasm_helpers::export_wire!(update, "seed_migration_unrelated_indexes", SeedMigrationUnrelatedIndexes, seed_migration_unrelated_indexes, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_migration_unrelated_indexes", SeedMigrationUnrelatedIndexes, seed_migration_unrelated_indexes, (), Result<(), icydb::Error>);
 
 /// Build one deterministic baseline SQL user fixture batch.
 #[cfg(feature = "test-admin-api")]
@@ -400,7 +400,7 @@ fn seed_oversized_sql_group_name() -> Result<(), icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "seed_oversized_sql_group_name", SeedOversizedSqlGroupName, seed_oversized_sql_group_name, (), Result<(), icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_oversized_sql_group_name", SeedOversizedSqlGroupName, seed_oversized_sql_group_name, (), Result<(), icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn set_sql_numeric_group_name<C: icydb::traits::CanisterKind>(
@@ -573,7 +573,7 @@ fn seed_convergence_metrics_backlog() -> Result<u32, icydb::Error> {
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "seed_convergence_metrics_backlog", SeedConvergenceMetricsBacklog, seed_convergence_metrics_backlog, (), Result<u32, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "seed_convergence_metrics_backlog", SeedConvergenceMetricsBacklog, seed_convergence_metrics_backlog, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 const fn typed_fixture_invariant_error() -> icydb::Error {
@@ -963,4 +963,4 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
     })
 }
 #[cfg(feature = "test-admin-api")]
-icydb_testing_wasm_helpers::export_wire!(update, "measure_identity_closeout_perf", MeasureIdentityCloseoutPerf, measure_identity_closeout_perf, (), Result<IdentityCloseoutPerfResult, icydb::Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_identity_closeout_perf", MeasureIdentityCloseoutPerf, measure_identity_closeout_perf, (), Result<IdentityCloseoutPerfResult, icydb::Error>);

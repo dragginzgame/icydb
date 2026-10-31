@@ -76,7 +76,7 @@ pub(in crate::db::predicate::parser) fn parse_between_predicate(
 
 // Parse one BETWEEN endpoint without widening into generic expression bounds.
 fn parse_between_bound(cursor: &mut SqlTokenCursor) -> Result<BetweenBound, SqlParseError> {
-    if !cursor.peek_u256_literal()
+    if !cursor.peek_typed_numeric_literal()
         && matches!(
             cursor.peek_kind(),
             Some(TokenKind::Identifier(_) | TokenKind::QuotedIdentifier(_))

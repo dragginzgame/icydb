@@ -343,6 +343,142 @@ fn sql_nat128_column_ordering_covers_the_full_domain_across_execution_lanes() {
 }
 
 #[test]
+fn sql_same_width_float_comparisons_preserve_finite_extremes_and_nulls() {
+    let mut cases = Vec::new();
+    for (left, right) in [
+        (0.0, f32::from_bits(1)),
+        (f32::from_bits(1), f32::from_bits(2)),
+        (1.0e-30, f32::MAX),
+        (f32::MIN, 0.0),
+    ] {
+        cases.push((
+            AcceptedFieldKind::Float32,
+            InputValue::float32(Float32::try_new(left).unwrap()),
+            InputValue::float32(Float32::try_new(right).unwrap()),
+        ));
+    }
+    for (left, right) in [
+        (0.0, f64::from_bits(1)),
+        (f64::from_bits(1), f64::from_bits(2)),
+        (1.0e-30, f64::MAX),
+        (f64::MIN, 0.0),
+    ] {
+        cases.push((
+            AcceptedFieldKind::Float64,
+            InputValue::float64(Float64::try_new(left).unwrap()),
+            InputValue::float64(Float64::try_new(right).unwrap()),
+        ));
+    }
+    for (kind, first, second) in cases {
+        crate::testing::run_isolated({
+            let (kind, first, second) = (kind.clone(), first.clone(), second.clone());
+            move || assert_scalar_column_ordering(kind, first, second)
+        });
+        crate::testing::run_isolated(move || {
+            let session = seed_scalar_pairs(kind, first, second);
+            for (op, expected) in [("=", [true, false, false]), ("!=", [false, true, true])] {
+                for condition in [
+                    format!("left_value {op} right_value"),
+                    format!("CASE WHEN left_value {op} right_value THEN true ELSE false END"),
+                ] {
+                    assert_eq!(
+                        projection_rows(
+                            &session,
+                            &format!("SELECT id FROM PlannerRow WHERE {condition} ORDER BY id")
+                        ),
+                        expected
+                            .into_iter()
+                            .enumerate()
+                            .filter(|(_, matches)| *matches)
+                            .map(|(index, _)| vec![OutputValue::nat64(
+                                u64::try_from(index + 1).unwrap()
+                            )])
+                            .collect::<Vec<_>>(),
+                        "{condition}"
+                    );
+                }
+                assert_eq!(
+                    projection_rows(
+                        &session,
+                        &format!("SELECT left_value {op} right_value FROM PlannerRow ORDER BY id")
+                    ),
+                    expected
+                        .into_iter()
+                        .map(|value| vec![OutputValue::boolean(value)])
+                        .chain([
+                            vec![OutputValue::null()],
+                            vec![OutputValue::null()],
+                            vec![OutputValue::null()]
+                        ])
+                        .collect::<Vec<_>>()
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn sql_same_width_float_literals_agree_across_predicate_and_expression_routes() {
+    for (kind, first, second, literal) in [
+        (
+            AcceptedFieldKind::Float32,
+            InputValue::float32(Float32::try_new(1.0e-30).unwrap()),
+            InputValue::float32(Float32::try_new(f32::MAX).unwrap()),
+            "FLOAT32 '1e-30'",
+        ),
+        (
+            AcceptedFieldKind::Float64,
+            InputValue::float64(Float64::try_new(1.0e-30).unwrap()),
+            InputValue::float64(Float64::try_new(f64::MAX).unwrap()),
+            "FLOAT64 '1e-30'",
+        ),
+    ] {
+        crate::testing::run_isolated(move || {
+            let session = seed_scalar_pairs(kind, first, second);
+            for (op, reversed, expected) in [
+                ("=", "=", vec![1, 2, 5]),
+                ("!=", "!=", vec![3]),
+                ("<", ">", vec![]),
+                ("<=", ">=", vec![1, 2, 5]),
+                (">", "<", vec![3]),
+                (">=", "<=", vec![1, 2, 3, 5]),
+            ] {
+                for condition in [
+                    format!("left_value {op} {literal}"),
+                    format!("{literal} {reversed} left_value"),
+                    format!("CASE WHEN left_value {op} {literal} THEN true ELSE false END"),
+                ] {
+                    assert_eq!(
+                        projection_rows(
+                            &session,
+                            &format!("SELECT id FROM PlannerRow WHERE {condition} ORDER BY id")
+                        ),
+                        expected
+                            .iter()
+                            .map(|id| vec![OutputValue::nat64(*id)])
+                            .collect::<Vec<_>>(),
+                        "{condition}"
+                    );
+                }
+                assert_eq!(
+                    projection_rows(
+                        &session,
+                        &format!("SELECT left_value {op} {literal} FROM PlannerRow ORDER BY id")
+                    ),
+                    (1..=6)
+                        .map(|id| vec![if [4, 6].contains(&id) {
+                            OutputValue::null()
+                        } else {
+                            OutputValue::boolean(expected.contains(&id))
+                        }])
+                        .collect::<Vec<_>>()
+                );
+            }
+        });
+    }
+}
+
+#[test]
 fn sql_issue_timestamp_column_equality_matches_execution_lanes() {
     assert_scalar_column_equality(
         AcceptedFieldKind::Timestamp,

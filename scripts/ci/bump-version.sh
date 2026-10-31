@@ -25,11 +25,14 @@ trap finish_projection EXIT
 # Prepare every candidate before publishing any file. The enclosing release
 # transaction owns originals, rollback and recovery evidence.
 cargo metadata --locked --offline --no-deps --format-version 1 > "$scratch/metadata.json" || exit 1
-for path in Cargo.toml Cargo.lock ci/dependency-pinning-exceptions.json; do
+paths=(Cargo.toml Cargo.lock ci/dependency-pinning-exceptions.json)
+# Private qualification owns its lock and refreshes it during adapter adoption.
+# A product release never resolves or rewrites that independent graph.
+for path in "${paths[@]}"; do
     mkdir -p "$scratch/$(dirname "$path")"
     bash scripts/release/render-candidate.sh "$path" "$path" "$previous" "$next" "$scratch/metadata.json" > "$scratch/$path" || exit 1
 done
-for path in Cargo.lock ci/dependency-pinning-exceptions.json Cargo.toml; do
+for path in "${paths[@]}"; do
     cat "$scratch/$path" > "$path" || exit 1
 done
 cargo metadata --locked --offline --no-deps --format-version 1 > "$scratch/prepared.json" || exit 1

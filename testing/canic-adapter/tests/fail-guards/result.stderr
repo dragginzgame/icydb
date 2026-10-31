@@ -1,0 +1,14 @@
+error[E0308]: mismatched types
+ --> tests/fail-guards/result.rs:6:1
+  |
+6 | / canic_icydb::mount! {
+7 | |     icydb_sql_query(introspection = true, authorization = guard(result_guard));
+8 | | }
+  | | ^
+  | | |
+  | |_expected fn pointer, found fn item
+  |   expected due to this
+  |
+  = note: expected fn pointer `fn(ReadAuthorizationContext) -> ReadAuthorizationDecision`
+                found fn item `fn(ReadAuthorizationContext) -> Result<ReadAuthorizationDecision, ()> {result_guard}`
+  = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `canic_icydb::mount` (in Nightly builds, run with -Z macro-backtrace for more info)

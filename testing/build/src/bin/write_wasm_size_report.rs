@@ -12,7 +12,6 @@ use std::{
     time::Duration,
 };
 
-use canic_icydb::wire::Endpoint;
 use clap::Parser;
 use ic_build::artifacts::CargoBuildFacts;
 use ic_host_artifacts::{
@@ -26,6 +25,7 @@ use ic_host_process::tool::{
 };
 use ic_host_tools::interface::exported_methods;
 use ic_metrics::checked_scaled_ratio;
+use icydb::__macro::RpcMethod;
 use icydb_testing_build::{
     BuiltCanisterArtifacts, CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration, build_canister_with_options,
@@ -599,14 +599,14 @@ fn endpoint_surface(facts: &CargoBuildFacts, info: &WasmInfo) -> Build {
         snapshot: names.contains(&"icydb_snapshot"),
         schema: names.iter().any(|name| {
             matches!(
-                Endpoint::from_name(name),
-                Some(Endpoint::Schema | Endpoint::SchemaMigrate | Endpoint::SchemaMigration)
+                RpcMethod::from_name(name),
+                Some(RpcMethod::Schema | RpcMethod::SchemaMigrate | RpcMethod::SchemaMigration)
             )
         }),
     };
     let custom_exports = names
         .into_iter()
-        .filter(|name| Endpoint::from_name(name).is_none())
+        .filter(|name| RpcMethod::from_name(name).is_none())
         .map(ToOwned::to_owned)
         .collect();
 

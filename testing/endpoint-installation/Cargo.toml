@@ -1,4 +1,5 @@
 [package]
+workspace = "../canic-adapter"
 name = "icydb-testing-endpoint-installation"
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -20,7 +21,7 @@ default = []
 
 [dependencies]
 canic-icydb = { workspace = true }
-runtime_api = { workspace = true }
+runtime_api = { workspace = true, features = ["metrics"] }
 
 [build-dependencies]
 icydb-testing-audit-default-empty-fixtures = { workspace = true }

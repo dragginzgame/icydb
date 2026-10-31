@@ -19,6 +19,11 @@ where applicable; consumers supply other language conventions and commands.
    suppressions and language escape hatches by reachability and consequence.
    Presence alone is not a defect. Invalid input and recoverable state need typed
    failures; public panic contracts and safety assumptions need documentation.
+   Review every lint `allow` against the
+   [expectation rule](../docs/principles/rust-code-hygiene.md#lint-suppressions):
+   identify conversions to scoped `expect` attributes, verify expectations across
+   the maintained configurations, and require a concrete limitation for any
+   retained allowance. Keep unfulfilled expectations visible to the owning gate.
 3. Inspect boundary validation and negative tests. Errors should retain actionable
    typed context through callers. Golden-path tests, rendered-string matching,
    and tests of private layout do not substitute for the maintained contract.

@@ -255,7 +255,7 @@ mod tests {
                 };
                 let response: Result<&SqlQueryResult, Error> = Ok(&candidate);
                 let encoded = ic_wire::native::encode_response(
-                    canic_icydb::wire::Endpoint::Query.id(),
+                    crate::__macro::RpcMethod::Query.id(),
                     &response,
                     icydb_schema::wire::sizing_limits(),
                 )
@@ -274,7 +274,7 @@ mod tests {
                     );
                     assert_eq!(error.origin(), ErrorOrigin::Response);
                     assert!(
-                        canic_icydb::wire::Endpoint::Query
+                        crate::__macro::RpcMethod::Query
                             .encode_response(
                                 Err::<SqlQueryResult, Error>(error),
                                 crate::wire::limits(crate::wire::MAX_REPLY_BYTES)

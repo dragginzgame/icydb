@@ -108,7 +108,7 @@ fn load_seek_intersection_fixture(case: u8, start: u16) -> Result<u32, Error> {
         Ok(4)
     })
 }
-icydb_testing_wasm_helpers::export_wire!(update, "load_seek_intersection_fixture", LoadSeekIntersectionFixture, load_seek_intersection_fixture, (case: u8, start: u16), Result<u32, Error>);
+icydb_testing_canic_adapter::export_wire!(update, "load_seek_intersection_fixture", LoadSeekIntersectionFixture, load_seek_intersection_fixture, (case: u8, start: u16), Result<u32, Error>);
 
 /// Measure a real engine-issued page. Inputs select a fixed audit workload;
 /// they do not alter planner admission, physical routes or page budgets.
@@ -147,7 +147,7 @@ fn measure_seek_intersection_page(
     }
     measure_page(|| db()?.execute_trusted_live_page(&request, continuation.as_deref()))
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_seek_intersection_page", MeasureSeekIntersectionPage, measure_seek_intersection_page, (children: u8, descending: bool, residual: bool, wide: bool, limit: Option<u32>, continuation: Option<String>), Result<IntersectionPageSample, Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_seek_intersection_page", MeasureSeekIntersectionPage, measure_seek_intersection_page, (children: u8, descending: bool, residual: bool, wide: bool, limit: Option<u32>, continuation: Option<String>), Result<IntersectionPageSample, Error>);
 
 /// Exercise the public 100-row envelope over an ordered secondary range.
 /// No authored total limit is used: every engine-issued page must be traversable.
@@ -179,7 +179,7 @@ fn measure_secondary_resume_page(
         });
     measure_page(|| db()?.execute_live_page(&request, continuation.as_deref()))
 }
-icydb_testing_wasm_helpers::export_wire!(update, "measure_secondary_resume_page", MeasureSecondaryResumePage, measure_secondary_resume_page, (descending: bool, residual: bool, row_backed: bool, continuation: Option<String>), Result<IntersectionPageSample, Error>);
+icydb_testing_canic_adapter::export_wire!(update, "measure_secondary_resume_page", MeasureSecondaryResumePage, measure_secondary_resume_page, (descending: bool, residual: bool, row_backed: bool, continuation: Option<String>), Result<IntersectionPageSample, Error>);
 
 // Keep the same request boundary and instruction interval for both probes.
 fn measure_page(

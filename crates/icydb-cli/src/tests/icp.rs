@@ -3,7 +3,7 @@
 //! Does not own: CLI argument parsing or observability payload decoding.
 //! Boundary: test-only assertions over process command arguments and parser helpers.
 
-use canic_icydb::wire::Endpoint;
+use icydb::__macro::RpcMethod;
 
 use std::path::Path;
 
@@ -86,7 +86,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
     let command = icp_query_command(
         "demo",
         "demo_rpg",
-        Endpoint::Query.name(),
+        RpcMethod::Query.name(),
         Path::new("arguments.bin"),
     );
     let args = command
@@ -120,7 +120,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
     let command = icp_update_command(
         "demo",
         "demo_rpg",
-        Endpoint::Ddl.name(),
+        RpcMethod::Ddl.name(),
         Path::new("arguments.bin"),
     );
     let args = command

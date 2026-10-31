@@ -29,7 +29,7 @@ use ic_host_artifacts::artifact::{ArtifactError, read_reader};
 // Decode failures cannot prove version skew: corruption and a wrong endpoint
 // can fail identically. Preserve the original diagnostic and offer lockstep advice.
 pub(crate) fn render_wire_decode_error(
-    endpoint: canic_icydb::wire::Endpoint,
+    endpoint: icydb::__macro::RpcMethod,
     error: icydb::wire::Error,
 ) -> String {
     format!(
@@ -1216,6 +1216,36 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable => {
             "historical journal allocation cannot be selected for recovery; restore current host authority and resolve its allocation lifecycle"
         }
+        RuntimeBoundaryCode::TypedAdapterBatchHandleMismatch => {
+            "typed batch handle belongs to another result; use the handle with its original result owner"
+        }
+        RuntimeBoundaryCode::TypedAdapterBatchRowConsumed => {
+            "typed batch row has already been consumed; retain its decoded value instead of decoding twice"
+        }
+        RuntimeBoundaryCode::TypedAdapterBindingUnavailable => {
+            "generated source descriptor cannot bind to accepted schema; compare the generated declaration with current accepted authority"
+        }
+        RuntimeBoundaryCode::TypedAdapterEntityMismatch => {
+            "typed row belongs to another accepted entity; use the binding for that entity"
+        }
+        RuntimeBoundaryCode::TypedAdapterFieldUnavailable => {
+            "typed field source is absent from the binding; rebuild the adapter against accepted schema"
+        }
+        RuntimeBoundaryCode::TypedAdapterIncompatibleField => {
+            "generated field contract disagrees with accepted schema; review and regenerate the typed declaration"
+        }
+        RuntimeBoundaryCode::TypedAdapterRowFieldUnavailable => {
+            "typed output projection omits a required field; include it or select the matching output adapter"
+        }
+        RuntimeBoundaryCode::TypedAdapterRowShapeMismatch => {
+            "typed output column and value counts disagree; inspect the producer's row contract"
+        }
+        RuntimeBoundaryCode::TypedAdapterStaleBinding => {
+            "typed binding is stale; acquire a binding from current accepted schema before retrying"
+        }
+        RuntimeBoundaryCode::TypedAdapterValueShapeMismatch => {
+            "typed output value does not match its generated Rust field shape; use the matching adapter contract"
+        }
         RuntimeBoundaryCode::MemoryBucketSizeMismatch => {
             "memory bucket size mismatch (pages: expected=requested, actual=persisted); retain the existing size or recreate the database"
         }
@@ -1747,6 +1777,55 @@ mod tests {
     use crate::cli::{CliArgs, CliCommand};
     use clap::Parser;
     use std::io::{Cursor, Write as _};
+
+    #[test]
+    fn typed_adapter_public_errors_render_from_codes_and_wire_json() {
+        use icydb::db::TypedAdapterError;
+
+        for (cause, label) in [
+            (TypedAdapterError::BatchHandleMismatch, "typed batch handle"),
+            (TypedAdapterError::BatchRowConsumed, "typed batch row"),
+            (TypedAdapterError::EntityMismatch, "typed row belongs"),
+            (TypedAdapterError::FieldUnavailable, "typed field source"),
+            (
+                TypedAdapterError::IncompatibleField,
+                "generated field contract",
+            ),
+            (
+                TypedAdapterError::RowFieldUnavailable,
+                "typed output projection",
+            ),
+            (TypedAdapterError::RowShapeMismatch, "typed output column"),
+            (TypedAdapterError::StaleBinding, "typed binding is stale"),
+            (TypedAdapterError::ValueShapeMismatch, "typed output value"),
+        ] {
+            let error = icydb::Error::from(cause);
+            let json = serde_json::to_vec(&error).unwrap();
+            let decoded = read_error_json(json.as_slice()).unwrap();
+            assert_eq!(decoded, error);
+            let reason = render_error(&decoded);
+            // Rendering retains the existing broad diagnostic label before
+            // the specific adapter reason.
+            assert!(reason.contains(label), "{cause:?}: {reason}");
+            let report = render_error_code_report(&format!("E{}", error.code().raw())).unwrap();
+            assert!(report.contains(&reason));
+            assert_eq!(
+                diagnostic_fact_schema_mismatch(&format!("E{}", error.code().raw()), &[]).unwrap(),
+                None
+            );
+        }
+        // BindingUnavailable carries an opaque producer-owned context; qualify
+        // its registered projection without constructing one in host tooling.
+        let binding = icydb::Error::from_error_code(
+            icydb::ErrorCode::RUNTIME_BOUNDARY_TYPED_ADAPTER_BINDING_UNAVAILABLE,
+            icydb::ErrorOrigin::Interface,
+        );
+        assert!(render_error(&binding).contains(": generated source descriptor"));
+        assert_eq!(
+            read_error_json(serde_json::to_vec(&binding).unwrap().as_slice()).unwrap(),
+            binding
+        );
+    }
 
     #[test]
     fn oversized_row_json_preserves_limit_facts_without_schema_metadata() {

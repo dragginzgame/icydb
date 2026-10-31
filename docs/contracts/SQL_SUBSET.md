@@ -174,7 +174,7 @@ invalid-numeric-literal diagnostic in statements and standalone predicates;
 it cannot become an implicit projection alias. Separate a bare alias with
 whitespace, for example `SELECT price * 1 e3 FROM Product`, or use `AS e3`.
 This restriction does not apply inside strings, hex blob literals or typed
-`U256` string literals.
+numeric string literals such as `U256 '1000'` or `FLOAT64 '1e-20'`.
 
 Strict field binding accepts bare integers across each complete `int128` and
 `nat128` domain, including `balance = 340282366920938463463374607431768211455`
@@ -189,8 +189,32 @@ above `i128::MAX` now produce exact `Nat128` atoms. Comparisons between two
 expressions; this does not widen Decimal arithmetic or mixed-type numeric
 coercion. Quoted decimal integers remain supported at integer field boundaries
 and remain text in a general computed expression. Rendered integer spellings
-are unchanged; floating values are still not guaranteed to round-trip through
-rendered SQL.
+are unchanged.
+
+Use `FLOAT32 'value'` or `FLOAT64 'value'` for an exact finite float atom of that
+width. The quoted payload accepts ordinary floating-point decimal/exponent
+notation, including its sign; NaN, infinities, overflow and malformed payloads
+are rejected. Type prefixes are case-insensitive and remain ordinary field
+names unless immediately followed by a string literal. For example:
+
+```sql
+INSERT INTO Measurement (id, score)
+VALUES (1, FLOAT64 '1.2345678901234567e-20');
+```
+
+Canonical float literals in predicates and CHECK descriptions use these typed
+spellings, preserving their width and exact finite value on parsing. Plain
+quoted numbers remain Text until an existing field binder explicitly admits
+them. Bare number typing, negative-zero normalization, finite admission and
+mixed-number comparison/arithmetic rules are unchanged; typed spelling does
+not add a new numeric coercion policy.
+
+Comparisons between two Float32 values or two Float64 values use their native
+finite ordering, including subnormals and finite extremes outside Decimal's
+range. This applies to predicates and computed comparison expressions; NULL
+still yields unknown. Mixed-width/mixed-type comparison and arithmetic retain
+their existing bounded Decimal admission. A typed float literal of the field's
+width makes that same-width comparison explicit.
 
 #### Fixed-width `U256`
 

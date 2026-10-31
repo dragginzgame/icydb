@@ -25,6 +25,8 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-ic-tools.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/ci/verify-wasm-optimizer.sh"
 printf '[workspace]\n' > "$fixture/Cargo.toml"
 printf 'version = 4\n' > "$fixture/Cargo.lock"
+mkdir -p "$fixture/testing/canic-adapter"
+printf 'version = 4\n' > "$fixture/testing/canic-adapter/Cargo.lock"
 cat > "$fixture/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -46,7 +48,7 @@ cat > "$fixture/scripts/dev/install-rust-tools.sh" <<'INSTALLER'
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_ROOT/installation-requests"
 if [[ "$*" == "--consumer $TEST_ROOT --versions "* ]]; then exit 0; fi
-[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --lockfile $TEST_ROOT/Cargo.lock --bin ic-testkit-server --profile release --features cli"* ]]
+[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --lockfile $TEST_ROOT/testing/canic-adapter/Cargo.lock --bin ic-testkit-server --profile release --features cli"* ]]
 [[ "${TEST_SELECTION_FAIL:-0}" == 0 ]] || exit 19
 if [[ "${TEST_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
   [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
@@ -113,7 +115,7 @@ if rg -q '^setup$' "$fixture/server-requests"; then exit 1; fi
 # package. Failed infrastructure must not prevent their Cargo invocation.
 : > "$fixture/server-requests"
 : > "$fixture/installation-requests"
-for target in _ci-workspace-tests _ci-tier-a-integration; do
+for target in _ci-workspace-tests _ci-adapter-workspace-tests _ci-tier-a-integration; do
   env TEST_SELECTION_FAIL=1 TEST_CLI_FAIL=1 TEST_SERVER_FAIL=1 \
     make --silent "$target" > "$fixture/$target.log"
 done
@@ -136,7 +138,7 @@ make --silent install-testkit > "$fixture/changed-setup.log"
 [[ -f "$fixture/installed-0.28.1" ]]
 CARGO_NET_OFFLINE=true make --silent testkit-check > "$fixture/changed-check.log"
 cmp "$fixture/previous-bytes" "$fixture/installed-0.25.5"
-[[ "$(tail -n 1 "$fixture/installation-requests")" == *"--lockfile $fixture/Cargo.lock "* ]]
+[[ "$(tail -n 1 "$fixture/installation-requests")" == *"--lockfile $fixture/testing/canic-adapter/Cargo.lock "* ]]
 unset TEST_TRACK_SELECTION TEST_SELECTED_VERSION
 
 # Standalone validation must admit tools before dispatching any dependent gate.

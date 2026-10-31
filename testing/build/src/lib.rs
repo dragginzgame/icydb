@@ -316,6 +316,9 @@ impl ResolvedCanisterBuildConfiguration {
     }
 }
 
+// Cargo ownership differs from the retained repository/artifact root.
+const ADAPTER_WORKSPACE_DIR: &str = "testing/canic-adapter";
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -438,7 +441,7 @@ fn build_configured_canister_artifacts(
     let packages = [package_name];
     let outcome = build_cached_cargo_wasm(&CargoWasmCacheRequest {
         context: context_label,
-        workspace_root: root,
+        workspace_root: &root.join(ADAPTER_WORKSPACE_DIR),
         target_dir: canister_target_dir,
         packages: &packages,
         selection: &configured.selection,

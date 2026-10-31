@@ -30,13 +30,9 @@ serde = { workspace = true }
 ic-wire = { workspace = true, features = ["typescript"] }
 
 [dev-dependencies]
-canic-icydb = { workspace = true }
+ic-memory = { workspace = true, features = ["test-support"] }
 ic-platform = { workspace = true, features = ["principal-self-authenticating"] }
 trybuild = { workspace = true }
-
-[[test]]
-name = "compile"
-path = "tests/compile.rs"
 
 [[test]]
 name = "default_memory_manager"
@@ -45,18 +41,6 @@ path = "tests/default_memory_manager.rs"
 [[test]]
 name = "memory_admission"
 path = "tests/memory_admission.rs"
-
-[[test]]
-name = "compile_pass_endpoint_declarations"
-path = "tests/pass/endpoint_declarations.rs"
-
-[[test]]
-name = "compile_pass_lifecycle_declarations"
-path = "tests/pass/lifecycle_declarations.rs"
-
-[[test]]
-name = "lifecycle_participant"
-path = "tests/lifecycle_participant.rs"
 
 [[test]]
 name = "compile_pass_structural_write_surface"
@@ -74,26 +58,6 @@ path = "tests/pass-query/dynamic_query.rs"
 name = "compile_pass_migration_capability"
 path = "tests/pass-migration/capability.rs"
 required-features = ["migration"]
-
-[[test]]
-name = "compile_pass_migration_endpoints"
-path = "tests/pass-migration/endpoints.rs"
-required-features = ["migration"]
-
-[[test]]
-name = "compile_pass_sql_query_introspection"
-path = "tests/pass-sql/endpoint_query_introspection.rs"
-required-features = ["sql"]
-
-[[test]]
-name = "compile_pass_sql_update_bounded"
-path = "tests/pass-sql/endpoint_update_bounded.rs"
-required-features = ["sql"]
-
-[[test]]
-name = "compile_pass_sql_update_primary_key"
-path = "tests/pass-sql/endpoint_update_primary_key.rs"
-required-features = ["sql"]
 
 [[test]]
 name = "compile_pass_trusted_sql"
