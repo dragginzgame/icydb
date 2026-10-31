@@ -151,7 +151,7 @@ help:
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
-	@echo "  clean            Manually clean Cargo build artifacts"
+	@echo "  clean            Remove all of target/, including build caches and evidence"
 	@echo "  wasm-size-report Build and report the maintained Wasm measurement subjects"
 	@echo "  wasm-audit-report Build Wasm + write Twiggy reports for maintained measurement subjects"
 	@echo "  lint-workflows   Lint GitHub Actions workflows with pinned actionlint"
@@ -404,7 +404,7 @@ validate-fast:
 		check
 
 clean:
-	+$(CARGO_WORK_ENV) cargo clean
+	+CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(ROOT_DIR)/target" cargo clean
 
 
 # Security and versioning checks

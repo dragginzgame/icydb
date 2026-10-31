@@ -36,6 +36,14 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 ## Workflow
 
+- Plain `cargo clean` and `make clean` remove the complete workspace `target/`,
+  including Make's nested compiler cache and retained evidence. Make selects the
+  whole tree explicitly even though build commands use `target/icydb`. Cargo's
+  explicit target and package/profile selections retain their normal meanings.
+  Stop builds and preserve any needed evidence elsewhere before cleanup. Separate
+  `.cache` and `.tools` stores are outside this command's scope; `release-clean`
+  remains the selective transient release-state cleanup. Normal validation and
+  releases do not clean build output automatically.
 - During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
 - Use non-mutating format checks for final release/readiness verification.
   `make fmt-check` is CI's complete gate for manifests, derive ordering and Rust.

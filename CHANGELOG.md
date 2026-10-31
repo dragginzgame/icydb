@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.292.0]
+
+### 🩹 Fixed
+
+- Make explicit workspace cleanup remove the complete target directory,
+  including nested build caches and retained evidence.
+  [Details](docs/changelog/0.292.md).
+
 ## [0.291.0] - 2026-10-30
 
 ### ⚠️ Breaking

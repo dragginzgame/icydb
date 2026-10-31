@@ -153,7 +153,11 @@ reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 : <&"$reader"
 : >&"$writer"
 [[ "$CARGO_HOME" == "${CI_CARGO_EXPECTED_HOME:-$CI_CARGO_ROOT/.cache/cargo/icydb}" ]]
-[[ "$CARGO_TARGET_DIR" == "${CI_CARGO_EXPECTED_TARGET:-$CI_CARGO_ROOT/target/icydb}" ]]
+if [[ "$1" == clean ]]; then
+  [[ "$CARGO_TARGET_DIR" == "$CI_CARGO_ROOT/target" ]]
+else
+  [[ "$CARGO_TARGET_DIR" == "${CI_CARGO_EXPECTED_TARGET:-$CI_CARGO_ROOT/target/icydb}" ]]
+fi
 printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_TRACE"
 printf '%s\n' "$*" >> "$CI_CARGO_ARGUMENT_TRACE"
 if [[ "$1" == clippy && " $* " == *' -p icydb-testing-integration '* ]]; then
