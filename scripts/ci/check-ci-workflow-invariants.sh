@@ -188,6 +188,15 @@ for route in 'ci-workspace _ci-workspace-tests' 'ci-adapter _ci-adapter-workspac
   fi
 done
 
+# This integration binary builds actors even in its non-ignored SQL test. Its
+# command must stay in the adapter graph and select both artifact test families.
+if ! make_target_recipe test-canister-artifact-contract |
+     rg -q --fixed-strings "cargo test \$(ADAPTER_MANIFEST_FLAG) --locked -p icydb-testing-integration" ||
+   ! make_target_recipe test-canister-artifact-contract |
+     rg -q --fixed-strings -- '-- --include-ignored --nocapture'; then
+  fail "canister artifact contracts must execute their complete adapter-owned binary"
+fi
+
 # Product dispatch must not acquire composition inputs or invoke its leaves.
 for target in ci-core ci-workspace ci-sql-tier-a test test-unit _test-workspace \
   clippy validate validate-fast check-invariants check-portable-automation \

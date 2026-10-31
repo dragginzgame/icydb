@@ -81,6 +81,10 @@ name = "wasm_post_link"
 path = "tests/wasm_post_link.rs"
 
 [[test]]
+name = "canister_artifact_contract"
+path = "tests/canister_artifact_contract.rs"
+
+[[test]]
 name = "metrics_execution_mode"
 path = "tests/metrics_execution_mode.rs"
 

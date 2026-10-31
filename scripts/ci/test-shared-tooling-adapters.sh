@@ -215,8 +215,8 @@ printf '%s\n' 'check default' 'check default' 'check default' 'clippy default' '
   'clippy default' 'clippy default' 'clippy default' 'test 2' 'test 2' 'test default' \
   'test 2' 'test 2' 'test 2' 'test default' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
-# Workspace CI must explicitly select the otherwise ignored artifact contract.
-grep -Fx -- 'test --locked -p icydb-testing-build --test canister_artifact_contract production_and_local_source_declarations_match_the_frozen_endpoint_policy -- --ignored --exact --nocapture' \
+# Adapter CI must select the complete artifact binary, including the fleet test.
+grep -Fx -- "test --manifest-path $native/testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --test canister_artifact_contract -- --include-ignored --nocapture" \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 grep -Fx -- "test --manifest-path $native/testing/canic-adapter/Cargo.toml --locked --no-fail-fast -p canister_test_sql --lib --all-features" \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null

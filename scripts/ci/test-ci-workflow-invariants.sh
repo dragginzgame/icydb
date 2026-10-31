@@ -263,6 +263,17 @@ reset
 mutate '.jobs.release.needs = ["wasm_size_report", "check"]'
 check fail release-prerequisite
 subject="$core_subject"
+# Artifact tests must remain in the composed graph and include both SQL and
+# fleet assertions; checking an ignored-only subset drops the SQL obligation.
+reset
+perl -0pi -e 's/(test-canister-artifact-contract:\n\t\+)[^\n]*/${1}\$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-build/' "$fixture/Makefile"
+check fail artifact-contract-product-graph
+cp "$ROOT/Makefile" "$fixture/Makefile"
+reset
+sed 's/-- --include-ignored --nocapture/-- --ignored --nocapture/' "$fixture/Makefile" > "$fixture/mutated.make"
+mv "$fixture/mutated.make" "$fixture/Makefile"
+check fail artifact-contract-omits-sql-checks
+cp "$ROOT/Makefile" "$fixture/Makefile"
 # Current providers are credited only by these unfiltered selections. Mutate
 # actual Make inputs: target existence or a similarly named command is insufficient.
 for selection in \

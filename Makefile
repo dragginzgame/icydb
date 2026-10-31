@@ -303,10 +303,9 @@ _test-durability-integration:
 		--test schema_guard
 
 test-canister-artifact-contract:
-	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-build \
+	+$(CARGO_WORK_ENV) cargo test $(ADAPTER_MANIFEST_FLAG) --locked -p icydb-testing-integration \
 		--test canister_artifact_contract \
-		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
-		-- --ignored --exact --nocapture
+		-- --include-ignored --nocapture
 
 check-wire-browser:
 	+$(CARGO_WORK_ENV) node testing/wire-browser/check.mjs

@@ -272,7 +272,7 @@ canister scenario. Current lane selection is:
 | `ci-sql-tier-b` | `sql_canister` and `sql_perf_audit` | PocketIC Canic qualification CI |
 | `test-durability` | Core commit/mutation-job suites | Explicit local selection |
 | `_test-durability-integration` | Convergence, upgrade and authority scenarios | Explicit local selection; also runs in `ci-adapter` |
-| `test-canister-artifact-contract` | Production/local Wasm export policy test, explicitly including its ignored test | Explicit local selection; also included by `make test-adapter` |
+| `test-canister-artifact-contract` | Integration-owned production/local SQL export tests and the ignored fleet artifact contract | Explicit adapter selection; included by `make test-adapter` and `ci-adapter` |
 | `test-sql-tier-c-shard`, `test-sql-tier-c-merge`, `test-sql-tier-c-replay` | Generated/reference receipts and failure replay | Explicit local selection |
 
 The SQL coverage manifest credits enabled tests registered by Cargo in the

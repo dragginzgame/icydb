@@ -61,6 +61,10 @@ MSRV and two-profile actor size evidence. Invoke it manually for a proposed
 core/adapter pairing when the core source changes. Do not make its status a
 global requirement for unrelated core changes. Full gates remain maintainer-owned.
 
+Actor-building artifact tests live in the integration package. The explicit
+`test-canister-artifact-contract` gate selects both its SQL and fleet checks;
+the neutral Build package's ordinary tests do not compile Canic actors.
+
 Private qualification versions do not follow root package release bumps. Product release preparation leaves this lockfile unchanged. Refresh its local
 IcyDB package identities and qualify the selected graph explicitly when adopting
 new core source. Public package metadata and version management remain in the

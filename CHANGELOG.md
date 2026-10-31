@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Isolate Canic qualification so the database packages and CLI resolve independently
   of the adapter's SDK requirements. Product validation, CI and release preparation
   are independent; explicit qualification retains endpoint and lifecycle coverage
-  with checks tied to each CI owner
+  with actor artifact tests and checks tied to their integration owner
   ([#596](https://github.com/dragginzgame/icydb/issues/596)).
 
 ### 📦 Dependencies

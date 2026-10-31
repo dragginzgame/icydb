@@ -30,6 +30,14 @@ done < "$fixture/manifests"
 # The pending qualification workspace is not in the committed archive yet.
 # Copy its actual manifest, lock and targets together before Cargo admission.
 cp -R "$ROOT/testing/canic-adapter" "$fixture/repo/testing/"
+# Target moves must follow the current manifests even before they are committed;
+# the archived source otherwise retains auto-discovered actor tests in Build.
+for directory in testing/build/tests testing/integration/tests; do
+  rm -rf "$fixture/repo/$directory"
+  if [[ -d "$ROOT/$directory" ]]; then
+    cp -R "$ROOT/$directory" "$fixture/repo/$directory"
+  fi
+done
 for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
   scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
   scripts/ci/check-cargo-dependency-boundaries.sh ci/external-ic-dependencies.txt \
@@ -122,7 +130,15 @@ CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
   --format-version 1 > "$fixture/core-only-metadata.json"
 jq -e 'all(.packages[]; .name != "canic-icydb" and .name != "canic" and
   .name != "canic-macros")' "$fixture/core-only-metadata.json" > /dev/null
+jq -e 'all(.packages[].targets[]; .name != "canister_artifact_contract")' \
+  "$fixture/core-only-metadata.json" > /dev/null
 cp "$fixture/adapter.toml" testing/canic-adapter/Cargo.toml
+# Product acceptance checks the declared composition owner without resolving its
+# SDK graph: an incompatible adapter lock must not block independent core work.
+"$YQ" -p toml -o json '.' testing/integration/Cargo.toml |
+  jq -e '.package.workspace == "../canic-adapter" and
+    any(.test[]; .name == "canister_artifact_contract" and
+      .path == "tests/canister_artifact_contract.rs")' > /dev/null
 
 # Qualify the selected-source release checker with real Cargo and isolated Git
 # commits. Unused catalog entries expose global-vs-grouped ordering without
