@@ -39,7 +39,6 @@ mod live_schema_checkpoint;
 mod migration_api;
 #[cfg(feature = "migration")]
 mod migration_execution;
-#[cfg(any(test, feature = "migration"))]
 mod migration_lineage;
 #[cfg(feature = "migration")]
 mod migration_planner;
@@ -264,7 +263,6 @@ pub(in crate::db) use live_schema_checkpoint::load_schema_migration_record;
 pub(in crate::db) use live_schema_checkpoint::schema_migration_record_matches_for_tests;
 #[cfg(test)]
 pub(in crate::db) use live_schema_checkpoint::take_migration_record_load_count_for_tests;
-#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use live_schema_checkpoint::{
     apply_entity_source_lineage_catalog_op, preflight_entity_source_lineage_catalog_op,
     verify_entity_source_lineage_catalog_op,
@@ -288,7 +286,6 @@ pub(in crate::db) use live_schema_checkpoint::{
 pub(in crate::db::schema) use migration_execution::{
     MigrationRewriteInterruption, interrupt_next_migration_rewrite_at,
 };
-#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use migration_lineage::EntitySourceLineageCatalogOp;
 #[cfg(test)]
 pub(in crate::db) use migration_lineage::unadopted_entity_source_lineage_op_for_tests;

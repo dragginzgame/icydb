@@ -218,6 +218,14 @@ The dedicated method is not a second spelling for SQL introspection. SQL
 `SHOW`, `DESCRIBE`, and `EXPLAIN` remain under the complete `icydb_query` guard,
 while the schema guard protects only `icydb_schema`.
 
+The private generated schema handler applies the same exact Wire success-frame
+admission as SQL: at most 3 MiB in non-replicated query execution and 2 MiB in
+replicated execution. Measured byte overflow returns the typed response-origin
+`SchemaReplyBytesExceeded` diagnostic; a Wire sizing/traversal refusal returns
+an internal response error. Both are small typed replies. The handler constructs
+the full report before delivery admission; it does not page or truncate it.
+Canic continues to own endpoint exports, authorization and transport.
+
 ## Public Endpoint Guidance
 
 Authorize the caller before entering IcyDB. Use the ordinary typed or dynamic

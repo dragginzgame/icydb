@@ -117,7 +117,10 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
     };
 
     let schema = prefix_tests::schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     for coercion in [CoercionId::Strict, CoercionId::TextCasefold] {
         for ops in [

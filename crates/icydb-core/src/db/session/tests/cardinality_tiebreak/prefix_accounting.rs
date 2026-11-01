@@ -24,6 +24,10 @@ use icydb_diagnostic_code::{
 use std::ops::Bound;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the component matrix keeps refusal precedence and physical-visit evidence together"
+)]
 fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
     let setup = initialize();
     let catalog = setup
@@ -36,8 +40,10 @@ fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
         .iter()
         .find(|index| index.name() == "b_wide_branch_idx")
         .unwrap();
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
-        .expect("valid accepted index fixture");
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        SemanticIndexAccessContract::from_accepted_field_path_index(accepted, work)
+    })
+    .expect("valid accepted index fixture");
     let slots = accepted
         .fields()
         .iter()
@@ -141,8 +147,10 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
         .unwrap();
     let schema = catalog.accepted_schema_info();
     let authority = catalog.accepted_entity_authority();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(schema, work)
+    })
+    .expect("valid accepted index fixture");
     let branches: Vec<_> = (0..17)
         .map(|value| Value::Text(format!("branch-{value:02}")))
         .collect();

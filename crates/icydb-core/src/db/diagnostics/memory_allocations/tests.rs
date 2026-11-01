@@ -94,10 +94,15 @@ fn assert_numeric_summary<M: ic_memory::Memory>(
 
 fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     let backing = VectorMemory::default();
-    let runtime = test_memory_runtime(backing.clone(), MemoryManagerConfig::new(pages).unwrap());
+    let runtime = test_memory_runtime(
+        backing.clone(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(pages).unwrap()),
+    );
     let open = |id| {
         runtime
-            .open_memory(&format!("icydb.core_tests.slot_{id:03}.v1"))
+            .open_memory(
+                &ic_memory::StableKey::parse(format!("icydb.core_tests.slot_{id:03}.v1")).unwrap(),
+            )
             .unwrap()
     };
     let mut data = DataStore::init_journaled(open(100));
@@ -170,7 +175,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     assert!(matches!(
         MemoryRuntime::new_with_config(
             backing.clone(),
-            MemoryManagerConfig::new(other_pages).unwrap()
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(other_pages).unwrap())
         ),
         Err(ic_memory::RuntimeConstructionError::BucketSizeMismatch { persisted, requested })
             if persisted == pages && requested == other_pages
@@ -214,7 +219,10 @@ fn bound_runtime_diagnostics_distinguish_corruption_from_absence() {
     run_isolated(|| {
         assert!(collect_memory_allocations().unwrap().is_none());
         let backing = VectorMemory::default();
-        let runtime = test_memory_runtime(backing.clone(), MemoryManagerConfig::new(1).unwrap());
+        let runtime = test_memory_runtime(
+            backing.clone(),
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+        );
         crate::db::bind_memory_runtime(std::rc::Rc::new(runtime)).unwrap();
         assert!(collect_memory_allocations().unwrap().is_some());
         backing.write(0, b"BAD");

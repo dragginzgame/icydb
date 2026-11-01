@@ -143,6 +143,12 @@ icydb diagnostic E210 --canister app --environment production \
   --fact constraint_id=4
 ```
 
+A complete schema report may exceed the IC reply limit. The generated handler
+then returns the typed `SchemaReplyBytesExceeded` response instead of attempting
+an oversized success reply. The cap is 3 MiB for ordinary queries and 2 MiB for
+replicated execution. The CLI reports that error; it does not infer a partial
+schema from local source or silently truncate the deployed report.
+
 Method-not-found, authorization, and replica failures are authoritative. They
 do not cause the CLI to infer names from local source. In particular, E25 means
 the deployed schema method retained controller authority, while E261 means its

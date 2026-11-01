@@ -43,8 +43,10 @@ const fn prefix_len(evaluation: CandidateEvaluation) -> Result<usize, Reason> {
 #[test]
 fn branch_scores_preserve_set_equality_caps_and_rejection_order() {
     let schema = exact_metadata_schema(&[("a", &["age", "rank", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let index = &visible.accepted_semantic_index_contracts()[0];
     let too_many: Vec<_> = (0..=MAX_INDEX_BRANCH_SET_VALUES)
         .map(|value| i64::try_from(value).unwrap())
@@ -130,8 +132,10 @@ fn branch_scores_preserve_set_equality_caps_and_rejection_order() {
 #[test]
 fn branch_views_and_expression_conversion_obey_cumulative_admission() {
     let schema = prefix_test_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let sources: [&[&str]; 2] = [&["İΣ", "A", "A"], &["A", "İΣ"]];
     let (lower_bytes, lower_steps) =
@@ -211,8 +215,10 @@ fn branch_views_and_expression_conversion_obey_cumulative_admission() {
 #[test]
 fn branch_scores_compare_normalized_sets_and_count_distinct_values() {
     let schema = prefix_test_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let index = visible
         .accepted_semantic_index_contracts()
         .iter()
@@ -263,8 +269,10 @@ fn branch_scores_compare_normalized_sets_and_count_distinct_values() {
 #[test]
 fn branch_candidate_propagates_exhaustion_after_equality_prefix_admission() {
     let schema = exact_metadata_schema(&[("a", &["age", "rank", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let index = &visible.accepted_semantic_index_contracts()[0];
     let predicate = Predicate::And(vec![
         Predicate::eq("age".into(), Value::Int64(7)),

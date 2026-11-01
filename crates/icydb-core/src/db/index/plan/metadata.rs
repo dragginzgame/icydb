@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::StructuralRowContract,
-        predicate::PredicateProgram,
+        predicate::{PredicateProgram, normalize},
         schema::{SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo, SchemaInfo},
     },
     error::InternalError,
@@ -25,6 +25,7 @@ pub(in crate::db) struct PreparedIndexMutationMetadata {
 
 impl PreparedIndexMutationMetadata {
     /// Compile accepted predicates and dependency slots once for this context.
+    /// Normalize here so commit and retained replay keep their preparation contract.
     pub(in crate::db) fn new(
         schema_info: SchemaInfo,
         row_contract: StructuralRowContract,
@@ -34,6 +35,7 @@ impl PreparedIndexMutationMetadata {
             .iter()
             .map(|index| {
                 let program = index.predicate()?.map(|predicate| {
+                    let predicate = normalize(predicate);
                     PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
                 });
                 Ok(PreparedIndexInputs::new(
@@ -48,6 +50,7 @@ impl PreparedIndexMutationMetadata {
             .iter()
             .map(|index| {
                 let program = index.predicate()?.map(|predicate| {
+                    let predicate = normalize(predicate);
                     PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
                 });
                 Ok(PreparedIndexInputs::new(

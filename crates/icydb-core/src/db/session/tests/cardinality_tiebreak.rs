@@ -1639,9 +1639,14 @@ fn candidate_fixture_for_tests(
             DiagnosticExecutionLane::PublicRead,
         )
         .unwrap();
-    let indexes = session
-        .visible_indexes_for_store_accepted_schema(STORE_PATH, catalog.accepted_schema_info())
-        .unwrap();
+    let indexes = crate::db::query::preparation::with_preparation_work(|work| {
+        session.visible_indexes_for_store_accepted_schema(
+            STORE_PATH,
+            catalog.accepted_schema_info(),
+            work,
+        )
+    })
+    .unwrap();
     let candidates = crate::db::query::preparation::with_preparation_work(|work| {
         crate::db::query::plan::exact_cardinality_tiebreak_candidates(
             indexes.accepted_semantic_index_contracts(),

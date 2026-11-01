@@ -43,24 +43,34 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     )
     .unwrap();
 
-    ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
-        MemoryAllocationPool::new(
-            vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
-            vec![],
-        )
-    })
+    ensure_default_memory_manager(
+        AUTHORITY,
+        &requirements,
+        std::num::NonZeroU16::new(16).unwrap(),
+        || {
+            MemoryAllocationPool::new(
+                vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
+                vec![],
+            )
+        },
+    )
     .expect("cold ensure should bootstrap the runtime");
     let generation = memory_runtime()
         .unwrap()
         .committed_generation()
         .expect("cold ensure should publish committed allocations");
 
-    ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
-        MemoryAllocationPool::new(
-            vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
-            vec![],
-        )
-    })
+    ensure_default_memory_manager(
+        AUTHORITY,
+        &requirements,
+        std::num::NonZeroU16::new(16).unwrap(),
+        || {
+            MemoryAllocationPool::new(
+                vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
+                vec![],
+            )
+        },
+    )
     .expect("repeated ensure should adopt the runtime");
     assert_eq!(
         memory_runtime()

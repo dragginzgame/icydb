@@ -35,7 +35,10 @@ fn request(limit: u64) -> RequestExecutionRoot {
 #[test]
 fn multi_lookup_diagnostic_visits_are_exact_cumulative_and_borrowed() {
     let schema = prefix_test_schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     for index in visible.accepted_semantic_index_contracts() {
         let coercion = if index.name().ends_with("lower") {
             CoercionId::TextCasefold
@@ -94,7 +97,10 @@ fn multi_lookup_diagnostic_visits_are_exact_cumulative_and_borrowed() {
 #[test]
 fn multi_lookup_diagnostic_rejections_keep_precedence_and_short_circuits() {
     let schema = prefix_test_schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let index = visible
         .accepted_semantic_index_contracts()
         .iter()
@@ -173,7 +179,10 @@ fn multi_lookup_score_hint_cannot_hide_exhausted_visits() {
     };
 
     let schema = prefix_test_schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     let predicate = Predicate::in_("name".into(), vec![Value::Text("a".into()); 3]);
     let hint = AccessCandidateScore {

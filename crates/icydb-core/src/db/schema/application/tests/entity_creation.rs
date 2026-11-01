@@ -1,5 +1,6 @@
 //! Entity creation preserves populated accepted domains and publishes one schema receipt.
 
+mod lineage;
 #[cfg(feature = "migration")]
 mod migrations;
 mod named_types;

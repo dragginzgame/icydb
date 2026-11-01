@@ -35,7 +35,13 @@ pub trait CanisterKind: Path + 'static {
     fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
         memory_runtime()
             .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-            .memory_id(Self::COMMIT_STABLE_KEY)
+            .memory_id(
+                &ic_memory::StableKey::parse(Self::COMMIT_STABLE_KEY).map_err(|_| {
+                    ic_memory::RuntimeOpenError::StableKeyNotCommitted(
+                        Self::COMMIT_STABLE_KEY.into(),
+                    )
+                })?,
+            )
     }
 
     /// Durable stable-memory allocation key for commit marker storage.
@@ -45,7 +51,13 @@ pub trait CanisterKind: Path + 'static {
     fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
         memory_runtime()
             .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-            .memory_id(Self::STARTUP_STABLE_KEY)
+            .memory_id(
+                &ic_memory::StableKey::parse(Self::STARTUP_STABLE_KEY).map_err(|_| {
+                    ic_memory::RuntimeOpenError::StableKeyNotCommitted(
+                        Self::STARTUP_STABLE_KEY.into(),
+                    )
+                })?,
+            )
     }
 
     /// Durable stable-memory allocation key for startup coordination state.
@@ -55,7 +67,15 @@ pub trait CanisterKind: Path + 'static {
     fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
         memory_runtime()
             .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-            .memory_id(Self::INTEGRITY_PROGRESS_STABLE_KEY)
+            .memory_id(
+                &ic_memory::StableKey::parse(Self::INTEGRITY_PROGRESS_STABLE_KEY).map_err(
+                    |_| {
+                        ic_memory::RuntimeOpenError::StableKeyNotCommitted(
+                            Self::INTEGRITY_PROGRESS_STABLE_KEY.into(),
+                        )
+                    },
+                )?,
+            )
     }
 
     /// Durable stable-memory allocation key for integrity-inspection progress.

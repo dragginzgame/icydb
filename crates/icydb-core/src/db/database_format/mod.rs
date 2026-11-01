@@ -503,7 +503,10 @@ pub(super) fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u6
 pub(super) fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u64, InternalError> {
     let runtime = crate::db::memory_runtime().ok_or_else(InternalError::store_internal)?;
     let id = runtime
-        .memory_id(allocation.stable_key())
+        .memory_id(
+            &ic_memory::StableKey::parse(allocation.stable_key())
+                .map_err(|_| InternalError::store_internal())?,
+        )
         .map_err(|_| InternalError::store_internal())?;
     if id != allocation.memory_id() {
         return Err(InternalError::store_invariant());

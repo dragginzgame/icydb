@@ -31,7 +31,10 @@ fn request(limit: u64) -> RequestExecutionRoot {
 #[test]
 fn multi_lookup_visits_admit_schema_and_expression_checks_cumulatively() {
     let schema = prefix_test_schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     for count in [1, 3, 64] {
         let values = vec![Value::Text("İ".into()); count];
@@ -104,7 +107,10 @@ fn multi_lookup_visits_admit_schema_and_expression_checks_cumulatively() {
 #[test]
 fn multi_lookup_validation_stops_at_first_incompatible_value() {
     let schema = prefix_test_schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     for (values, visited) in [
         (vec![], 0),

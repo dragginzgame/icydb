@@ -1528,7 +1528,30 @@ fn validate_accepted_schema_index_chunks(batch: &JournalBatch) -> Result<(), Int
     let mut previous_fingerprint = None;
     let mut previous_kind = 0_u8;
     let mut previous_key = None;
-    for record in &batch.records[1..] {
+    // Aborting a unique activation may retire its isolated generation and job
+    // together. Keep that suffix narrow: deletion chunks for this entity, then
+    // one final job deletion. Validation puts and index insertions stay separate.
+    let chunks = match batch.records.last() {
+        Some(JournalRecord::ConstraintValidationJobDelete {
+            store_path,
+            entity_tag,
+            ..
+        }) => {
+            let chunks = &batch.records[1..batch.records.len() - 1];
+            if store_path != publish_store_path
+                || chunks.iter().any(|record| {
+                    !matches!(record, JournalRecord::AcceptedSchemaIndexDelete {
+                        entity_tag: chunk_entity, ..
+                    } if chunk_entity == entity_tag)
+                })
+            {
+                return Err(journal_batch_corruption());
+            }
+            chunks
+        }
+        _ => &batch.records[1..],
+    };
+    for record in chunks {
         let (store_path, entity_tag, fingerprint, kind, keys) = match record {
             JournalRecord::AcceptedSchemaIndexDelete {
                 store_path,

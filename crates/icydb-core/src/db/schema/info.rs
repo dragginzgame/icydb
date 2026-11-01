@@ -231,16 +231,15 @@ impl SchemaIndexInfo {
             .transpose()
     }
 
-    /// Project the accepted bound tree for execution without reparsing SQL.
+    /// Project the accepted bound tree without reparsing SQL or normalizing it.
+    /// Consumers own normalization and its operation-specific budget authority.
     pub(in crate::db) fn predicate(
         &self,
     ) -> Result<Option<crate::db::predicate::Predicate>, crate::error::InternalError> {
         self.predicate
             .as_ref()
             .map(|predicate| {
-                predicate
-                    .to_predicate_with_names(&self.predicate_names, &self.value_catalog)
-                    .map(crate::db::predicate::normalize)
+                predicate.to_predicate_with_names(&self.predicate_names, &self.value_catalog)
             })
             .transpose()
     }
@@ -341,16 +340,15 @@ impl SchemaExpressionIndexInfo {
             .transpose()
     }
 
-    /// Project the accepted bound tree for execution without reparsing SQL.
+    /// Project the accepted bound tree without reparsing SQL or normalizing it.
+    /// Consumers own normalization and its operation-specific budget authority.
     pub(in crate::db) fn predicate(
         &self,
     ) -> Result<Option<crate::db::predicate::Predicate>, crate::error::InternalError> {
         self.predicate
             .as_ref()
             .map(|predicate| {
-                predicate
-                    .to_predicate_with_names(&self.predicate_names, &self.value_catalog)
-                    .map(crate::db::predicate::normalize)
+                predicate.to_predicate_with_names(&self.predicate_names, &self.value_catalog)
             })
             .transpose()
     }

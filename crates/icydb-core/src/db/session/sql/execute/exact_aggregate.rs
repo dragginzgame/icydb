@@ -14,7 +14,10 @@ use crate::{
             user_index_prefix_cardinality_keys_from_plan,
         },
         index::{IndexId, IndexKey, RawIndexStoreKey, UserIndexPrefixCardinalityKey},
-        query::plan::{exact_first_component_metadata_index, expr::ProjectionSpec},
+        query::{
+            plan::{exact_first_component_metadata_index, expr::ProjectionSpec},
+            preparation::PreparationWork,
+        },
         schema::AcceptedFieldKind,
         session::{
             query::StructuralProjectionContract,
@@ -267,8 +270,11 @@ impl<C: CanisterKind> DbSession<C> {
             .map(crate::db::query::plan::FieldSlot::field)
             .ok_or_else(QueryError::invariant)?;
             let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-            let visible_indexes =
-                Self::visible_indexes_for_accepted_schema(schema_info, visibility)?;
+            let visible_indexes = PreparationWork::run(
+                self.db.request_execution_scope(),
+                DiagnosticExecutionLane::TrustedRead,
+                |work| Self::visible_indexes_for_accepted_schema(schema_info, visibility, work),
+            )?;
             let entry = exact_first_component_metadata_index(&visible_indexes, schema_info, target)
                 .map(|index| {
                     let index_id = IndexId::new_with_generation(
@@ -288,7 +294,11 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let visible_indexes = Self::visible_indexes_for_accepted_schema(schema_info, visibility)?;
+        let visible_indexes = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::TrustedRead,
+            |work| Self::visible_indexes_for_accepted_schema(schema_info, visibility, work),
+        )?;
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
             self.exact_count_cardinality_prefix_keys_for_accepted_authority(
                 authority,

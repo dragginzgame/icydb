@@ -57,9 +57,15 @@ pub fn memory_runtime() -> Option<Rc<MemoryRuntime<DefaultMemoryImpl>>> {
 }
 
 /// Open a declared key through IcyDB's bound host runtime.
+///
+/// String descriptors are IcyDB metadata. A malformed descriptor cannot name
+/// a committed allocation; grammar validation belongs to `StableKey`.
 #[doc(hidden)]
 pub fn open_memory(stable_key: &str) -> Result<RuntimeMemory<DefaultMemoryImpl>, RuntimeOpenError> {
     memory_runtime()
         .ok_or(RuntimeOpenError::NotBootstrapped)?
-        .open_memory(stable_key)
+        .open_memory(
+            &ic_memory::StableKey::parse(stable_key)
+                .map_err(|_| RuntimeOpenError::StableKeyNotCommitted(stable_key.into()))?,
+        )
 }

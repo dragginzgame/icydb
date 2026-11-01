@@ -400,7 +400,6 @@ fn replay_recovery_marker<C: CanisterKind>(
                         )
                     })?;
                 }
-                #[cfg(any(test, feature = "migration"))]
                 DatabaseControlOp::EntitySourceLineage(operation) => {
                     crate::db::schema::apply_entity_source_lineage_catalog_op(operation).map_err(
                         |error| {
@@ -2462,7 +2461,6 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
                 DatabaseControlOp::SchemaApplication(operation) => {
                     verify_schema_application_record_op(operation)?;
                 }
-                #[cfg(any(test, feature = "migration"))]
                 DatabaseControlOp::EntitySourceLineage(operation) => {
                     crate::db::schema::verify_entity_source_lineage_catalog_op(operation)?;
                 }

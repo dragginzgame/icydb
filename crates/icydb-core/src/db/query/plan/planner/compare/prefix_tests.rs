@@ -119,8 +119,10 @@ pub(in crate::db::query::plan) fn schema() -> SchemaInfo {
 )]
 fn prefix_selection_shares_bounds_and_propagates_cumulative_exhaustion() {
     let schema = schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     // Every candidate checks its non-optional key slots for stream completeness,
     // including candidates later rejected by the lookup coercion gate.
@@ -230,8 +232,10 @@ fn prefix_selection_shares_bounds_and_propagates_cumulative_exhaustion() {
 #[test]
 fn unsupported_prefixes_do_not_construct_operands() {
     let schema = schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     for (field, value, coercion) in [
         ("name", Value::Text(String::new()), CoercionId::Strict),
@@ -275,8 +279,10 @@ fn and_prefix_ranges_merge_unicode_bounds_with_cumulative_admission() {
     use std::ops::Bound;
 
     let schema = schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     for coercion in [CoercionId::Strict, CoercionId::TextCasefold] {
         let children: Vec<_> = [
@@ -457,7 +463,10 @@ fn scalar_primary_key_one_sided_comparisons_select_bounded_access() {
     };
 
     let schema = schema();
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     for (op, expected) in [
         (

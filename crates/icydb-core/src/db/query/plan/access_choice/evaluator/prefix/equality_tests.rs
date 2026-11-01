@@ -43,8 +43,10 @@ const fn prefix_len(evaluation: CandidateEvaluation) -> Result<usize, Reason> {
 #[test]
 fn equality_prefix_scores_preserve_gaps_conflicts_and_rejection_precedence() {
     let schema = exact_metadata_schema(&[("a", &["age", "rank", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let index = &visible.accepted_semantic_index_contracts()[0];
     let invalid = Predicate::eq("age".into(), Value::Text("invalid".into()));
     for (children, expected) in [
@@ -106,8 +108,10 @@ fn equality_prefix_scores_preserve_gaps_conflicts_and_rejection_precedence() {
 #[test]
 fn equality_prefix_conversion_and_constraint_backing_share_cumulative_admission() {
     let schema = prefix_test_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let source = "İΣ".repeat(128);
     let (lower_bytes, lower_steps) = lower_text_construction_allowance(source.len());
@@ -189,8 +193,10 @@ fn equality_prefix_conversion_and_constraint_backing_share_cumulative_admission(
 #[test]
 fn equality_score_hint_never_hides_exhausted_evaluation() {
     let schema = exact_metadata_schema(&[("a", &["age", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let hint = AccessCandidateScore {
         prefix_len: 1,
@@ -253,8 +259,10 @@ fn equality_score_hint_never_hides_exhausted_evaluation() {
 #[test]
 fn equality_prefix_expression_duplicates_compare_lowered_values() {
     let schema = prefix_test_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let index = indexes
         .iter()
@@ -296,7 +304,10 @@ fn equality_prefix_expression_duplicates_compare_lowered_values() {
 #[test]
 fn equality_payload_exhaustion_cannot_become_a_conflict_or_score_hint() {
     let schema = exact_metadata_schema(&[("a", &["age", "id"])], &[]);
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let hint = AccessCandidateScore {
         prefix_len: 1,
         exact: false,

@@ -32,9 +32,13 @@ mod semantics;
 mod test_schema;
 pub(crate) mod validate;
 
-use crate::error::InternalError;
-
-use crate::db::{Predicate, access::SemanticIndexAccessContract, schema::SchemaInfo};
+use crate::{
+    db::{
+        Predicate, access::SemanticIndexAccessContract, resource::construction::ConstructionBudget,
+        schema::SchemaInfo,
+    },
+    error::InternalError,
+};
 
 pub(in crate::db) use access_choice::exact_cardinality_tiebreak_candidates;
 pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_semantic_indexes;
@@ -239,13 +243,14 @@ pub(in crate::db) struct AcceptedPlannerExpressionIndex {
 impl AcceptedPlannerExpressionIndex {
     fn from_schema_index(
         accepted: &crate::db::schema::SchemaExpressionIndexInfo,
+        work: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             name: accepted.name().to_string(),
             store: accepted.store().to_string(),
             unique: accepted.unique(),
             semantic_access_contract: SemanticIndexAccessContract::from_accepted_expression_index(
-                accepted,
+                accepted, work,
             )?,
         })
     }
@@ -307,6 +312,7 @@ pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
 impl AcceptedPlannerFieldPathIndex {
     fn from_schema_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
+        work: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             name: accepted.name().to_string(),
@@ -318,7 +324,7 @@ impl AcceptedPlannerFieldPathIndex {
                 .map(AcceptedPlannerFieldPathIndexField::from_schema_field)
                 .collect(),
             semantic_access_contract: SemanticIndexAccessContract::from_accepted_field_path_index(
-                accepted,
+                accepted, work,
             )?,
         })
     }
@@ -452,16 +458,17 @@ impl VisibleIndexes {
 
     pub(in crate::db) fn accepted_schema_visible(
         schema_info: &SchemaInfo,
+        work: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         let accepted_field_path_indexes = schema_info
             .field_path_indexes()
             .iter()
-            .map(AcceptedPlannerFieldPathIndex::from_schema_index)
+            .map(|index| AcceptedPlannerFieldPathIndex::from_schema_index(index, work))
             .collect::<Result<Vec<_>, _>>()?;
         let accepted_expression_indexes = schema_info
             .expression_indexes()
             .iter()
-            .map(AcceptedPlannerExpressionIndex::from_schema_index)
+            .map(|index| AcceptedPlannerExpressionIndex::from_schema_index(index, work))
             .collect::<Result<Vec<_>, _>>()?;
         let accepted_semantic_index_contracts = sorted_accepted_semantic_index_contracts(
             accepted_field_path_indexes.as_slice(),

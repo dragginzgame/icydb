@@ -1016,8 +1016,10 @@ mod tests {
                     .map(|name| (name.as_str(), age_fields.as_slice())),
             );
             let schema = exact_metadata_schema(&definitions, &[]);
-            let visible = VisibleIndexes::accepted_schema_visible(&schema)
-                .expect("valid accepted index fixture");
+            let visible = crate::db::query::preparation::with_preparation_work(|work| {
+                VisibleIndexes::accepted_schema_visible(&schema, work)
+            })
+            .expect("valid accepted index fixture");
             let indexes = visible.accepted_semantic_index_contracts();
             let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
             plan.access =
@@ -1095,8 +1097,10 @@ mod tests {
             ],
             &["maybe"],
         );
-        let visible =
-            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+        let visible = crate::db::query::preparation::with_preparation_work(|work| {
+            VisibleIndexes::accepted_schema_visible(&schema, work)
+        })
+        .expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
         let baseline = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
             16_000_000,
@@ -1190,8 +1194,10 @@ mod tests {
         };
 
         let schema = exact_metadata_schema(&[("a_age", &["age"]), ("z_rank", &["rank"])], &[]);
-        let visible =
-            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+        let visible = crate::db::query::preparation::with_preparation_work(|work| {
+            VisibleIndexes::accepted_schema_visible(&schema, work)
+        })
+        .expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.access =
@@ -1258,8 +1264,10 @@ mod tests {
             ],
             &[],
         );
-        let visible =
-            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+        let visible = crate::db::query::preparation::with_preparation_work(|work| {
+            VisibleIndexes::accepted_schema_visible(&schema, work)
+        })
+        .expect("valid accepted index fixture");
 
         assert_eq!(
             visible
@@ -1285,8 +1293,10 @@ mod tests {
     #[test]
     fn exact_metadata_index_selection_rejects_nullable_compound_suffixes() {
         let schema = exact_metadata_schema(&[("age_maybe", &["age", "maybe"])], &["maybe"]);
-        let visible =
-            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+        let visible = crate::db::query::preparation::with_preparation_work(|work| {
+            VisibleIndexes::accepted_schema_visible(&schema, work)
+        })
+        .expect("valid accepted index fixture");
 
         assert!(exact_first_component_metadata_index(&visible, &schema, "age").is_none());
     }

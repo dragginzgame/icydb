@@ -422,6 +422,7 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domain(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
     replacement: StagedUserIndexDomainReplacement,
+    validation_job_removal: Option<(EntityTag, ConstraintId)>,
 ) -> Result<(), InternalError> {
     validate_user_index_domain_candidate(
         store_path,
@@ -436,7 +437,13 @@ pub(in crate::db) fn publish_accepted_schema_candidate_with_user_index_domain(
         expected_revision,
         candidate,
         StagedSchemaDomain::user_index(replacement),
-        ConstraintValidationJobChange::None,
+        validation_job_removal.map_or(
+            ConstraintValidationJobChange::None,
+            |(entity_tag, constraint_id)| ConstraintValidationJobChange::Delete {
+                entity_tag,
+                constraint_id,
+            },
+        ),
         None,
     )
 }
@@ -793,7 +800,6 @@ fn apply_database_control_ops(operations: &[DatabaseControlOp]) -> Result<(), In
             DatabaseControlOp::SchemaApplication(operation) => {
                 apply_schema_application_record_op(operation)?;
             }
-            #[cfg(any(test, feature = "migration"))]
             DatabaseControlOp::EntitySourceLineage(operation) => {
                 crate::db::schema::apply_entity_source_lineage_catalog_op(operation)?;
             }

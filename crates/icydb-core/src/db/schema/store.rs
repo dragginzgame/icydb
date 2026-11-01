@@ -766,7 +766,7 @@ impl SchemaStore {
         // Only a virgin allocation may be initialized; retained authority must
         // never be silently replaced when its storage header is unrecognized.
         let canonical = if memory.size() == 0 {
-            StableBTreeMap::init(memory)
+            StableBTreeMap::create(memory)
         } else {
             StableBTreeMap::load(memory)
         };

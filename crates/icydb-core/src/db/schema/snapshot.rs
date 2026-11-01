@@ -75,6 +75,36 @@ impl AcceptedSchemaSnapshot {
         &self.snapshot
     }
 
+    /// Resolve the unique activation's single isolated physical index owner.
+    pub(in crate::db::schema) fn unique_candidate_for_activation(
+        &self,
+        constraint_id: ConstraintId,
+    ) -> Result<&PersistedIndexSnapshot, InternalError> {
+        let activation = self
+            .snapshot
+            .constraint_catalog()
+            .activation(constraint_id)
+            .ok_or_else(InternalError::store_corruption)?;
+        let ConstraintActivationKind::Unique { index_id } = activation.kind() else {
+            return Err(InternalError::store_unsupported());
+        };
+        let mut matching = self
+            .snapshot
+            .candidate_indexes()
+            .iter()
+            .filter(|index| index.schema_id() == *index_id);
+        let candidate = matching
+            .next()
+            .ok_or_else(InternalError::store_corruption)?;
+        if matching.next().is_some()
+            || candidate.physical_generation() != activation.activation_epoch()
+            || !candidate.unique()
+        {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(candidate)
+    }
+
     /// Borrow the accepted entity path.
     #[must_use]
     pub(in crate::db) fn entity_path(&self) -> &str {

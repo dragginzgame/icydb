@@ -89,6 +89,23 @@ pub struct User {}
 Versions are not database-wide release numbers. Increment only an entity that
 participates in the next plan, and increment it by exactly one.
 
+Ordinary edits already admitted by schema lowering, such as changing an insert
+default or immediately validating a generated check, retain that source version.
+On completion, publication atomically refreshes the adopted source digest with
+the accepted catalog and application receipt. A different declared version
+requires a migration plan, even when this entity or another assigned entity
+needs deferred validation. Version refusal happens before its pending activation
+and receipt publish. Unadopted entities are never adopted by this refresh.
+Existing lineage remains maintained when migration authoring is disabled;
+feature-disabled creation still does not initialise missing lineage.
+
+To repair a digest left stale by an older ordinary publication, reapply the
+current declaration with the current accepted head and a fresh submission key.
+The normal lowerer must admit the complete declaration. A no-op publication can
+then refresh its lineage without rewriting rows. Deferred generated activations
+retain their prior digest while pending or aborted; completion/abort lineage
+propagation remains tracked in [#94](https://github.com/dragginzgame/icydb/issues/94).
+
 ## Add An Entity To An Existing Store
 
 Declare the added entity at source version 1 alongside the retained entities,
@@ -134,8 +151,8 @@ the maintained entity-creation flow.
 
 ## Adoption Is Not A Format Upgrade
 
-Current IcyDB databases record initial source lineage at creation. They do not
-need a separate adoption step. For a current-format database whose typed status
+With `migration` enabled, current IcyDB databases record initial source lineage
+at creation and do not need a separate adoption step. For a current-format database whose typed status
 reports unadopted lineage, the existing adoption operation accepts only the
 exact initial source proposal:
 

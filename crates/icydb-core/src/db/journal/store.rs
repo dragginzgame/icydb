@@ -528,7 +528,7 @@ impl JournalTailStore {
         Self {
             // Only virgin allocations may initialize a new map.
             map: if memory.size() == 0 {
-                StableBTreeMap::init(memory)
+                StableBTreeMap::create(memory)
             } else {
                 StableBTreeMap::load(memory)
             },

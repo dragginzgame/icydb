@@ -93,10 +93,10 @@ ic-host-fs = { version = "0.73.3", default-features = false }
 ic-host-process = "0.73.3"
 ic-host-text = "0.73.3"
 ic-host-tools = "0.76.0"
-ic-memory = "0.60.6"
+ic-memory = "0.61.0"
 ic-metrics = "0.24.0"
 ic-platform = { version = "0.16.0", default-features = false }
-ic-storage = "0.60.6"
+ic-storage = "0.61.0"
 ic-wire = "0.13.3"
 icydb = { path = "crates/icydb", version = "=0.292.1", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.292.1" }

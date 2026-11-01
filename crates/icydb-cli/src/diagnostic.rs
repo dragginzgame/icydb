@@ -1189,6 +1189,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SqlQueryReplyBytesExceeded => {
             "SQL query result exceeds the public reply byte limit"
         }
+        RuntimeBoundaryCode::SchemaReplyBytesExceeded => {
+            "schema report exceeds the public reply byte limit"
+        }
         RuntimeBoundaryCode::QueryExplainOutputExceeded => {
             "logical explain output exceeds the render byte limit"
         }

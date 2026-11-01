@@ -38,10 +38,13 @@ use crate::{
             SchemaChangeProgressStatus, SchemaChangeReceipt, SchemaChangeValidationPhase,
             StagedUserIndexDomainError, UnpublishedRowLocalValidation,
             advance_accepted_row_local_constraint_activation, constraint_validation_finding_output,
-            derive_schema_change_job_id, load_schema_application_record_read_only,
-            lower_existing_schema_proposal, lower_generated_existing_schema_proposal,
-            lower_initial_schema_proposal, prove_empty_user_index_domain,
-            validate_unpublished_row_local_candidate_bounded, with_schema_application_store,
+            derive_schema_change_job_id,
+            live_schema_checkpoint::load_entity_source_lineage_catalog,
+            load_schema_application_record_read_only, lower_existing_schema_proposal,
+            lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
+            migration_lineage::{EntitySourceLineageCatalogOp, refresh_ordinary_source_lineage},
+            prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
+            with_schema_application_store,
         },
     },
     error::InternalError,
@@ -74,14 +77,14 @@ use crate::db::schema::{
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
     SchemaMigrationRecord, SchemaMigrationRecordOp, SchemaMigrationStatusPage,
     SchemaMigrationStatusRequest, SchemaMigrationTransformReason,
-    live_schema_checkpoint::{load_entity_source_lineage_catalog, load_schema_migration_record},
+    live_schema_checkpoint::load_schema_migration_record,
     migration_execution::{
         cleanup_migration_staging_page, final_validate_migration_page,
         migration_derived_domain_count, publish_migration_rewrite_page, rewrite_migration_page,
     },
     migration_lineage::{
         AcceptedEntitySourceLineage, AcceptedEntitySourceLineageCatalog,
-        AcceptedEntitySourceLineageState, EntitySourceLineageCatalogOp,
+        AcceptedEntitySourceLineageState,
     },
     migration_planner::{
         PlannedEntitySourceLineage, SchemaMigrationPlanningError, plan_entity_source_adoption,
@@ -699,10 +702,7 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
     } else {
         accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?
     };
-    #[cfg(feature = "migration")]
     let outcome_head = accepted_head.clone();
-    #[cfg(not(feature = "migration"))]
-    let outcome_head = accepted_head;
     let outcome = if pending.is_some() {
         let job_id = derive_schema_change_job_id(
             target.database_identity(),
@@ -745,10 +745,8 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
         None => Vec::new(),
     };
     let record = SchemaApplicationRecord::new(receipt.clone(), activations)?;
-    let operation = SchemaApplicationRecordOp::insert(&record)?;
     // This includes lineage and publication preparation, not candidate lowering.
     let _publication_span = ExecutionMetricsSpan::new(ExecutionMetricsPhase::Publication);
-    #[cfg(feature = "migration")]
     let database_control = attach_ordinary_lineage_publication(
         proposal,
         target.accepted_head(),
@@ -756,10 +754,8 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
         authorities.as_slice(),
         &current_bundles,
         candidates.as_slice(),
-        operation,
+        &record,
     )?;
-    #[cfg(not(feature = "migration"))]
-    let database_control = vec![DatabaseControlOp::SchemaApplication(operation)];
     let publications =
         application_publications(authorities.as_slice(), &current_bundles, &candidates)?;
     publish_accepted_schema_candidates_with_database_control(publications, database_control)?;
@@ -1547,7 +1543,6 @@ fn publish_migration_record_replacement(
     )
 }
 
-#[cfg(feature = "migration")]
 fn attach_ordinary_lineage_publication(
     proposal: &SchemaProposal,
     prior_head: &ExpectedAcceptedHead,
@@ -1555,12 +1550,16 @@ fn attach_ordinary_lineage_publication(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
-    operation: SchemaApplicationRecordOp,
+    record: &SchemaApplicationRecord,
 ) -> Result<Vec<DatabaseControlOp>, InternalError> {
-    let mut operations = vec![DatabaseControlOp::SchemaApplication(operation)];
+    let mut operations = vec![DatabaseControlOp::SchemaApplication(
+        SchemaApplicationRecordOp::insert(record)?,
+    )];
     let stored_before = load_entity_source_lineage_catalog()?;
+    #[cfg(feature = "migration")]
     let planned = plan_new_entity_source_lineage(proposal, current_bundles, candidates)
         .map_err(schema_migration_planning_error)?;
+    #[cfg(feature = "migration")]
     if !planned.is_empty() && !matches!(prior_head, ExpectedAcceptedHead::Empty) {
         // Creation may initialise its own lineage, never implicitly adopt an
         // existing entity from a feature-less database or a partial adoption.
@@ -1587,11 +1586,33 @@ fn attach_ordinary_lineage_publication(
             }
         }
     }
-    if planned.is_empty() && (stored_before.is_none() || prior_head == accepted_head) {
+    #[cfg(feature = "migration")]
+    if planned.is_empty() && stored_before.is_none() {
+        return Ok(operations);
+    }
+    // Disabling migration authoring must not strand lineage retained from a
+    // prior binary. It still cannot initialise or adopt lineage implicitly.
+    #[cfg(not(feature = "migration"))]
+    if stored_before.is_none() {
         return Ok(operations);
     }
     let before = stored_before.clone().unwrap_or_default();
+    #[cfg(feature = "migration")]
     let after = lineage_after_planned(&before, planned.as_slice(), accepted_head)?;
+    #[cfg(not(feature = "migration"))]
+    let after = {
+        let _ = (prior_head, authorities, candidates);
+        before.clone()
+    };
+    // Version admission applies before any publication, including a pending
+    // activation. The lineage owner refreshes digests only for completed edits.
+    let after = refresh_ordinary_source_lineage(
+        after,
+        proposal,
+        current_bundles,
+        accepted_head,
+        record.receipt().outcome(),
+    )?;
     if before == after {
         return Ok(operations);
     }

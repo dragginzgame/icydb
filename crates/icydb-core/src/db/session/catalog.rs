@@ -186,6 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         store_path: &str,
         schema_info: &SchemaInfo,
+        work: &crate::db::query::preparation::PreparationWork<'_>,
     ) -> Result<VisibleIndexes, QueryError> {
         // Phase 1: resolve the recovered store state once at the session
         // boundary so query/executor planning does not reopen lifecycle checks.
@@ -201,8 +202,8 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: planner-visible indexes are accepted schema contracts once
         // the recovered store is query-visible.
-        let visible_indexes =
-            VisibleIndexes::accepted_schema_visible(schema_info).map_err(QueryError::execute)?;
+        let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info, work)
+            .map_err(QueryError::execute)?;
         debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
         debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
         debug_assert_eq!(

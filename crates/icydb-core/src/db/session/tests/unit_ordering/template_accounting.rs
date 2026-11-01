@@ -151,6 +151,10 @@ fn cache_preparation_failure_does_not_publish_or_replace_cached_plans() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the template matrix verifies construction refusal, publication and subsequent warm reuse together"
+)]
 fn template_candidate_construction_rejects_before_publication_and_shares_warm_authority() {
     let setup = initialize();
     seed_singleton(&setup);
@@ -158,7 +162,10 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
     let schema = catalog.accepted_schema_info();
-    let visible = VisibleIndexes::accepted_schema_visible(schema).expect("valid indexes");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(schema, work)
+    })
+    .expect("valid indexes");
     let count = visible.accepted_semantic_index_contracts().len();
     assert!(count > 0, "exercise nonempty accepted index authority");
     let bytes =

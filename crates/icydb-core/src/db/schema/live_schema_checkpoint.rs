@@ -47,7 +47,6 @@ thread_local! {
     static MIGRATION_RECORD_LOADS: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(any(test, feature = "migration"))]
 use crate::db::schema::migration_lineage::{
     AcceptedEntitySourceLineageCatalog, EntitySourceLineageCatalogOp,
     decode_entity_source_lineage_catalog,
@@ -321,7 +320,6 @@ impl LiveSchemaCheckpointStore {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "migration"))]
     fn load_lineage(&self) -> Result<Option<AcceptedEntitySourceLineageCatalog>, InternalError> {
         self.map
             .get(&LiveSchemaCheckpointKey::lineage())
@@ -329,7 +327,6 @@ impl LiveSchemaCheckpointStore {
             .transpose()
     }
 
-    #[cfg(any(test, feature = "migration"))]
     fn preflight_lineage(
         &self,
         operation: &EntitySourceLineageCatalogOp,
@@ -348,7 +345,6 @@ impl LiveSchemaCheckpointStore {
         Ok(LiveSchemaCheckpointPreflight::Ready)
     }
 
-    #[cfg(any(test, feature = "migration"))]
     fn apply_lineage(
         &mut self,
         operation: &EntitySourceLineageCatalogOp,
@@ -724,7 +720,6 @@ pub(in crate::db) fn verify_schema_migration_record_op(
     operation.validate()
 }
 
-#[cfg(any(test, feature = "migration"))]
 pub(in crate::db::schema) fn load_entity_source_lineage_catalog()
 -> Result<Option<AcceptedEntitySourceLineageCatalog>, InternalError> {
     let Some(store) = LiveSchemaCheckpointStore::open_existing(control_memory()?)? else {
@@ -759,21 +754,18 @@ pub(in crate::db) fn schema_migration_record_matches_for_tests(
     )
 }
 
-#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn preflight_entity_source_lineage_catalog_op(
     operation: &EntitySourceLineageCatalogOp,
 ) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
     LiveSchemaCheckpointStore::open(control_memory()?)?.preflight_lineage(operation)
 }
 
-#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn apply_entity_source_lineage_catalog_op(
     operation: &EntitySourceLineageCatalogOp,
 ) -> Result<(), InternalError> {
     LiveSchemaCheckpointStore::open(control_memory()?)?.apply_lineage(operation)
 }
 
-#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn verify_entity_source_lineage_catalog_op(
     operation: &EntitySourceLineageCatalogOp,
 ) -> Result<(), InternalError> {

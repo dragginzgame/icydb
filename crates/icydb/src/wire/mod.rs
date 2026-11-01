@@ -5,6 +5,7 @@
 //! Accepted database payloads retain their schema-owned codec admission.
 
 pub(crate) mod method;
+pub(crate) mod reply;
 
 pub use icydb_schema::wire::{
     Error, MAX_REPLY_BYTES, MAX_REQUEST_BYTES, decode_one, encode_one, encoded_len, limits,

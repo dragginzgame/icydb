@@ -725,5 +725,7 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterStaleBinding });
     RUNTIME_BOUNDARY_TYPED_ADAPTER_VALUE_SHAPE_MISMATCH = 292 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::TypedAdapterValueShapeMismatch });
+    RUNTIME_BOUNDARY_SCHEMA_REPLY_BYTES_EXCEEDED = 293 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::SchemaReplyBytesExceeded });
 
 }

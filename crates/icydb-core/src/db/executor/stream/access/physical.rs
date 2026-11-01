@@ -1771,6 +1771,10 @@ mod physical_polling_tests {
         db::{
             QueryError,
             data::{DataStore, RawRow},
+            executor::{
+                PageWorkEnvelope, begin_production_scalar_page_unit,
+                finish_production_scalar_page_unit, with_production_scalar_page_work,
+            },
             index::{IndexEntryValue, IndexId, IndexStore},
             key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
@@ -2415,6 +2419,78 @@ mod physical_polling_tests {
             .expect("index leaf should inherit its share of the active page envelope");
 
             assert_eq!(bounded.value, expected_refill);
+        }
+    }
+
+    #[test]
+    fn buffered_leaf_pulls_use_current_reservations_until_the_next_refill() {
+        reset_heap_stores();
+        load_primary_keys();
+        load_index_keys(&IndexId::new(ENTITY, 1), b"lane");
+
+        // A refill spends the page's four physical-entry allowance at once.
+        // Its remaining buffered keys must still be admissible on that page;
+        // the next refill must stop before another store visit.
+        for index in [false, true] {
+            for direction in [Direction::Asc, Direction::Desc] {
+                let budget = HardExecutionBudget::uniform_for_tests(
+                    u64::MAX,
+                    HardExecutionFailureHeadroom::new(500, 256),
+                );
+                let context = HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::PublicRead,
+                    0,
+                );
+                let result = with_query_execution_budget_for_tests(budget, context, || {
+                    let envelope = PageWorkEnvelope::public_scalar().with_limit_for_tests(
+                        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                        4,
+                    );
+                    with_production_scalar_page_work(envelope, || {
+                        let mut stream = if index {
+                            let mut leaf = ordered_index_stream(direction, None, None);
+                            leaf.chunk_entries = index_leaf_chunk_entries_for_active_page(
+                                ACCESS_SCAN_CHUNK_ENTRIES,
+                                1,
+                            )?;
+                            OrderedKeyStreamBox::IndexRange(leaf)
+                        } else {
+                            OrderedKeyStreamBox::PrimaryRange(PrimaryRangeKeyStream::new(
+                                STORE,
+                                data_key(1),
+                                data_key(100),
+                                direction,
+                                None,
+                            )?)
+                        };
+                        for (offset, expected_bound) in [4, 0, 0, 0].into_iter().enumerate() {
+                            let bound = stream.page_access_entry_bound().unwrap();
+                            assert_eq!(bound, expected_bound);
+                            assert!(begin_production_scalar_page_unit(bound)?);
+                            let key = match direction {
+                                Direction::Asc => 1 + offset as u64,
+                                Direction::Desc => 100 - offset as u64,
+                            };
+                            assert_eq!(stream.next_key()?, Some(data_key(key)));
+                            finish_production_scalar_page_unit()?;
+                        }
+                        let bound = stream.page_access_entry_bound().unwrap();
+                        assert_eq!(bound, 4);
+                        assert!(!begin_production_scalar_page_unit(bound)?);
+                        Ok(())
+                    })
+                    .map_err(QueryError::execute)
+                })
+                .unwrap();
+                assert!(result.envelope_stopped);
+                assert_eq!(
+                    result
+                        .receipt
+                        .observed(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited),
+                    4,
+                );
+            }
         }
     }
 

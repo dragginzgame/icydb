@@ -1,6 +1,7 @@
 //! Generated reconciliation preserves unchanged SQL-owned activation authority.
 
 mod revision_fence;
+mod unique_abort;
 
 use super::*;
 use crate::{
@@ -144,7 +145,7 @@ fn execute_ddl(db: &Db<AbortCanister>, session: &DbSession<AbortCanister>, sql: 
             "{sql} EXPECT SCHEMA VERSION {version} SET SCHEMA VERSION {}",
             version + 1
         ))
-        .unwrap();
+        .unwrap_or_else(|error| panic!("{sql}: {error:?}"));
 }
 
 fn job(

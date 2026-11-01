@@ -104,6 +104,7 @@ fn publish_accepted_entity_snapshot_revision_with_user_index_domain(
         expected_revision,
         &candidate,
         replacement,
+        None,
     )
 }
 

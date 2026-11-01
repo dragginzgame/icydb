@@ -573,7 +573,13 @@ planner-invisible, new-write-gated candidate; bounded
 `VALIDATE CONSTRAINT index_name` calls build and verify its isolated generation,
 and only a clean promotion makes it planner-visible. `DROP INDEX` aborts a
 pending SQL-owned unique activation or removes an already accepted SQL-owned
-index. `CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog or a
+index. A pending unique abort stages deletion of its exact physical candidate
+generation before publication; the keys, activation and any validation job
+are removed under one commit marker. Existing construction, deletion-count,
+byte and journal limits apply. A refusal before publication leaves all of those
+owners intact. Already orphaned keys from an older completed abort still fail
+complete-domain integrity checks; abort does not sweep unknown generations.
+`CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog or a
 live candidate already has the exact requested index contract. Conflicting
 existing definitions still reject.
 

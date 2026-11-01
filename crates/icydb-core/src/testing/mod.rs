@@ -72,7 +72,7 @@ pub(crate) const fn test_memory_id(id: u8) -> u8 {
 /// One fixture runtime that can reopen an allocation after its lease is dropped.
 pub(crate) struct TestMemoryOwner {
     runtime: MemoryRuntime<DefaultMemoryImpl>,
-    key: String,
+    key: ic_memory::StableKey,
 }
 
 impl TestMemoryOwner {
@@ -102,7 +102,11 @@ impl TestMemoryOwner {
 pub(crate) fn test_memory_owner(id: u8) -> TestMemoryOwner {
     TestMemoryOwner {
         runtime: test_memory_runtime(DefaultMemoryImpl::default(), MemoryManagerConfig::default()),
-        key: format!("icydb.core_tests.slot_{:03}.v1", test_memory_id(id)),
+        key: ic_memory::StableKey::parse(format!(
+            "icydb.core_tests.slot_{:03}.v1",
+            test_memory_id(id)
+        ))
+        .unwrap(),
     }
 }
 
@@ -145,7 +149,9 @@ pub(crate) fn test_memory_with_backing(
 ) -> RuntimeMemory<DefaultMemoryImpl> {
     let id = test_memory_id(id);
     test_memory_runtime(backing, MemoryManagerConfig::default())
-        .open_memory(&format!("icydb.core_tests.slot_{id:03}.v1"))
+        .open_memory(
+            &ic_memory::StableKey::parse(format!("icydb.core_tests.slot_{id:03}.v1")).unwrap(),
+        )
         .expect("test memory should open")
 }
 

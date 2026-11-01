@@ -5,6 +5,43 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.293.0]
+
+### ⚠️ Breaking
+
+- Adopt published Memory and Storage 0.61.0, requiring matching public Memory
+  types and explicit fresh/retained collection lifecycle. Valid retained bytes
+  remain supported; no installation reset is required.
+
+### 🩹 Fixed
+
+- Return a typed error when a generated schema report exceeds IC query reply
+  limits, preventing oversized success replies from reaching the transport
+  ([#78 — Unbounded schema replies](https://github.com/dragginzgame/icydb/issues/78)).
+- Remove staged unique-index keys atomically when aborting validation, preventing
+  abandoned generations from blocking later index changes
+  ([#38 — Aborted unique generations poison later DDL](https://github.com/dragginzgame/icydb/issues/38)).
+- Charge accepted index-predicate comparison work to the request budget during
+  planning and diagnostic preparation
+  ([#76 — Predicate normalization budgets](https://github.com/dragginzgame/icydb/issues/76), partial).
+- Keep adopted source digests aligned with completed ordinary schema edits and
+  reject unplanned source-version changes before deferred validation starts
+  ([#94 — Ordinary source-lineage drift](https://github.com/dragginzgame/icydb/issues/94), partial).
+
+### 📚 Documentation
+
+- Clarify bounded cache reuse within query calls; retain one cache policy rather
+  than introduce an unmeasured query-only insertion bypass
+  ([#280 — Query cache insertion](https://github.com/dragginzgame/icydb/issues/280), not planned).
+- Clarify that scalar-page access reservations vary across scan refills; retain
+  per-pull admission rather than cache a stream-wide reservation
+  ([#293 — Scalar-page accounting](https://github.com/dragginzgame/icydb/issues/293), remaining proposal not planned).
+- Document the after-image admission retained by unchanged-index updates; close
+  the remaining shortcut proposal without adding a proof cache
+  ([#344 — Unchanged-index update work](https://github.com/dragginzgame/icydb/issues/344), remainder not planned).
+
+[Detailed changes and retained-data limits](docs/changelog/0.293.md).
+
 ## [0.292.1] - 2026-11-01
 
 ### 🩹 Fixed

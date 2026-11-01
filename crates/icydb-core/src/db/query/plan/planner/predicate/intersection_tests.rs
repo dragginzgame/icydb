@@ -36,8 +36,10 @@ fn exact_intersection_admits_only_retained_prefixes_and_preserves_order_and_cap(
         ],
         &[],
     );
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let selected = prefix(&indexes[0], &[7]);
     let second = prefix(&indexes[1], &[8]);
@@ -126,8 +128,10 @@ fn absent_exact_intersections_do_not_copy_selected_or_rejected_operands() {
         &[("a", &["age", "id"]), ("wrong_suffix", &["id", "age"])],
         &[],
     );
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let selected = prefix(&indexes[0], &[1]);
     let full_scan = AccessPlan::full_scan();
@@ -163,8 +167,10 @@ fn absent_exact_intersections_do_not_copy_selected_or_rejected_operands() {
 #[test]
 fn exact_intersection_keeps_order_and_grouping_admission() {
     let schema = exact_metadata_schema(&[("a", &["age", "id"]), ("b", &["rank", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let selected = prefix(&indexes[0], &[1]);
     let children = [prefix(&indexes[1], &[2])];

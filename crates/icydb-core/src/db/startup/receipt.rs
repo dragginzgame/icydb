@@ -625,9 +625,11 @@ mod tests {
                 backing: backing.clone(),
                 maximum_pages: 2,
             },
-            MemoryManagerConfig::new(1).unwrap(),
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
         );
-        let memory = runtime.open_memory("icydb.core_tests.slot_237.v1").unwrap();
+        let memory = runtime
+            .open_memory(&ic_memory::StableKey::parse("icydb.core_tests.slot_237.v1").unwrap())
+            .unwrap();
         let before = backing.borrow().clone();
         let summary = runtime.memory_allocation_summary().unwrap();
         let error = write_cell(&memory, &[]).unwrap_err();

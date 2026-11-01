@@ -10,8 +10,8 @@ REQUIRED_MATCHES=(
   $'crates/icydb-core/src/traits/mod.rs\tfn commit_memory_id\\(\\) -> Result<u8, ic_memory::RuntimeOpenError>\tCanisterKind must resolve the committed control allocation fallibly'
   $'crates/icydb-core/src/traits/mod.rs\tconst COMMIT_STABLE_KEY: &\'static str;\tCanisterKind must define COMMIT_STABLE_KEY'
   $'crates/icydb-core/src/db/commit/recovery.rs\tC::commit_memory_id\\(\\)\trecovery must resolve its committed control ID'
-  $'crates/icydb-core/src/traits/mod.rs\t\\.memory_id\\(Self::COMMIT_STABLE_KEY\\)\tcanister controls must resolve IDs through the bound committed runtime'
-  $'crates/icydb-core/src/db/registry/handle.rs\t\\.memory_id\\(stable_key\\)\tstore identities must resolve IDs through the bound committed runtime'
+  $'crates/icydb-core/src/traits/mod.rs\t\\.memory_id\\([[:space:]]*&ic_memory::StableKey::parse\\(Self::COMMIT_STABLE_KEY\\)\tcanister controls must resolve checked keys through the bound committed runtime'
+  $'crates/icydb-core/src/db/registry/handle.rs\t\\.memory_id\\(&ic_memory::StableKey::parse\\(stable_key\\)\tstore identities must resolve checked keys through the bound committed runtime'
   $'crates/icydb-model/src/node/store.rs\tkey: &\'static str,\tjournaled stores must carry a permanent logical key'
   $'crates/icydb-model/src/node/canister.rs\tmemory_namespace: &\'static str,\tmodel canister node must carry memory_namespace'
   $'crates/icydb-core/src/db/database_format/convergence.rs\tconst ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID \\+ 1;\tconvergence must honor the dependency governance boundary'
@@ -30,7 +30,7 @@ for check in "${REQUIRED_MATCHES[@]}"; do
     continue
   fi
 
-  if ! rg -n --no-heading --color=never "$pattern" "$file" >/dev/null; then
+  if ! rg -n -U --no-heading --color=never "$pattern" "$file" >/dev/null; then
     echo "[ERROR] $message ($file, pattern: $pattern)" >&2
     status=1
   fi

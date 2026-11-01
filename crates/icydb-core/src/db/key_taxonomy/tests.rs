@@ -1113,7 +1113,7 @@ fn raw_index_ordering_preserves_corrupt_prefixes_and_transitivity() {
         }
     }
     for order in [keys.clone(), keys.iter().rev().cloned().collect()] {
-        let mut map = ic_storage::adapter::StableBTreeMap::init(crate::testing::test_memory(177));
+        let mut map = ic_storage::adapter::StableBTreeMap::create(crate::testing::test_memory(177));
         for (position, key) in order.iter().enumerate() {
             map.insert(key.clone(), u64::try_from(position).unwrap());
         }

@@ -117,7 +117,10 @@ fn branch_membership_preserves_exhaustion_and_structural_shortcuts() {
 #[test]
 fn proof_errors_reach_candidate_eligibility_and_explicit_residual_preparation() {
     let schema = exact_metadata_schema(&[("by_age", &["age"])], &["age"]);
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     let predicate = Predicate::eq("age".into(), Value::Int64(7));
     for query in [&predicate, &Predicate::True] {

@@ -152,9 +152,11 @@ fn control_capacity_refusal_preserves_existing_frame_bytes() {
             backing: backing.clone(),
             maximum_pages: 4,
         },
-        MemoryManagerConfig::new(1).unwrap(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
     );
-    let memory = runtime.open_memory("icydb.core_tests.slot_233.v1").unwrap();
+    let memory = runtime
+        .open_memory(&ic_memory::StableKey::parse("icydb.core_tests.slot_233.v1").unwrap())
+        .unwrap();
     super::reserve_commit_control_capacity(&memory, 65_536).unwrap();
     memory.write(0, b"retained frame");
     let before = backing.borrow().clone();

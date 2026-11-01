@@ -147,12 +147,18 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-The root requires published Memory/Storage 0.60.6 and Wire 0.13.3, alongside
-Build and Host Artifacts/FS/Process/Text 0.73.3 and Host Tools 0.76.0. The incoming
-lock already selected Memory/Storage 0.60.6 and Wire/Derive 0.13.3; this adoption
-preserves those selections and updates only Host Tools from 0.75.2 to 0.76.0.
-Metrics requires 0.24.0 (locked to 0.24.4); direct Platform consumers require the
-published 0.16.0 release from `b1303ffa38daf2ec1551cbce6e39197ad76681ff`.
+The pending 0.293 adoption requires published Memory/Storage 0.61.0 and uses
+checked runtime keys, nonzero bucket configuration and explicit collection
+`create`/`load` lifecycle. Valid retained bytes remain compatible; no reset is
+performed. Canic qualification keeps its independent dependency selections;
+its older pinned supplier stack is not qualified against this public 0.61 cut. See the [adoption status](../design/0.293-memory-storage/0.293-status.md).
+
+The root retains Wire 0.13.3 requirements (locked to Wire/Derive 0.13.5),
+Build and Host Artifacts/FS/Process/Text 0.73.3 requirements (locked to 0.73.6),
+Host Tools 0.76.0 (locked to 0.76.2), Metrics 0.24.0 (locked to 0.24.5) and
+Platform 0.16.0. Those incoming lock selections are preserved; this adoption
+changes only Memory/Storage from 0.60.7 to 0.61.0. Direct Platform consumers
+use the published release from `b1303ffa38daf2ec1551cbce6e39197ad76681ff`.
 The independent qualification graph retains Testkit 0.75.0. Foundation and IC
 integration release independently; these versions need no numeric lockstep.
 Platform re-exports canonical `ic-platform-types 0.15.1`. Memory/Storage now
@@ -165,11 +171,12 @@ Metrics' `native-wire` feature selects Wire 0.13 on native hosts and no Wire
 metadata dependency on Wasm. Optional instrumentation/recording stays optional;
 durable adapters remain Persistence-owned and journal debt is independent.
 
-Memory/Storage 0.60.6 packaged library Rust source is unchanged from 0.60.5;
-their published dependency identities now align with the root. Stored bytes,
-bounds and admission are unchanged. Host Tools 0.76 changes only its unselected
-certificate implementation; the selected response/interface sources are unchanged.
-Wire 0.13.3 adds an opt-in bulk ByteArray contract; IcyDB retains its existing
+Memory/Storage 0.61.0 changes Rust API identity while retaining valid allocation
+ledger and collection bytes. Host Tools 0.76.0 changed only its unselected
+certificate implementation; the selected response/interface sources were unchanged.
+The incoming Build/Host/Tools/Wire/Metrics lock updates are preserved, not claimed
+as separately qualified supplier adoptions by this Memory/Storage slice.
+Wire 0.13.3 added an opt-in bulk ByteArray contract; IcyDB retains its existing
 ordinary arrays and generated codec contract. The existing
 0.56 allocation-ledger and 0.291 IcyDB format cuts still apply; no converter,
 ledger-only reset or storage migration is introduced. Wire 0.13 uses the canonical

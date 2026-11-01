@@ -232,6 +232,10 @@ impl<C: CanisterKind> DbSession<C> {
     // Render one SQL EXPLAIN EXECUTION payload through the shared planner-owned
     // covering contract. Covering visibility is now part of route planning, so
     // SQL EXPLAIN does not need a separate store-backed authority pass.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "execution EXPLAIN keeps budgeted access preparation and final diagnostic publication together"
+    )]
     pub(in crate::db::session::sql::execute) fn explain_lowered_sql_execution_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
@@ -267,12 +271,15 @@ impl<C: CanisterKind> DbSession<C> {
                 catalog,
                 &structural,
             )?;
-            let visible_indexes = self
-                .visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
             let diagnostics = PreparationWork::run(
                 self.db.request_execution_scope(),
                 DiagnosticExecutionLane::Diagnostic,
                 |work| {
+                    let visible_indexes = self.visible_indexes_for_store_accepted_schema(
+                        authority.store_path(),
+                        schema_info,
+                        work,
+                    )?;
                     plan.finalize_access_choice_with_semantic_indexes_and_schema(
                         visible_indexes.accepted_semantic_index_contracts(),
                         schema_info,
@@ -580,8 +587,17 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(());
         }
 
-        let visible_indexes =
-            self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
+        let visible_indexes = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::Diagnostic,
+            |work| {
+                self.visible_indexes_for_store_accepted_schema(
+                    authority.store_path(),
+                    schema_info,
+                    work,
+                )
+            },
+        )?;
         let prefix_keys = self.exact_count_cardinality_prefix_keys_for_accepted_authority(
             authority,
             command.query(),

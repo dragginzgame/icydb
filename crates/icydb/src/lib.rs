@@ -181,6 +181,7 @@ pub mod __macro {
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
     pub use crate::wire::method::RpcMethod;
+    pub use crate::wire::reply::into_deliverable_schema_reply;
     #[cfg(feature = "sql")]
     pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{

@@ -7,10 +7,12 @@ use crate::{
     db::{
         commit::publish_accepted_schema_candidate,
         registry::StoreHandle,
+        resource::budget::MaintenanceConstructionBudget,
         schema::{
             AcceptedCatalogIdentity, AcceptedCheckExprV1, AcceptedSchemaRevision,
-            AcceptedSchemaRevisionBundle, AcceptedSchemaSnapshot, ConstraintId, ConstraintOrigin,
-            PersistedIndexSnapshot, SchemaVersion,
+            AcceptedSchemaRevisionBundle, AcceptedSchemaSnapshot, ConstraintActivationState,
+            ConstraintId, ConstraintOrigin, PersistedIndexSnapshot, SchemaVersion,
+            StagedUserIndexDomainReplacement,
             publication::{candidate_with_snapshot, publish_sql_ddl_constraint_removal},
             validate_unpublished_check_candidate_exact,
         },
@@ -254,14 +256,24 @@ pub(in crate::db) fn execute_schema_unique_index_activation_abort(
         .with_aborted_unique_activation(constraint_id, next_schema_version)
         .map_err(|_| InternalError::store_invariant())?;
     let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
-    publish_sql_ddl_constraint_removal(
+    let replacement = store.with_index(|index_store| {
+        StagedUserIndexDomainReplacement::stage_unique_activation_abort(
+            accepted_before_identity.clone(),
+            accepted_before,
+            &after,
+            constraint_id,
+            index_store,
+            &MaintenanceConstructionBudget::new(),
+        )
+    })?;
+    crate::db::commit::publish_accepted_schema_candidate_with_user_index_domain(
+        accepted_before_identity.store_path(),
         store,
-        &accepted_before_identity,
         current_revision,
         &candidate,
-        entity_tag,
-        constraint_id,
-        Some(activation_state),
+        replacement,
+        (activation_state == ConstraintActivationState::Validating)
+            .then_some((entity_tag, constraint_id)),
     )
 }
 

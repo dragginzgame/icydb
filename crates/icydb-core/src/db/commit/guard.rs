@@ -266,7 +266,6 @@ fn begin_commit_with_preflighted_mutation_progress(
             DatabaseControlOp::SchemaApplication(operation) => {
                 preflight_schema_application_record_op(operation)?;
             }
-            #[cfg(any(test, feature = "migration"))]
             DatabaseControlOp::EntitySourceLineage(operation) => {
                 crate::db::schema::preflight_entity_source_lineage_catalog_op(operation)?;
             }

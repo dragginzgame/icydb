@@ -1,5 +1,7 @@
 //! Current accepted filtered predicates preserve catalog facts through persistence.
 
+mod projection_budget;
+
 use std::borrow::Cow;
 
 use crate::{

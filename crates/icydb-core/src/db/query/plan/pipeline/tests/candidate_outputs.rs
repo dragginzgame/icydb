@@ -35,8 +35,10 @@ fn fixture() -> (SchemaInfo, VisibleIndexes, AccessPlannedQuery) {
         ],
         &[],
     );
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
     plan.access = AccessPlan::index_prefix_from_contract(
         visible.accepted_semantic_index_contracts()[0].clone(),
@@ -68,7 +70,10 @@ fn ordered_candidate_choice_precedes_exact_keys_across_lookup_and_range_families
         &[("a_short", &["age"]), ("z_ordered", &["age", "rank"])],
         &[],
     );
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let indexes = visible.accepted_semantic_index_contracts();
     let cases = [
         Predicate::eq("age".into(), Value::Int64(1)),
@@ -125,8 +130,10 @@ fn ordered_range_selection_admits_one_operand_slots_and_path() {
         ],
         &[],
     );
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let value = Value::Int64(3);
     let cases = [
@@ -225,8 +232,10 @@ fn secondary_lookup_selection_admits_only_one_output_list_and_path() {
         ],
         &[],
     );
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let cases = [
         (Predicate::eq("age".into(), Value::Int64(3)), 1),
@@ -373,8 +382,10 @@ fn and_range_construction_admission_precedes_child_recursion() {
     };
 
     let schema = exact_metadata_schema(&[("age_idx", &["age"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let predicate = Predicate::And(vec![
         Predicate::gte("age".into(), Value::Int64(2)),
@@ -476,13 +487,20 @@ fn recursive_candidate_lists_and_dispatch_obey_request_admission() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one branch-list matrix keeps cumulative admission and final selection together"
+)]
 fn and_branch_lists_propagate_cumulative_admission_and_preserve_selection() {
     use crate::db::query::plan::planner::{
         PlannerError, plan_access_selection_with_order_and_semantic_indexes,
     };
 
     let schema = exact_metadata_schema(&[("by_age_rank", &["age", "rank"])], &[]);
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).expect("valid indexes");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid indexes");
     for remaining in [1, 2] {
         let predicate = Predicate::And(vec![
             Predicate::eq("age".into(), Value::Int64(7)),
@@ -707,8 +725,10 @@ fn cardinality_candidates_borrow_the_current_route_and_move_alternatives() {
             &["age"]
         };
         let schema = exact_metadata_schema(&[("a_index", fields), ("b_index", fields)], &[]);
-        let visible =
-            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+        let visible = crate::db::query::preparation::with_preparation_work(|work| {
+            VisibleIndexes::accepted_schema_visible(&schema, work)
+        })
+        .expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         let (access, predicate) = match family {

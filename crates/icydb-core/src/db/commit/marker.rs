@@ -136,7 +136,6 @@ pub(in crate::db) type CanonicalRowCommitOp = CommitRowOp<CanonicalRow>;
 #[derive(Clone, Debug)]
 pub(in crate::db) enum DatabaseControlOp {
     SchemaApplication(SchemaApplicationRecordOp),
-    #[cfg(any(test, feature = "migration"))]
     EntitySourceLineage(crate::db::schema::EntitySourceLineageCatalogOp),
     #[cfg(any(test, feature = "migration"))]
     SchemaMigration(crate::db::schema::SchemaMigrationRecordOp),
@@ -394,7 +393,6 @@ fn write_database_control_op<O: DatabaseControlOutput>(
             out.write_bytes(&operation.key().to_bytes());
             write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
         }
-        #[cfg(any(test, feature = "migration"))]
         DatabaseControlOp::EntitySourceLineage(operation) => {
             out.write_bytes(&[2]);
             write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
@@ -551,7 +549,6 @@ fn decode_mutation_progress_control_op(
     .map_err(|_| InternalError::commit_corruption())
 }
 
-#[cfg(any(test, feature = "migration"))]
 fn decode_lineage_control_op(
     reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
@@ -559,13 +556,6 @@ fn decode_lineage_control_op(
     crate::db::schema::EntitySourceLineageCatalogOp::from_encoded(before, after)
         .map(DatabaseControlOp::EntitySourceLineage)
         .map_err(|_| InternalError::commit_corruption())
-}
-
-#[cfg(not(any(test, feature = "migration")))]
-fn decode_lineage_control_op(
-    _reader: &mut ByteReader<'_>,
-) -> Result<DatabaseControlOp, InternalError> {
-    Err(InternalError::commit_corruption())
 }
 
 #[cfg(any(test, feature = "migration"))]
@@ -702,7 +692,6 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     let mut application_keys = BTreeSet::new();
     let mut prior_application_key = None;
     let mut prior_rank = 0_u8;
-    #[cfg(any(test, feature = "migration"))]
     let mut lineage_seen = false;
     #[cfg(any(test, feature = "migration"))]
     let mut migration_seen = false;
@@ -723,7 +712,6 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
                     .validate()
                     .map_err(|_| InternalError::commit_corruption())?;
             }
-            #[cfg(any(test, feature = "migration"))]
             DatabaseControlOp::EntitySourceLineage(operation) => {
                 if prior_rank > 2 || lineage_seen {
                     return Err(InternalError::commit_corruption());

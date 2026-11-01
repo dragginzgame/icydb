@@ -47,7 +47,10 @@ fn order_only_candidates_distinguish_absent_from_incompatible_order() {
     };
 
     let schema = exact_metadata_schema(&[("by_age", &["age", "id"])], &[]);
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let index = &visible.accepted_semantic_index_contracts()[0];
     let incompatible = OrderSpec {
         fields: vec![
@@ -264,9 +267,11 @@ fn residual_budget_failure_is_not_an_absent_reranking_candidate() {
 #[test]
 fn candidate_bound_residual_preserves_owned_derivation_results() {
     let schema = exact_metadata_schema(&[("by_age", &["age"])], &[]);
-    let index = VisibleIndexes::accepted_schema_visible(&schema)
-        .unwrap()
-        .accepted_semantic_index_contracts()[0]
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap()
+    .accepted_semantic_index_contracts()[0]
         .clone();
     let access = AccessPlan::index_prefix_from_contract(index, vec![crate::value::Value::Int64(7)]);
     let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Error);

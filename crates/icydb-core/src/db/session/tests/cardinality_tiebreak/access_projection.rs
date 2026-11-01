@@ -134,8 +134,10 @@ fn access_projection_keeps_accepted_expression_index_source_fields() {
         .find(|index| index.name() == "zz_lower_common_idx")
         .unwrap();
     let access = AccessPlan::index_prefix_from_contract(
-        SemanticIndexAccessContract::from_accepted_expression_index(accepted)
-            .expect("valid accepted index fixture"),
+        crate::db::query::preparation::with_preparation_work(|work| {
+            SemanticIndexAccessContract::from_accepted_expression_index(accepted, work)
+        })
+        .expect("valid accepted index fixture"),
         vec![Value::Text("everyone".into())],
     );
     let projected = with_work(|work| explain_access_plan(&access, work)).unwrap();
@@ -162,8 +164,10 @@ fn access_projection_keeps_accepted_index_fields_and_successful_bytes() {
         .iter()
         .find(|index| index.name() == "b_wide_branch_idx")
         .unwrap();
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
-        .expect("valid accepted index fixture");
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        SemanticIndexAccessContract::from_accepted_field_path_index(accepted, work)
+    })
+    .expect("valid accepted index fixture");
     let values = vec![Value::Text("all".into())];
     let cases = [
         AccessPlan::index_prefix_from_contract(index.clone(), values.clone()),

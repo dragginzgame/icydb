@@ -153,7 +153,7 @@ impl IndexStore {
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
         // Retained maps must never be replaced when their header is corrupt.
         let canonical = if memory.size() == 0 {
-            StableBTreeMap::init(memory)
+            StableBTreeMap::create(memory)
         } else {
             StableBTreeMap::load(memory)
         };

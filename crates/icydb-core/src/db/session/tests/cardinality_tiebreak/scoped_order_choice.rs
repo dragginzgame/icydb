@@ -92,9 +92,14 @@ fn assert_order_choice(session: &DbSession<TestCanister>, descending: bool) {
         .0;
     // Execution caches omit explain-only candidates. Project them through the
     // same accepted visible-index owner used by verbose execution EXPLAIN.
-    let visible = session
-        .visible_indexes_for_store_accepted_schema(STORE_PATH, catalog.accepted_schema_info())
-        .unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        session.visible_indexes_for_store_accepted_schema(
+            STORE_PATH,
+            catalog.accepted_schema_info(),
+            work,
+        )
+    })
+    .unwrap();
     let mut plan = prepared.logical_plan().clone();
     with_preparation_work(|work| {
         plan.finalize_access_choice_with_semantic_indexes_and_schema(

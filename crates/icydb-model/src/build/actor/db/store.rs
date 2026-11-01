@@ -580,7 +580,8 @@ fn store_wiring_tokens(
                         #icydb::__macro::ensure_default_memory_manager(
                             #memory_authority,
                             &requirements,
-                            #bucket_size_pages,
+                            ::core::num::NonZeroU16::new(#bucket_size_pages)
+                                .expect("validated memory profile has nonzero buckets"),
                             crate::icydb_memory_pool,
                         )
                     })
@@ -728,7 +729,7 @@ mod tests {
             );
             let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
             assert!(rendered.contains(&format!(
-                "ensure_default_memory_manager(\"icydb.test\",&requirements,{pages}u16,crate::icydb_memory_pool,)"
+                "ensure_default_memory_manager(\"icydb.test\",&requirements,::core::num::NonZeroU16::new({pages}u16).expect(\"validatedmemoryprofilehasnonzerobuckets\"),crate::icydb_memory_pool,)"
             )));
             assert_eq!(
                 builder.schema_fragment_bytes,
@@ -912,7 +913,7 @@ mod tests {
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
             rendered
-                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",&requirements,16u16,crate::icydb_memory_pool,)")
+                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",&requirements,::core::num::NonZeroU16::new(16u16).expect(\"validatedmemoryprofilehasnonzerobuckets\"),crate::icydb_memory_pool,)")
         );
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));

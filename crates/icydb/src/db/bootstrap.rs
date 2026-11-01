@@ -39,13 +39,13 @@ use ic_memory::DefaultMemoryImpl;
 pub fn ensure_default_memory_manager(
     authority: &str,
     requirements: &SealedDeclarationSnapshot,
-    bucket_size_pages: u16,
+    bucket_size_pages: std::num::NonZeroU16,
     pool: impl FnOnce() -> Result<MemoryAllocationPool, MemoryAllocationPoolError>,
 ) -> Result<(), DatabaseBootstrapError> {
     let runtime = if let Some(runtime) = memory_runtime() {
         runtime
     } else {
-        let config = MemoryManagerConfig::new(bucket_size_pages)?;
+        let config = MemoryManagerConfig::new(bucket_size_pages);
         let pool = pool()?;
         // The host callback may bind its own runtime. Observe that authority
         // before constructing another manager for the same backing memory.
@@ -228,14 +228,24 @@ mod tests {
                     icydb_core::db::open_memory("icydb.bootstrap_adoption_test.commit.control.v1"),
                     Err(RuntimeOpenError::NotBootstrapped)
                 ));
-                ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), pages, pool)
-                    .unwrap();
+                ensure_default_memory_manager(
+                    TEST_AUTHORITY,
+                    &requirements(),
+                    std::num::NonZeroU16::new(pages).unwrap(),
+                    pool,
+                )
+                .unwrap();
                 let runtime = memory_runtime().unwrap();
                 let committed = runtime.committed_allocations().unwrap().to_vec();
                 let before = runtime.memory_allocation_summary().unwrap();
                 assert_eq!(before.bucket_size_pages, pages);
-                ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), pages, pool)
-                    .unwrap();
+                ensure_default_memory_manager(
+                    TEST_AUTHORITY,
+                    &requirements(),
+                    std::num::NonZeroU16::new(pages).unwrap(),
+                    pool,
+                )
+                .unwrap();
                 assert_eq!(runtime.committed_allocations().unwrap(), &committed);
                 assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
             })
@@ -246,10 +256,21 @@ mod tests {
 
     #[test]
     fn adopts_runtime_bound_during_pool_callback_before_constructing_memory() {
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, || {
-            ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 16, pool).unwrap();
-            pool()
-        })
+        ensure_default_memory_manager(
+            TEST_AUTHORITY,
+            &requirements(),
+            std::num::NonZeroU16::new(4).unwrap(),
+            || {
+                ensure_default_memory_manager(
+                    TEST_AUTHORITY,
+                    &requirements(),
+                    std::num::NonZeroU16::new(16).unwrap(),
+                    pool,
+                )
+                .unwrap();
+                pool()
+            },
+        )
         .unwrap();
         let runtime = memory_runtime().unwrap();
         assert_eq!(
@@ -265,18 +286,22 @@ mod tests {
     #[test]
     fn conflicting_persisted_layout_rejects_without_changing_allocation() {
         let backing = VectorMemory::default();
-        let mut runtime =
-            MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(128).unwrap())
-                .unwrap();
+        let mut runtime = MemoryRuntime::new_with_config(
+            backing.clone(),
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(128).unwrap()),
+        )
+        .unwrap();
         runtime
             .bootstrap(&requirements(), &pool().unwrap(), &DatabaseMemoryPolicy)
             .unwrap();
         drop(runtime);
         let before = backing.borrow().clone();
-        let error =
-            MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(16).unwrap())
-                .err()
-                .unwrap();
+        let error = MemoryRuntime::new_with_config(
+            backing.clone(),
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(16).unwrap()),
+        )
+        .err()
+        .unwrap();
         assert!(matches!(
             error,
             RuntimeConstructionError::BucketSizeMismatch {
@@ -298,18 +323,33 @@ mod tests {
         );
         assert_eq!(*backing.borrow(), before);
         assert!(
-            MemoryRuntime::new_with_config(backing, MemoryManagerConfig::new(128).unwrap()).is_ok()
+            MemoryRuntime::new_with_config(
+                backing,
+                MemoryManagerConfig::new(std::num::NonZeroU16::new(128).unwrap())
+            )
+            .is_ok()
         );
     }
 
     #[test]
     fn unknown_host_authority_rejects_without_changing_committed_allocations() {
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 16, pool).unwrap();
+        ensure_default_memory_manager(
+            TEST_AUTHORITY,
+            &requirements(),
+            std::num::NonZeroU16::new(16).unwrap(),
+            pool,
+        )
+        .unwrap();
         let runtime = memory_runtime().unwrap();
         let committed = runtime.committed_allocations().unwrap().to_vec();
         let before = runtime.memory_allocation_summary().unwrap();
-        let error =
-            ensure_default_memory_manager("icydb.unknown", &requirements(), 4, pool).unwrap_err();
+        let error = ensure_default_memory_manager(
+            "icydb.unknown",
+            &requirements(),
+            std::num::NonZeroU16::new(4).unwrap(),
+            pool,
+        )
+        .unwrap_err();
         let public = crate::Error::from(error.clone());
         assert_eq!(
             public.code(),
@@ -325,7 +365,13 @@ mod tests {
                 if authority == "icydb.unknown")));
         assert_eq!(runtime.committed_allocations().unwrap(), &committed);
         assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, pool).unwrap();
+        ensure_default_memory_manager(
+            TEST_AUTHORITY,
+            &requirements(),
+            std::num::NonZeroU16::new(4).unwrap(),
+            pool,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -335,7 +381,7 @@ mod tests {
         };
         let mut runtime = MemoryRuntime::new_with_config(
             DefaultMemoryImpl::default(),
-            MemoryManagerConfig::new(16).unwrap(),
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(16).unwrap()),
         )
         .unwrap();
         let declarations = requirements();
@@ -353,11 +399,20 @@ mod tests {
         assert_eq!(policy.preparation_calls.get(), 1);
         let runtime = Rc::new(runtime);
         bind_memory_runtime(Rc::clone(&runtime)).unwrap();
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, || {
-            panic!("adoption must not invoke pool provider")
-        })
+        ensure_default_memory_manager(
+            TEST_AUTHORITY,
+            &requirements(),
+            std::num::NonZeroU16::new(4).unwrap(),
+            || panic!("adoption must not invoke pool provider"),
+        )
         .unwrap();
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, pool).unwrap();
+        ensure_default_memory_manager(
+            TEST_AUTHORITY,
+            &requirements(),
+            std::num::NonZeroU16::new(4).unwrap(),
+            pool,
+        )
+        .unwrap();
         assert_eq!(policy.preparation_calls.get(), 1);
         assert_eq!(runtime.committed_generation().unwrap(), generation);
         assert_eq!(

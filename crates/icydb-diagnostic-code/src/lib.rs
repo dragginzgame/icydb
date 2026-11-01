@@ -591,6 +591,8 @@ pub enum RuntimeBoundaryCode {
     TypedAdapterStaleBinding,
     /// An output value cannot be represented by the generated Rust field type.
     TypedAdapterValueShapeMismatch,
+    /// A successful accepted-schema report exceeds the IC query reply byte cap.
+    SchemaReplyBytesExceeded,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1114,7 +1116,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 292);
+        assert_eq!(last, 293);
     }
 
     #[test]

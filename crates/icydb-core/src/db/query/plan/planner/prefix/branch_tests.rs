@@ -47,7 +47,10 @@ fn branch_selection_reuses_order_score_without_changing_eligibility_or_ties() {
         &[("a", &["age", "rank", "id"]), ("z", &["age", "rank", "id"])],
         &[],
     );
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let children = [
         Predicate::eq("age".into(), Value::Int64(7)),
         Predicate::in_("rank".into(), vec![Value::Int64(2), Value::Int64(1)]),
@@ -99,7 +102,10 @@ fn unordered_branch_selection_accepts_non_primary_key_suffix() {
         },
     };
     let schema = exact_metadata_schema(&[("secondary", &["age", "rank", "maybe"])], &[]);
-    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap();
     let children = [
         Predicate::eq("age".into(), Value::Int64(7)),
         Predicate::in_("rank".into(), vec![Value::Int64(1), Value::Int64(2)]),

@@ -182,13 +182,16 @@ fn traversal_exhaustion_precedes_leaf_encoding_and_keeps_its_error_kind() {
 fn spec_backing_exhaustion_precedes_encoding_for_every_index_shape() {
     let (_, authority, candidates) = ranking_candidates_for_tests();
     let schema = authority.accepted_schema_info();
-    let branch_index = SemanticIndexAccessContract::from_accepted_field_path_index(
-        schema
-            .field_path_indexes()
-            .iter()
-            .find(|index| index.name() == "b_wide_branch_idx")
-            .unwrap(),
-    )
+    let branch_index = crate::db::query::preparation::with_preparation_work(|work| {
+        SemanticIndexAccessContract::from_accepted_field_path_index(
+            schema
+                .field_path_indexes()
+                .iter()
+                .find(|index| index.name() == "b_wide_branch_idx")
+                .unwrap(),
+            work,
+        )
+    })
     .expect("valid accepted index fixture");
     let cases: [(AccessPlan<Value>, usize); 4] = [
         (
@@ -391,8 +394,10 @@ fn accepted_composite_ranges_preserve_prefix_and_endpoint_contracts() {
         .iter()
         .find(|index| index.name() == "b_wide_branch_idx")
         .unwrap();
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
-        .expect("valid accepted index fixture");
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        SemanticIndexAccessContract::from_accepted_field_path_index(accepted, work)
+    })
+    .expect("valid accepted index fixture");
     let slots: Vec<_> = accepted
         .fields()
         .iter()

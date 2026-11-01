@@ -139,6 +139,14 @@ encoding never truncates or hashes them. Ordinary non-indexed values retain
 their own field and request limits. Query bounds share the complete-key cap;
 wildcard lengths are derived from the remaining key space.
 
+Mutation planning admits after-image membership, component bytes and complete
+key length before deciding that indexed input bytes are unchanged. The canonical
+key builder retains those already admitted buffers; creating its `IndexKey`
+value does not serialize another raw key. Unchanged inputs avoid index-state
+reads, uniqueness checks and deltas, while malformed or oversized after-images
+still refuse. Prepared membership programs and dependency masks are shared
+within the existing commit context, without a separate cached row proof.
+
 The [raw-key storage declaration](../../crates/icydb-core/src/db/index/key/codec/envelope.rs)
 derives its maximum from this same budget; there is no separate 16 KiB allowance.
 IC Storage owns B-tree allocation. For bounded keys and values, its current
@@ -223,12 +231,28 @@ Instruction units describe charged database spans, including their sampling
 boundaries, rather than total endpoint work or the IC's remaining allowance.
 See [bounded application progress](../guides/public-facade-api.md#request-budget-headroom).
 
+Scalar pages reserve the next complete physical pull before storage work. A
+primary or index leaf reports zero access entries while decoded keys remain
+buffered, then reports its bounded next refill. This reservation must be read
+before each pull rather than cached for the stream. After a completed unit, the
+page commits its observed hard-budget delta and releases unused conservative
+reservation. The fixed output-row allowance remains a compile-time constant;
+page receipts and hard request/execution limits retain their separate roles.
+
 ### Preparation Accounting And Coverage
 
 Construction charges apply before the maintained allocation/copy boundaries,
 on cold and warm calls and on public and trusted reads. Reservations may be
 conservative: discarded candidates can leave unused admitted work or capacity.
 Limits do not imply every implementation step has complete accounting.
+
+Shared-plan and SQL caches use the registry's cache scope rather than a single
+statement's lifetime. Entries created during a query can serve later preparations
+in that same call. On the IC, non-replicated query heap changes are discarded
+when the call finishes; that does not discard entries between its statements.
+Update-populated entries may also be available to subsequent query calls.
+Neither case promises a warm cache: retention remains bounded and current schema
+authority is rechecked on use. There is no separate query-only insertion policy.
 
 - Typed/dynamic clause copies, accepted predicate materialization, grouped
   destination vectors and expression-to-predicate lowering use the existing
@@ -247,7 +271,15 @@ Limits do not imply every implementation step has complete accounting.
 - New SQL DDL preparation holds one volatile mutation-construction allowance.
   Filtered-index binding charges every visited conjunction comparison pair and
   preserves typed exhaustion through the SQL error boundary. This does not meter
-  retained-schema projection, commit preparation or recovery normalization.
+  all retained-schema projection or recovery normalization.
+- Planner-visible accepted field/expression index contracts charge conjunction
+  comparison pairs to the existing request across ordinary planning, exact
+  metadata selection and diagnostic EXPLAIN. Schema metadata projects the bound
+  tree; consumers retain normalization authority. Commit metadata preserves its
+  existing pure normalization, including retained journal replay. Commit/recovery,
+  shared user-index-domain and migration/activation preparation still require
+  their own authority propagation; these checks do not claim complete projection
+  allocation or sorting accounting.
 - Cold accepted-runtime and inspection-plan construction has its own admitted
   boundaries. A shared request profile is not proof of complete schema compilation,
   journal replay or publication accounting. Atomic candidate publication and

@@ -5,7 +5,7 @@
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
 use crate::{
-    ConstraintValidationFindingOutput, Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
+    ConstraintValidationFindingOutput, Error,
     db::{
         EntityCatalogDescription, EntityConstraintDescription, MemoryCatalogDescription,
         RowProjectionOutput, SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
@@ -14,10 +14,6 @@ use crate::{
 };
 
 use serde::Deserialize;
-
-const MAX_PUBLIC_SQL_QUERY_REPLY_BYTES: usize = icydb_schema::wire::MAX_REPLY_BYTES;
-#[cfg(any(target_arch = "wasm32", test))]
-const MAX_REPLICATED_SQL_QUERY_REPLY_BYTES: usize = 2 * 1024 * 1024;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -122,51 +118,21 @@ impl SqlQueryResult {
     /// by the deployed IC query boundary.
     #[doc(hidden)]
     pub fn into_deliverable_query_reply(self) -> Result<Self, Error> {
-        // The same query export also runs in replicated execution. Use the
-        // actual message context rather than the method's query declaration.
-        #[cfg(target_arch = "wasm32")]
-        let max_reply_bytes = if ic_platform::ic0::in_replicated_execution() != 0 {
-            MAX_REPLICATED_SQL_QUERY_REPLY_BYTES
-        } else {
-            MAX_PUBLIC_SQL_QUERY_REPLY_BYTES
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        let max_reply_bytes = MAX_PUBLIC_SQL_QUERY_REPLY_BYTES;
-
-        self.into_deliverable_query_reply_with_limit(max_reply_bytes)
-    }
-
-    // Keep complete-envelope admission shared by both execution contexts and
-    // directly testable without a host-side IC system-call stub.
-    fn into_deliverable_query_reply_with_limit(
-        self,
-        max_reply_bytes: usize,
-    ) -> Result<Self, Error> {
-        let response: Result<&Self, Error> = Ok(&self);
-        let encoded =
-            ic_wire::native::encoded_frame_len(&response, icydb_schema::wire::sizing_limits())
-                .map_err(|_| {
-                    Error::from_kind(
-                        ErrorKind::Runtime(RuntimeErrorKind::Internal),
-                        ErrorOrigin::Response,
-                    )
-                })?;
-        if encoded > max_reply_bytes {
-            return Err(Error::from_runtime_boundary(
-                crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
-                ErrorOrigin::Response,
-            ));
-        }
-
-        Ok(self)
+        crate::wire::reply::into_deliverable_query_reply(
+            self,
+            crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use super::{
-        MAX_PUBLIC_SQL_QUERY_REPLY_BYTES, MAX_REPLICATED_SQL_QUERY_REPLY_BYTES, SqlQueryResult,
+    use super::SqlQueryResult;
+    use crate::wire::reply::{
+        MAX_PUBLIC_QUERY_REPLY_BYTES as MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,
+        MAX_REPLICATED_QUERY_REPLY_BYTES as MAX_REPLICATED_SQL_QUERY_REPLY_BYTES,
+        into_deliverable_query_reply_with_limit,
     };
     use crate::{Error, ErrorOrigin};
 
@@ -261,9 +227,11 @@ mod tests {
                 )
                 .unwrap();
                 assert_eq!(encoded.len(), target);
-                let result = candidate
-                    .clone()
-                    .into_deliverable_query_reply_with_limit(limit);
+                let result = into_deliverable_query_reply_with_limit(
+                    candidate.clone(),
+                    limit,
+                    crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+                );
                 if target <= limit {
                     assert_eq!(result, Ok(candidate));
                 } else {
@@ -298,9 +266,12 @@ mod tests {
                 entity: "Entry".into(),
                 indexes: vec![String::new(); icydb_schema::wire::MAX_NODES],
             };
-            let error = candidate
-                .into_deliverable_query_reply_with_limit(limit)
-                .unwrap_err();
+            let error = into_deliverable_query_reply_with_limit(
+                candidate,
+                limit,
+                crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+            )
+            .unwrap_err();
             assert_eq!(error.code(), crate::ErrorCode::RUNTIME_INTERNAL);
             assert_eq!(error.origin(), ErrorOrigin::Response);
         }

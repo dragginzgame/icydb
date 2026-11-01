@@ -7,13 +7,17 @@ use crate::db::codec::BoundedByteWriter;
 use std::collections::BTreeMap;
 
 use icydb_schema::{
-    EntitySourceDigest, ExpectedAcceptedHead, ExpectedSchemaFingerprint, TargetStoreIdentity,
+    EntitySourceDigest, ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaFragment,
+    SchemaProposal, TargetStoreIdentity,
 };
 
 use crate::{
     db::{
         database_format::crc32c,
-        schema::{migration_record::encode_head, wire::SchemaWireReader},
+        schema::{
+            AcceptedSchemaRevisionBundle, SchemaChangeOutcome, migration_record::encode_head,
+            wire::SchemaWireReader,
+        },
     },
     error::InternalError,
     types::EntityTag,
@@ -210,6 +214,61 @@ impl AcceptedEntitySourceLineageCatalog {
         }
         Ok(())
     }
+}
+
+/// Refresh only existing adopted sources after ordinary lowering has admitted
+/// their complete proposed contract. Source versions require a plan even when
+/// validation is deferred. Pending validation keeps the prior digest because it
+/// can still abort; only completed edits publish the new digest.
+pub(in crate::db::schema) fn refresh_ordinary_source_lineage(
+    before: AcceptedEntitySourceLineageCatalog,
+    proposal: &SchemaProposal,
+    current: &[Option<AcceptedSchemaRevisionBundle>],
+    head: &ExpectedAcceptedHead,
+    outcome: &SchemaChangeOutcome,
+) -> Result<AcceptedEntitySourceLineageCatalog, InternalError> {
+    let mut entries = before.entries;
+    for assignment in proposal.assignments() {
+        let Some(tag) = current
+            .iter()
+            .flatten()
+            .find_map(|bundle| bundle.source_bindings().entity(assignment.entity()))
+        else {
+            // New entity lineage remains with the explicit creation/adoption
+            // owner. Never adopt an existing untracked source by refreshing it.
+            continue;
+        };
+        let key = (assignment.store(), tag);
+        let Some(entry) = entries.get(&key) else {
+            continue;
+        };
+        let AcceptedEntitySourceLineageState::Adopted { version, .. } = entry.state() else {
+            continue;
+        };
+        let entity = proposal
+            .fragments()
+            .iter()
+            .flat_map(SchemaFragment::entities)
+            .find(|entity| entity.source_key() == assignment.entity())
+            .ok_or_else(InternalError::store_invariant)?;
+        if version.get() != entity.version().get() {
+            return Err(InternalError::schema_migration(
+                icydb_diagnostic_code::SchemaMigrationCode::MissingMigration,
+            ));
+        }
+        if !matches!(
+            outcome,
+            SchemaChangeOutcome::Applied { .. } | SchemaChangeOutcome::NoOp { .. }
+        ) {
+            continue;
+        }
+        let digest = proposal
+            .entity_source_digest(assignment.entity())
+            .map_err(|_| InternalError::store_unsupported())?;
+        let next = AcceptedEntitySourceLineage::adopted(head.clone(), *version, digest)?;
+        entries.insert(key, next);
+    }
+    AcceptedEntitySourceLineageCatalog::try_new(entries)
 }
 
 #[cfg(test)]

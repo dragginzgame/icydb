@@ -316,10 +316,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
         schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
+        work: &PreparationWork<'_>,
     ) -> Result<VisibleIndexes, QueryError> {
         Ok(match visibility {
             QueryPlanVisibility::StoreReady => {
-                let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info)
+                let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info, work)
                     .map_err(QueryError::execute)?;
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
                 debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
@@ -402,6 +403,7 @@ impl<C: CanisterKind> DbSession<C> {
             let visible_indexes = Self::visible_indexes_for_accepted_schema(
                 planning_state.schema_info(),
                 visibility,
+                work,
             )?;
             let plan = query.build_plan_with_indexes_from_scalar_planning_state(
                 visible_indexes.accepted_semantic_index_contracts(),
@@ -570,7 +572,13 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
         let visible_indexes =
-            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)?;
+            PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
+                Self::visible_indexes_for_accepted_schema(
+                    planning_state.schema_info(),
+                    visibility,
+                    work,
+                )
+            })?;
         let cache_key = if let Some(key) = filterless_key {
             key
         } else {
@@ -694,6 +702,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let visible_indexes = Self::visible_indexes_for_accepted_schema(
                     planning_state.schema_info(),
                     visibility,
+                    work,
                 )?;
                 let plan = query.build_plan_with_indexes_from_scalar_planning_state(
                     visible_indexes.accepted_semantic_index_contracts(),

@@ -125,9 +125,11 @@ fn prefix_routes_preserve_full_suffix_and_owned_mismatch_details() {
 #[test]
 fn range_routes_and_limit_checks_preserve_eligibility_and_rejection_shape() {
     let schema = exact_metadata_schema(&[("by_age_rank", &["age", "rank", "id"])], &[]);
-    let index = VisibleIndexes::accepted_schema_visible(&schema)
-        .unwrap()
-        .accepted_semantic_index_contracts()[0]
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap()
+    .accepted_semantic_index_contracts()[0]
         .clone();
     for prefix_len in [0, 1, 2] {
         let range = AccessPlan::<crate::value::Value>::index_range(

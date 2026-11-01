@@ -57,9 +57,11 @@ fn continuation_retention_is_independent_of_access_payload_size() {
 #[test]
 fn continuation_identity_binds_access_variants_without_owning_the_source_plan() {
     let schema = exact_metadata_schema(&[("by_age_rank", &["age", "rank", "id"])], &[]);
-    let index = VisibleIndexes::accepted_schema_visible(&schema)
-        .unwrap()
-        .accepted_semantic_index_contracts()[0]
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .unwrap()
+    .accepted_semantic_index_contracts()[0]
         .clone();
     let paths = vec![
         AccessPlan::by_key(Value::Nat64(3)),

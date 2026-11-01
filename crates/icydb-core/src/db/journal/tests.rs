@@ -586,6 +586,78 @@ fn accepted_schema_index_replacement_and_validation_job_are_distinct_legal_shape
 }
 
 #[test]
+fn accepted_schema_abort_round_trips_deletions_followed_by_one_job_removal() {
+    let deletion = JournalRecord::accepted_schema_index_delete(
+        "test::Store",
+        EntityTag::new(1),
+        [0x51; 16],
+        vec![accepted_schema_index_key(1, 1)],
+    )
+    .unwrap();
+    let job = validation_job();
+    let removal = JournalRecord::constraint_validation_job_delete(
+        "test::Store",
+        EntityTag::new(1),
+        job.constraint_id(),
+    )
+    .unwrap();
+    let records = vec![
+        accepted_schema_publish_record(),
+        deletion.clone(),
+        removal.clone(),
+    ];
+    let batch =
+        JournalBatch::new([0x36; 16], [0x46; 16], JournalSequence::new(1), records).unwrap();
+    assert_eq!(
+        decode_journal_batch(&encode_journal_batch(&batch).unwrap()).unwrap(),
+        batch
+    );
+    for suffix in [
+        vec![removal.clone(), deletion.clone()],
+        vec![deletion.clone(), removal.clone(), removal],
+        vec![
+            deletion.clone(),
+            JournalRecord::constraint_validation_job_delete(
+                "other::Store",
+                EntityTag::new(1),
+                job.constraint_id(),
+            )
+            .unwrap(),
+        ],
+        vec![
+            deletion,
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                EntityTag::new(2),
+                job.constraint_id(),
+            )
+            .unwrap(),
+        ],
+        vec![
+            JournalRecord::accepted_schema_index_put(
+                "test::Store",
+                EntityTag::new(1),
+                [0x51; 16],
+                vec![accepted_schema_index_key(1, 1)],
+            )
+            .unwrap(),
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                EntityTag::new(1),
+                job.constraint_id(),
+            )
+            .unwrap(),
+        ],
+    ] {
+        let mut records = vec![accepted_schema_publish_record()];
+        records.extend(suffix);
+        let error = JournalBatch::new([0x36; 16], [0x46; 16], JournalSequence::new(1), records)
+            .unwrap_err();
+        assert_eq!(error.class(), ErrorClass::Corruption);
+    }
+}
+
+#[test]
 fn accepted_schema_index_chunks_reject_unbound_oversized_and_noncanonical_sets() {
     let key = accepted_schema_index_key(1, 1);
     let unbound = JournalRecord::accepted_schema_index_put(

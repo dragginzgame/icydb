@@ -44,8 +44,10 @@ const fn score(evaluation: CandidateEvaluation) -> Result<(usize, bool, u8), Rea
 #[test]
 fn range_scores_keep_gaps_conflicts_and_full_input_rejection_precedence() {
     let schema = exact_metadata_schema(&[("a", &["age", "rank", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let index = &visible.accepted_semantic_index_contracts()[0];
     let eq = compare("age", CompareOp::Eq, 1);
     let lower = compare("rank", CompareOp::Gt, 2);
@@ -144,8 +146,10 @@ fn range_scores_keep_gaps_conflicts_and_full_input_rejection_precedence() {
 #[test]
 fn range_equality_matching_borrows_raw_values_and_admits_conversion_cumulatively() {
     let schema = prefix_test_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let text = "İΣ".repeat(128);
     let (lower_bytes, lower_steps) = lower_text_construction_allowance(text.len());
@@ -216,8 +220,10 @@ fn range_equality_matching_borrows_raw_values_and_admits_conversion_cumulatively
 #[test]
 fn range_expression_equality_uses_canonical_values_and_retains_prefix_bound_strength() {
     let schema = prefix_test_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     for expression in [false, true] {
         let index = indexes

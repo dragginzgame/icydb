@@ -476,9 +476,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "ic-build"
-version = "0.73.5"
+version = "0.73.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b824b726840636f4104b7b8baf0cb493fddee0799f9b42188b60f7231f008568"
+checksum = "e94ae68b8a7893e9e7cee0f0f5e583493b80ca64b2dc59efe18e2398dc3d2a32"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -495,9 +495,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.73.5"
+version = "0.73.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0103be287db558bf9944666984c054db38a36b5a15c73e1515ed8900cfedfd61"
+checksum = "499c5dcde4cc97e49f2f653e6234639752f9b179ae387c6872ee6e5cc194fdce"
 dependencies = [
  "flate2",
  "leb128",
@@ -507,9 +507,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.73.5"
+version = "0.73.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e87346704b19eaed83fff066b58af63e1ffd3060f48b24f5a0059e3f5e39fe4f"
+checksum = "ff18ef5150d939d6789e6b16cf174fc792e5267fbe39e94b1564f4a9e94c929d"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -519,9 +519,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.73.5"
+version = "0.73.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f9d16fcd1e488eabda8b99b4a8945688d36e857fd0bc753242856547902c0be"
+checksum = "c4e77b081784d8c08ec11b49ebd62489debbabe38c52d2e9bd0abcaa4230267f"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -532,18 +532,18 @@ dependencies = [
 
 [[package]]
 name = "ic-host-text"
-version = "0.73.5"
+version = "0.73.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33bf63c186e55f843efe54cf59927a5b9a4af6ce6dd93e5597fdd92ff4b583e8"
+checksum = "87f8b382aef318e3ceb9875b23cf354c717f33e30302f375f09aaec86d770b82"
 dependencies = [
  "unicode-width",
 ]
 
 [[package]]
 name = "ic-host-tools"
-version = "0.76.0"
+version = "0.76.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c699810feea14f71c6bf23f90c493c12a1eaa876a9e7ec13a5f7f3c81af707ee"
+checksum = "1c250ae27953c8a4de89cd0414877f6c82551f573aeaafcabaaf21b337d1a40d"
 dependencies = [
  "ic-host-artifacts",
  "serde",
@@ -553,9 +553,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.60.7"
+version = "0.61.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fee32a94460290641fd571b06d57a72594ce0735c806da083e7a75f749901440"
+checksum = "7611eb3bc89ac188aa323719dcb9c58c5bc32a9988cbef388db9c52f914a2705"
 dependencies = [
  "ic-platform",
  "ic-wire",
@@ -565,9 +565,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.24.4"
+version = "0.24.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a6018917ffc653f1ef13e4a09c1aaf10e273b00ec3fe341aef93442d2106f11"
+checksum = "440c378e52e275ae4ac3c9a5bcde619be9fa5b472cc59e9a3039b0c221a9004f"
 dependencies = [
  "ic-wire",
  "serde",
@@ -611,9 +611,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.60.7"
+version = "0.61.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d69195555b556ac895c92097871b07135d389b8886381f69d0751ee853582b4d"
+checksum = "f96a2f0e30af7657cd7bffd7838c4475a626005ef18a37ff6b7e67e90acb31ef"
 dependencies = [
  "ic-memory",
  "ic-platform",
@@ -622,9 +622,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.13.3"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "971d63627e019fc0ece8331a62e21e55046017e6456301e5bf62e0149d9ef398"
+checksum = "a84839b136cdb92833e274cbe4083b38f3f94e2e04ae1da091d1e2c9ba219a1c"
 dependencies = [
  "bytemuck",
  "ic-wire-derive",
@@ -636,9 +636,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.13.3"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d4cb97060eea7238e8d913f0ef5b4e8396077a2e9c12e66658e0e2a1a23ef42"
+checksum = "1d43292c7b14a8d66afce95e117451795fa83c950fb07adeb324f97d93f8c2e3"
 dependencies = [
  "proc-macro2",
  "quote",

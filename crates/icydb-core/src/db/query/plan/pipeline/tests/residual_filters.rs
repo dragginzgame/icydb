@@ -147,9 +147,12 @@ fn residual_filter_preservation_covering_terminal_and_explain_require_compatibil
     };
 
     let schema = exact_metadata_schema(&[("age_idx", &["age"])], &["maybe"]);
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(
-        &schema.field_path_indexes()[0],
-    )
+    let index = crate::db::query::preparation::with_preparation_work(|work| {
+        SemanticIndexAccessContract::from_accepted_field_path_index(
+            &schema.field_path_indexes()[0],
+            work,
+        )
+    })
     .unwrap();
     with_preparation_work(|work| {
         for has_expression in [false, true] {

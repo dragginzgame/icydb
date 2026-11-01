@@ -51,6 +51,8 @@ pub(in crate::db::executor) trait OrderedKeyStream {
 
     // Return a maintained upper bound on physical access entries one
     // `next_key` call may visit while page-aware leaf refills are active.
+    // This is a next-pull bound, not a stream-wide constant: buffered leaves
+    // report zero until another refill is required. Read it before every pull.
     // `None` keeps routes without a proof outside production page-unit
     // admission rather than guessing an unsafe bound.
     fn page_access_entry_bound(&self) -> Option<usize> {

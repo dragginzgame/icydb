@@ -278,7 +278,10 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
         let old = ObservedNameRow::new("Ada", false);
         let new = ObservedNameRow::new("Ada", false);
         for error in [
-            VisibleIndexes::accepted_schema_visible(&schema).unwrap_err(),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                VisibleIndexes::accepted_schema_visible(&schema, work)
+            })
+            .unwrap_err(),
             plan_name_update(&schema, &contract, &old, &new).unwrap_err(),
             AcceptedIndexInspectionPlan::compile(
                 &accepted,

@@ -37,14 +37,9 @@ impl quote::ToTokens for SchemaSurfaceTokens {
         let entity_sources = &self.entity_sources;
 
         tokens.extend(quote! {
-            #[allow(
-                clippy::missing_const_for_fn,
-                clippy::unnecessary_wraps,
-                reason = "empty generated schemas retain the same runtime lookup and fallible handler contract"
-            )]
             pub(crate) fn __icydb_endpoint_handler_schema(
             ) -> ::std::result::Result<::std::vec::Vec<#icydb::db::EntitySchemaDescription>, #icydb::Error> {
-                ::std::result::Result::Ok(::std::vec![
+                #icydb::__macro::into_deliverable_schema_reply(::std::vec![
                     #(db()?.try_describe_entity_by_source_key(#entity_sources)?),*
                 ])
             }
@@ -75,6 +70,7 @@ mod tests {
 
         assert!(surface.contains("fn__icydb_endpoint_handler_schema("));
         assert!(surface.contains("try_describe_entity_by_source_key(\"Character\")"));
+        assert!(surface.contains("__macro::into_deliverable_schema_reply("));
         assert!(!surface.contains("crate::Character"));
         assert!(!surface.contains("icydb_schema"));
         assert!(!surface.contains("ic_cdk::query"));
@@ -100,7 +96,7 @@ mod tests {
             .expect("generated schema surface should contain its private handler");
 
         assert!(matches!(handler.vis, syn::Visibility::Restricted(_)));
-        assert_eq!(handler.attrs.len(), 1);
+
         assert!(
             handler
                 .attrs

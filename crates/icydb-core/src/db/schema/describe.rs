@@ -3215,6 +3215,66 @@ mod tests {
     }
 
     #[test]
+    fn multiple_reachable_accepted_descriptions_exceed_schema_reply_admission() {
+        let base = reachable_compact_reply_schema();
+        let value_catalog = reachable_compact_reply_value_catalog();
+        let mut descriptions = Vec::new();
+        for ordinal in 1..=4 {
+            let name = format!("ReachableCompactReply{ordinal}");
+            let snapshot = PersistedSchemaSnapshot::new(
+                base.persisted_snapshot().version(),
+                format!("tests::{name}"),
+                name,
+                FieldId::new(1),
+                base.persisted_snapshot().row_layout().clone(),
+                base.persisted_snapshot().fields().to_vec(),
+            );
+            assert!(
+                encode_persisted_schema_snapshot(&snapshot).unwrap().len()
+                    <= MAX_SCHEMA_SNAPSHOT_BYTES as usize
+            );
+            let accepted = AcceptedSchemaSnapshot::try_new(snapshot).unwrap();
+            let fingerprint =
+                crate::db::schema::accepted_schema_cache_fingerprint(&accepted).unwrap();
+            descriptions.push(
+                super::describe_accepted_entity_with_persisted_schema(
+                    &accepted,
+                    &value_catalog,
+                    &[],
+                    super::AcceptedEntityDescriptionMetadata::new(
+                        None,
+                        ordinal,
+                        crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                        fingerprint,
+                    ),
+                    |_| Err(crate::error::InternalError::store_invariant()),
+                )
+                .unwrap(),
+            );
+        }
+        let response: Result<_, ()> = Ok(descriptions);
+        // Widen traversal allowances only for this byte-reachability proof.
+        // Product admission can refuse nodes/heap before discovering all bytes.
+        let sizing = ic_wire::Limits {
+            bytes: 64 * 1024 * 1024,
+            allocation: 1024 * 1024 * 1024,
+            nodes: 8 * icydb_schema::wire::MAX_NODES,
+            ..icydb_schema::wire::sizing_limits()
+        };
+        assert!(
+            ic_wire::native::encoded_frame_len(&response, sizing).unwrap() > IC_QUERY_REPLY_BYTES
+        );
+        assert_eq!(
+            ic_wire::native::encode_response(
+                1,
+                &response,
+                icydb_schema::wire::limits(IC_QUERY_REPLY_BYTES)
+            ),
+            Err(ic_wire::Error::Limit),
+        );
+    }
+
+    #[test]
     fn field_descriptions_preserve_root_and_nested_queryability() {
         let accepted = reachable_compact_reply_schema();
         let value_catalog = reachable_compact_reply_value_catalog();

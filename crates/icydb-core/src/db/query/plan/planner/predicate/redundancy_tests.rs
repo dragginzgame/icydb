@@ -90,8 +90,10 @@ fn redundancy_membership_preserves_duplicates_empty_sets_and_incompatible_litera
 #[test]
 fn redundancy_lookup_admits_conversion_and_list_backing_cumulatively() {
     let schema = text_schema();
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let source = "İΣ".repeat(128);
     let (lower_bytes, lower_steps) = lower_text_construction_allowance(source.len());
@@ -172,8 +174,10 @@ fn redundancy_lookup_admits_conversion_and_list_backing_cumulatively() {
 #[test]
 fn redundancy_dispatch_preserves_fixed_prefix_range_and_branch_proofs() {
     let schema = exact_metadata_schema(&[("a", &["age", "rank", "id"])], &[]);
-    let visible =
-        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let visible = crate::db::query::preparation::with_preparation_work(|work| {
+        VisibleIndexes::accepted_schema_visible(&schema, work)
+    })
+    .expect("valid accepted index fixture");
     let index = visible.accepted_semantic_index_contracts()[0].clone();
     let fixed = vec![Value::Int64(7)];
     let prefix = AccessPlan::index_prefix_from_contract(index.clone(), fixed.clone());

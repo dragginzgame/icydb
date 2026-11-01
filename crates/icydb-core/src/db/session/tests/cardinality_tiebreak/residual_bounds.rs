@@ -24,8 +24,10 @@ fn index(name: &str) -> SemanticIndexAccessContract {
         .iter()
         .find(|index| index.name() == name)
         .unwrap();
-    SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
-        .expect("valid accepted index fixture")
+    crate::db::query::preparation::with_preparation_work(|work| {
+        SemanticIndexAccessContract::from_accepted_field_path_index(accepted, work)
+    })
+    .expect("valid accepted index fixture")
 }
 
 fn compare(field: &str, op: CompareOp, value: Value) -> Predicate {

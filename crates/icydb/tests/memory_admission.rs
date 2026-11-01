@@ -46,7 +46,11 @@ impl RuntimeBootstrapPolicy for HostPolicy {
 }
 
 fn runtime(backing: &VectorMemory) -> MemoryRuntime<VectorMemory> {
-    MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(1).unwrap()).unwrap()
+    MemoryRuntime::new_with_config(
+        backing.clone(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+    )
+    .unwrap()
 }
 
 fn request(authority: &str, key: &str) -> MemoryRequest {
@@ -129,9 +133,11 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
 
     let backing = LimitedMemory::default();
     backing.limit.set(1);
-    let mut runtime =
-        MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(1).unwrap())
-            .unwrap();
+    let mut runtime = MemoryRuntime::new_with_config(
+        backing.clone(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+    )
+    .unwrap();
     let declarations = snapshot(&requests("main", &["transfers"]));
     let policy = HostPolicy::default();
     let before = backing.bytes.borrow().clone();
@@ -150,7 +156,9 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     );
     assert!(!runtime.is_bootstrapped());
     assert!(matches!(
-        runtime.open_memory("icydb.main.store.transfers.data.v1"),
+        runtime.open_memory(
+            &ic_memory::StableKey::parse("icydb.main.store.transfers.data.v1").unwrap()
+        ),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     assert_eq!(*backing.bytes.borrow(), before);
@@ -159,7 +167,7 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     let committed = runtime.bootstrap(&declarations, &pool(), &policy).unwrap();
     assert_eq!(committed, 1);
     let memory = runtime
-        .open_memory("icydb.main.store.transfers.data.v1")
+        .open_memory(&ic_memory::StableKey::parse("icydb.main.store.transfers.data.v1").unwrap())
         .unwrap();
     let before = backing.bytes.borrow().clone();
     let summary = runtime.memory_allocation_summary().unwrap();
@@ -176,7 +184,7 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     backing.limit.set(32);
     drop(memory);
     let memory = runtime
-        .open_memory("icydb.main.store.transfers.data.v1")
+        .open_memory(&ic_memory::StableKey::parse("icydb.main.store.transfers.data.v1").unwrap())
         .unwrap();
     assert_eq!(memory.grow(1), Ok(0));
     assert_eq!(memory.size(), 1);
@@ -252,7 +260,7 @@ fn fresh_warm_reordered_and_extended_declarations_preserve_existing_assignments(
         .unwrap();
     for allocation in &previous {
         assert_eq!(
-            second.memory_id(allocation.stable_key().as_str()).unwrap(),
+            second.memory_id(allocation.stable_key()).unwrap(),
             allocation.slot().id()
         );
     }
@@ -268,35 +276,49 @@ fn store_replacement_selects_only_old_journal_and_preserves_its_debt_bytes() {
     first
         .bootstrap(&snapshot(&requests("main", &["old"])), &pool(), &policy)
         .unwrap();
-    let journal = first.open_memory(JOURNAL).unwrap();
+    let journal = first
+        .open_memory(&ic_memory::StableKey::parse(JOURNAL).unwrap())
+        .unwrap();
     assert_eq!(journal.grow(1), Ok(0));
     journal.write(0, b"debt");
-    let old_slot = first.memory_id(JOURNAL).unwrap();
+    let old_slot = first
+        .memory_id(&ic_memory::StableKey::parse(JOURNAL).unwrap())
+        .unwrap();
     drop(journal);
     drop(first);
 
     let mut second = runtime(&backing);
     assert!(matches!(
-        second.open_memory(JOURNAL),
+        second.open_memory(&ic_memory::StableKey::parse(JOURNAL).unwrap()),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     let current = snapshot(&requests("main", &["new"]));
     let committed = second.bootstrap(&current, &pool(), &policy).unwrap();
     assert_eq!(committed, 2);
-    assert_eq!(second.memory_id(JOURNAL).unwrap(), old_slot);
+    assert_eq!(
+        second
+            .memory_id(&ic_memory::StableKey::parse(JOURNAL).unwrap())
+            .unwrap(),
+        old_slot
+    );
     let mut debt = [0; 4];
-    second.open_memory(JOURNAL).unwrap().read(0, &mut debt);
+    second
+        .open_memory(&ic_memory::StableKey::parse(JOURNAL).unwrap())
+        .unwrap()
+        .read(0, &mut debt);
     assert_eq!(&debt, b"debt");
     assert_eq!(
         second
-            .open_memory("icydb.main.store.new.data.v1")
+            .open_memory(&ic_memory::StableKey::parse("icydb.main.store.new.data.v1").unwrap())
             .unwrap()
             .size(),
         0
     );
     for role in ["data", "index", "schema"] {
         assert!(matches!(
-            second.open_memory(&format!("icydb.main.store.old.{role}.v1")),
+            second.open_memory(
+                &ic_memory::StableKey::parse(format!("icydb.main.store.old.{role}.v1")).unwrap()
+            ),
             Err(RuntimeOpenError::StableKeyNotCommitted { .. })
         ));
     }
@@ -332,12 +354,15 @@ fn selection_covers_all_namespaces_without_opening_other_consumers_history() {
     for namespace in ["main", "main_extra"] {
         assert!(
             recovered
-                .open_memory(&format!("icydb.{namespace}.store.old.journal.v1"))
+                .open_memory(
+                    &ic_memory::StableKey::parse(format!("icydb.{namespace}.store.old.journal.v1"))
+                        .unwrap()
+                )
                 .is_ok()
         );
     }
     assert!(matches!(
-        recovered.open_memory(FOREIGN),
+        recovered.open_memory(&ic_memory::StableKey::parse(FOREIGN).unwrap()),
         Err(RuntimeOpenError::StableKeyNotCommitted { .. })
     ));
 }
@@ -467,7 +492,9 @@ fn revoked_historical_journal_grant_is_not_bypassed() {
     first
         .bootstrap(&snapshot(&requests("main", &["old"])), &pool(), &policy)
         .unwrap();
-    let id = first.memory_id("icydb.main.store.old.journal.v1").unwrap();
+    let id = first
+        .memory_id(&ic_memory::StableKey::parse("icydb.main.store.old.journal.v1").unwrap())
+        .unwrap();
     drop(first);
     let before = backing.borrow().clone();
     let revoked =
@@ -533,9 +560,7 @@ fn exhausted_host_pool_preserves_ledger_and_expansion_preserves_existing_slots()
     recovered.bootstrap(&current, &pool(), &policy).unwrap();
     for allocation in previous {
         assert_eq!(
-            recovered
-                .memory_id(allocation.stable_key().as_str())
-                .unwrap(),
+            recovered.memory_id(allocation.stable_key()).unwrap(),
             allocation.slot().id()
         );
     }
@@ -563,7 +588,7 @@ fn host_committed_without_historical_journal_cannot_be_repaired_by_warm_admissio
     assert_eq!(policy.calls.get(), calls);
     assert_eq!(host.committed_generation().unwrap(), generation);
     assert!(matches!(
-        host.open_memory(JOURNAL),
+        host.open_memory(&ic_memory::StableKey::parse(JOURNAL).unwrap()),
         Err(RuntimeOpenError::StableKeyNotCommitted(_))
     ));
     assert_eq!(*backing.borrow(), before);
@@ -581,7 +606,10 @@ fn persisted_bucket_profile_mismatch_rejects_without_resizing() {
         .unwrap();
     let before = backing.borrow().clone();
     assert!(matches!(
-        MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(4).unwrap()),
+        MemoryRuntime::new_with_config(
+            backing.clone(),
+            MemoryManagerConfig::new(std::num::NonZeroU16::new(4).unwrap())
+        ),
         Err(RuntimeConstructionError::BucketSizeMismatch {
             persisted: 1,
             requested: 4
@@ -603,9 +631,13 @@ fn cold_reopen_with_a_wider_host_pool_preserves_keys_ids_and_payloads() {
         .bootstrap(&declarations, &original_pool, &policy)
         .unwrap();
     let committed = original.committed_allocations().unwrap().to_vec();
-    let original_id = original.memory_id(KEY).unwrap();
+    let original_id = original
+        .memory_id(&ic_memory::StableKey::parse(KEY).unwrap())
+        .unwrap();
     assert!(original_id >= 100);
-    let memory = original.open_memory(KEY).unwrap();
+    let memory = original
+        .open_memory(&ic_memory::StableKey::parse(KEY).unwrap())
+        .unwrap();
     memory.grow(1).unwrap();
     memory.write(0, b"retained-journal");
     drop(memory);
@@ -614,15 +646,21 @@ fn cold_reopen_with_a_wider_host_pool_preserves_keys_ids_and_payloads() {
     reopened.bootstrap(&declarations, &pool(), &policy).unwrap();
     for allocation in &committed {
         assert_eq!(
-            reopened
-                .memory_id(allocation.stable_key().as_str())
-                .unwrap(),
+            reopened.memory_id(allocation.stable_key()).unwrap(),
             allocation.slot().id()
         );
     }
-    assert_eq!(reopened.memory_id(KEY).unwrap(), original_id);
+    assert_eq!(
+        reopened
+            .memory_id(&ic_memory::StableKey::parse(KEY).unwrap())
+            .unwrap(),
+        original_id
+    );
     let mut bytes = [0; 16];
-    reopened.open_memory(KEY).unwrap().read(0, &mut bytes);
+    reopened
+        .open_memory(&ic_memory::StableKey::parse(KEY).unwrap())
+        .unwrap()
+        .read(0, &mut bytes);
     assert_eq!(&bytes, b"retained-journal");
 }
 
@@ -630,7 +668,7 @@ fn cold_reopen_with_a_wider_host_pool_preserves_keys_ids_and_payloads() {
 fn wrapped_backing_custody_survives_detached_handles_and_reopens_after_drop() {
     let backing = LimitedMemory::default();
     backing.limit.set(u64::MAX);
-    let config = MemoryManagerConfig::new(1).unwrap();
+    let config = MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap());
     let mut host = MemoryRuntime::new_with_config(backing.clone(), config).unwrap();
     host.bootstrap(
         &snapshot(&requests("main", &[])),
@@ -638,7 +676,9 @@ fn wrapped_backing_custody_survives_detached_handles_and_reopens_after_drop() {
         &HostPolicy::default(),
     )
     .unwrap();
-    let handle = host.open_memory("icydb.main.commit.control.v1").unwrap();
+    let handle = host
+        .open_memory(&ic_memory::StableKey::parse("icydb.main.commit.control.v1").unwrap())
+        .unwrap();
     handle.grow(1).unwrap();
     handle.write(0, b"retained");
     let before = backing.bytes.borrow().clone();
@@ -663,7 +703,7 @@ fn wrapped_backing_custody_survives_detached_handles_and_reopens_after_drop() {
         .unwrap();
     let mut payload = [0; 8];
     reopened
-        .open_memory("icydb.main.commit.control.v1")
+        .open_memory(&ic_memory::StableKey::parse("icydb.main.commit.control.v1").unwrap())
         .unwrap()
         .read(0, &mut payload);
     assert_eq!(&payload, b"retained");

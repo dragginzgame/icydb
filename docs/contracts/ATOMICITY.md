@@ -292,7 +292,12 @@ candidate derived state is complete. Writes to other entities in the same
 store do not invalidate this proof. A later mutation of the activation's entity
 restarts Forward; missing revision authority fails closed. Promotion
 installs the validated catalog state and removes the activation/job atomically.
-Abort removes the activation, job, and reachability of candidate generations.
+SQL unique-index abort stages bounded deletion of the exact owned candidate
+generation and publishes those deletions with activation/job removal under one
+marker. Construction or journal refusal occurs before publication and leaves
+the entire activation intact; interrupted publication replays and folds through
+the existing schema-index deletion records. Other activation aborts remove
+their activation/job and candidate reachability as appropriate to their kind.
 For a new constraint, its reserved identity remains retired and is not reused.
 For a same-identity targeted-rule semantic edit, abort retains the prior
 accepted operation and its existing source binding; promotion replaces that

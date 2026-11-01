@@ -121,8 +121,17 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         let schema_info = catalog.accepted_schema_info();
         let authority = catalog.accepted_entity_authority();
-        let visible_indexes =
-            self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
+        let visible_indexes = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::PublicRead,
+            |work| {
+                self.visible_indexes_for_store_accepted_schema(
+                    authority.store_path(),
+                    schema_info,
+                    work,
+                )
+            },
+        )?;
         let prefix_keys = self
             .exact_count_cardinality_prefix_keys_for_accepted_authority(
                 &authority,

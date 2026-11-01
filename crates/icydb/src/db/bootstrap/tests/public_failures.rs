@@ -39,9 +39,11 @@ fn reject_fresh(
     pool: &MemoryAllocationPool,
 ) -> DatabaseBootstrapError {
     let backing = VectorMemory::default();
-    let mut runtime =
-        MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(1).unwrap())
-            .unwrap();
+    let mut runtime = MemoryRuntime::new_with_config(
+        backing.clone(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+    )
+    .unwrap();
     let error = runtime
         .bootstrap(snapshot, pool, &DatabaseMemoryPolicy)
         .unwrap_err();
@@ -50,7 +52,9 @@ fn reject_fresh(
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     assert!(matches!(
-        runtime.open_memory(&format!("{AUTHORITY}.commit.control.v1")),
+        runtime.open_memory(
+            &ic_memory::StableKey::parse(format!("{AUTHORITY}.commit.control.v1")).unwrap()
+        ),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     assert!(backing.size() > 0);
@@ -60,9 +64,11 @@ fn reject_fresh(
 fn reject_recovered(roles: &[&str], owner: &str) -> DatabaseBootstrapError {
     let backing = VectorMemory::default();
     let all: Vec<_> = CONTROLS.iter().chain(STORE).copied().collect();
-    let mut original =
-        MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(1).unwrap())
-            .unwrap();
+    let mut original = MemoryRuntime::new_with_config(
+        backing.clone(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+    )
+    .unwrap();
     original
         .bootstrap(
             &snapshot(AUTHORITY, &all),
@@ -72,9 +78,11 @@ fn reject_recovered(roles: &[&str], owner: &str) -> DatabaseBootstrapError {
         .unwrap();
     let before = backing.borrow().clone();
     drop(original);
-    let mut runtime =
-        MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(1).unwrap())
-            .unwrap();
+    let mut runtime = MemoryRuntime::new_with_config(
+        backing.clone(),
+        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+    )
+    .unwrap();
     let error = runtime
         .bootstrap(
             &snapshot(AUTHORITY, roles),

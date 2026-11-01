@@ -546,7 +546,9 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
             .unwrap();
         let runtime = std::rc::Rc::new(runtime);
         crate::db::bind_memory_runtime(std::rc::Rc::clone(&runtime)).unwrap();
-        let id = runtime.memory_id(KEY).unwrap();
+        let id = runtime
+            .memory_id(&ic_memory::StableKey::parse(KEY).unwrap())
+            .unwrap();
         let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
         memory.grow(1).unwrap();
         memory.write(0, b"retained");

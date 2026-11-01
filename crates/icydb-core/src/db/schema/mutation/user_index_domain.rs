@@ -1,7 +1,7 @@
 //! Module: db::schema::mutation::user_index_domain
 //! Responsibility: bounded, zero-write user-index-domain replacement staging.
 //! Does not own: accepted-schema marker persistence or physical index apply.
-//! Boundary: complete before/after proofs -> exact changed raw index entries.
+//! Boundary: accepted-domain or isolated-generation proofs -> exact raw index effects.
 
 #[cfg(any(test, feature = "sql"))]
 use crate::db::resource::construction::ConstructionBudget;
@@ -13,6 +13,15 @@ use crate::db::{
         AcceptedCatalogIdentity, MAX_SCHEMA_PROJECTION_ENTRIES, PersistedSchemaSnapshot,
         SchemaTransitionSourceBudget, SchemaVersion,
         accepted_schema_cache_fingerprint_for_persisted_snapshot,
+    },
+};
+#[cfg(feature = "sql")]
+use crate::{
+    MAX_INDEX_FIELDS,
+    db::{
+        index::{IndexKeyKind, raw_keys_for_component_prefix_with_kind},
+        resource::budget::MaintenanceConstructionBudget,
+        schema::{AcceptedSchemaSnapshot, ConstraintId},
     },
 };
 use crate::{
@@ -167,11 +176,12 @@ impl StagedUserIndexDomainUsage {
 ///
 /// StagedUserIndexDomainReplacement
 ///
-/// Bounded raw effects from a complete proof of one entity's user-index domain.
+/// Bounded raw effects from a complete accepted domain or isolated candidate generation.
 ///
-/// Complete row-derived before/after projections and physical-before equality
-/// are proved before reducing effects. Deletions and insertions contain only
-/// removed, added or changed entries; identical entries remain in place.
+/// Accepted replacements prove complete row-derived before/after projections
+/// and physical-before equality before reducing effects. Unique aborts instead
+/// prove exact candidate ownership and collect that entire isolated generation.
+/// Deletions and insertions contain only removed, added or changed entries.
 /// Constructing this value performs no `IndexStore` mutation.
 /// Schema mutation owns this transient contract; commit publication consumes it.
 ///
@@ -191,6 +201,111 @@ pub(in crate::db) struct StagedUserIndexDomainReplacement {
 
 #[cfg(any(test, feature = "sql"))]
 impl StagedUserIndexDomainReplacement {
+    /// Stage an exact, bounded candidate-generation removal without changing stores.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::schema) fn stage_unique_activation_abort(
+        accepted_before_identity: AcceptedCatalogIdentity,
+        accepted_before: &AcceptedSchemaSnapshot,
+        accepted_after: &PersistedSchemaSnapshot,
+        constraint_id: ConstraintId,
+        index_store: &IndexStore,
+        construction: &MaintenanceConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        construction.run(
+            |work| {
+                let before = accepted_before.persisted_snapshot();
+                validate_stage_authority(
+                    &accepted_before_identity,
+                    before,
+                    accepted_after,
+                    None,
+                    None,
+                    index_store,
+                )
+                .map_err(StagedUserIndexDomainError::into_internal_error)?;
+                let index = accepted_before.unique_candidate_for_activation(constraint_id)?;
+                if index.store() != accepted_before_identity.store_path()
+                    || index.physical_generation() == 0
+                    || before
+                        .with_aborted_unique_activation(constraint_id, accepted_after.version())
+                        .map_err(|_| InternalError::store_corruption())?
+                        != *accepted_after
+                {
+                    return Err(InternalError::store_invariant());
+                }
+                let entity_tag = accepted_before_identity.entity_tag();
+                let id = IndexId::new_with_generation(
+                    entity_tag,
+                    index.ordinal(),
+                    index.physical_generation(),
+                );
+                // Identity precedes component count. These bounds include every
+                // arity in this generation without touching any neighbouring owner.
+                let (lower, _) = raw_keys_for_component_prefix_with_kind::<&[u8]>(
+                    &id,
+                    IndexKeyKind::User,
+                    0,
+                    &[],
+                )
+                .map_err(|_| InternalError::store_invariant())?;
+                let (_, upper) = raw_keys_for_component_prefix_with_kind::<&[u8]>(
+                    &id,
+                    IndexKeyKind::User,
+                    MAX_INDEX_FIELDS,
+                    &[],
+                )
+                .map_err(|_| InternalError::store_invariant())?;
+                let mut budget = StagedUserIndexDomainBudget::standard();
+                let mut deletion_keys = Vec::new();
+                let construction: &dyn ConstructionBudget = work;
+                index_store.visit_raw_entries_in_range(
+                    (
+                        Bound::Included(lower).as_ref(),
+                        Bound::Included(upper).as_ref(),
+                    ),
+                    Direction::Asc,
+                    |raw, _| {
+                        work.charge(Resource::PredicateExpressionSteps, 1)?;
+                        budget
+                            .consume_projection_work()
+                            .map_err(StagedUserIndexDomainError::into_internal_error)?;
+                        let frame = decode_index_key_frame(raw)
+                            .map_err(|_| InternalError::store_corruption())?;
+                        if frame.key_kind() != IndexKeyKind::User
+                            || frame.index_id() != id
+                            || frame.components().len() != index.key().component_count()
+                        {
+                            return Err(InternalError::store_corruption());
+                        }
+                        budget
+                            .consume_deletion_key(raw.as_bytes().len())
+                            .map_err(StagedUserIndexDomainError::into_internal_error)?;
+                        construction.reserve_vec(&mut deletion_keys, 1)?;
+                        work.charge(Resource::TemporaryBytes, raw.as_bytes().len() as u64)?;
+                        deletion_keys.push(raw.clone());
+                        Ok(false)
+                    },
+                )?;
+                budget
+                    .finish_sort_workspace(0, 0, deletion_keys.len())
+                    .map_err(StagedUserIndexDomainError::into_internal_error)?;
+                budget.record_projection_counts(deletion_keys.len(), 0);
+                Ok(Self {
+                    store_path: accepted_before_identity.store_path(),
+                    entity_tag,
+                    accepted_before_identity,
+                    accepted_after_version: accepted_after.version(),
+                    accepted_after_fingerprint:
+                        accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_after)?,
+                    deletion_keys,
+                    insertion_entries: Vec::new(),
+                    usage: budget.usage(),
+                })
+            },
+            std::convert::identity,
+        )
+    }
+
     /// Borrow the backing store path captured from accepted-before authority.
     #[must_use]
     pub(in crate::db) const fn store_path(&self) -> &'static str {
