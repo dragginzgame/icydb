@@ -215,7 +215,7 @@ pub(in crate::db) fn run_next_integrity_retention_page<C: CanisterKind>() {
         .is_err()
     {
         #[cfg(target_arch = "wasm32")]
-        ic_platform::ic0::debug_print(
+        ic_platform_runtime::ic0::debug_print(
             b"IcyDB integrity retention failed; request result preserved",
         );
         #[cfg(not(target_arch = "wasm32"))]
@@ -1028,7 +1028,7 @@ fn terminal_retention_deadline(now: u64) -> Result<u64, IntegrityJobError> {
     reason = "the shared caller preserves the fallible native clock contract"
 )]
 fn now_nanos() -> Result<u64, IntegrityJobError> {
-    Ok(ic_platform::ic0::time())
+    Ok(ic_platform_runtime::ic0::time())
 }
 
 #[cfg(not(target_arch = "wasm32"))]

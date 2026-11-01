@@ -5,6 +5,38 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.294.0]
+
+### ⚠️ Breaking
+
+- Adopt published IC Platform 0.17.0 and canonical Types 0.16.0. Public
+  Principal/Account conversions require matching Rust types; wire and retained
+  database bytes remain unchanged. Identity-only and IC0 consumers use Types and
+  Runtime 0.17.1 directly. Core keeps Platform for BLAKE3; no executor or Candid is selected.
+
+### ⬆️ Dependencies
+
+- Adopt published IC Host Tools 0.77.0 for native response decoding and Wasm
+  interface inspection, preserving the selected APIs and feature boundaries.
+- Align published IC Wire 0.14.0 and Metrics 0.25.0 for native report schemas,
+  preserving application bytes, decoder limits and browser contracts.
+- Adopt Memory/Storage 0.62.0, unifying codec errors on Wire 0.14 while
+  preserving retained bytes, allocation admission and recovery without a reset.
+
+### 🩹 Fixed
+
+- Give later journaled stores a bounded cardinality-maintenance turn even when
+  the first store repeatedly restarts its build
+  ([#81 — Cardinality rebuild starvation](https://github.com/dragginzgame/icydb/issues/81), partial).
+
+### 📚 Documentation
+
+- Document generated public type names and their ordinary Rust module ownership;
+  retain the conventional API after the delivered macro hygiene fixes
+  ([#180 — Generated name collisions](https://github.com/dragginzgame/icydb/issues/180), remaining customization proposal not planned).
+
+[Detailed changes](docs/changelog/0.294.md).
+
 ## [0.293.0] - 2026-11-01
 
 ### ⚠️ Breaking

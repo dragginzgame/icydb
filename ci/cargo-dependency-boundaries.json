@@ -16,6 +16,30 @@
     "allowed_packages": []
   },
   {
+    "dependency": "ic-platform",
+    "allowed_packages": [
+      "icydb-core",
+      "icydb-testing-sql-generator",
+      "icydb-testing-sqlite-reference"
+    ]
+  },
+  {
+    "dependency": "ic-platform-runtime",
+    "allowed_packages": [
+      "icydb",
+      "icydb-core",
+      "icydb-testing-codec-query"
+    ]
+  },
+  {
+    "dependency": "ic-platform-types",
+    "allowed_packages": [
+      "icydb",
+      "icydb-core",
+      "icydb-schema"
+    ]
+  },
+  {
     "dependency": "canic",
     "allowed_packages": []
   },

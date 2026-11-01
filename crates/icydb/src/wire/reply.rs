@@ -26,7 +26,7 @@ pub(crate) fn into_deliverable_query_reply<T: Serialize>(
     exceeded: RuntimeBoundaryCode,
 ) -> Result<T, Error> {
     #[cfg(target_arch = "wasm32")]
-    let maximum = if ic_platform::ic0::in_replicated_execution() != 0 {
+    let maximum = if ic_platform_runtime::ic0::in_replicated_execution() != 0 {
         MAX_REPLICATED_QUERY_REPLY_BYTES
     } else {
         MAX_PUBLIC_QUERY_REPLY_BYTES

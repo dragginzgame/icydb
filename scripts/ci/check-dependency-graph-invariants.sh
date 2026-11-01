@@ -57,7 +57,7 @@ fi
 
 awk -v required_time="$workspace_time_version" '
 BEGIN {
-  split("candid digest ic-cdk ic-cdk-executor ic-cdk-macros ic-memory ic-stable-structures ic0 ic_principal icrc-ledger-types sha2", sensitive)
+  split("candid digest ic-cdk ic-cdk-executor ic-cdk-macros ic-memory ic-platform-runtime ic-platform-types ic-stable-structures ic0 ic_principal icrc-ledger-types sha2", sensitive)
   for (idx in sensitive) {
     sensitive_set[sensitive[idx]] = 1
   }

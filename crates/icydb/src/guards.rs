@@ -4,7 +4,7 @@
 //! application concerns. This module owns only synchronous caller/surface decisions
 //! before IcyDB request construction.
 
-use ic_platform::Principal;
+use ic_platform_types::Principal;
 
 use crate::{Error, ErrorOrigin, diagnostic::RuntimeBoundaryCode};
 
@@ -157,7 +157,7 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
-    use ic_platform::principal::ExternalPrincipal;
+    use ic_platform_types::principal::ExternalPrincipal;
 
     thread_local! {
         static GUARD_CALLS: Cell<u8> = const { Cell::new(0) };

@@ -10,7 +10,7 @@ use std::time::SystemTime;
 #[must_use]
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn local_instruction_counter() -> u64 {
-    ic_platform::ic0::performance_counter(1)
+    ic_platform_runtime::ic0::performance_counter(1)
 }
 
 /// Return zero when local instruction accounting runs outside the IC.
@@ -36,7 +36,7 @@ pub(crate) fn local_instruction_counter() -> u64 {
 #[must_use]
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn message_instruction_counter() -> u64 {
-    ic_platform::ic0::performance_counter(0)
+    ic_platform_runtime::ic0::performance_counter(0)
 }
 
 /// Native production cannot observe IC message instruction consumption.
@@ -84,7 +84,7 @@ pub(crate) fn with_instruction_counter_for_tests<R>(
 pub(crate) fn now_millis() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        ic_platform::ic0::time() / 1_000_000
+        ic_platform_runtime::ic0::time() / 1_000_000
     }
 
     #[cfg(not(target_arch = "wasm32"))]

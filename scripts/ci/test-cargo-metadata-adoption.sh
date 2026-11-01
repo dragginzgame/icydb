@@ -82,7 +82,7 @@ CARGO_HOME="$ROOT/.cache/cargo/icydb" \
   bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
   > "$fixture/boundaries.log" 2>&1
 cp Cargo.toml "$fixture/catalog.toml"
-for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3; do
+for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3 ic-platform ic-platform-runtime ic-platform-types; do
   cp "$fixture/catalog.toml" Cargo.toml
   case "$dependency" in
     canic-icydb) requirement=0.113.0 ;;
@@ -92,10 +92,14 @@ for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-represent
     pocket-ic) requirement=16.1.0 ;;
     ic-representation-independent-hash) requirement=3.1.0 ;;
     ic-cdk-management-canister) requirement=0.1.1 ;;
+    ic-platform) requirement=0.17.0 ;;
+    ic-platform-runtime) requirement=0.17.1 ;;
+    ic-platform-types) requirement=0.16.0 ;;
   esac
   printf '\n[workspace.dependencies.boundary_alias]\npackage = "%s"\nversion = "%s"\n' \
     "$dependency" "$requirement" >> Cargo.toml
-  for section in dependencies 'target."cfg(target_os = \"none\")".build-dependencies' \
+  for section in dependencies build-dependencies dev-dependencies \
+      'target."cfg(target_os = \"none\")".build-dependencies' \
       'target."cfg(target_os = \"none\")".dev-dependencies'; do
     cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
     printf '\n[%s.boundary_alias]\nworkspace = true\n' "$section" \

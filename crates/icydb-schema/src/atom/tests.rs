@@ -134,9 +134,9 @@ fn blob_proposal_literals_retain_their_dedicated_bound() {
 #[test]
 fn principal_platform_identity_preserves_native_wire_bytes() {
     for bytes in [vec![], vec![4], vec![2, 7], vec![0xAB; 29]] {
-        let platform = ic_platform::Principal::from_slice(&bytes);
+        let platform = ic_platform_types::Principal::from_slice(&bytes);
         let value = Principal::from(platform);
-        let recovered: ic_platform::Principal = value.into();
+        let recovered: ic_platform_types::Principal = value.into();
         assert_eq!(recovered, platform);
         assert_eq!(value.as_slice(), bytes);
         assert_eq!(Principal::from_text(&platform.to_text()), Ok(value));
@@ -154,7 +154,7 @@ fn principal_platform_identity_preserves_native_wire_bytes() {
 
 #[test]
 fn principal_platform_adoption_retains_text_and_byte_rejection() {
-    let platform = ic_platform::Principal::from_slice(&[0xAB; 29]);
+    let platform = ic_platform_types::Principal::from_slice(&[0xAB; 29]);
     let text = platform.to_text();
     assert_eq!(
         Principal::from_text(&text.to_uppercase()),

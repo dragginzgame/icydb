@@ -17,7 +17,8 @@ migration = ["icydb-core/migration"]
 
 [dependencies]
 ic-memory = { workspace = true }
-ic-platform = { workspace = true, features = ["ic0", "principal"] }
+ic-platform-runtime = { workspace = true, features = ["ic0"] }
+ic-platform-types = { workspace = true }
 ic-wire = { workspace = true }
 icydb-core = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
@@ -31,7 +32,7 @@ ic-wire = { workspace = true, features = ["typescript"] }
 
 [dev-dependencies]
 ic-memory = { workspace = true, features = ["test-support"] }
-ic-platform = { workspace = true, features = ["principal-self-authenticating"] }
+ic-platform-types = { workspace = true, features = ["principal-external", "principal-self-authenticating"] }
 trybuild = { workspace = true }
 
 [[test]]

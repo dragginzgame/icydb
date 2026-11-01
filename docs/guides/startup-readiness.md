@@ -221,6 +221,15 @@ projections independently, so a runtime-cache hit alone cannot finish preparatio
 Deterministic preparation failures use the existing schema-failure receipt;
 retryable errors retain their existing classification.
 
+Optional cardinality construction gives at most one store a bounded page per
+callback, rotating journaled stores so repeated source changes at one store do
+not starve the others. This disposable scheduling position is scoped to the
+actual registry instance and is discarded when all stores are quiescent.
+Source validation and restart rules remain unchanged: a busy individual store
+can still restart after folds, as tracked in
+[#81](https://github.com/dragginzgame/icydb/issues/81). This adds no timer policy
+or durable scheduling state and does not change the `Ready` condition.
+
 Accepted schema publication re-arms this watchdog for both heap and journaled
 stores. Heap-only DDL therefore schedules replicated runtime preparation even
 without journal debt. A completed heap metadata migration schedules generated

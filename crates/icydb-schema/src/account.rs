@@ -15,7 +15,7 @@ use crate::{Principal, PrincipalError, SchemaContractError, Subaccount};
 /// IcyDB account atom with representation-preserving identity.
 ///
 /// An absent subaccount and an explicit zero subaccount remain distinct database
-/// identities. Explicit conversions to and from [`ic_platform::Account`] preserve
+/// identities. Explicit conversions to and from [`ic_platform_types::Account`] preserve
 /// those fields; Platform compares both representations as the same ICRC account.
 /// Each type retains its own binary serialization contract. Platform owns the
 /// shared ICRC account text format; database equality remains local.
@@ -71,13 +71,13 @@ impl Account {
 
 impl Display for Account {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&ic_platform::Account::from(*self), formatter)
+        Display::fmt(&ic_platform_types::Account::from(*self), formatter)
     }
 }
 
 // Preserve the optional field itself, not Platform's effective subaccount.
-impl From<ic_platform::Account> for Account {
-    fn from(value: ic_platform::Account) -> Self {
+impl From<ic_platform_types::Account> for Account {
+    fn from(value: ic_platform_types::Account) -> Self {
         Self::from_owner_and_subaccount(
             value.owner.into(),
             value.subaccount.map(Subaccount::from_array),
@@ -85,7 +85,7 @@ impl From<ic_platform::Account> for Account {
     }
 }
 
-impl From<Account> for ic_platform::Account {
+impl From<Account> for ic_platform_types::Account {
     fn from(value: Account) -> Self {
         Self {
             owner: value.owner.into(),
@@ -107,7 +107,7 @@ impl FromStr for Account {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        if input.len() > ic_platform::Account::MAX_LENGTH_IN_TEXT || !input.is_ascii() {
+        if input.len() > ic_platform_types::Account::MAX_LENGTH_IN_TEXT || !input.is_ascii() {
             return Err("invalid account text width or alphabet".into());
         }
         // Keep IcyDB's refusal precedence: after a checksum-shaped prefix,
@@ -122,22 +122,26 @@ impl FromStr for Account {
             return Err("invalid account subaccount width or leading zero".into());
         }
         input
-            .parse::<ic_platform::Account>()
+            .parse::<ic_platform_types::Account>()
             .map(Self::from)
             .map_err(|error| match error {
-                ic_platform::AccountError::TextTooLong => {
+                ic_platform_types::AccountError::TextTooLong => {
                     "invalid account text width or alphabet".into()
                 }
-                ic_platform::AccountError::InvalidPrincipal(_) => {
+                ic_platform_types::AccountError::InvalidPrincipal(_) => {
                     PrincipalError::InvalidText.to_string()
                 }
-                ic_platform::AccountError::MissingChecksum => "missing account checksum".into(),
-                ic_platform::AccountError::InvalidChecksum => "invalid account checksum".into(),
-                ic_platform::AccountError::InvalidSubaccount => {
+                ic_platform_types::AccountError::MissingChecksum => {
+                    "missing account checksum".into()
+                }
+                ic_platform_types::AccountError::InvalidChecksum => {
+                    "invalid account checksum".into()
+                }
+                ic_platform_types::AccountError::InvalidSubaccount => {
                     SchemaContractError::InvalidLiteral.to_string()
                 }
-                ic_platform::AccountError::LeadingZeroesInSubaccount
-                | ic_platform::AccountError::DefaultSubaccountShouldBeOmitted => {
+                ic_platform_types::AccountError::LeadingZeroesInSubaccount
+                | ic_platform_types::AccountError::DefaultSubaccountShouldBeOmitted => {
                     "invalid account subaccount width or leading zero".into()
                 }
             })

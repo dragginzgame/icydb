@@ -134,14 +134,14 @@ fn platform_conversions_preserve_raw_fields_and_native_wire() {
             Some([1; 32]),
             Some([255; 32]),
         ] {
-            let platform = ic_platform::Account {
-                owner: ic_platform::Principal::from_slice(&owner_bytes[..owner_len]),
+            let platform = ic_platform_types::Account {
+                owner: ic_platform_types::Principal::from_slice(&owner_bytes[..owner_len]),
                 subaccount,
             };
             let database = Account::from(platform);
             assert_eq!(database.owner().as_slice(), platform.owner.as_slice());
             assert_eq!(database.subaccount().map(Subaccount::to_bytes), subaccount);
-            let restored = ic_platform::Account::from(database);
+            let restored = ic_platform_types::Account::from(database);
             // Platform Account equality would hide a lost explicit-zero field.
             assert_eq!(restored.owner, platform.owner);
             assert_eq!(restored.subaccount, subaccount);
@@ -160,7 +160,7 @@ fn platform_conversions_preserve_raw_fields_and_native_wire() {
             assert_eq!(database_decoded, database);
             let platform_wire = crate::wire::encode_one(platform).unwrap();
             assert_eq!(crate::wire::encode_one(restored).unwrap(), platform_wire);
-            let platform_decoded: ic_platform::Account =
+            let platform_decoded: ic_platform_types::Account =
                 crate::wire::decode_one(&platform_wire).unwrap();
             assert_eq!(platform_decoded.owner, platform.owner);
             assert_eq!(platform_decoded.subaccount, subaccount);
@@ -182,7 +182,7 @@ fn platform_conversion_keeps_database_and_application_equality_separate() {
     let accounts = [absent, zero];
     assert_eq!(accounts.into_iter().collect::<HashSet<_>>().len(), 2);
     assert_eq!(accounts.into_iter().collect::<BTreeSet<_>>().len(), 2);
-    let platform = accounts.map(ic_platform::Account::from);
+    let platform = accounts.map(ic_platform_types::Account::from);
     assert_eq!(platform.into_iter().collect::<HashSet<_>>().len(), 1);
     assert_eq!(platform.into_iter().collect::<BTreeSet<_>>().len(), 1);
     assert_eq!(platform.map(Account::from), accounts);

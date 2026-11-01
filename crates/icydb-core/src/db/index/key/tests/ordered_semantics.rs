@@ -94,7 +94,7 @@ fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
         let tag =
             Principal::MAX_LENGTH_IN_BYTES as u8 | if subaccount.is_some() { 0x80 } else { 0 };
         assert_eq!(encoded[1], tag);
-        let restored = Account::from(ic_platform::Account::from(account));
+        let restored = Account::from(ic_platform_types::Account::from(account));
         assert_eq!(
             encode_canonical_index_component(&Value::Account(restored))
                 .expect("restored account should encode"),

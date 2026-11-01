@@ -375,11 +375,11 @@ impl DatabaseIncarnationId {
             hasher.update(DATABASE_INCARNATION_DOMAIN);
             let mut canister = [0_u8; 29];
             let canister = canister
-                .get_mut(..ic_platform::ic0::canister_self_size())
+                .get_mut(..ic_platform_runtime::ic0::canister_self_size())
                 .ok_or_else(InternalError::database_incarnation_generation_failed)?;
-            ic_platform::ic0::canister_self_copy(canister, 0);
+            ic_platform_runtime::ic0::canister_self_copy(canister, 0);
             hasher.update(canister);
-            hasher.update(ic_platform::ic0::time().to_be_bytes());
+            hasher.update(ic_platform_runtime::ic0::time().to_be_bytes());
             hasher.update(sequence.to_be_bytes());
             let digest = hasher.finalize();
             let mut bytes = [0_u8; 16];

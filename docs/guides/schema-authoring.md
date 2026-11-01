@@ -23,6 +23,22 @@ Runtime-enabled crates normally use `icydb::model`; this keeps model authoring
 and database runtime on one direct `icydb` dependency. Schema-only tooling may
 instead depend directly on `icydb-model` without pulling in the runtime.
 
+## Generated Rust Names
+
+Generated public types occupy the same Rust module as the entity declaration.
+A composite-key entity `User` generates `UserKey`; a scalar-key entity uses its
+key atom directly. When runtime adapters are enabled, `User` also generates
+`UserInsert`, `UserPatch` and `UserReplace`. These names are part of the public
+typed API and follow ordinary Rust type-namespace rules.
+
+Do not declare or import another type with one of those names into that module.
+For example, an application DTO named `UserPatch` belongs in a separate module
+and can be referenced as `api::UserPatch`. Two entity declarations whose generated
+names overlap also need distinct module namespaces. There is no automatic
+renaming or helper-name override; downstream code can rely on the conventional
+names. Shadowing prelude types such as `Result` or `Option` is supported: macro
+expansion qualifies its standard-library and runtime references.
+
 ## Primary Keys
 
 Declare one required field with `pk(field = "id")`, or two to four distinct
@@ -66,29 +82,32 @@ token must generate and manage that token independently of the row's key.
 text in JSON. Its calendar domain remains years 0000–9999. `Subaccount` uses an
 exact 32-byte byte string in Wire/binary Serde and a 32-element byte array in JSON.
 Account database payloads still reserve their existing fixed 62-byte width.
-Platform owns bounded ICRC-1 Account text formatting, parsing and checksums without
+IC Platform Types owns bounded ICRC-1 Account text formatting, parsing and checksums without
 a ledger dependency. IcyDB preserves its existing parse-error boundary and
 representation-sensitive database identity around that shared text codec.
-Use explicit value conversion for application DTOs that carry Platform accounts:
+Use explicit value conversion for application DTOs that carry canonical accounts:
 
 ```rust
-let dto_account: ic_platform::Account = database_account.into();
+let dto_account: ic_platform_types::Account = database_account.into();
 let database_account = icydb::types::Account::from(dto_account);
 ```
 
 Both directions preserve owner bytes and the exact optional subaccount, including
 an explicit zero. IcyDB's database identity distinguishes absent and explicit-zero
-subaccounts; Platform's `Eq`, `Ord` and `Hash` treat them as the same ICRC account.
+subaccounts; canonical Types' `Eq`, `Ord` and `Hash` treat them as the same ICRC account.
 Choose map/set keys and database uniqueness rules with that distinction in mind.
 The conversion does not change stored rows, indexes, account text or database
 identity semantics. The text representation still omits an explicit zero.
 
 The types retain different binary Serde/Wire contracts: IcyDB's subaccount is a
-byte string, while Platform's is a fixed array. Convert decoded values rather
+byte string, while canonical Types' is a fixed array. Convert decoded values rather
 than reusing one type's encoded bytes or schema for the other. New application
-ICRC DTOs may use `ic_platform::Account`; their native host schema producer selects
-Platform's `wire-schema` feature (available in 0.6.12), while canister consumers
-select `principal`. IcyDB's existing Account schema projection remains its own.
+ICRC DTOs may use `ic_platform_types::Account` through a direct Types dependency.
+IC Wire owns the optional `platform-types` schema integration. A host schema
+producer must select a published Wire adapter for the same canonical Platform
+Types generation as its DTO; enabling the feature for another Types generation
+does not implement that DTO's schema traits. IcyDB's existing Account schema
+projection remains its own.
 Applications that need external ledger types construct them from the components
 or use Platform's explicitly selected external ledger boundary; IcyDB adds no
 ledger dependency or external ledger conversion.

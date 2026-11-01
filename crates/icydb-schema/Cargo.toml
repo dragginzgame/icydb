@@ -10,7 +10,7 @@ authors = { workspace = true }
 
 [dependencies]
 ethnum = { workspace = true }
-ic-platform = { workspace = true, features = ["principal"] }
+ic-platform-types = { workspace = true }
 ic-wire = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }

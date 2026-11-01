@@ -92,12 +92,14 @@ ic-host-artifacts = { version = "0.73.3", default-features = false }
 ic-host-fs = { version = "0.73.3", default-features = false }
 ic-host-process = "0.73.3"
 ic-host-text = "0.73.3"
-ic-host-tools = "0.76.0"
-ic-memory = "0.61.0"
-ic-metrics = "0.24.0"
-ic-platform = { version = "0.16.0", default-features = false }
-ic-storage = "0.61.0"
-ic-wire = "0.13.3"
+ic-host-tools = "0.77.0"
+ic-memory = "0.62.0"
+ic-metrics = "0.25.0"
+ic-platform = { version = "0.17.0", default-features = false }
+ic-platform-runtime = { version = "0.17.1", default-features = false }
+ic-platform-types = { version = "0.16.0", default-features = false }
+ic-storage = "0.62.0"
+ic-wire = "0.14.0"
 icydb = { path = "crates/icydb", version = "=0.293.0", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.293.0" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.293.0" }

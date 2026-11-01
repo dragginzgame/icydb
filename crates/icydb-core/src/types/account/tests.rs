@@ -116,7 +116,7 @@ fn to_bytes_distinguishes_none_and_zero_subaccount() {
         "None and zero subaccount must serialize differently"
     );
     for original in [none, zero] {
-        let platform = ic_platform::Account::from(original);
+        let platform = ic_platform_types::Account::from(original);
         let restored = Account::from(platform);
         assert_eq!(
             restored.to_stored_bytes().expect("restored account encode"),

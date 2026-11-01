@@ -43,7 +43,9 @@ placement decisions.
 | --- | --- | --- |
 | IC exports, standalone lifecycle and startup timer hosting | Canic's `canic-icydb` adapter | Private database handlers, explicit mounting and installed boundary tests |
 | Native payload/envelope encoding, sizing and TypeScript runtime | IC Wire | Endpoint identities, concrete metadata, resource policy and scalar validation |
-| Principal identity and external Candid/CDK interfaces | IC Platform | Explicit platform features; no workspace-owned direct SDK use |
+| Principal/Account identity, text and Serde | IC Platform Types | Database atom conversions retain database-specific identity/encoding |
+| IC0 system calls | IC Platform Runtime | Explicit `ic0` feature; no executor or CDK selected |
+| Cryptographic and external IC adapters | IC Platform | BLAKE3 for database fingerprints; no workspace-owned direct SDK use |
 | Allocation admission and exclusive memory leases | IC Memory | Database keys, host grant declarations and role bindings |
 | Governed collections and stable codec interfaces | IC Storage | Database codecs, indexes, transactions and retained-control admission |
 | Measurement arithmetic | IC Observability (`ic-metrics`) | Phase/entity attribution, report selection and resets |
@@ -64,7 +66,22 @@ Consumer lifecycle, rollback, browser and recovery tests remain necessary.
 The root and Canic qualification workspaces resolve independently, with separate
 lockfiles. The root graph contains no Canic, CDK, timer runtime, Candid, big integer
 or PocketIC packages. Root declaration policy also forbids Canic through aliases,
-normal, build, dev and target-specific dependencies. Native clients use IcyDB's
+normal, build, dev and target-specific dependencies. The same checker limits
+direct Platform use to Core and the two BLAKE3-based oracle helpers. Schema uses
+Types, the facade uses Types/Runtime, and the IC0-only actor uses Runtime.
+Types and Runtime have explicit consumer allowlists, including Core's test-only
+identity conversions. The resolved-graph guard refuses duplicate Runtime or
+Types versions. These owned packages do not relax the external SDK inventory;
+direct Candid/CDK/substrate dependencies remain forbidden.
+The current root schema family requires published Wire 0.14.0 and Metrics 0.25.0,
+with Wire/Derive locked to the incoming 0.14.1 patch. Memory/Storage 0.62.0
+shares that Wire identity, removing Wire/Derive 0.13 from the root lock entirely.
+The independent Canic qualification stack keeps its own selections.
+Shared guidance for these independently published owners is tracked in
+[Shared Tooling #342](https://github.com/dragginzgame/shared-tooling/issues/342).
+The common checker already admits the owned packages; that documentation update
+is not an enforcement blocker or a raw-SDK exception.
+Native clients use IcyDB's
 internal RPC method identities and IC Wire; all 12 methods are checked against
 the published adapter for exact frame interoperability. This is a client protocol
 projection, not a second exporter, authorization layer or codec implementation.
@@ -147,35 +164,64 @@ are separate obligations; artifact transformation remains explicitly qualified.
 
 ## Consumer tooling qualification
 
-The pending 0.293 adoption requires published Memory/Storage 0.61.0 and uses
+The delivered 0.293 adoption requires published Memory/Storage 0.61.0 and uses
 checked runtime keys, nonzero bucket configuration and explicit collection
 `create`/`load` lifecycle. Valid retained bytes remain compatible; no reset is
 performed. Canic qualification keeps its independent dependency selections;
 its older pinned supplier stack is not qualified against this public 0.61 cut. See the [adoption status](../design/0.293-memory-storage/0.293-status.md).
 
-The root retains Wire 0.13.3 requirements (locked to Wire/Derive 0.13.5),
+The pending 0.294 adoption selects published Platform 0.17.0, Types 0.16.0 and
+IC0 Runtime 0.17.1. Root consumers now depend directly on Types for identity and
+Runtime for IC0 rather than the delegating facade. Core retains Platform only
+for BLAKE3. The selected registry Platform revision is
+`35cffb6f0ab768e00b0f11d6429eff4d7d7e252c`. Public Principal/Account
+conversions require the new Types identity; bytes and database formats remain
+unchanged. External Principal conversions are explicit test-only features;
+IC0 remains executor-free. See the [adoption status](../design/0.294-platform/0.294-status.md).
+
+The root selects Wire/Derive 0.14.1 and Metrics 0.25.0 together. It retains
 Build and Host Artifacts/FS/Process/Text 0.73.3 requirements (locked to 0.73.6),
-Host Tools 0.76.0 (locked to 0.76.2), Metrics 0.24.0 (locked to 0.24.5) and
-Platform 0.16.0. Those incoming lock selections are preserved; this adoption
-changes only Memory/Storage from 0.60.7 to 0.61.0. Direct Platform consumers
-use the published release from `b1303ffa38daf2ec1551cbce6e39197ad76681ff`.
+Host Tools 0.77.0 and
+Memory/Storage 0.62.0. Incoming patch selections
+changed during the direct-owner qualification and were preserved. That cut
+changed only Platform-family dependency ownership and explicit test features;
+the subsequent Wire/Metrics adoption changes their schema trait identities.
+The subsequent requested Host Tools adoption changes only 0.76.2 to 0.77.0.
+Published source revision `d2b14582ab0b6dcb3ef6e72094b8f7da4b195c1a`
+has identical response/interface implementations. CLI response decoding and
+Build's explicit `ic-interface` feature select no Platform-backed features;
+the supplier's new optional Platform 0.17 identity boundary needs no local adapter.
 The independent qualification graph retains Testkit 0.75.0. Foundation and IC
 integration release independently; these versions need no numeric lockstep.
-Platform re-exports canonical `ic-platform-types 0.15.1`. Memory/Storage now
-select Platform 0.16.0 for their unchanged stable-structures facade. The root resolves
-one Platform, Wire and canonical Types generation, with no Canic, CDK, executor, Candid or
-supplier path override. Platform 0.16.0's IC0, Principal/Account and BLAKE3 modules
-are byte-for-byte unchanged from the previously selected 0.15.3 package. Its
-crypto/certification changes are outside IcyDB's enabled features.
-Metrics' `native-wire` feature selects Wire 0.13 on native hosts and no Wire
+Schema/facade imports use canonical `ic-platform-types 0.16.0` directly; the
+Platform facade re-exports that exact type identity. Memory/Storage 0.62.0 use
+Platform 0.17.0 for their unchanged stable-structures facade. The root resolves
+one facade, one IC0 Runtime and one canonical Types generation,
+with no Canic, CDK, executor, Candid or supplier path override. The published IC0
+implementation is byte-for-byte unchanged after extraction; BLAKE3 and Account
+implementations are also unchanged. Unselected crypto/certification, executor
+and native-client changes are outside this adoption.
+Metrics' `native-wire` feature selects Wire 0.14 on native hosts and no Wire
 metadata dependency on Wasm. Optional instrumentation/recording stays optional;
 durable adapters remain Persistence-owned and journal debt is independent.
+Published Metrics source `90615b5123552ac325bf58873f7e181f4c112109` preserves its
+arithmetic and transport implementation; Wire source
+`72c2be688afe129cf2a8ebeeb0e648be9d86c13e` changes only the optional Types adapter.
+This resolves [Observability #120](https://github.com/dragginzgame/ic-observability/issues/120)
+without changing the maintained numeric shapes or browser baseline.
+Published Memory/Storage 0.62.0 source
+`22eda8ae8b5998e0872630ee3a888ed959f8dc8a` preserves both complete implementation
+directories from 0.61.1 and aligns public codec-error sources with Wire 0.14.
+Valid retained bytes, bounds, allocation custody and recovery remain unchanged;
+no reset is required. Public Memory values and error sources require matching
+dependency identities and consumer rebuilds. The incoming Wire/Derive 0.14.1
+source also matches 0.14.0 exactly; its supplier changes qualification only.
 
 Memory/Storage 0.61.0 changes Rust API identity while retaining valid allocation
-ledger and collection bytes. Host Tools 0.76.0 changed only its unselected
-certificate implementation; the selected response/interface sources were unchanged.
-The incoming Build/Host/Tools/Wire/Metrics lock updates are preserved, not claimed
-as separately qualified supplier adoptions by this Memory/Storage slice.
+ledger and collection bytes. That original slice preserved incoming tooling
+updates without claiming their separate qualification. Host Tools 0.77.0 now
+has its own strict consumer lint, 30 focused CLI/artifact tests and Rust 1.96
+tooling checks. Native macOS and installed Canic qualification remain separate.
 Wire 0.13.3 added an opt-in bulk ByteArray contract; IcyDB retains its existing
 ordinary arrays and generated codec contract. The existing
 0.56 allocation-ledger and 0.291 IcyDB format cuts still apply; no converter,

@@ -3,7 +3,7 @@
 //! Does not own: journal replay semantics, generated schema lowering, or timer lifecycle.
 //! Boundary: existing recovery engine plus fresh durable bindings -> one coordinator step.
 
-use std::thread::LocalKey;
+use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
 use icydb_diagnostic_code::{Diagnostic, DiagnosticConstraintKind, DiagnosticFactTag, ErrorCode};
 use icydb_schema::SchemaSubmissionKey;
@@ -37,6 +37,13 @@ use crate::{
     metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan},
     traits::CanisterKind,
 };
+
+// This disposable position selects a store, never a source authority or count.
+// Entries exist only while optional work remains for a static registry instance.
+thread_local! {
+    static CARDINALITY_LAST_STORE: RefCell<BTreeMap<usize, &'static str>> =
+        const { RefCell::new(BTreeMap::new()) };
+}
 
 pub(super) fn drive_recovery_page<C: CanisterKind>(
     session: &DbSession<C>,
@@ -99,9 +106,33 @@ fn drive_cardinality_page(
 ) -> Result<GeneratedStartupDriverStep, InternalError> {
     let _span = ExecutionMetricsSpan::new(ExecutionMetricsPhase::Cardinality);
     let incarnation = database_incarnation_id()?;
-    let mut registered = stores.with(|registry| registry.iter().collect::<Vec<_>>());
+    let (registry_key, mut registered) = stores.with(|registry| {
+        // LocalKey handles can alias one TLS value; scope scheduling to that
+        // value just like recovery, rather than to an individual handle address.
+        (
+            std::ptr::from_ref(registry).cast::<()>() as usize,
+            registry.iter().collect::<Vec<_>>(),
+        )
+    });
     icydb_schema::compact_sort_unstable_by(&mut registered, |left, right| left.0.cmp(right.0));
-    for (_path, handle) in registered {
+    let last = CARDINALITY_LAST_STORE.with(|cursor| {
+        cursor
+            .try_borrow()
+            .map_err(|_| InternalError::store_invariant())
+            .map(|cursor| cursor.get(&registry_key).copied())
+    })?;
+    let start = last
+        .and_then(|last| registered.iter().position(|(path, _)| *path == last))
+        .map_or(0, |index| index + 1);
+    // Ready/heap stores do no page work. Stop after one non-quiescent page,
+    // resuming after that store next time even when its source keeps restarting.
+    for (path, handle) in registered
+        .iter()
+        .copied()
+        .cycle()
+        .skip(start)
+        .take(registered.len())
+    {
         let Some(journal) = handle.journal_tail_store() else {
             continue;
         };
@@ -121,9 +152,25 @@ fn drive_cardinality_page(
             })
         })?;
         if outcome != CardinalityGenerationPageOutcome::Quiescent {
+            CARDINALITY_LAST_STORE.with(|cursor| {
+                cursor
+                    .try_borrow_mut()
+                    .map_err(|_| InternalError::store_invariant())
+                    .map(|mut cursor| {
+                        cursor.insert(registry_key, path);
+                    })
+            })?;
             return Ok(GeneratedStartupDriverStep::Recovering);
         }
     }
+    CARDINALITY_LAST_STORE.with(|cursor| {
+        cursor
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())
+            .map(|mut cursor| {
+                cursor.remove(&registry_key);
+            })
+    })?;
     Ok(GeneratedStartupDriverStep::Terminal)
 }
 
@@ -325,6 +372,7 @@ pub(super) fn record_schema_failure<C: CanisterKind>(
 
 #[cfg(test)]
 mod tests {
+    mod cardinality;
     use super::generated_schema_finding_error;
     use crate::error::ConstraintValidationFindingOutput;
     use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};

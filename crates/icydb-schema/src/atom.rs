@@ -52,7 +52,7 @@ pub enum PrincipalEncodeError {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Principal(ic_platform::Principal);
+pub struct Principal(ic_platform_types::Principal);
 
 impl Principal {
     /// Maximum canonical principal byte length.
@@ -67,7 +67,7 @@ impl Principal {
     /// Return the anonymous principal.
     #[must_use]
     pub const fn anonymous() -> Self {
-        Self(ic_platform::Principal::anonymous())
+        Self(ic_platform_types::Principal::anonymous())
     }
 
     /// Parse canonical textual principal form.
@@ -76,7 +76,7 @@ impl Principal {
     ///
     /// Returns [`PrincipalError::InvalidText`] for invalid text.
     pub fn from_text(text: &str) -> Result<Self, PrincipalError> {
-        ic_platform::Principal::from_text(text)
+        ic_platform_types::Principal::from_text(text)
             .map(Self)
             .map_err(|_| PrincipalError::InvalidText)
     }
@@ -89,7 +89,7 @@ impl Principal {
     /// Use [`Principal::try_from_bytes`] for untrusted input.
     #[must_use]
     pub const fn from_slice(bytes: &[u8]) -> Self {
-        Self(ic_platform::Principal::from_slice(bytes))
+        Self(ic_platform_types::Principal::from_slice(bytes))
     }
 
     /// Borrow canonical principal bytes.
@@ -143,13 +143,13 @@ impl Display for Principal {
     }
 }
 
-impl From<ic_platform::Principal> for Principal {
-    fn from(value: ic_platform::Principal) -> Self {
+impl From<ic_platform_types::Principal> for Principal {
+    fn from(value: ic_platform_types::Principal) -> Self {
         Self(value)
     }
 }
 
-impl From<Principal> for ic_platform::Principal {
+impl From<Principal> for ic_platform_types::Principal {
     fn from(value: Principal) -> Self {
         value.0
     }

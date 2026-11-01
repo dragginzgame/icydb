@@ -1359,7 +1359,9 @@ fn prepare_folded_journal_batch_completion(
 
 #[cfg(target_arch = "wasm32")]
 fn trap_validated_journal_apply_contradiction(_error: InternalError) -> ! {
-    ic_platform::ic0::trap(b"validated journal application contradicted its complete preflight")
+    ic_platform_runtime::ic0::trap(
+        b"validated journal application contradicted its complete preflight",
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]
