@@ -323,7 +323,7 @@ fn validate_receipt(receipt: &StartupFailureReceipt) -> Result<(), InternalError
     if !kind_matches {
         return Err(InternalError::store_invariant());
     }
-    if !super::terminal_code_for_kind(
+    if !super::receipt_code_for_kind(
         receipt.failure.kind(),
         receipt.failure.diagnostic().error_code(),
     ) {

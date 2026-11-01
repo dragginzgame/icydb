@@ -113,7 +113,18 @@ fn terminal_code_for_kind(
     kind: StartupFailureKind,
     code: icydb_diagnostic_code::ErrorCode,
 ) -> bool {
-    let persisted_failure = code == ErrorCode::STORE_CORRUPTION
+    // A runtime contradiction is evidence about code, not proof that persisted
+    // state cannot recover under corrected code. Never memoize it as terminal.
+    code != ErrorCode::STORE_INVARIANT_VIOLATION
+        && code != ErrorCode::RUNTIME_INVARIANT_VIOLATION
+        && receipt_code_for_kind(kind, code)
+}
+
+// Validate the existing receipt representation independently of current retry
+// policy. Invariant receipts remain decodable so a corrected build can retire
+// those diagnostic controls through successful recovery without discarding data.
+fn receipt_code_for_kind(kind: StartupFailureKind, code: icydb_diagnostic_code::ErrorCode) -> bool {
+    let common_receipt_code = code == ErrorCode::STORE_CORRUPTION
         || code == ErrorCode::STORE_INVARIANT_VIOLATION
         || code == ErrorCode::RUNTIME_CORRUPTION
         || code == ErrorCode::RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT
@@ -121,7 +132,7 @@ fn terminal_code_for_kind(
         || code == ErrorCode::RUNTIME_BOUNDARY_PERSISTED_ROW_LAYOUT_OUTSIDE_ACCEPTED_WINDOW
         || code == ErrorCode::RUNTIME_BOUNDARY_PERSISTED_ROW_SLOT_COUNT_MISMATCH
         || code == ErrorCode::RUNTIME_BOUNDARY_ACCEPTED_ROW_CONSTRAINT_PROGRAM_CORRUPT;
-    persisted_failure
+    common_receipt_code
         || match kind {
             StartupFailureKind::DatabaseControl => false,
             StartupFailureKind::JournalRecovery => {
@@ -187,6 +198,7 @@ pub fn clear_generated_startup_failure<C: CanisterKind>() -> Result<bool, Intern
 
 #[cfg(test)]
 mod tests {
+    mod invariant_receipts;
     mod migration_failures;
 
     use super::*;

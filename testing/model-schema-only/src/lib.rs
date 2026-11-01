@@ -412,10 +412,27 @@ mod crate_path_tests {
 
 #[cfg(test)]
 mod default_hygiene_tests {
-    use model_api::{enum_, tuple};
+    use model_api::{enum_, newtype, tuple};
     use std::marker::Send as Default;
 
     const _: ::core::option::Option<&dyn Default> = ::core::option::Option::None;
+
+    trait CallerInto {
+        fn into(self) -> Self;
+    }
+
+    impl CallerInto for &'static str {
+        fn into(self) -> Self {
+            self
+        }
+    }
+
+    #[newtype(
+        item(prim = "Text", max_len = 32),
+        default = "expected",
+        traits(add(Default))
+    )]
+    pub struct HygieneDefaultText {}
 
     #[enum_(
         variant(name = "Count", value(item(prim = "Nat64")), default),
@@ -437,6 +454,9 @@ mod default_hygiene_tests {
         let pair = <DefaultPair as ::core::default::Default>::default();
         assert_eq!(pair.0, 0);
         assert!(pair.1.is_empty());
+        let text = <HygieneDefaultText as ::core::default::Default>::default();
+        assert_eq!(text.0, "expected");
+        assert_eq!(CallerInto::into("caller"), "caller");
     }
 }
 

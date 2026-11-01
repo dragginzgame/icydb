@@ -31,6 +31,27 @@ pub(crate) fn local_instruction_counter() -> u64 {
     TEST_INSTRUCTIONS.with(std::cell::Cell::get)
 }
 
+/// Read instructions consumed by the current synchronous IC message.
+/// Unlike the call-context counter, this does not carry work across callbacks.
+#[must_use]
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn message_instruction_counter() -> u64 {
+    ic_platform::ic0::performance_counter(0)
+}
+
+/// Native production cannot observe IC message instruction consumption.
+#[must_use]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+pub(crate) const fn message_instruction_counter() -> u64 {
+    0
+}
+
+/// Reuse logical test samples without treating host execution as IC measurement.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn message_instruction_counter() -> u64 {
+    local_instruction_counter()
+}
+
 /// Scope synthetic instruction samples to one test thread, restoring on unwind.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) fn with_instruction_counter_for_tests<R>(

@@ -3,8 +3,9 @@
 //! Does not own: production behavior.
 //! Boundary: test-only contracts.
 
-use super::{default_strategy_entity, record_default_strategy, validate_struct_default_request};
+use super::{DefaultTrait, field_list_default_strategy, validate_struct_default_request};
 use crate::authoring_types::Primitive;
+use crate::prelude::Imp;
 use crate::{
     node::{
         Arg, Def, Entity, Field, FieldGeneration, FieldList, Item, PrimaryKey, PrimaryKeySource,
@@ -89,10 +90,7 @@ fn redundant_default_entity() -> Entity {
 
 #[test]
 fn entity_defaults_derive_when_explicit_defaults_match_implicit_defaults() {
-    let strategy = default_strategy_entity(
-        &redundant_default_entity(),
-        &crate::crate_path::CratePaths::test(),
-    );
+    let strategy = DefaultTrait::strategy(&redundant_default_entity()).unwrap();
 
     assert_eq!(strategy.derive, Some(TraitKind::Default));
     assert!(
@@ -124,7 +122,7 @@ fn entity_defaults_keep_manual_impl_for_custom_default_constructors() {
     entity.fields.fields[0].default = Some(Arg::FuncPath(parse_quote!(Ulid::generate)));
     entity.fields.fields[0].value.item.primitive = Some(Primitive::Ulid);
 
-    let strategy = default_strategy_entity(&entity, &crate::crate_path::CratePaths::test());
+    let strategy = DefaultTrait::strategy(&entity).unwrap();
 
     assert!(
         strategy.derive.is_none(),
@@ -144,7 +142,7 @@ fn entity_identity_default_never_calls_the_declarative_generator() {
         Identity::next
     ))));
 
-    let strategy = default_strategy_entity(&entity, &crate::crate_path::CratePaths::test());
+    let strategy = DefaultTrait::strategy(&entity).unwrap();
     let tokens = strategy
         .imp
         .expect("identity placeholder requires an explicit Default impl")
@@ -184,7 +182,7 @@ fn records_follow_the_same_redundant_default_rule() {
         ty: Type::default(),
     };
 
-    let strategy = record_default_strategy(
+    let strategy = field_list_default_strategy(
         &record.def,
         &record.fields,
         &crate::crate_path::CratePaths::test(),

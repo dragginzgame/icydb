@@ -191,6 +191,14 @@ identical membership. Predicates and unique constraints remain unchanged in the
 generated schema. The existing rejection of unfiltered, non-unique prefix
 indexes still applies.
 
+Generated index names must also be distinct. The macro reports a collision at
+the later index declaration, before host model construction. The current name
+format can collide for `a_b` versus `(a, b)`, a field named `lower_email` versus
+`LOWER(email)`, or identical key terms with different partial predicates.
+Distinct uniqueness prefixes remain separate names. This diagnostic does not
+change the naming format or resolve its representational limits; those remain
+tracked in [#203](https://github.com/dragginzgame/icydb/issues/203).
+
 ## Field And Relation Names
 
 Authored fields use valid Rust `snake_case` identifiers. Required and optional

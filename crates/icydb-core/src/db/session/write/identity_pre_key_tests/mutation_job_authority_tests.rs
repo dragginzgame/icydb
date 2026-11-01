@@ -83,6 +83,61 @@ fn pending_jobs(
     .collect()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn message_instruction_exhaustion_preserves_jobs_and_exact_replay() {
+    use crate::{
+        db::resource::budget::MUTATION_EXECUTION_INSTRUCTION_LIMIT,
+        runtime::with_instruction_counter_for_tests,
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
+    };
+
+    let (session, _root) = initialize_journaled_with_root();
+    assert_eq!(insert_exact_key_fixture(&session, 41), 1);
+    let jobs = pending_jobs(&session);
+    let ceiling = MUTATION_EXECUTION_INSTRUCTION_LIMIT;
+    for (request, before) in &jobs {
+        let error = with_instruction_counter_for_tests(ceiling + 1, |_| {
+            session.advance_trusted_mutation_job(request)
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            MutationJobError::ExecutionBudgetExceeded {
+                resource,
+                limit,
+                observed,
+                scope,
+                lane,
+                ..
+            } if resource == DiagnosticExecutionBudgetResource::InstructionUnits.raw()
+                && limit == ceiling
+                && observed == ceiling + 1
+                && scope == DiagnosticExecutionBudgetScope::Execution.raw()
+                && lane == DiagnosticExecutionLane::Mutation.raw()
+        ));
+        assert_eq!(retained_job(request.job_id), *before);
+        assert_dynamic_payload(&session, 1, 41);
+    }
+
+    // Replaying the retained Forward receipt does no new page work, even when
+    // this message has already consumed the ordinary advance allocation.
+    let replay = MutationJobAdvanceRequest::new(
+        jobs[1].0.job_id,
+        0,
+        MutationJobIdempotencyKey::new("forward").unwrap(),
+    );
+    let expected = session.advance_trusted_mutation_job(&replay).unwrap();
+    let actual = with_instruction_counter_for_tests(ceiling + 1, |_| {
+        session.advance_trusted_mutation_job(&replay)
+    })
+    .unwrap();
+    assert_eq!(actual, expected);
+    assert_eq!(retained_job(replay.job_id), jobs[1].1);
+}
+
 fn assert_unavailable_preserves_jobs(
     session: &DbSession<JournaledTestCanister>,
     jobs: &[(MutationJobAdvanceRequest, MutationJobRecord)],

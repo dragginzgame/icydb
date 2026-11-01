@@ -159,7 +159,7 @@ index stores and discarding continuations from the wider-key contract.
 | Public admission | Selected-plan row, access, key-input and grouped-policy proofs | [policy](../../crates/icydb-core/src/db/query/admission/policy.rs) |
 | Request root | Monotonic preparation and attached execution charges across nested calls and async polls | [request](../../crates/icydb-core/src/db/resource/request.rs) |
 | Read execution | One prepared execution's physical work, attached to its request scope | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
-| Mutation advancement | Separate fixed engine-owned profile and explicit pre-publication instruction checks | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
+| Mutation advancement | Fixed engine-owned profile, message-wide instruction ceiling and explicit pre-publication checks | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
 | Grouped state | Live group memory plus cumulative group/DISTINCT work | [grouped accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs) |
 
 Named resources include query/planning work, key and row visits, stored/decoded/
@@ -172,6 +172,15 @@ Read execution opens its instruction-counter interval before running executor
 work. Periodic samples and the final sample charge that interval to both the
 execution and its request, including reads that finish before the first
 periodic sample. Failed attempts retain their charged work.
+
+Mutation advancement and explicit maintenance construction also check the
+current IC message's total instructions against the existing mutation ceiling.
+Earlier application work, earlier advances and fresh candidate budgets cannot
+reset that ceiling. Per-operation instruction counters remain interval deltas;
+message-wide exhaustion reports the message total in its typed diagnostic.
+This safety check uses performance counter 0; read accounting and telemetry keep
+their call-context counter 1. Checkpoints are cooperative, and cannot restore
+headroom already consumed by application code.
 
 Ordinary trusted structural writes (including typed batches and ordinary SQL
 save/delete batches) do not install a mutation execution tracker. Their

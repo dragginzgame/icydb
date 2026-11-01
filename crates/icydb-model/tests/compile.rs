@@ -43,3 +43,10 @@ fn collection_normalizer_positions() {
     let tests = trybuild::TestCases::new();
     tests.compile_fail("tests/ui/collection_normalizers/*.rs");
 }
+
+#[test]
+fn generated_index_name_diagnostics() {
+    let tests = trybuild::TestCases::new();
+    tests.compile_fail("tests/ui/index_names/collisions.rs");
+    tests.pass("tests/ui/index_names/distinct.rs");
+}

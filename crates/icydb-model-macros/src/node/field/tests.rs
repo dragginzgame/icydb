@@ -83,7 +83,7 @@ fn rust_default_matching_is_application_only() {
         text.rust_default_expr(&crate::crate_path::CratePaths::test())
             .expect("default should exist")
             .to_string(),
-        quote!(String::new().into()).to_string(),
+        quote!(::core::convert::Into::into(String::new())).to_string(),
     );
 }
 

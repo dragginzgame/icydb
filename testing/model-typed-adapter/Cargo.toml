@@ -13,5 +13,9 @@ authors = { workspace = true }
 model_api = { workspace = true }
 runtime_api = { workspace = true, default-features = true }
 
+[build-dependencies]
+model_api = { workspace = true }
+runtime_api = { workspace = true }
+
 [lints]
 workspace = true

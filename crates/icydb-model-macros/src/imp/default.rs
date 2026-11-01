@@ -21,7 +21,7 @@ pub struct DefaultTrait {}
 impl Imp<Entity> for DefaultTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let paths = node.def().paths();
-        Some(default_strategy_entity(node, paths))
+        Some(field_list_default_strategy(node.def(), &node.fields, paths))
     }
 }
 
@@ -68,42 +68,26 @@ impl Imp<Enum> for DefaultTrait {
 impl Imp<Record> for DefaultTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
         let paths = node.def().paths();
-        Some(record_default_strategy(&node.def, &node.fields, paths))
+        Some(field_list_default_strategy(&node.def, &node.fields, paths))
     }
 }
 
-// Explicit record defaults derive only when every field uses its implicit value.
-fn record_default_strategy(def: &Def, fields: &FieldList, paths: &CratePaths) -> TraitStrategy {
+// Entity and record defaults use the same field construction authority. Identity
+// placeholders and generated-value conversions are already lowered by Field.
+fn field_list_default_strategy(def: &Def, fields: &FieldList, paths: &CratePaths) -> TraitStrategy {
     if fields.iter().all(Field::default_matches_implicit_default) {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
 
     let Some(assignments) = fields
         .iter()
-        .map(|value| record_default_assignment(value, paths))
+        .map(|value| field_default_assignment(value, paths))
         .collect::<Option<Vec<_>>>()
     else {
         return default_generation_invariant_error(def);
     };
 
     struct_default_strategy(def, assignments, paths)
-}
-
-fn default_strategy_entity(node: &Entity, paths: &CratePaths) -> TraitStrategy {
-    let fields = &node.fields;
-    if fields.iter().all(Field::default_matches_implicit_default) {
-        return TraitStrategy::from_derive(TraitKind::Default);
-    }
-
-    let Some(assignments) = fields
-        .iter()
-        .map(|field| entity_default_assignment(field, node.primary_key.fields(), paths))
-        .collect::<Option<Vec<_>>>()
-    else {
-        return default_generation_invariant_error(node.def());
-    };
-
-    struct_default_strategy(node.def(), assignments, paths)
 }
 
 ///
@@ -127,7 +111,7 @@ impl Imp<Newtype> for DefaultTrait {
             };
             expression
         } else {
-            quote!(#default_expr.into())
+            quote!(::core::convert::Into::into(#default_expr))
         };
         let q = quote! {
             fn default() -> Self {
@@ -218,37 +202,12 @@ fn struct_default_strategy(
     TraitStrategy::from_impl(tokens)
 }
 
-// Record fields lower only through schema-surface Rust construction values.
-fn record_default_assignment(field: &Field, paths: &CratePaths) -> Option<TokenStream> {
+// Fields lower only through schema-surface Rust construction values.
+fn field_default_assignment(field: &Field, paths: &CratePaths) -> Option<TokenStream> {
     let ident = &field.name;
     let expr = field.rust_default_expr(paths)?;
 
     Some(quote!(#ident: #expr))
-}
-
-// Entity primary keys keep their key-conversion behavior when they have an
-// explicit schema-surface construction value.
-fn entity_default_assignment(
-    field: &Field,
-    primary_keys: &[Ident],
-    paths: &CratePaths,
-) -> Option<TokenStream> {
-    let ident = &field.name;
-    let expr = field.rust_default_expr(paths)?;
-
-    Some(
-        if primary_keys.iter().any(|primary_key| ident == primary_key) {
-            if field.is_identity_generated() {
-                quote!(#ident: #expr)
-            } else if let Some(FieldGeneration::Insert(generator)) = &field.generated {
-                quote!(#ident: (#generator).into())
-            } else {
-                quote!(#ident: #expr)
-            }
-        } else {
-            quote!(#ident: #expr)
-        },
-    )
 }
 
 fn default_generation_invariant_error(def: &Def) -> TraitStrategy {

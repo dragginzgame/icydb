@@ -1,5 +1,65 @@
 use model_api::prelude::*;
 
+#[cfg(test)]
+mod default_conversion_hygiene {
+    use model_api::prelude::*;
+
+    trait CallerInto {
+        fn into(self) -> Self;
+    }
+
+    impl<T> CallerInto for T {
+        fn into(self) -> Self {
+            self
+        }
+    }
+
+    #[record(
+        fields(
+            field(
+                name = "text",
+                value(item(prim = "Text", max_len = 32)),
+                default = "expected"
+            ),
+            field(
+                name = "ulid",
+                value(item(prim = "Ulid")),
+                default = "0000000000000000000000000H"
+            ),
+            field(
+                name = "blob",
+                value(item(prim = "Blob", max_len = 32)),
+                default = "ab"
+            ),
+            field(
+                name = "principal",
+                value(item(prim = "Principal")),
+                default = "aaaaa-aa"
+            ),
+            field(
+                name = "subaccount",
+                value(item(prim = "Subaccount")),
+                default = "0000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            field(name = "account", value(item(prim = "Account")), default = "aaaaa-aa")
+        ),
+        traits(add(Default))
+    )]
+    pub struct DefaultConversionHygieneRecord {}
+
+    #[test]
+    fn record_defaults_keep_standard_conversions_with_a_caller_trait_in_scope() {
+        let value = DefaultConversionHygieneRecord::default();
+        assert_eq!(value.text, "expected");
+        assert_eq!(value.ulid, Ulid::from_u128(17));
+        assert_eq!(value.blob.len(), 1);
+        assert_eq!(value.principal, Principal::from_slice(&[]));
+        assert_eq!(value.subaccount, Subaccount::MIN);
+        assert_eq!(value.account.owner(), Principal::from_slice(&[]));
+        assert_eq!(CallerInto::into(17), 17);
+    }
+}
+
 // Generated code must not resolve standard types, traits or variants through local aliases.
 use std::{
     cmp::Ordering::{Equal as None, Less as Ok},

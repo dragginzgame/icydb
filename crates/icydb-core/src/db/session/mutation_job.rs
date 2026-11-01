@@ -119,7 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
                     self.find_accepted_schema_catalog_context_for_entity_source_key(entity_source)
                 })
             },
-            mutation_job_execution_internal_error,
+            |error| MutationJobError::from_internal_error(&error),
         )
     }
 
@@ -228,11 +228,6 @@ const fn mutation_job_execution_budget_error(error: ExecutionBudgetExceeded) -> 
         lane: error.lane().raw(),
         normalized_shape_fingerprint_prefix: error.normalized_shape_fingerprint_prefix(),
     }
-}
-
-#[cfg(feature = "sql")]
-fn mutation_job_execution_internal_error(_error: crate::error::InternalError) -> MutationJobError {
-    MutationJobError::Internal
 }
 
 #[cfg(test)]

@@ -567,9 +567,10 @@ raw key-plus-row scan bytes and exact writer-owned key/before/after staging
 bytes to 16 MiB each; Verify has its own 16 MiB raw scan-byte limit. Exact
 request replay returns the retained receipt without scanning or mutating again.
 
-Non-replay page execution has a fixed 30-billion-instruction allocation and a
-5-billion failure reserve below the IC update-message ceiling. These limits are
-engine policy, not caller parameters.
+Non-replay page execution checks a fixed 30-billion-instruction ceiling for the
+current IC message, including application work and earlier advances in that
+message. Starting another advance does not renew the ceiling or its 5-billion
+failure reserve. These limits are engine policy, not caller parameters.
 
 The retained operation timestamp identifies the logical statement. Every
 Forward message separately captures current time for writer-managed physical

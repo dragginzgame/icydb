@@ -88,16 +88,16 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.73.1", default-features = false }
-ic-host-fs = { version = "0.73.1", default-features = false }
-ic-host-process = "0.73.1"
-ic-host-text = "0.73.1"
-ic-host-tools = "0.75.0"
-ic-memory = "0.60.0"
+ic-host-artifacts = { version = "0.73.3", default-features = false }
+ic-host-fs = { version = "0.73.3", default-features = false }
+ic-host-process = "0.73.3"
+ic-host-text = "0.73.3"
+ic-host-tools = "0.76.0"
+ic-memory = "0.60.6"
 ic-metrics = "0.24.0"
-ic-platform = { version = "0.15.2", default-features = false }
-ic-storage = "0.60.0"
-ic-wire = "0.13.0"
+ic-platform = { version = "0.16.0", default-features = false }
+ic-storage = "0.60.6"
+ic-wire = "0.13.3"
 icydb = { path = "crates/icydb", version = "=0.292.0", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.292.0" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.292.0" }
@@ -127,7 +127,7 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 ] }
 
 # Tests and tooling only
-ic-build = "0.73.1"
+ic-build = "0.73.3"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }

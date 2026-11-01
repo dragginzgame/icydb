@@ -3,6 +3,9 @@
 //! Does not own: proposal lowering, accepted reconciliation, or runtime schema interpretation.
 //! Boundary: marker-owned accepted candidate -> bounded control-memory checkpoint -> recovery.
 
+#[cfg(test)]
+mod codec_tests;
+
 use crate::db::codec::BoundedByteWriter;
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::migration_record::SchemaMigrationRecordOp;
@@ -519,9 +522,11 @@ fn decode_checkpoint(
         candidate,
         identity_states,
     };
-    if checkpoint.candidate().store_path() != store_path
-        || encode_checkpoint(store_path, &checkpoint)? != bytes
-    {
+    // The envelope reader consumes fixed-width lengths and all input; identity
+    // decoding validates every tag and absent-field padding, while prior_key
+    // enforces the encoder's inventory order. Candidate bytes stay unchanged.
+    // Re-encoding here would only copy and checksum the complete bundle again.
+    if checkpoint.candidate().store_path() != store_path {
         return Err(InternalError::store_corruption());
     }
     Ok(checkpoint)

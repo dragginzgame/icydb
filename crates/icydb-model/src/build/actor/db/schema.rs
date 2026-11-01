@@ -43,8 +43,8 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 reason = "empty generated schemas retain the same runtime lookup and fallible handler contract"
             )]
             pub(crate) fn __icydb_endpoint_handler_schema(
-            ) -> Result<Vec<#icydb::db::EntitySchemaDescription>, #icydb::Error> {
-                Ok(vec![
+            ) -> ::std::result::Result<::std::vec::Vec<#icydb::db::EntitySchemaDescription>, #icydb::Error> {
+                ::std::result::Result::Ok(::std::vec![
                     #(db()?.try_describe_entity_by_source_key(#entity_sources)?),*
                 ])
             }

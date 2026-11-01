@@ -179,6 +179,92 @@ fn scalar_primary_key_does_not_emit_generated_key_struct() {
 }
 
 #[test]
+fn colliding_generated_index_names_are_rejected_at_the_entity_declaration() {
+    for (left, right, predicates) in [
+        (vec!["a_b"], vec!["a", "b"], [None, None]),
+        (vec!["lower_email"], vec!["LOWER(email)"], [None, None]),
+        (
+            vec!["score"],
+            vec!["score"],
+            [Some("active = true"), Some("active = false")],
+        ),
+    ] {
+        for unique in [false, true] {
+            for reverse in [false, true] {
+                let mut email = primitive_field("email", Primitive::Text);
+                email.value.item.max_len = Some(32);
+                let mut lower_email = primitive_field("lower_email", Primitive::Text);
+                lower_email.value.item.max_len = Some(32);
+                let mut indexes = vec![
+                    Index {
+                        fields: field_list(&left),
+                        unique,
+                        predicate: predicates[0].map(str::to_owned),
+                    },
+                    Index {
+                        fields: field_list(&right),
+                        unique,
+                        predicate: predicates[1].map(str::to_owned),
+                    },
+                ];
+                assert_eq!(
+                    indexes[0].generated_name("TestEntity"),
+                    indexes[1].generated_name("TestEntity")
+                );
+                if reverse {
+                    indexes.reverse();
+                }
+                let entity = entity_with_fields_and_indexes(
+                    vec![
+                        scalar_field("id"),
+                        scalar_field("a"),
+                        scalar_field("b"),
+                        scalar_field("a_b"),
+                        email,
+                        lower_email,
+                        primitive_field("score", Primitive::Nat64),
+                        primitive_field("active", Primitive::Bool),
+                    ],
+                    indexes,
+                );
+                assert!(
+                    entity.validate().is_err(),
+                    "colliding generated names must reject"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn unique_and_nonunique_index_names_remain_distinct() {
+    for reverse in [false, true] {
+        let mut indexes = vec![
+            Index {
+                fields: field_list(&["email"]),
+                unique: false,
+                predicate: None,
+            },
+            Index {
+                fields: field_list(&["email"]),
+                unique: true,
+                predicate: None,
+            },
+        ];
+        assert_ne!(
+            indexes[0].generated_name("TestEntity"),
+            indexes[1].generated_name("TestEntity")
+        );
+        if reverse {
+            indexes.reverse();
+        }
+        entity_with_fields_and_indexes(vec![scalar_field("id"), scalar_field("email")], indexes)
+            .validate()
+            .expect("distinct generated names preserve separate uniqueness contracts");
+    }
+}
+
+#[test]
 fn composite_primary_key_emits_deterministic_public_key_struct() {
     let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("tenant_id"), scalar_field("local_id")],

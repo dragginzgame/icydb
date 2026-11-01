@@ -1,5 +1,7 @@
 //! Generated reconciliation preserves unchanged SQL-owned activation authority.
 
+mod revision_fence;
+
 use super::*;
 use crate::{
     db::{

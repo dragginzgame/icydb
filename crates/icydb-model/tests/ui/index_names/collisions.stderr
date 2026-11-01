@@ -1,0 +1,17 @@
+error: duplicate generated index name 'idx_compound_name_collision__a_b'
+  --> tests/ui/index_names/collisions.rs:18:21
+   |
+18 |     index(fields = ["a", "b"])
+   |                     ^^^
+
+error: duplicate generated index name 'idx_expression_name_collision__lower_email'
+  --> tests/ui/index_names/collisions.rs:32:19
+   |
+32 |     index(field = "LOWER(email)")
+   |                   ^^^^^^^^^^^^^^
+
+error: duplicate generated index name 'idx_partial_name_collision__score'
+  --> tests/ui/index_names/collisions.rs:46:19
+   |
+46 |     index(field = "score", predicate = "active = false")
+   |                   ^^^^^^^

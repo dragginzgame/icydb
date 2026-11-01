@@ -591,6 +591,9 @@ fn open_commit_window_structural<C: CanisterKind>(
     )?;
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
+    if positioned_rows.len() != prepared_row_ops.len() {
+        return Err(InternalError::query_executor_invariant());
+    }
     finish_current_execution_instruction_watermark()?;
     let commit = begin_commit_window_payload::<C>(&effects.marker, &index_store_guards)?;
 
@@ -610,9 +613,6 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
         positioned_rows,
         effects,
     } = window;
-    if positioned_rows.len() != prepared_row_ops.len() {
-        return Err(InternalError::query_executor_invariant());
-    }
     finish_commit(commit, |guard| {
         #[cfg(test)]
         let mut apply_guard = CommitApplyGuard::new();
@@ -646,7 +646,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
         let mut row_index = 0_usize;
         for (row_op, position) in prepared_row_ops.into_iter().zip(positioned_rows) {
             match position {
-                Some(position) => enforce_preflighted_apply(row_op.apply_positioned(position))?,
+                Some(position) => row_op.apply_positioned(position)?,
                 None => row_op.apply(),
             }
             #[cfg(test)]
@@ -667,7 +667,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        enforce_preflighted_apply(apply_prepared_state_effects::<C>(effects))?;
+        apply_prepared_state_effects::<C>(effects)?;
         #[cfg(test)]
         if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
             || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
@@ -680,29 +680,6 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
 
         Ok(())
     })
-}
-
-#[cfg(test)]
-const fn enforce_preflighted_apply(result: Result<(), InternalError>) -> Result<(), InternalError> {
-    result
-}
-
-#[cfg(not(test))]
-fn enforce_preflighted_apply(result: Result<(), InternalError>) -> Result<(), InternalError> {
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) => trap_preflighted_commit_apply_contradiction(error),
-    }
-}
-
-#[cfg(all(not(test), target_arch = "wasm32"))]
-fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
-    ic_platform::ic0::trap(b"preflighted commit application contradicted its complete preflight")
-}
-
-#[cfg(all(not(test), not(target_arch = "wasm32")))]
-fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
-    std::process::abort()
 }
 
 fn apply_prepared_state_effects<C: CanisterKind>(

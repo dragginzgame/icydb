@@ -46,6 +46,14 @@ thread_local! {
         const { Cell::new(DEFAULT_STARTUP_RECOVERY_WAKEUP) };
 }
 
+#[cfg(test)]
+thread_local! {
+    // Existing native fault fixtures return errors to inspect retained state.
+    // Child-process qualification disables that exception to exercise the same
+    // terminating path used unconditionally by production.
+    static RETURN_COMMIT_FAILURES_FOR_TESTS: Cell<bool> = const { Cell::new(true) };
+}
+
 /// Install the generated watchdog wake-up for recovery and published schema work.
 #[doc(hidden)]
 pub fn install_startup_recovery_wakeup(wakeup: fn()) {
@@ -315,9 +323,10 @@ fn begin_commit_with_preflighted_mutation_progress(
 /// Any in-process rollback guard used by the closure is non-authoritative
 /// cleanup; durable authority remains the commit marker protocol.
 ///
-/// Durability rule:
-/// - `Ok(())` => marker is cleared.
-/// - `Err(_)` => marker remains persisted for recovery replay.
+/// Successful application retires the marker. Unexpected application or
+/// retirement failures terminate execution: an ordinary refusal must happen
+/// before marker publication. Native fault fixtures may return errors to inspect
+/// retained marker authority; that exception is absent from production.
 ///
 pub(crate) fn finish_commit(
     mut guard: CommitGuard,
@@ -326,26 +335,45 @@ pub(crate) fn finish_commit(
     // COMMIT WINDOW:
     // Apply mutates stores from a prevalidated marker payload.
     // Marker durability + recovery replay remain the atomicity authority.
-    // We only clear on success; failures keep the marker durable so recovery can
-    // re-run the marker payload instead of losing commit authority.
-    let result = apply(&mut guard);
-    if let Err(error) = result {
-        // The guard requests recovery on every normally returned error in the
-        // same IC message; a trap rolls marker and scheduling changes back.
-        // Phase 1 (error path): failed apply must preserve marker authority.
-        // Internal invariant: failed commit windows must preserve marker authority.
-        if with_initialized_commit_store(super::store::CommitStore::is_empty)? {
-            return Err(InternalError::commit_corruption());
+    // Keep every fallible post-marker operation inside one fatal-error boundary,
+    // including marker observation and retirement, not only row application.
+    let result = (|| {
+        if let Err(error) = apply(&mut guard) {
+            // Fault fixtures must retain recovery authority on returned errors.
+            if with_initialized_commit_store(super::store::CommitStore::is_empty)? {
+                return Err(InternalError::commit_corruption());
+            }
+            return Err(error);
         }
-        return Err(error);
-    }
 
-    // Phase 1: successful apply must clear marker authority immediately. The
-    // guard retains its wake-up on clear failure or pending startup work.
-    // Clear preflights every fallible check before its mechanical stable writes.
-    // Do not introduce a normally returned validation error after retirement;
-    // the next message's recovery observation remains the independent check.
-    guard.clear()
+        // Retirement preflights its fallible checks before mechanical writes.
+        // Pending startup work retains the guard's wake-up after success.
+        guard.clear()
+    })();
+    enforce_preflighted_apply(result)
+}
+
+fn enforce_preflighted_apply(result: Result<(), InternalError>) -> Result<(), InternalError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            #[cfg(test)]
+            if RETURN_COMMIT_FAILURES_FOR_TESTS.with(Cell::get) {
+                return Err(error);
+            }
+            trap_preflighted_commit_apply_contradiction(error)
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
+    ic_platform::ic0::trap(b"preflighted commit application contradicted its complete preflight")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
+    std::process::abort()
 }
 
 #[cfg(test)]

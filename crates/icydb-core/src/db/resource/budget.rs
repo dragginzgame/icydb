@@ -470,7 +470,24 @@ impl HardExecutionBudgetTracker {
     pub(in crate::db) fn check_instruction_watermark(
         &mut self,
     ) -> Result<(), ExecutionBudgetExceeded> {
-        self.record_instruction_watermark(crate::runtime::local_instruction_counter())
+        // Keep physical per-operation accounting separate from the message
+        // safety ceiling. Earlier application/maintenance work consumes the
+        // same IC message even when this tracker has just been constructed.
+        self.record_instruction_watermark(crate::runtime::local_instruction_counter())?;
+        if self.context.lane == DiagnosticExecutionLane::Mutation {
+            let resource = DiagnosticExecutionBudgetResource::InstructionUnits;
+            let limit = self.budget.budget().limit(resource);
+            let current = crate::runtime::message_instruction_counter();
+            if current > limit {
+                return Err(ExecutionBudgetExceeded::new(
+                    resource,
+                    limit,
+                    current,
+                    self.context,
+                ));
+            }
+        }
+        Ok(())
     }
 
     // Keep counter-delta arithmetic testable without substituting native time

@@ -115,6 +115,21 @@ Restore database-dependent application state exactly once after observing
 `Ready`. On `StartupFailure`, stop blind retries and retain the bounded kind,
 diagnostic, and facts for an application-authorized operational surface.
 
+A recurring replay/fold contradiction is different: its message traps, so it
+cannot publish a durable failure receipt from that execution. Readiness can
+remain `Recovering` without progress. Inspect the trap diagnostics and exact
+source/Wasm identity instead of assuming every deterministic failure becomes a
+typed `StartupFailure`. See [apply contradictions](../contracts/ATOMICITY.md#apply-contradictions)
+for the current termination policy and outstanding installed qualification.
+
+Normally returned internal invariant errors also do not justify a durable
+terminal receipt. They remain eligible for a fresh attempt under corrected code.
+Current-format invariant receipts recorded by an earlier build stay readable,
+but no longer block readiness or the recovery driver. Read-only observation
+leaves their bytes unchanged; successful replicated recovery clears them through
+the existing receipt owner. Genuine corruption, incompatible-format and admitted
+deterministic schema failures keep their terminal authority and bindings.
+
 Deterministic migration-planning rejections, such as an unadopted source or a
 version gap, stop the generated startup driver through its existing failure
 receipt. They retain their specific migration diagnostic and facts. Correct the
@@ -174,7 +189,7 @@ catalog is a deployment mismatch. The recovery driver returns
 `RUNTIME_UNSUPPORTED` before replay, without a durable terminal failure receipt;
 startup observation remains `Recovering`. Restore the original store path to
 resume recovery. Repeated polling cannot correct that configuration. This guard
-does not clear failure receipts already recorded by an older deployment.
+does not clear older failure receipts that remain terminal under current policy.
 
 Unsupported allocation-registry transitions, such as reintroducing a retired
 store or omitting one with retained journal debt, stop the startup driver once

@@ -41,10 +41,10 @@ impl SqlSurfaceTokens {
         quote! {
             fn __icydb_query_dispatch<const INTROSPECTION: bool>(
                 sql: &str,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 if !INTROSPECTION && dispatch.requires_introspection() {
-                    return Err(#icydb::Error::from_runtime_boundary(
+                    return ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
                         #icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
                         #icydb::ErrorOrigin::Interface,
                     ));
@@ -67,10 +67,10 @@ impl SqlSurfaceTokens {
         } else {
             quote! {
                 fn __icydb_sql_surface_reset_all_tables(
-                ) -> Result<(), #icydb::Error> {
+                ) -> ::std::result::Result<(), #icydb::Error> {
                     #reset_statements
 
-                    Ok(())
+                    ::std::result::Result::Ok(())
                 }
             }
         }
@@ -82,7 +82,7 @@ impl SqlSurfaceTokens {
             quote! { db()?.execute_admin_sql_ddl_dispatch(&dispatch) }
         } else {
             quote! {
-                Err(#icydb::Error::from_runtime_boundary(
+                ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
                     #icydb::diagnostic::RuntimeBoundaryCode::SqlDdlEntityNotConfigured,
                     #icydb::ErrorOrigin::Interface,
                 ))
@@ -92,14 +92,14 @@ impl SqlSurfaceTokens {
         quote! {
             fn __icydb_sql_surface_ddl_dispatch(
                 sql: &str,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 match dispatch.entity_name() {
-                    None => Err(#icydb::Error::from_runtime_boundary(
+                    ::std::option::Option::None => ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
                         #icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
                         #icydb::ErrorOrigin::Interface,
                     )),
-                    Some(_entity) => #entity_dispatch,
+                    ::std::option::Option::Some(_entity) => #entity_dispatch,
                 }
             }
         }
@@ -121,27 +121,27 @@ impl SqlSurfaceTokens {
         quote! {
             fn __icydb_sql_surface_update_primary_key_dispatch(
                 sql: &str,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 match dispatch.entity_name() {
-                    None => Err(#icydb::Error::from_runtime_boundary(
+                    ::std::option::Option::None => ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
                         #icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
                         #icydb::ErrorOrigin::Interface,
                     )),
-                    Some(_entity) => #primary_key_dispatch,
+                    ::std::option::Option::Some(_entity) => #primary_key_dispatch,
                 }
             }
 
             fn __icydb_sql_surface_update_bounded_dispatch(
                 sql: &str,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 match dispatch.entity_name() {
-                    None => Err(#icydb::Error::from_runtime_boundary(
+                    ::std::option::Option::None => ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
                         #icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
                         #icydb::ErrorOrigin::Interface,
                     )),
-                    Some(_entity) => #bounded_dispatch,
+                    ::std::option::Option::Some(_entity) => #bounded_dispatch,
                 }
             }
         }
@@ -152,7 +152,7 @@ impl SqlSurfaceTokens {
         let reset_result = if self.reset_statements.is_empty() {
             quote! {
                 __icydb_sql_surface_reset_all_tables();
-                Ok(())
+                ::std::result::Result::Ok(())
             }
         } else {
             quote! { __icydb_sql_surface_reset_all_tables() }
@@ -164,8 +164,8 @@ impl SqlSurfaceTokens {
                 reason = "generated handlers retain the owned SQL endpoint input contract"
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_query<const INTROSPECTION: bool>(
-                sql: String,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                sql: ::std::string::String,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?
                     .into_deliverable_query_reply()
             }
@@ -175,8 +175,8 @@ impl SqlSurfaceTokens {
                 reason = "generated handlers retain the owned SQL endpoint input contract"
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_ddl(
-                sql: String,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                sql: ::std::string::String,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_sql_surface_ddl_dispatch(sql.as_str())
             }
 
@@ -186,13 +186,13 @@ impl SqlSurfaceTokens {
                 reason = "fixture presence changes the generated body while the handler contract stays uniform"
             )]
             pub(crate) fn __icydb_endpoint_handler_fixtures_reset(
-            ) -> Result<(), #icydb::Error> {
+            ) -> ::std::result::Result<(), #icydb::Error> {
                 #reset_result
             }
 
             pub(crate) fn __icydb_endpoint_handler_fixtures_load(
-                handler: fn() -> Result<(), #icydb::Error>,
-            ) -> Result<(), #icydb::Error> {
+                handler: fn() -> ::std::result::Result<(), #icydb::Error>,
+            ) -> ::std::result::Result<(), #icydb::Error> {
                 __icydb_endpoint_handler_fixtures_reset()?;
                 handler()
             }
@@ -202,8 +202,8 @@ impl SqlSurfaceTokens {
                 reason = "generated handlers retain the owned SQL endpoint input contract"
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_update_primary_key(
-                sql: String,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                sql: ::std::string::String,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_sql_surface_update_primary_key_dispatch(sql.as_str())
             }
 
@@ -212,8 +212,8 @@ impl SqlSurfaceTokens {
                 reason = "generated handlers retain the owned SQL endpoint input contract"
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_update_bounded(
-                sql: String,
-            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                sql: ::std::string::String,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_sql_surface_update_bounded_dispatch(sql.as_str())
             }
 
@@ -223,9 +223,9 @@ impl SqlSurfaceTokens {
                 reason = "generated integrity handlers preserve the owned SQL input and public typed error contracts"
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_integrity(
-                sql: String,
+                sql: ::std::string::String,
                 owner: #icydb::db::IntegrityJobOwner,
-            ) -> Result<#icydb::db::IntegrityCheckResult, #icydb::db::SqlIntegrityError> {
+            ) -> ::std::result::Result<#icydb::db::IntegrityCheckResult, #icydb::db::SqlIntegrityError> {
                 let session = db().map_err(|error| {
                     #icydb::db::SqlIntegrityError::Integrity(
                         #icydb::db::IntegrityCheckError::Database(error),
@@ -268,7 +268,7 @@ fn sql_surface_reset_statement(entity_name: &str) -> TokenStream {
 
 fn empty_sql_surface_query_dispatch(icydb: &TokenStream) -> TokenStream {
     quote! {
-        Err(#icydb::Error::from_runtime_boundary(
+        ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
             #icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
             #icydb::ErrorOrigin::Interface,
         ))

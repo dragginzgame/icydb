@@ -477,6 +477,8 @@ check-dependency-pins:
 
 # The static gate and native host qualification execute this same portable
 # fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
+# Shared owns the generic runner matrix; these release fixtures qualify our
+# actual dispatch, source/receipt custody, rejection and recovery boundaries.
 check-portable-automation: shared-tooling-check
 	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-lock-selection.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
@@ -490,7 +492,6 @@ check-portable-automation: shared-tooling-check
 	bash scripts/ci/test-tooling-fixture-completion.sh
 	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-pin-exceptions.sh
 	bash scripts/ci/test-publish-workspace.sh
-	bash scripts/ci/test-release-runner.sh
 	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
 	bash scripts/ci/test-pre-commit.sh
 	perl scripts/ci/test-documentation.pl

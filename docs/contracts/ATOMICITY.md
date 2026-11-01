@@ -170,6 +170,41 @@ After the commit boundary:
 
 The apply phase must be correct by construction.
 
+### Apply contradictions
+
+The commit guard and journal replay/fold contradiction handlers terminate
+execution when an operation contradicts its completed preflight. The commit
+guard covers application, marker observation and marker retirement, including
+journal append failures. Production Wasm traps; production native execution
+aborts. Ordinary typed refusals must occur before marker publication. These
+implementation-defect handlers do not make trap rollback the normal commit
+mechanism or relax preflight.
+
+A trapping message cannot persist a failure receipt or a heap retry counter
+written during that same execution: the IC rolls those changes back. See the
+[IC execution-error contract](https://docs.internetcomputer.org/references/execution-errors/).
+Repeated replay contradictions may therefore leave readiness at `Recovering`.
+Retain the failing source/Wasm identity and trap diagnostics, correct the defect,
+and qualify recovery from the retained state. Do not discard controls or return
+an ordinary client refusal from a partially applied contradiction handler.
+
+Native fault fixtures may return the contradiction error to inspect retained
+state and exercise recovery; journal recovery still aborts. A child-process
+test disables that fixture exception to check native termination for apply,
+marker observation and retirement errors. It does not qualify installed IC
+trap rollback. The installed failure/observability matrix remains owned by
+[#154](https://github.com/dragginzgame/icydb/issues/154). The common commit guard
+removes the ordinary post-marker failure outcome identified in
+[#152](https://github.com/dragginzgame/icydb/issues/152).
+
+Normally returned internal invariant diagnostics do not become durable terminal
+startup authority ([#59](https://github.com/dragginzgame/icydb/issues/59)). Retained
+current-format invariant receipts still undergo bounded validation but no longer
+gate readiness; successful replicated recovery clears them. Pure observation
+does not write. Corruption, format incompatibility and deterministic schema
+failure receipts retain their existing authority. This does not change the
+fatal policy for post-marker apply or replay contradictions above.
+
 ---
 
 ## 4. Commit Markers
@@ -222,6 +257,13 @@ defaults, historical fills, generation, application normalizers, or mutation
 policy. Application normalizers are explicit pre-write authoring operations;
 the database never invokes them during admission or replay.
 
+User-index replacement proves complete row-derived before/after domains and
+exact physical-before equality under the full staging bounds. It then retains
+only removed/changed keys for deletion and added/changed entries for insertion.
+Identical key/value entries stay in place. Live apply and journal replay consume
+those same prepared effects; the smaller payload does not bypass full-domain
+validation, unique admission or the existing construction instruction ceiling.
+
 Publication is redo-only. Rejection before the marker leaves the accepted-before
 schema and physical state authoritative; interruption after the marker is
 completed by recovery. Operation-specific rollback is not a second atomicity
@@ -244,8 +286,11 @@ finding, or staging bound rejects or remains incomplete; it cannot report a
 clean proof.
 
 Promotion is a separate marker-bound operation. It may publish a validated
-constraint only after the exact Forward/Verify job proves a stable participating
-revision and the required candidate derived state is complete. Promotion
+constraint only after the exact Forward/Verify job proves that its entity has
+not changed since the captured store mutation sequence and the required
+candidate derived state is complete. Writes to other entities in the same
+store do not invalidate this proof. A later mutation of the activation's entity
+restarts Forward; missing revision authority fails closed. Promotion
 installs the validated catalog state and removes the activation/job atomically.
 Abort removes the activation, job, and reachability of candidate generations.
 For a new constraint, its reserved identity remains retired and is not reused.
@@ -311,10 +356,11 @@ Fully consistent point:
   replicated driver has completed recovery and generated-schema reconciliation.
   Ordinary reads and writes never drive a recovery page; they return the typed
   retryable startup-pending diagnostic until that point.
-* A published commit guard owns the captured watchdog wake-up. Dropping it after
-  a normally returned error or an early exit registers that wake-up in the same
-  message. Successful marker retirement disarms it only when no journal debt
-  remains. A trap rolls the marker and volatile scheduling change back together.
+* A published commit guard owns the captured watchdog wake-up. Successful marker
+  retirement disarms it only when no journal debt or schema startup work remains.
+  Production post-marker errors terminate execution; an IC trap rolls the marker
+  and volatile scheduling change back together. Native fault fixtures returning
+  errors, and internally abandoned guards, retain the wake-up for recovery.
 * A nonterminal offline schema migration restores its database-wide gate before
   ordinary routing. Migration and integrity control operations may inspect the
   recovered gated state; ordinary reads, writes, relations, schema mutation,

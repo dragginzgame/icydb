@@ -5,6 +5,65 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.292.1]
+
+### 🩹 Fixed
+
+- Allow corrected code to retry startup after internal invariant failures without
+  treating their old diagnostic receipts as permanent database failures
+  ([#59 — Startup receipts block corrected upgrades](https://github.com/dragginzgame/icydb/issues/59)).
+- Enforce mutation instruction limits across the entire IC message and preserve
+  typed budget errors when starting mutation jobs
+  ([#150 — Mutation trackers grant fresh instruction allowances](https://github.com/dragginzgame/icydb/issues/150)).
+- Apply the existing fatal commit policy consistently after marker publication,
+  rather than report a failed write that recovery can later commit
+  ([#152 — Errors after marker publication](https://github.com/dragginzgame/icydb/issues/152)).
+- Let constraint validation progress while unrelated entities receive writes
+  ([#99 — Validation restarts on unrelated writes](https://github.com/dragginzgame/icydb/issues/99)).
+- Diagnose colliding generated index names at their declarations; the broader
+  naming-contract decision remains open
+  ([#203 — Colliding index names](https://github.com/dragginzgame/icydb/issues/203)).
+- Prevent application conversion traits from breaking generated default values
+  ([#180 — Generated-name collisions](https://github.com/dragginzgame/icydb/issues/180), partial).
+- Prevent local types, variants and macros from breaking generated actor,
+  schema and SQL handlers; public entity-helper naming remains open
+  ([#180 — Generated-name collisions](https://github.com/dragginzgame/icydb/issues/180)).
+
+### 🧹 Cleanup
+
+- Keep unchanged index entries in place during schema publication after proving
+  the complete before/after domains
+  ([#86 — User-index replacement work](https://github.com/dragginzgame/icydb/issues/86), partial).
+- Remove redundant full-checkpoint serialization during heap-store decoding;
+  full identity-checkpoint rewrites remain open
+  ([#102 — Heap identity checkpoint work](https://github.com/dragginzgame/icydb/issues/102), partial).
+- Share exact same-type numeric comparison between Value and database ordering,
+  preserving existing mixed-type semantics
+  ([#112 — Shared native numeric comparison](https://github.com/dragginzgame/icydb/issues/112), partial).
+
+### 🧪 Testing
+
+- Check deployment dependency exclusions on retained canister builds, including
+  cache hits; actor-recipe and supported-host qualification remain open
+  ([#378 — Deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378)).
+- Retire the unused generic release-runner suite and retain IcyDB's own release
+  dispatch and failure-propagation coverage
+  ([#598 — Generic release-runner regressions in consumer CI](https://github.com/dragginzgame/icydb/issues/598)).
+
+### 🔧 Changed
+
+- Adopt Platform 0.16.0, Memory/Storage 0.60.6, Wire/Derive 0.13.3, Host Tools
+  0.76.0 and newer Build/Host minimums. Preserve wire/storage formats and Canic's
+  independent qualification graph.
+
+### 📚 Documentation
+
+- Explain fatal recovery contradictions and their operator-observability limits
+  ([#243 — Recovery contradictions can wedge startup](https://github.com/dragginzgame/icydb/issues/243),
+  consolidated into [#154 — Production budget and recovery qualification](https://github.com/dragginzgame/icydb/issues/154)).
+
+[Detailed changes and remaining qualification](docs/changelog/0.292.md).
+
 ## [0.292.0] - 2026-10-31
 
 ### ⚠️ Breaking

@@ -637,7 +637,7 @@ fn append_staged_schema_domain_journal_records(
         )?);
     }
     for entries in replacement
-        .final_entries()
+        .insertion_entries()
         .chunks(MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD)
     {
         records.push(JournalRecord::accepted_schema_index_put(
@@ -1078,14 +1078,14 @@ fn apply_user_index_domain_replacement(
 ) -> Result<(), InternalError> {
     let data_generation = store.with_data(DataStore::generation);
     store.mark_index_building()?;
-    let (deletion_keys, final_entries) = replacement.into_apply_parts();
+    let (deletion_keys, insertion_entries) = replacement.into_apply_parts();
     store.with_index_mut(|index_store| {
         for key in deletion_keys {
             index_store.remove(&key);
             #[cfg(test)]
             interrupt_schema_publication_at(SchemaPublicationInterruption::IndexDeleted)?;
         }
-        for entry in final_entries {
+        for entry in insertion_entries {
             let (key, value) = entry.into_parts();
             index_store.insert_preflighted_absent(key, value);
             #[cfg(test)]

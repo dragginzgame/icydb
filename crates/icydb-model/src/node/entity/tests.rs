@@ -208,6 +208,42 @@ fn entity_validation_rejects_duplicate_field_names() {
 }
 
 #[test]
+fn entity_validation_independently_rejects_duplicate_index_names() {
+    let store_path = "schema_entity_relation_edge::Store";
+    schema_write().insert_node(SchemaNode::Store(store(store_path)));
+    let fields = Box::leak(
+        vec![
+            field("id", Primitive::Ulid),
+            field("a_b", Primitive::Ulid),
+            field("a", Primitive::Ulid),
+            field("b", Primitive::Ulid),
+        ]
+        .into_boxed_slice(),
+    );
+    let mut source = entity("IndexNames", store_path, &["id"], &[], fields);
+    // Hand-authored model metadata does not pass through attribute macros.
+    // Its own intake must still refuse duplicate names for distinct keys.
+    source.indexes = Box::leak(
+        vec![
+            Index::new("idx_shared", &["a_b"], false),
+            Index::new("idx_shared", &["a", "b"], false),
+        ]
+        .into_boxed_slice(),
+    );
+    assert!(source.validate().is_err());
+    source.indexes = Box::leak(
+        vec![
+            Index::new("idx_one", &["a_b"], false),
+            Index::new("idx_two", &["a", "b"], false),
+        ]
+        .into_boxed_slice(),
+    );
+    source
+        .validate()
+        .expect("independently named model indexes remain accepted");
+}
+
+#[test]
 fn entity_validation_rejects_durable_source_relation_field_to_heap_target() {
     let module = "schema_entity_relation_field_durable_to_heap";
     let source_store_path = "schema_entity_relation_field_durable_to_heap::DurableStore";

@@ -692,6 +692,16 @@ store. Heap-backed row-local validation must finish in the same single-page
 row/payload bounds described above; an incomplete page returns Unsupported.
 Repeating VALIDATE does not advance a heap checkpoint. Use journal-backed
 storage for historical domains that require multiple pages.
+
+Journal-backed CHECK, NOT NULL, UNIQUE and targeted-rule activation jobs retain
+their captured store mutation sequence across Verify pages. If the store
+advances, its journal-owned last-mutation sequence for the activation's entity
+must still precede or equal that baseline. Unrelated writes to another entity
+in the same store do not restart validation; a target-entity mutation does.
+Missing revision authority refuses verification, and a baseline beyond the
+current store revision cannot promote. This is the constraint-activation proof;
+durable application jobs retain their separate participating-store rules.
+
 Each validation response reports typed
 constraint/job identity, full-width page sequence, engine-owned state,
 revision status, cumulative rows, bounded findings, and completion. A finding
@@ -857,10 +867,12 @@ a marker is pending; the recovery driver owns its exact before/after transition.
 Control admission preserves migration inspection without clearing the ordinary
 database migration gate.
 
-Each non-replay advance uses one fixed engine-owned execution allocation of 30
-billion instructions with a 5-billion failure reserve and further IC
-update-message margin. Exact replay returns before page execution. Applications
-cannot select or increase count, byte, or instruction budgets.
+Each non-replay advance checks the current IC message against the fixed
+30-billion-instruction ceiling, including work done before that advance or by
+an earlier advance. Per-operation usage remains separately accounted. The
+5-billion failure reserve and further IC update-message margin are not renewed
+by starting another budget. Exact replay returns before page execution.
+Applications cannot select or increase count, byte, or instruction budgets.
 
 ### SQL `UPDATE` Availability By Surface
 

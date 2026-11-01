@@ -70,10 +70,10 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         TokenStream::new,
         |_| quote!(#icydb::__icydb_require_migration_capability!();),
     );
-    let migration_bytes = builder
-        .schema_migration_plan_bytes
-        .as_ref()
-        .map_or_else(|| quote!(None), |bytes| quote!(Some(&[#(#bytes),*])));
+    let migration_bytes = builder.schema_migration_plan_bytes.as_ref().map_or_else(
+        || quote!(::std::option::Option::None),
+        |bytes| quote!(::std::option::Option::Some(&[#(#bytes),*])),
+    );
     let apply_generated_schema = if builder.schema_migration_plan_bytes.is_some() {
         quote! {
             session.ensure_generated_schema_fragment(
@@ -125,11 +125,11 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         fn admit_ordinary_database_work(
         ) -> ::std::result::Result<(), #icydb::Error> {
             match startup_state() {
-                Ok(#icydb::db::DatabaseStartupState::Ready) => Ok(()),
-                Ok(#icydb::db::DatabaseStartupState::Recovering) => {
-                    Err(#icydb::db::__startup_recovery_pending())
+                ::std::result::Result::Ok(#icydb::db::DatabaseStartupState::Ready) => ::std::result::Result::Ok(()),
+                ::std::result::Result::Ok(#icydb::db::DatabaseStartupState::Recovering) => {
+                    ::std::result::Result::Err(#icydb::db::__startup_recovery_pending())
                 }
-                Err(failure) => Err(failure.error().clone()),
+                ::std::result::Result::Err(failure) => ::std::result::Result::Err(failure.error().clone()),
             }
         }
     }
@@ -143,8 +143,8 @@ fn startup_driver_tokens(icydb: &TokenStream) -> TokenStream {
                 &STORE_REGISTRY,
                 ICYDB_SCHEMA_SUBMISSION_KEY,
             )? {
-                #icydb::db::GeneratedStartupDriverStep::Terminal => Ok(true),
-                #icydb::db::GeneratedStartupDriverStep::Recovering => Ok(false),
+                #icydb::db::GeneratedStartupDriverStep::Terminal => ::std::result::Result::Ok(true),
+                #icydb::db::GeneratedStartupDriverStep::Recovering => ::std::result::Result::Ok(false),
                 #icydb::db::GeneratedStartupDriverStep::ApplyGeneratedSchema => {
                     complete_generated_schema_handoff(&session)
                 }
@@ -181,7 +181,7 @@ fn startup_driver_tokens(icydb: &TokenStream) -> TokenStream {
         fn complete_generated_schema_handoff(
             session: &#icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<bool, #icydb::Error> {
-            if let Err(error) = apply_generated_schema(session) {
+            if let ::std::result::Result::Err(error) = apply_generated_schema(session) {
                 // Explicit controller commands own migration progress. Stop
                 // without a receipt in that case; otherwise record failures
                 // through the existing startup classifier and binding.
@@ -193,21 +193,21 @@ fn startup_driver_tokens(icydb: &TokenStream) -> TokenStream {
                     ICYDB_SCHEMA_SUBMISSION_KEY,
                     &error,
                 )? {
-                    return Ok(true);
+                    return ::std::result::Result::Ok(true);
                 }
                 // Retryable failures use the adapter's logged cadence, not
                 // the immediate successor reserved for successful progress.
-                return Err(error);
+                return ::std::result::Result::Err(error);
             }
             match startup_state() {
-                Ok(#icydb::db::DatabaseStartupState::Ready) => {
+                ::std::result::Result::Ok(#icydb::db::DatabaseStartupState::Ready) => {
                     let _ = #icydb::db::__clear_generated_startup_failure::<
                         __IcydbGeneratedCanister,
                     >()?;
-                    Ok(false)
+                    ::std::result::Result::Ok(false)
                 }
-                Ok(#icydb::db::DatabaseStartupState::Recovering) => Ok(false),
-                Err(_) => Ok(true),
+                ::std::result::Result::Ok(#icydb::db::DatabaseStartupState::Recovering) => ::std::result::Result::Ok(false),
+                ::std::result::Result::Err(_) => ::std::result::Result::Ok(true),
             }
         }
 
@@ -314,13 +314,13 @@ fn store_cell_tokens(
     initializer: Ident,
 ) -> TokenStream {
     quote! {
-        thread_local! {
+        ::std::thread_local! {
             static #cell_ident: ::std::cell::RefCell<
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::#initializer(
                     #icydb::__macro::open_memory(#stable_key)
-                    .expect(concat!(
+                    .expect(::std::concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
                     ))
@@ -333,7 +333,7 @@ fn store_cell_tokens(
 // Heap roles share const initialization but never acquire stable-memory handles.
 fn heap_store_cell_tokens(cell: &Ident, store_type: &TokenStream) -> TokenStream {
     quote! {
-        thread_local! {
+        ::std::thread_local! {
             static #cell: ::std::cell::RefCell<#store_type> = const {
                 ::std::cell::RefCell::new(#store_type::init_heap())
             };
@@ -545,7 +545,7 @@ fn store_wiring_tokens(
         }
 
         #journal_defs
-        thread_local! {
+        ::std::thread_local! {
             static MEMORY_BOOTSTRAP:
                 ::std::cell::OnceCell<
                     ::std::result::Result<
@@ -593,7 +593,7 @@ fn store_wiring_tokens(
         #schema_defs
         #frontend_surfaces
         #schema_bootstrap
-        thread_local! {
+        ::std::thread_local! {
             static STORE_REGISTRY:
                 #icydb::__macro::StoreRegistry =
                 #store_registry_init;
@@ -623,7 +623,7 @@ fn store_wiring_tokens(
         > {
             ensure_memory_bootstrap()?;
 
-            Ok(#icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new(
+            ::std::result::Result::Ok(#icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new(
                 &STORE_REGISTRY,
                 request_root.__core(),
             ))
@@ -635,7 +635,7 @@ fn store_wiring_tokens(
         > {
             admit_ordinary_database_work()?;
             let session = #icydb::db::DbSession::new(core_db()?);
-            Ok(session)
+            ::std::result::Result::Ok(session)
         }
 
         #[doc(hidden)]
@@ -648,7 +648,7 @@ fn store_wiring_tokens(
             request_root.__ensure_compatible_with_current()?;
             admit_ordinary_database_work()?;
             let session = #icydb::db::DbSession::new(core_db_with_request_root(request_root)?);
-            Ok(session)
+            ::std::result::Result::Ok(session)
         }
     }
 }
@@ -756,7 +756,7 @@ mod tests {
         for required in [
             "pub(crate)fnstartup_driver_attempt(",
             "__drive_generated_startup_recovery_page",
-            "GeneratedStartupDriverStep::Terminal=>Ok(true)",
+            "GeneratedStartupDriverStep::Terminal=>::std::result::Result::Ok(true)",
             "__icydb_startup_driver_attempt_for_tests",
             "__record_generated_schema_startup_failure",
             "__drive_native_database_for_tests",

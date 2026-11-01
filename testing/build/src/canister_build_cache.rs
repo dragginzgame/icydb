@@ -147,7 +147,7 @@ pub(crate) fn build_cached_cargo_wasm_batch(
     Ok(report)
 }
 
-fn cargo_wasm_spec(
+pub(crate) fn cargo_wasm_spec(
     workspace_root: &Path,
     target_dir: &Path,
     packages: &[&str],

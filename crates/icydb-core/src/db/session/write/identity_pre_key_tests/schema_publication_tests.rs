@@ -185,11 +185,12 @@ fn assert_pending(session: &DbSession<JournaledTestCanister>) {
 
 // Restart with the same marker after Replay and again after durable Fold. This
 // proves retained-authority idempotence, not just a no-op after marker deletion.
-fn recover_with_stage_loss(session: &DbSession<JournaledTestCanister>) {
+fn recover_with_stage_loss(session: &DbSession<JournaledTestCanister>, effects: (usize, usize)) {
     forget_recovered_domain_for_tests(&session.db).unwrap();
     assert_pending(session);
     assert!(!session.db.drive_startup_recovery_page().unwrap());
     assert_pending(session);
+    assert_journal_index_effects(effects);
     forget_recovered_domain_for_tests(&session.db).unwrap();
     assert!(!session.db.drive_startup_recovery_page().unwrap());
     assert!(!session.db.drive_startup_recovery_page().unwrap());
@@ -207,11 +208,43 @@ fn recover_with_stage_loss(session: &DbSession<JournaledTestCanister>) {
     assert!(session.db.drive_startup_recovery_page().unwrap());
 }
 
+fn assert_journal_index_effects(expected: (usize, usize)) {
+    use crate::db::journal::JournalRecord;
+
+    let batch = JOURNALED_TAIL_STORE.with_borrow(|tail| {
+        tail.next_batch_after(
+            tail.fold_watermark()
+                .unwrap()
+                .highest_folded_journal_sequence(),
+        )
+        .unwrap()
+        .unwrap()
+    });
+    let mut actual = (0, 0);
+    for record in batch.records() {
+        match record {
+            JournalRecord::AcceptedSchemaIndexDelete { keys, .. } => actual.0 += keys.len(),
+            JournalRecord::AcceptedSchemaIndexPut { keys, .. } => actual.1 += keys.len(),
+            _ => {}
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
 fn publication_case(
     sql: &'static str,
     interruption: Option<SchemaPublicationInterruption>,
+    expected_index_count: usize,
+    effects: (usize, usize),
+    setup_sql: Option<&'static str>,
 ) -> RecoveredPublication {
     let session = populated_session();
+    if let Some(sql) = setup_sql {
+        // Drop qualification must use a SQL-owned index, preserving the
+        // generated index's ownership and its unchanged physical entries.
+        session.execute_admin_sql_ddl(sql).unwrap();
+        drive_journaled_recovery_to_completion(&session);
+    }
     let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
     let before_rows = rows(store);
     let unrelated = indexes(store, true);
@@ -246,9 +279,10 @@ fn publication_case(
             assert_eq!(store.index_state(), IndexState::Building);
             assert_ne!(indexes(store, false), before_indexes);
         }
-        recover_with_stage_loss(&session);
+        recover_with_stage_loss(&session, effects);
     } else {
         result.expect("uninterrupted publication should succeed");
+        assert_journal_index_effects(effects);
         drive_journaled_recovery_to_completion(&session);
     }
     assert!(session.db.ensure_recovered_state().is_ok());
@@ -272,10 +306,16 @@ fn publication_case(
             .unwrap(),
         schema
     );
-    assert_eq!(schema.revision(), AcceptedSchemaRevision::new(2));
-    assert_eq!(schema.entity_snapshots()[&ENTITY_TAG].indexes().len(), 2);
+    assert_eq!(
+        schema.revision(),
+        before_schema.revision().checked_next().unwrap()
+    );
+    assert_eq!(
+        schema.entity_snapshots()[&ENTITY_TAG].indexes().len(),
+        expected_index_count
+    );
     let indexes = indexes(store, false);
-    assert_eq!(indexes.len(), before_indexes.len() + 2);
+    assert_eq!(indexes.len(), unrelated.len() + expected_index_count * 2);
     RecoveredPublication {
         schema_root,
         rows: before_rows,
@@ -283,18 +323,25 @@ fn publication_case(
     }
 }
 
-fn assert_publication_recovery(sql: &'static str) {
+fn assert_publication_recovery(
+    sql: &'static str,
+    expected_index_count: usize,
+    effects: (usize, usize),
+    physical_cut: SchemaPublicationInterruption,
+    setup_sql: Option<&'static str>,
+) {
     let mut expected = None;
     for interruption in [
         None,
         Some(SchemaPublicationInterruption::MarkerPersisted),
-        Some(SchemaPublicationInterruption::IndexDeleted),
-        Some(SchemaPublicationInterruption::IndexInserted),
+        Some(physical_cut),
     ] {
         // Each comparison must start with independent stable and volatile TLS.
-        let actual = std::thread::spawn(move || publication_case(sql, interruption))
-            .join()
-            .unwrap();
+        let actual = std::thread::spawn(move || {
+            publication_case(sql, interruption, expected_index_count, effects, setup_sql)
+        })
+        .join()
+        .unwrap();
         if let Some(expected) = &expected {
             assert_eq!(
                 &actual, expected,
@@ -310,6 +357,10 @@ fn assert_publication_recovery(sql: &'static str) {
 fn populated_field_index_publication_recovers_exact_domain_after_interruption() {
     assert_publication_recovery(
         "CREATE INDEX by_id_payload ON IdentityRow (id, payload) EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
+        2,
+        (0, 2),
+        SchemaPublicationInterruption::IndexInserted,
+        None,
     );
 }
 
@@ -317,5 +368,22 @@ fn populated_field_index_publication_recovers_exact_domain_after_interruption() 
 fn populated_expression_index_publication_recovers_exact_domain_after_interruption() {
     assert_publication_recovery(
         "CREATE INDEX by_lower_payload ON IdentityRow (LOWER(payload)) EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
+        2,
+        (0, 2),
+        SchemaPublicationInterruption::IndexInserted,
+        None,
+    );
+}
+
+#[test]
+fn populated_index_drop_recovers_exact_domain_after_interruption() {
+    assert_publication_recovery(
+        "DROP INDEX drop_me ON IdentityRow EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3",
+        1,
+        (2, 0),
+        SchemaPublicationInterruption::IndexDeleted,
+        Some(
+            "CREATE INDEX drop_me ON IdentityRow (id, payload) EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
+        ),
     );
 }

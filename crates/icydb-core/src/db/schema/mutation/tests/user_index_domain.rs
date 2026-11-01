@@ -1,4 +1,5 @@
 mod after_image;
+mod index_delta;
 
 use super::*;
 
@@ -229,20 +230,20 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
 
     assert_eq!(staged.store_path(), STORE_PATH);
     assert_eq!(staged.entity_tag(), EntityTag::new(7));
-    assert_eq!(staged.deletion_keys().len(), 2);
-    assert_eq!(staged.final_entries().len(), 4);
+    assert!(staged.deletion_keys().is_empty());
+    assert_eq!(staged.insertion_entries().len(), 2);
     assert_eq!(staged.usage().source_rows(), 2);
     assert_eq!(staged.usage().accepted_before_entries(), 2);
     assert_eq!(staged.usage().accepted_after_entries(), 4);
     assert!(
         staged
-            .final_entries()
+            .insertion_entries()
             .windows(2)
             .all(|pair| pair[0].key() < pair[1].key()),
         "accepted-after entries must be deterministically raw-key sorted",
     );
     let ordinals = staged
-        .final_entries()
+        .insertion_entries()
         .iter()
         .map(|entry| {
             assert_eq!(entry.value(), &IndexEntryValue::presence());
@@ -252,7 +253,7 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
                 .ordinal()
         })
         .collect::<Vec<_>>();
-    assert_eq!(ordinals, vec![1, 1, 2, 2]);
+    assert_eq!(ordinals, vec![2, 2]);
     assert_eq!(index_store_entries(&store), physical_before);
     assert_eq!(store.get(&system_key), Some(IndexEntryValue::presence()));
     assert_eq!(
@@ -367,7 +368,7 @@ fn complete_domain_stage_uses_candidate_logical_rows_for_new_index_fields() {
 
     assert_eq!(staged.usage().accepted_before_entries(), 0);
     assert_eq!(staged.usage().accepted_after_entries(), 1);
-    assert_eq!(staged.final_entries().len(), 1);
+    assert_eq!(staged.insertion_entries().len(), 1);
 }
 
 #[test]
@@ -426,7 +427,7 @@ fn complete_domain_stage_uses_historical_fill_in_composite_index_key() {
 
     assert_eq!(staged.usage().accepted_before_entries(), 0);
     assert_eq!(staged.usage().accepted_after_entries(), 1);
-    assert_eq!(staged.final_entries().len(), 1);
+    assert_eq!(staged.insertion_entries().len(), 1);
     assert!(store.is_empty(), "staging must remain zero-write");
 }
 
@@ -587,7 +588,7 @@ fn filtered_unique_domain_omits_guard_false_rows_and_matches_incremental_keys() 
     .unwrap_or_else(|_| panic!("guard-false rows must not collide in a filtered unique index"));
 
     assert_eq!(staged.usage().accepted_after_entries(), 1);
-    assert_eq!(staged.final_entries().len(), 1);
+    assert_eq!(staged.insertion_entries().len(), 1);
     assert!(store.is_empty(), "domain staging must remain zero-write");
 
     assert_filtered_unique_incremental_key_parity(after, &staged, &first_after, &third_after);
@@ -618,7 +619,7 @@ fn assert_filtered_unique_incremental_key_parity(
     .expect("guard-true row should have a physical key")
     .to_raw()
     .expect("incremental accepted key should encode");
-    assert_eq!(staged.final_entries()[0].key(), &present_key);
+    assert_eq!(staged.insertion_entries()[0].key(), &present_key);
     assert!(
         IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
             EntityTag::new(7),
@@ -718,8 +719,8 @@ fn complete_domain_stage_preserves_mixed_key_component_order() {
     )
     .unwrap_or_else(|_| panic!("mixed accepted index should stage"));
 
-    assert_eq!(staged.final_entries().len(), 1);
-    let key = IndexKey::try_from_raw(staged.final_entries()[0].key())
+    assert_eq!(staged.insertion_entries().len(), 1);
+    let key = IndexKey::try_from_raw(staged.insertion_entries()[0].key())
         .expect("mixed staged key should decode");
     assert_eq!(key.component_count(), 2);
     assert_ne!(key.component(0), key.component(1));
@@ -798,10 +799,10 @@ fn complete_domain_stage_derives_drop_ordinal_compaction_as_final_projection() {
     )
     .unwrap_or_else(|_| panic!("drop projection should stage without ordinal remap writes"));
 
-    assert_eq!(staged.deletion_keys().len(), 6);
-    assert_eq!(staged.final_entries().len(), 4);
+    assert_eq!(staged.deletion_keys().len(), 4);
+    assert_eq!(staged.insertion_entries().len(), 2);
     let final_ordinals = staged
-        .final_entries()
+        .insertion_entries()
         .iter()
         .map(|entry| {
             IndexKey::try_from_raw(entry.key())
@@ -810,7 +811,7 @@ fn complete_domain_stage_derives_drop_ordinal_compaction_as_final_projection() {
                 .ordinal()
         })
         .collect::<Vec<_>>();
-    assert_eq!(final_ordinals, vec![1, 1, 2, 2]);
+    assert_eq!(final_ordinals, vec![2, 2]);
     assert_eq!(after.indexes()[1].schema_id().get(), 3);
     assert_eq!(index_store_entries(&store), physical_before);
 }
@@ -921,7 +922,7 @@ fn complete_domain_stage_flat_or_matches_explicit_membership() {
             )
             .unwrap_or_else(|_| panic!("membership fixture should stage"));
             let keys = staged
-                .final_entries()
+                .insertion_entries()
                 .iter()
                 .map(|entry| entry.key().clone())
                 .collect::<Vec<_>>();
@@ -1155,7 +1156,7 @@ fn complete_domain_generated_numeric_filters_enforce_unique_membership_after_cod
         )
         .map_err(super::StagedUserIndexDomainError::into_internal_error)
         .unwrap();
-        assert_eq!(staged.final_entries().len(), 1);
+        assert_eq!(staged.insertion_entries().len(), 1);
         assert!(
             matches!(
                 stage_domain(

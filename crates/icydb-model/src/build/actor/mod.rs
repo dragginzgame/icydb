@@ -120,7 +120,8 @@ impl ActorBuilder {
     pub fn generate(self) -> TokenStream {
         let mut tokens = quote!();
 
-        // Emit private runtime wiring and endpoint capabilities only.
+        // Emit private runtime wiring and endpoint capabilities only. Standard
+        // names in these tokens must stay qualified in the consumer's scope.
         tokens.extend(db::generate(&self));
         tokens.extend(generate_endpoint_runtime(&self.icydb));
 
@@ -197,7 +198,7 @@ fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
             #icydb::__icydb_with_migration_items! {
                 pub(crate) fn schema_migrate(
                     command: #icydb::db::SchemaMigrationCommand,
-                ) -> Result<#icydb::db::SchemaMigrationStatusPage, #icydb::Error> {
+                ) -> ::std::result::Result<#icydb::db::SchemaMigrationStatusPage, #icydb::Error> {
                     let session = #icydb::db::DbSession::new(super::core_db()?);
                     session.migrate_generated_schema(
                         super::ICYDB_SCHEMA_FRAGMENT,
@@ -210,7 +211,7 @@ fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
 
                 pub(crate) fn schema_migration(
                     request: &#icydb::db::SchemaMigrationStatusRequest,
-                ) -> Result<#icydb::db::SchemaMigrationStatusPage, #icydb::Error> {
+                ) -> ::std::result::Result<#icydb::db::SchemaMigrationStatusPage, #icydb::Error> {
                     let session = #icydb::db::DbSession::new(super::core_db()?);
                     session.generated_schema_migration_status(
                         super::ICYDB_SCHEMA_FRAGMENT,
@@ -224,7 +225,7 @@ fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
 
             #icydb::__icydb_with_metrics_items! {
                 pub(crate) fn metrics(
-                ) -> Result<#icydb::metrics::MetricsReport, #icydb::Error> {
+                ) -> ::std::result::Result<#icydb::metrics::MetricsReport, #icydb::Error> {
                     // The read-only startup boundary qualifies and selects the
                     // current database without requiring ordinary-work readiness.
                     super::startup_state().map_err(|failure| failure.error().clone())?;
@@ -235,14 +236,14 @@ fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
                     clippy::unnecessary_wraps,
                     reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
                 )]
-                pub(crate) fn metrics_reset() -> Result<(), #icydb::Error> {
+                pub(crate) fn metrics_reset() -> ::std::result::Result<(), #icydb::Error> {
                     #icydb::metrics::metrics_reset_all();
-                    Ok(())
+                    ::std::result::Result::Ok(())
                 }
             }
 
             pub(crate) fn snapshot(
-            ) -> Result<#icydb::db::StorageReport, #icydb::Error> {
+            ) -> ::std::result::Result<#icydb::db::StorageReport, #icydb::Error> {
                 #icydb::__macro::execute_generated_storage_report(&super::db()?)
             }
         }

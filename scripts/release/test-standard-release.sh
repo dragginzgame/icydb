@@ -74,6 +74,45 @@ for kind in patch minor major resume; do
         cmp "$fixture/expected" "$EVENTS"
     done
 done
+# Exercise routine qualification through the actual Make caller with script
+# substitutes. Keep snapshot admission and consumer release proofs selected;
+# a failed proof must stop dispatch before later fixtures. No gate runs here.
+mkdir "$fixture/roster-bin"
+printf '#!%s\n' "$real_bash" > "$fixture/roster-bin/bash"
+cat >> "$fixture/roster-bin/bash" <<'ROSTER'
+set -euo pipefail
+if [[ "$1" == */scripts/ci/check-make-execution.sh ]]; then
+    exec "$RELEASE_FIXTURE_BASH" "$@"
+fi
+script="${1#"$ROSTER_ROOT/"}"
+[[ -f "$ROSTER_ROOT/$script" ]]
+printf '%s\n' "$script" >> "$EVENTS"
+[[ "$script" != "$ROSTER_FAILURE" ]]
+ROSTER
+cp "$fixture/roster-bin/bash" "$fixture/roster-bin/perl"
+chmod +x "$fixture/roster-bin/"{bash,perl}
+for failure in none scripts/release/test-receipt-callbacks.sh; do
+    : > "$EVENTS"
+    status=0
+    PATH="$fixture/roster-bin:$PATH" ROSTER_ROOT="$root" ROSTER_FAILURE="$failure" \
+        "$real_make" --no-print-directory -f "$root/Makefile" check-portable-automation \
+        RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
+    [[ "$(head -n 1 "$EVENTS")" == scripts/ci/verify-shared-tooling-snapshot.sh ]]
+    for proof in scripts/release/test-lock-selection.sh \
+        scripts/ci/test-shared-tooling-adapters.sh scripts/release/test-standard-release.sh \
+        scripts/release/test-receipt-callbacks.sh; do
+        [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
+    done
+    if [[ "$failure" == none ]]; then
+        [[ "$status" == 0 ]]
+        for proof in scripts/ci/test-tooling-fixture-completion.sh \
+            scripts/release/test-pin-exceptions.sh scripts/ci/test-publish-workspace.sh; do
+            [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
+        done
+    else
+        [[ "$status" != 0 && "$(tail -n 1 "$EVENTS")" == "$failure" ]]
+    fi
+done
 # The consumer parse boundary rejects unsafe outer Make modes even when an
 # invocation overrides MAKEFLAGS. The substitute runner must never be called.
 for flags in -i -n -q -t --ignore-errors --just-print --question --touch -in; do

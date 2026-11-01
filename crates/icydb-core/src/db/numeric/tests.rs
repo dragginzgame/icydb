@@ -74,8 +74,33 @@ fn numeric_order_preserves_decimal_coercion_outside_native_numeric_pairs() {
                 compare_numeric_eq(left, right),
                 expected.map(Ordering::is_eq)
             );
+            if std::mem::discriminant(left) == std::mem::discriminant(right) {
+                assert_eq!(left.cmp_numeric(right), expected, "{left:?}, {right:?}");
+                if left.supports_numeric_coercion() {
+                    assert_eq!(
+                        value_ordering::eq(left, right),
+                        expected.map(Ordering::is_eq)
+                    );
+                    assert_eq!(
+                        value_ordering::lt(left, right),
+                        expected.map(Ordering::is_lt)
+                    );
+                }
+            }
         }
     }
+}
+
+#[test]
+fn mixed_float_pairs_keep_the_value_local_fallback_separate_from_database_widening() {
+    let small = Value::Float32(F32::try_new(f32::MAX).unwrap());
+    let large = Value::Float64(F64::try_new(f64::MAX).unwrap());
+    assert_eq!(small.cmp_numeric(&large), Some(Ordering::Less));
+    assert_eq!(large.cmp_numeric(&small), Some(Ordering::Greater));
+    assert_eq!(compare_numeric_order(&small, &large), None);
+    assert_eq!(compare_numeric_order(&large, &small), None);
+    assert_eq!(value_ordering::lt(&small, &large), None);
+    assert_eq!(value_ordering::eq(&small, &large), None);
 }
 
 #[test]

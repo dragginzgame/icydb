@@ -90,12 +90,24 @@ fn to_f64_lossless(value: &Value) -> Option<f64> {
     }
 }
 
-/// Preserve complete finite-float and unsigned domains before Decimal coercion.
-fn compare_native_numeric_pair(left: &Value, right: &Value) -> Option<Ordering> {
+/// Compare the exact same-type numeric domains before widening. Database and
+/// Value callers share this representation fact, retaining their own mixed-type
+/// coercion policy. Time values use the same millisecond inputs as NumericValue.
+pub(crate) fn compare_native_numeric_pair(left: &Value, right: &Value) -> Option<Ordering> {
     match (left, right) {
+        (Value::Int64(left), Value::Int64(right)) => Some(left.cmp(right)),
+        (Value::Int128(left), Value::Int128(right)) => Some(left.cmp(right)),
+        (Value::Nat64(left), Value::Nat64(right)) => Some(left.cmp(right)),
         (Value::Nat128(_), Value::Nat128(_))
         | (Value::Float32(_), Value::Float32(_))
         | (Value::Float64(_), Value::Float64(_)) => Value::strict_order_cmp(left, right),
+        (Value::Duration(left), Value::Duration(right)) => {
+            Some(left.as_millis().cmp(&right.as_millis()))
+        }
+        (Value::Timestamp(left), Value::Timestamp(right)) => {
+            Some(left.as_millis().cmp(&right.as_millis()))
+        }
+        (Value::Decimal(left), Value::Decimal(right)) => Some(left.cmp(right)),
         _ => None,
     }
 }
@@ -117,7 +129,7 @@ fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
     }
 }
 
-/// Compare Nat128 and same-width floats natively; other pairs use Decimal.
+/// Compare exact same-type numeric pairs natively; other pairs use Decimal.
 #[must_use]
 pub(crate) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
     if let Some(ordering) = compare_native_numeric_pair(left, right) {

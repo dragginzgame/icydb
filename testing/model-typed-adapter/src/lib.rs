@@ -1,6 +1,11 @@
 //! Renamed-dependency typed-adapter compile fixture.
 
+#[cfg(test)]
+mod actor_hygiene;
 mod schema;
+
+#[cfg(test)]
+use actor_hygiene::icydb_memory_pool;
 
 #[cfg(test)]
 mod tests {

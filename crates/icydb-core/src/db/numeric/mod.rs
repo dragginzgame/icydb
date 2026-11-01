@@ -11,7 +11,7 @@ mod tests;
 use crate::error::InternalError;
 use crate::{
     types::{Decimal, U256},
-    value::Value,
+    value::{Value, ops::numeric::compare_native_numeric_pair},
 };
 use std::cmp::Ordering;
 
@@ -313,23 +313,8 @@ fn apply_u256_arithmetic_checked(
 /// conversion cannot produce a comparable numeric representation.
 #[must_use]
 pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
-    // Compare exact same-type inputs directly. Value owns the full unsigned
-    // and finite-float domains; mixed and lossy coercions stay below.
-    match (left, right) {
-        (Value::Int64(left), Value::Int64(right)) => return Some(left.cmp(right)),
-        (Value::Int128(left), Value::Int128(right)) => return Some(left.cmp(right)),
-        (Value::Nat64(left), Value::Nat64(right)) => return Some(left.cmp(right)),
-        (Value::Nat128(_), Value::Nat128(_))
-        | (Value::Float32(_), Value::Float32(_))
-        | (Value::Float64(_), Value::Float64(_)) => return left.cmp_numeric(right),
-        (Value::Duration(left), Value::Duration(right)) => {
-            return Some(left.as_millis().cmp(&right.as_millis()));
-        }
-        (Value::Timestamp(left), Value::Timestamp(right)) => {
-            return Some(left.as_millis().cmp(&right.as_millis()));
-        }
-        (Value::Decimal(left), Value::Decimal(right)) => return Some(left.cmp(right)),
-        _ => {}
+    if let Some(ordering) = compare_native_numeric_pair(left, right) {
+        return Some(ordering);
     }
 
     let left = coerce_numeric_decimal(left)?;

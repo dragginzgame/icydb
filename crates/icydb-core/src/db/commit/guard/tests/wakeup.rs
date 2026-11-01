@@ -1,4 +1,4 @@
-//! Published commit guards retain the captured recovery wake-up obligation.
+//! Native fault fixtures retain wake-ups; production commit failures terminate.
 
 use super::*;
 use crate::{
@@ -161,4 +161,53 @@ fn failed_clear_retains_marker_and_requests_one_wakeup() {
     assert_eq!(CAPTURED_WAKEUPS.with(Cell::get), 1);
     let retained = with_commit_store(CommitStore::load).unwrap().unwrap();
     assert_eq!(retained.id, marker.id);
+}
+
+#[cfg(unix)]
+#[test]
+fn post_marker_failures_terminate_instead_of_returning_an_error() {
+    use std::{os::unix::process::ExitStatusExt, process::Command};
+
+    const CASE_ENV: &str = "ICYDB_TEST_POST_MARKER_FAILURE_CASE";
+    if let Some(case) = std::env::var_os(CASE_ENV) {
+        let _restore = initialize_wakeup_test();
+        let marker = CommitMarker::from_parts([0x79; 16], Vec::new()).unwrap();
+        let guard = begin_commit(&marker).unwrap();
+        RETURN_COMMIT_FAILURES_FOR_TESTS.with(|enabled| enabled.set(false));
+        let _ = finish_commit(guard, |_| match case.to_str().unwrap() {
+            "apply" => Err(InternalError::query_executor_invariant()),
+            "clear" => {
+                select_commit_memory_allocation(
+                    244,
+                    "icydb.test.commit_guard_uninitialized_clear.v1",
+                );
+                Ok(())
+            }
+            "observation" => {
+                select_commit_memory_allocation(
+                    244,
+                    "icydb.test.commit_guard_uninitialized_clear.v1",
+                );
+                Err(InternalError::query_executor_invariant())
+            }
+            _ => panic!("unknown child qualification case"),
+        });
+        return;
+    }
+
+    let test_name = concat!(
+        module_path!(),
+        "::post_marker_failures_terminate_instead_of_returning_an_error"
+    );
+    let test_name = test_name.strip_prefix("icydb_core::").unwrap();
+    for case in ["apply", "clear", "observation"] {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test_name, "--nocapture"])
+            .env(CASE_ENV, case)
+            .output()
+            .unwrap();
+        // SIGABRT is 6 on the supported Linux and macOS hosts. Ordinary test
+        // failure/panic or a successful return cannot satisfy this assertion.
+        assert_eq!(output.status.signal(), Some(6), "{case}: {output:?}");
+    }
 }

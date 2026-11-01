@@ -187,7 +187,8 @@ impl Entity {
         Ok(())
     }
 
-    // Validate each declared index in isolation and return its canonical key terms.
+    // Validate declarations and their emitted names before retaining canonical
+    // key terms. Name collisions are distinct from prefix redundancy.
     fn collect_canonical_index_terms(
         &self,
         entity_name: &str,
@@ -195,11 +196,19 @@ impl Entity {
         paths: &CratePaths,
     ) -> Result<Vec<Vec<String>>, DarlingError> {
         let mut canonical_index_terms = Vec::with_capacity(self.indexes.len());
+        let mut generated_names = HashSet::with_capacity(self.indexes.len());
         for index in &self.indexes {
             Self::validate_index_shape(index, def_ident)?;
             self.validate_index_fields(index)?;
             Self::validate_index_name(index, entity_name, def_ident)?;
             self.validate_index_predicate(index, paths)?;
+            if !generated_names.insert(index.generated_name(entity_name)) {
+                return Err(DarlingError::custom(format!(
+                    "duplicate generated index name '{}'",
+                    index.generated_name(entity_name)
+                ))
+                .with_index_or_def_span(index, def_ident));
+            }
             canonical_index_terms.push(index.validated_key_item_terms());
         }
 

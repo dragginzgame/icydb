@@ -4,6 +4,7 @@
 //! Boundary: reuses IC Build and Host owners within the root workspace.
 
 mod canister_build_cache;
+mod canister_dependencies;
 mod plan;
 
 pub mod canister_artifact;
@@ -439,24 +440,29 @@ fn build_configured_canister_artifacts(
     configured: ConfiguredCanisterBuild,
 ) -> Result<BuiltCanisterArtifacts, String> {
     let packages = [package_name];
-    let outcome = build_cached_cargo_wasm(&CargoWasmCacheRequest {
+    let request = CargoWasmCacheRequest {
         context: context_label,
         workspace_root: &root.join(ADAPTER_WORKSPACE_DIR),
         target_dir: canister_target_dir,
         packages: &packages,
         selection: &configured.selection,
         encoded_rustflags: configured.encoded_rustflags.as_deref(),
-    })
-    .map_err(|error| format!("{context_label}: {error}"))?;
+    };
+    let outcome =
+        build_cached_cargo_wasm(&request).map_err(|error| format!("{context_label}: {error}"))?;
     trace_wasm_build(context_label, &outcome);
 
-    finish_canister_build(
+    let artifacts = finish_canister_build(
         root,
-        configured,
+        &configured,
         options,
         context_label,
         outcome.record().clone(),
-    )
+    )?;
+    let proof = canister_dependencies::admit(root, &request, artifacts.cargo(), artifacts.as_ref())
+        .map_err(|error| format!("{context_label}: {error}"))?;
+    eprintln!("{context_label}: dependency_admission={proof}");
+    Ok(artifacts)
 }
 
 // Read while the retained Cargo/post-link owner is alive. Variant-specific
@@ -508,7 +514,7 @@ pub fn build_fixture_variant_wasm_with_profile(
 
 fn finish_canister_build(
     root: &Path,
-    configured: ConfiguredCanisterBuild,
+    configured: &ConfiguredCanisterBuild,
     options: CanisterBuildOptions,
     context_label: &str,
     cargo: WasmBuildRecord,
@@ -834,6 +840,10 @@ pub fn build_maintained_canister_contract_profiles()
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "retain Cargo, post-link and dependency admission failures in one batch outcome"
+)]
 fn finish_maintained_canister_builds(
     root: &Path,
     plan: MaintainedCanisterBuildPlan,
@@ -877,7 +887,7 @@ fn finish_maintained_canister_builds(
         let configured = &entry.configured;
         let context = &entry.context;
         match BuiltCanisterArtifacts::from_cargo(record) {
-            Ok(artifacts) => retained.push((policy.canister, configured, context, artifacts)),
+            Ok(artifacts) => retained.push((policy, configured, context, artifacts)),
             Err(error) => failures.push(format!("Cargo [{index}] {}: {error}", policy.canister)),
         }
     }
@@ -926,6 +936,23 @@ fn finish_maintained_canister_builds(
         }
     }
 
+    for (policy, configured, context, artifacts) in &retained {
+        let packages = [policy.package];
+        let target = target_dir(root).join(options.build_profile.target_dir_name());
+        let request = CargoWasmCacheRequest {
+            context,
+            workspace_root: &root.join(ADAPTER_WORKSPACE_DIR),
+            target_dir: &target,
+            packages: &packages,
+            selection: &configured.selection,
+            encoded_rustflags: configured.encoded_rustflags.as_deref(),
+        };
+        match canister_dependencies::admit(root, &request, artifacts.cargo(), artifacts.as_ref()) {
+            Ok(proof) => eprintln!("{context}: dependency_admission={proof}"),
+            Err(error) => failures.push(format!("{context}: {error}")),
+        }
+    }
+
     if !failures.is_empty() {
         return Err(format!(
             "maintained canister build failed:\n  - {}",
@@ -935,7 +962,7 @@ fn finish_maintained_canister_builds(
 
     Ok(retained
         .into_iter()
-        .map(|(canister, _, _, artifacts)| (canister, artifacts))
+        .map(|(policy, _, _, artifacts)| (policy.canister, artifacts))
         .collect())
 }
 

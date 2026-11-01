@@ -41,3 +41,12 @@ Inspection requires their complete method/mode roster to agree with application
 Wasm exports, excluding only the reserved timer dispatcher. Staging publishes
 compiler and deployable Wasm files; reports and CI use those retained artifacts.
 There is no DID generation or interface-extractor prerequisite.
+
+Retained single, variant and batch builds also enforce actor dependency
+exclusions before staging. Shared Tooling inspects the exact locked normal/build
+graph; IC Build guards its source identity against the retained compiler output.
+Each acquisition emits graph/feature evidence bound to the lockfile and compiler/
+deployable digests, including cache hits. Actor schema/codec helpers and Canic
+inputs remain permitted; build drivers, simulator infrastructure and native
+oracles are refused. [#378](https://github.com/dragginzgame/icydb/issues/378) retains
+actual actor-recipe and supported-host qualification.

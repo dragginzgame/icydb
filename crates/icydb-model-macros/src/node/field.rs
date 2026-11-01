@@ -291,7 +291,7 @@ impl Field {
                 // the database-owned field structurally.
                 return Some(quote!(::core::default::Default::default()));
             }
-            return Some(quote!(#generator.into()));
+            return Some(quote!(::core::convert::Into::into(#generator)));
         }
 
         match (&self.default, self.value.cardinality()) {
@@ -515,13 +515,13 @@ pub(crate) fn schema_default_rust_expr(
     paths: &CratePaths,
 ) -> Result<TokenStream, String> {
     let model = &paths.model;
-    Ok(match (primitive, default) {
+    let expression = match (primitive, default) {
         (Some(Primitive::Blob), Arg::String(value)) => {
             let blob = icydb_schema::Blob::from_hex_literal(&value.value()).map_err(
                 |_| "default for primitive Blob requires bounded, even-length ASCII hex",
             )?;
             let bytes = blob.as_bytes();
-            quote!(#model::schema::Blob::from(&[#(#bytes),*]).into())
+            quote!(#model::schema::Blob::from(&[#(#bytes),*]))
         }
         (Some(Primitive::Account), Arg::String(value)) => {
             let account = value
@@ -538,20 +538,20 @@ pub(crate) fn schema_default_rust_expr(
             quote!(#model::schema::Account::from_owner_and_subaccount(
                 #model::schema::Principal::from_slice(&[#(#owner),*]),
                 #subaccount,
-            ).into())
+            ))
         }
         (Some(Primitive::Principal), Arg::String(value)) => {
             let principal = icydb_schema::Principal::from_text(&value.value())
                 .map_err(|_| "default for primitive Principal requires valid principal text")?;
             let bytes = principal.as_slice();
-            quote!(#model::schema::Principal::from_slice(&[#(#bytes),*]).into())
+            quote!(#model::schema::Principal::from_slice(&[#(#bytes),*]))
         }
         (Some(Primitive::Subaccount), Arg::String(value)) => {
             let bytes = icydb_schema::Subaccount::from_hex(&value.value())
                 .map_err(|_| "default for primitive Subaccount requires 64 ASCII hex characters")?
                 .to_array();
             let byte_tokens = bytes.iter().map(|byte| quote!(#byte));
-            quote!(#model::schema::Subaccount::from_array([#(#byte_tokens),*]).into())
+            quote!(#model::schema::Subaccount::from_array([#(#byte_tokens),*]))
         }
         (Some(Primitive::Ulid), Arg::String(value)) => {
             let ulid = value
@@ -559,10 +559,11 @@ pub(crate) fn schema_default_rust_expr(
                 .parse::<icydb_schema::Ulid>()
                 .map_err(|_| "default for primitive Ulid requires valid ULID text")?;
             let bytes = ulid.to_bytes();
-            quote!(#model::schema::Ulid::from_bytes([#(#bytes),*]).into())
+            quote!(#model::schema::Ulid::from_bytes([#(#bytes),*]))
         }
-        _ => quote!(#default.into()),
-    })
+        _ => quote!(#default),
+    };
+    Ok(quote!(::core::convert::Into::into(#expression)))
 }
 
 fn validate_database_default_shape(

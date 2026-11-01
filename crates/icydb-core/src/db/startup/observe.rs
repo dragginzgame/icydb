@@ -15,6 +15,7 @@ use crate::{
         startup::{
             DatabaseStartupState, StartupFailure, StartupFailureKind,
             receipt::{AcceptedHeadBinding, StartupFailureBinding, StartupFailureReceipt},
+            terminal_code_for_kind,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -34,7 +35,17 @@ pub(super) fn observe<C: CanisterKind>(
     // entropy-backed recovery page. Rebind the existing exclusive store handles
     // without opening a database session or mutating persisted controls.
     stores.with(crate::db::commit::register_runtime_journal_tails_for_backlog);
-    let receipt = super::receipt::load::<C>().map_err(database_control_failure)?;
+    // Decode and validate retained controls before applying today's terminal
+    // policy. Pure observation never clears a superseded diagnostic memo;
+    // successful replicated recovery already owns that retirement.
+    let receipt = super::receipt::load::<C>()
+        .map_err(database_control_failure)?
+        .filter(|receipt| {
+            terminal_code_for_kind(
+                receipt.failure().kind(),
+                receipt.failure().diagnostic().error_code(),
+            )
+        });
     let format = observe_database_format(stores)
         .map_err(|error| database_control_or_allocation_failure::<C>(receipt.as_ref(), &error))?;
     if format == DatabaseFormatObservation::Uninitialized {

@@ -1,7 +1,7 @@
 //! Module: db::schema::mutation::user_index_domain
 //! Responsibility: bounded, zero-write user-index-domain replacement staging.
 //! Does not own: accepted-schema marker persistence or physical index apply.
-//! Boundary: accepted schema + authoritative rows + current index view -> staged raw replacement.
+//! Boundary: complete before/after proofs -> exact changed raw index entries.
 
 #[cfg(any(test, feature = "sql"))]
 use crate::db::resource::construction::ConstructionBudget;
@@ -167,11 +167,12 @@ impl StagedUserIndexDomainUsage {
 ///
 /// StagedUserIndexDomainReplacement
 ///
-/// Complete, bounded raw replacement for one entity's user-index domain.
+/// Bounded raw effects from a complete proof of one entity's user-index domain.
 ///
-/// The deletion keys are proven to equal the current accepted-before physical
-/// domain. The final entries are proven to be the complete accepted-after
-/// projection. Constructing this value performs no `IndexStore` mutation.
+/// Complete row-derived before/after projections and physical-before equality
+/// are proved before reducing effects. Deletions and insertions contain only
+/// removed, added or changed entries; identical entries remain in place.
+/// Constructing this value performs no `IndexStore` mutation.
 /// Schema mutation owns this transient contract; commit publication consumes it.
 ///
 
@@ -184,7 +185,7 @@ pub(in crate::db) struct StagedUserIndexDomainReplacement {
     accepted_after_version: SchemaVersion,
     accepted_after_fingerprint: CommitSchemaFingerprint,
     deletion_keys: Vec<RawIndexStoreKey>,
-    final_entries: Vec<StagedUserIndexDomainEntry>,
+    insertion_entries: Vec<StagedUserIndexDomainEntry>,
     usage: StagedUserIndexDomainUsage,
 }
 
@@ -226,10 +227,10 @@ impl StagedUserIndexDomainReplacement {
         self.deletion_keys.as_slice()
     }
 
-    /// Borrow the complete sorted accepted-after raw projection.
+    /// Borrow sorted accepted-after entries that need physical insertion.
     #[must_use]
-    pub(in crate::db) const fn final_entries(&self) -> &[StagedUserIndexDomainEntry] {
-        self.final_entries.as_slice()
+    pub(in crate::db) const fn insertion_entries(&self) -> &[StagedUserIndexDomainEntry] {
+        self.insertion_entries.as_slice()
     }
 
     /// Return deterministic staging resource usage.
@@ -242,7 +243,7 @@ impl StagedUserIndexDomainReplacement {
     pub(in crate::db) fn into_apply_parts(
         self,
     ) -> (Vec<RawIndexStoreKey>, Vec<StagedUserIndexDomainEntry>) {
-        (self.deletion_keys, self.final_entries)
+        (self.deletion_keys, self.insertion_entries)
     }
 }
 
@@ -392,21 +393,31 @@ impl StagedUserIndexDomainReplacementBuilder {
                     return Err(StagedUserIndexDomainError::CurrentDomainMismatch);
                 }
 
-                let deletion_keys = observed_before
-                    .into_iter()
-                    .map(|entry| entry.key)
-                    .collect::<Vec<_>>();
                 // The complete current user domain was decoded and proved equal to
                 // row-derived accepted-before truth above. A final raw user key can
-                // therefore exist only inside this exact deletion domain; a second
-                // point lookup for every accepted-after key cannot prove more.
+                // therefore already exist only in this exact before domain. Retain
+                // full proof/workspace admission before reducing mechanical effects.
                 self.budget.finish_sort_workspace(
                     self.expected_before.len(),
                     self.final_entries.len(),
-                    deletion_keys.len(),
+                    observed_before.len(),
                 )?;
                 self.budget
                     .record_projection_counts(self.expected_before.len(), self.final_entries.len());
+
+                // Both domains are sorted and exact. Keep identical entries in
+                // place; only removed/changed entries need deletion, and only
+                // added/changed entries need insertion. Compact the existing
+                // after vector without retaining a second projection or key set.
+                let mut deletion_keys = Vec::with_capacity(observed_before.len());
+                let mut before = observed_before.into_iter().peekable();
+                self.final_entries.retain(|after| {
+                    while let Some(entry) = before.next_if(|entry| entry.key < after.key) {
+                        deletion_keys.push(entry.key);
+                    }
+                    before.next_if(|entry| entry == after).is_none()
+                });
+                deletion_keys.extend(before.map(|entry| entry.key));
 
                 Ok(StagedUserIndexDomainReplacement {
                     store_path: self.store_path,
@@ -415,7 +426,7 @@ impl StagedUserIndexDomainReplacementBuilder {
                     accepted_after_version: self.accepted_after_version,
                     accepted_after_fingerprint: self.accepted_after_fingerprint,
                     deletion_keys,
-                    final_entries: self.final_entries,
+                    insertion_entries: self.final_entries,
                     usage: self.budget.usage(),
                 })
             },

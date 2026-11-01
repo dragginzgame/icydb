@@ -1325,15 +1325,31 @@ fn acknowledge_validation_receipt(
     }))
 }
 
-// Both sides of a Verify page must still refer to the captured source revision.
-// Persist the restart before exposing it to the caller.
+// Both sides of a Verify page must prove the activation's entity unchanged.
+// Retain the store-wide captured sequence: entity revisions use the same journal
+// sequence domain, so unrelated writes need not invalidate an existing job.
+// Persist any restart before exposing it to the caller.
 fn restart_validation_if_revision_changed(
     store: StoreHandle,
     store_path: &'static str,
     job: &mut ConstraintValidationJob,
     captured: u64,
 ) -> Result<Option<ConstraintValidationProgress>, InternalError> {
-    if current_store_revision(store)? == captured {
+    let journal = store
+        .journal_tail_store()
+        .ok_or_else(InternalError::store_unsupported)?;
+    let unchanged = journal.with_borrow(|tail| {
+        let current = tail.data_mutation_revision()?;
+        if current == captured {
+            return Ok(true);
+        }
+        if current < captured {
+            return Ok(false);
+        }
+        tail.entity_mutation_revision(job.entity_tag())
+            .map(|revision| revision <= captured)
+    })?;
+    if unchanged {
         return Ok(None);
     }
     job.restart_forward(0, Vec::new())?;
