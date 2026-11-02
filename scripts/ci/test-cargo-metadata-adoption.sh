@@ -80,7 +80,8 @@ requirement="$("$YQ" -p toml -o json '.workspace.dependencies.remain' Cargo.toml
   jq -r 'if type == "string" then . else .version end')"
 printf '\n[workspace.dependencies.adoption_alias]\npackage = "remain"\nversion = "%s"\n' "$requirement" >> Cargo.toml
 for section in dependencies dev-dependencies build-dependencies 'target."cfg(unix)".build-dependencies'; do
-  cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+  # Replace the original edge: Cargo rejects two names for the same package.
+  sed '/^remain = /d' "$fixture/member.toml" > crates/icydb-diagnostic-code/Cargo.toml
   printf '\n[%s.adoption_alias]\nworkspace = true\n' "$section" \
     >> crates/icydb-diagnostic-code/Cargo.toml
   check || { cat "$fixture/check.log" >&2; exit 1; }
