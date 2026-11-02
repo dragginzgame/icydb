@@ -4,6 +4,9 @@ set -euo pipefail
 # Exercise IcyDB's real Make gate in a disposable current-manifest inventory.
 # Git effects are fixture-only; Cargo consumes prepared locked offline inputs.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS GNUMAKEFLAGS
+# Each disposable repository selects its own release identity, including the
+# coordinated workspace below; do not inherit the caller's product group.
+unset RELEASE_GROUP RELEASE_COMMIT RELEASE_SOURCE
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
