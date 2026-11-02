@@ -1,5 +1,6 @@
 //! Direct raw-row projection ownership and selective admission.
 
+mod ordered_paths;
 mod retained_output;
 
 use super::*;
@@ -117,6 +118,176 @@ fn sibling_projection_preserves_values_order_duplicates_and_missing() {
             Resource::TemporaryBytes.raw(),
         )));
         assert!(shaped.is_empty());
+    }
+}
+
+#[test]
+fn mixed_sibling_projection_preserves_lazy_branches_and_error_order() {
+    use crate::db::{
+        executor::terminal::RetainedSlotLayout, query::plan::expr::CompiledExprCaseArm,
+    };
+
+    let layout = RowLayout::from_structural_row_contract(projection_contract(
+        AcceptedFieldKind::Map {
+            key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+            value: Box::new(AcceptedFieldKind::Text { max_len: None }),
+        },
+        LeafCodec::Structural,
+        FieldStorageDecode::CatalogValue,
+    ));
+    let path = |name: &str| CompiledExpr::FieldPath {
+        root_slot: 1,
+        segments: vec![name.to_owned()].into_boxed_slice(),
+        segment_bytes: vec![name.as_bytes().to_vec().into_boxed_slice()].into_boxed_slice(),
+    };
+    let invalid = CompiledExpr::Slot { slot: 99 };
+    let lazy = CompiledExpr::Case {
+        when_then_arms: vec![CompiledExprCaseArm::new(
+            CompiledExpr::Literal(Value::Bool(false)),
+            invalid.clone(),
+        )]
+        .into_boxed_slice(),
+        else_expr: Box::new(CompiledExpr::Literal(Value::Nat64(5))),
+    };
+    let expressions = vec![
+        CompiledExpr::Literal(Value::Bool(true)),
+        path("city"),
+        path("name"),
+        lazy,
+        path("missing"),
+        path("city"),
+        path("city"),
+    ];
+    let payload = Value::Map(vec![
+        (Value::Text("city".into()), Value::Text("Paris".into())),
+        (Value::Text("name".into()), Value::Text("Ada".into())),
+    ]);
+    for payload in [payload, Value::Null] {
+        let raw = projection_row(layout.contract(), &payload);
+        let reader = layout.open_raw_row_with_contract(&raw.1).unwrap();
+        let retained_layout = RetainedSlotLayout::compile(2, vec![1]);
+        let retained = RetainedSlotRow::from_indexed_values(&retained_layout, vec![Some(payload)]);
+        let expected: Vec<_> = expressions
+            .iter()
+            .map(|expr| {
+                eval_compiled_expr_with_required_slot_reader_cow(expr, &reader, &mut |_| {})
+                    .unwrap()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(
+            project_scalar_data_row(&expressions, &raw, &layout, None).unwrap(),
+            expected
+        );
+        let mut output = Vec::new();
+        project_retained_expressions_into(&expressions, &retained, &mut output).unwrap();
+        assert_eq!(output, expected);
+
+        assert_mixed_projection_scratch_refusal(
+            &expressions,
+            &raw,
+            &layout,
+            &retained,
+            &expected,
+            None,
+        );
+
+        // A failing intervening expression must stop before any later sibling run.
+        // Keep the already produced prefix and the ordinary evaluator's diagnostic.
+        for failing_index in [0, 3, 6] {
+            let mut failing = expressions.clone();
+            failing.insert(failing_index, invalid.clone());
+            for raw_lane in [false, true] {
+                let expected_error = if raw_lane {
+                    eval_compiled_expr_with_required_slot_reader_cow(&invalid, &reader, &mut |_| {})
+                        .unwrap_err()
+                } else {
+                    eval_compiled_expr_with_value_ref_reader(&invalid, &mut |slot| {
+                        retained.slot_ref(slot)
+                    })
+                    .unwrap_err()
+                    .into_internal_error()
+                };
+                let mut output = Vec::new();
+                let error = if raw_lane {
+                    project_scalar_data_row_into(&failing, &raw, &layout, &mut output, None)
+                } else {
+                    project_retained_expressions_into(&failing, &retained, &mut output)
+                }
+                .unwrap_err();
+                assert_eq!(output, expected[..failing_index]);
+                assert_eq!(error.class(), expected_error.class());
+                assert_eq!(error.origin(), expected_error.origin());
+                assert_eq!(error.diagnostic(), expected_error.diagnostic());
+                assert_eq!(error.diagnostic_facts(), expected_error.diagnostic_facts());
+            }
+        }
+    }
+}
+
+fn assert_mixed_projection_scratch_refusal(
+    expressions: &[CompiledExpr],
+    raw: &DataRow,
+    layout: &RowLayout,
+    retained: &RetainedSlotRow,
+    expected: &[Value],
+    order_values: Option<&ProjectionOrderValues>,
+) {
+    use crate::db::{
+        RequestExecutionRoot,
+        resource::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_read_execution_budget,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope,
+        DiagnosticExecutionLane, DiagnosticFactTag,
+    };
+
+    // The run must use the same scratch admission as an all-path projection,
+    // after the leading literal and before materializing either selected leaf.
+    for raw_lane in [false, true] {
+        // Ordering values belong only to raw rows. The retained lane's complete
+        // sibling run has no cached prefix and is covered by the mixed-row test.
+        if !raw_lane && order_values.is_some() {
+            continue;
+        }
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, 0),
+        );
+        let mut output = Vec::new();
+        let error = with_read_execution_budget(
+            &root.scope(),
+            HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::PublicRead,
+                1,
+            ),
+            || {
+                if raw_lane {
+                    project_scalar_data_row_into(
+                        expressions,
+                        raw,
+                        layout,
+                        &mut output,
+                        order_values,
+                    )
+                } else {
+                    project_retained_expressions_into(expressions, retained, &mut output)
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(output, expected[..1]);
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw(),
+        )));
     }
 }
 

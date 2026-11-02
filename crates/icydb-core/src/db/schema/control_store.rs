@@ -21,6 +21,9 @@ pub(super) type ControlMemory = Rc<RuntimeMemory<DefaultMemoryImpl>>;
 pub(super) const CONTROL_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / 65_536 + 1;
 const CONTROL_END_PAGE: u64 = 4_194_304;
 const HEADER_KEY: [u8; 33] = [0; 33];
+// This persisted application header identifies IcyDB's namespace contract,
+// independently of Storage's tree framing and checksums. Retain its exact bytes
+// and validation for same-contract reopen.
 const HEADER_MAGIC: &[u8; 8] = b"ICYSCMAP";
 const HEADER_VERSION: u8 = 1;
 const HEADER_BYTES: usize = 13;

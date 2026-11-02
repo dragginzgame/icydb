@@ -513,9 +513,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.74.0"
+version = "0.74.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca614edaab68ad6a67963a6e822fe3531269f1ffcf43266bc3da76c8e4ce228e"
+checksum = "8ed106efef97b990faabc68ed44a64985f4898d281f9a8ca0eb4b4ebe8d0dc6f"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -532,9 +532,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.74.1"
+version = "0.74.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6dd0344ca1c055fbf0f6a6f9a050a68f5cb8f9456d6d5bcef4f9ed97c8190a4"
+checksum = "9fa80b009d37daf5af3af6283be85af59ea9b6aad1ff07a8c79a106aa65673dd"
 dependencies = [
  "flate2",
  "leb128",
@@ -544,9 +544,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.74.1"
+version = "0.74.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1cb75dfee73b1dcd609a559ddcd1f0d7c2933047c89a9e2d6a8a33c8b7acb12"
+checksum = "55e793d0359c9f242f8939c0b6cfd0ab8bb27c90e75b0370545f682b1ae8a32e"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -556,9 +556,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.74.1"
+version = "0.74.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe482a2bae4eeda3c6e8b632e3f41235fe3752ef23557526fe57b6e41a5bf826"
+checksum = "deaea87e171ae873d54d848ca9d11d93a2a912334a6634d9f02084a65ddf22a8"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -578,9 +578,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.78.0"
+version = "0.78.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "731bb9c3ee4a7023c2687dea4d73d54341a4a3939f32c68b174c4db56b445253"
+checksum = "6415ba9dcf841bb51987868a1cb9ee10143e6c6efca9afa0a05ae6cef826ad87"
 dependencies = [
  "ic-host-artifacts",
  "serde",
@@ -590,9 +590,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.27.0"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbb69e3a49a4cbef33407cc47073685ae9bfadb07e30c34db36e08913ad3f7ac"
+checksum = "8482465cfed77a0abb17c9b527ae6b1595b44570eebdd97f25368bc2b4208785"
 dependencies = [
  "ic-wire",
  "serde",
@@ -609,23 +609,9 @@ dependencies = [
 
 [[package]]
 name = "ic-platform-runtime"
-version = "0.18.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fdb0b3fee215166a704b9eb6be076adbf9d406e1b9156e65a9ee53abe6b5489"
-dependencies = [
- "ic-platform-runtime-guard",
- "ic-platform-types",
- "pin-project-lite",
- "serde",
- "slotmap",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "ic-platform-runtime-guard"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "090fa416214c28a07a51cb87da73e4dc125f32b9fdbb05cd5af7907ec890b414"
+checksum = "890d920056096da50ef4f30886a19c5b89e3f4c331732b8a68d72c169a13a4e9"
 
 [[package]]
 name = "ic-platform-types"
@@ -643,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.65.0"
+version = "0.65.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c60314281e24c326e9dc938a29122763be56e6c3d76031be64221f38a6b5fb42"
+checksum = "74ee2e0c2e95769a67e9602184470f8258130c3935e0f52aa74471fc9104e28f"
 dependencies = [
  "ic-platform-runtime",
  "ic-wire",
@@ -655,9 +641,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a997f280185539996121658add32210e0da0728f54a5b0fd6a90004950004e9"
+checksum = "e02d4a2fb2f90dee3d9b39330633f336249346091ae422b5967b505403497dd5"
 dependencies = [
  "bytemuck",
  "ic-wire-derive",
@@ -669,9 +655,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b0254e3098897362deb9aaf9da4ba285007617c914b3d90f24f68a40bf5ed9b"
+checksum = "6f6417f281773610823f94670433dec322ecf7810652d73fdfd06d843608d69a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -819,7 +805,6 @@ name = "icydb-testing-audit-default-empty-fixtures"
 version = "0.295.0"
 dependencies = [
  "icydb",
- "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -828,7 +813,6 @@ name = "icydb-testing-audit-group-path-fixtures"
 version = "0.295.0"
 dependencies = [
  "icydb",
- "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -837,7 +821,6 @@ name = "icydb-testing-audit-one-simple-fixtures"
 version = "0.295.0"
 dependencies = [
  "icydb",
- "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -846,7 +829,6 @@ name = "icydb-testing-audit-sql-perf-fixtures"
 version = "0.295.0"
 dependencies = [
  "icydb",
- "icydb-model",
  "icydb-testing-wasm-helpers",
  "serde",
 ]
@@ -856,7 +838,6 @@ name = "icydb-testing-audit-ten-simple-fixtures"
 version = "0.295.0"
 dependencies = [
  "icydb",
- "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -952,7 +933,6 @@ name = "icydb-testing-test-sql-fixtures"
 version = "0.295.0"
 dependencies = [
  "icydb",
- "icydb-model",
  "icydb-testing-wasm-helpers",
 ]
 
@@ -1405,15 +1385,6 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
-
-[[package]]
-name = "slotmap"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
-dependencies = [
- "version_check",
-]
 
 [[package]]
 name = "smallvec"

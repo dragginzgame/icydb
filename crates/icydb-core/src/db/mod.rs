@@ -28,6 +28,7 @@ pub(crate) mod session;
 #[cfg(feature = "sql")]
 pub(crate) mod sql;
 mod startup;
+mod storage;
 pub(in crate::db) mod write_context;
 
 pub(in crate::db) mod codec;

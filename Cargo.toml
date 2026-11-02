@@ -90,8 +90,8 @@ icydb-testing-demo-rpg-fixtures = { version = "0.295.0", path = "schema/demo/rpg
 icydb-testing-model-schema-only = { path = "testing/model-schema-only", version = "0.295.0" }
 icydb-testing-model-typed-adapter = { path = "testing/model-typed-adapter", version = "0.295.0" }
 icydb-testing-source-checks = { path = "testing/source-checks", version = "0.295.0" }
-icydb-testing-sql-generator = { version = "0.295.0", path = "testing/sql-generator" }
-icydb-testing-sqlite-reference = { version = "0.295.0", path = "testing/sqlite-reference" }
+icydb-testing-sql-generator = { path = "testing/sql-generator" }
+icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures", version = "0.295.0" }
 icydb-testing-test-sql-fixtures = { version = "0.295.0", path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { version = "0.295.0", path = "testing/wasm-helpers" }

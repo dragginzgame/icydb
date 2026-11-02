@@ -77,7 +77,8 @@ def admit_groups($config; $root; $manifests; $lock; $selected):
   then error("stale or foreign local lock records") else . end |
   # Cargo permits a compatible lower bound to lag a path package. The root
   # catalog also serves as the visible version map, so require its full current
-  # version for every member, including unused aliases and other groups.
+  # version for publishable members, including unused aliases and other groups.
+  # Private path-only entries keep dev helpers out of published Cargo manifests.
   member_catalog($root; $owned) as $catalog |
   if ($catalog | map(.package) | unique | sort) != ($owned | map(.name) | sort)
   then error("root dependency catalog must include every workspace member") else . end |
@@ -86,8 +87,11 @@ def admit_groups($config; $root; $manifests; $lock; $selected):
       ($owned | map(select(.name == $d.package))) as $packages |
       if ($d.value | type) != "object" or ($d.value.path | type) != "string" or
          ($d.value.path | length) == 0 or ($d.value.path | test("[\\r\\n\\t]")) or
-         ($d.value.version | type) != "string"
+         (($d.value | has("version")) and ($d.value.version | type) != "string")
       then error("root dependency \($d.key) requires a local path and full version")
+      elif ($d.value | has("version") | not) and $packages[0].publish == [] then .
+      elif ($d.value.version | type) != "string"
+      then error("publishable root dependency \($d.key) requires a full version")
       elif ($d.value.version | sub("^[~^=]?[ \t]*"; "")) != $packages[0].version
       then error("root dependency \($d.key) declares \($d.value.version); expected full local version \($packages[0].version), retaining its requirement operator")
       else . end) |
@@ -95,6 +99,16 @@ def admit_groups($config; $root; $manifests; $lock; $selected):
       ([$catalog[] | select(.package as $n | $g.members | index($n)) | .key] | sort) !=
       ($g.dependencies | sort))
   then error("release-group dependency aliases must match the complete root member catalog") else . end |
+  # Reject private registry requirements before any group can publish partially.
+  # Cargo strips only path-only dev-dependencies from a distributable manifest.
+  if any($owned[] | select(.publish != []) | .dependencies[];
+      . as $dependency |
+      ($owned | any(.name == $dependency.name and .publish == [])) and
+      ($dependency.kind != "dev" or
+       ($catalog | any(.key == ($dependency.rename // $dependency.name) and
+                       (.value | has("version"))))))
+  then error("publishable members may use private members only through path-only dev-dependencies")
+  else . end |
   ($admitted | map(select(.name == $selected))) as $matches |
   if ($matches | length) != 1 then error("unknown release group") else $matches[0] end;
 
@@ -111,7 +125,11 @@ def group_plan($group; $root; $owned; $directory; $next):
     else {alias:$d.key, package:$package, path:$d.value.path, previous:$d.value.version,
       next:($d.value.version | capture("^(?<prefix>[~^=]?[ \\t]*)(?<version>.*)$") |
         . as $r | .prefix + ($next | split(".")[:($r.version | split(".") | length)] | join(".")))} end] as $dependencies |
-  if ($dependencies | map(.alias) | sort) != ($group.dependencies | sort)
+  # Admission owns the complete alias roster; only versioned entries need edits.
+  (member_catalog($root; $owned) | map(select(
+    (.value | has("version") | not) and (.package as $p | $group.members | index($p))
+  )) | map(.key)) as $path_only |
+  if ($dependencies | map(.alias) | sort) != (($group.dependencies - $path_only) | sort)
   then error("unknown or nonlocal group dependency selection") else . end |
   (($group.shared_metadata_files // []) + ($group.metadata_files // [])) as $metadata_files |
   {group:$group.name, primary:$group.primary, previous:$group.previous, changelog:$group.changelog,

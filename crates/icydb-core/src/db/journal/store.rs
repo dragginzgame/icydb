@@ -6,12 +6,16 @@
 #[cfg(test)]
 use crate::db::journal::JournalRecord;
 use crate::{
-    db::journal::{
-        DatabaseCommitSequence, JournalBatch, JournalSequence,
-        codec::{
-            JOURNAL_BATCH_FIXED_HEADER_BYTES, MAX_JOURNAL_BATCH_BYTES, MAX_JOURNAL_BATCH_RECORDS,
-            RawJournalBatch, RawJournalBatchFixedHeader, inspect_raw_journal_batch_fixed_header,
+    db::{
+        journal::{
+            DatabaseCommitSequence, JournalBatch, JournalSequence,
+            codec::{
+                JOURNAL_BATCH_FIXED_HEADER_BYTES, MAX_JOURNAL_BATCH_BYTES,
+                MAX_JOURNAL_BATCH_RECORDS, RawJournalBatch, RawJournalBatchFixedHeader,
+                inspect_raw_journal_batch_fixed_header,
+            },
         },
+        storage::open_stable_map,
     },
     error::{ErrorClass, InternalError},
     types::EntityTag,
@@ -517,17 +521,15 @@ impl Storable for RawJournalChunk {
 impl JournalTailStore {
     /// Initialize a journal-tail store with the provided backing memory.
     ///
+    /// # Errors
+    /// Returns a store error if creation or retained collection validation fails.
+    /// Invalid retained contents are not replaced.
+    ///
     /// # Panics
-    /// Panics if retained storage has an invalid header or unsupported layout,
-    /// or the backing storage fails. Invalid retained contents are not replaced.
+    /// Propagates backing-storage or codec panics.
     pub fn init(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
         Ok(Self {
-            // Only virgin allocations may initialize a new map.
-            map: if memory.size() == 0 {
-                StableBTreeMap::create(memory).map_err(InternalError::from)?
-            } else {
-                StableBTreeMap::load(memory).map_err(InternalError::from)?
-            },
+            map: open_stable_map(memory).map_err(InternalError::from)?,
         })
     }
 

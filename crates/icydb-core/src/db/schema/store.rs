@@ -50,6 +50,7 @@ use crate::{
                 prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
             },
         },
+        storage::open_stable_map,
     },
     error::InternalError,
     types::EntityTag,
@@ -651,7 +652,7 @@ struct AcceptedSchemaBundleCache {
 enum SchemaStoreBackend {
     Heap(StdBTreeMap<RawSchemaKey, RawSchemaValue>),
     Journaled {
-        canonical: StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
+        canonical: Box<StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>>,
         live: StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: BTreeSet<RawSchemaKey>,
         positions: PositionedOverlayMetadata<RawSchemaKey>,
@@ -756,20 +757,17 @@ impl SchemaStore {
     /// Normal schema publication writes only the live projection. Canonical
     /// stable schema history is updated by future journal fold/recovery paths.
     ///
+    /// # Errors
+    /// Returns a store error if creation or retained collection validation fails.
+    /// Invalid retained contents are not replaced.
+    ///
     /// # Panics
-    /// Panics if retained storage has an invalid header or unsupported layout,
-    /// or the backing storage fails. Invalid retained contents are not replaced.
+    /// Propagates backing-storage or codec panics.
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
-        // Only a virgin allocation may be initialized; retained authority must
-        // never be silently replaced when its storage header is unrecognized.
-        let canonical = if memory.size() == 0 {
-            StableBTreeMap::create(memory).map_err(InternalError::from)?
-        } else {
-            StableBTreeMap::load(memory).map_err(InternalError::from)?
-        };
+        let canonical = open_stable_map(memory).map_err(InternalError::from)?;
         Ok(Self {
             backend: SchemaStoreBackend::Journaled {
-                canonical,
+                canonical: Box::new(canonical),
                 live: StdBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),

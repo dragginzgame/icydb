@@ -43,4 +43,6 @@ pub(in crate::db) use materialize::{
 pub(in crate::db::executor::projection) use materialize::{
     project_admitted_page, project_distinct,
 };
-pub(in crate::db::executor) use path::{resolve_slot_field_path, resolve_value_field_path};
+pub(in crate::db::executor) use path::{
+    resolve_slot_field_path, resolve_value_field_path, select_value_sibling_paths,
+};
