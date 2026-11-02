@@ -3,7 +3,7 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with the pending 0.295.0 entry below.
 
-## [0.295.0]
+## [0.295.0] - 2026-11-02
 
 - Keep the database family coordinated while releasing the developer CLI independently.
 

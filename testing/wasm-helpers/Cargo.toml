@@ -3,7 +3,7 @@ name = "icydb-testing-wasm-helpers"
 edition = { workspace = true }
 rust-version = { workspace = true }
 license-file = { workspace = true }
-version = "0.294.0"
+version = "0.295.0"
 publish = false
 
 [dependencies]
