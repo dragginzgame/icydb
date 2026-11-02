@@ -340,7 +340,8 @@ fn distinct_entity_counts_stay_within_the_frozen_physical_growth_bound() {
         .expect("physical schema-memory growth should remain representable");
     let physical_growth_limit = 256_u64
         .checked_mul(MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE)
-        .and_then(|bytes| bytes.checked_add(262_144))
+        // Storage 0.65 qualifies one additional 64 KiB page of tree overhead.
+        .and_then(|bytes| bytes.checked_add(327_680))
         .expect("frozen physical growth bound should remain representable");
     assert!(
         physical_growth <= physical_growth_limit,
@@ -571,7 +572,7 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
         .expect("physical schema-memory growth should remain representable");
     let physical_growth_limit = 256_u64
         .checked_mul(maximum_index_fields)
-        .and_then(|bytes| bytes.checked_add(262_144))
+        .and_then(|bytes| bytes.checked_add(327_680))
         .expect("frozen physical growth bound should remain representable");
     assert!(
         physical_growth <= physical_growth_limit,

@@ -626,7 +626,7 @@ fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
     let mut measured_encoded_bytes = 0;
     let mut measured_chunks = 0;
 
-    for cycle in 0..3_u64 {
+    for cycle in 0..8_u64 {
         let first_sequence = cycle * BACKLOG_BATCH_LIMIT + 1;
         let batches = (0..BACKLOG_BATCH_LIMIT)
             .map(|offset| {
@@ -689,7 +689,14 @@ fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
 
         let pages = physical.size();
         if let Some(first) = high_water {
-            assert_eq!(pages, first, "retired stable capacity should be reused");
+            if cycle == 1 {
+                // Storage 0.65 may allocate one page on the first refill.
+                // Every subsequent refill must reuse that qualified capacity.
+                assert!(pages <= first + 1, "warm-up growth exceeds one page");
+                high_water = Some(pages);
+            } else {
+                assert_eq!(pages, first, "retired stable capacity should be reused");
+            }
         } else {
             high_water = Some(pages);
         }

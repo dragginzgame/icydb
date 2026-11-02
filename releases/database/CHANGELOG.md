@@ -21,7 +21,7 @@ begin with the pending 0.295.0 entry below.
   existing stored bytes and marker recovery ([#102](https://github.com/dragginzgame/icydb/issues/102), partial).
 - Report secondary-order eligibility and rejection reasons in accepted typed
   and SQL logical EXPLAIN ([#275](https://github.com/dragginzgame/icydb/issues/275), partial).
-- Adopt Storage 0.65.0 with fresh-installation-only admission, Metrics 0.27.0,
+- Adopt Storage 0.65.0 with fresh-installation-only admission and approved allocation bounds, Metrics 0.27.0,
   Platform 0.18.0, Wire 0.15.0
   and Shared Tooling 0.27.28;
   require and pin Rust 1.99.1 while retaining isolated compiler coverage ([#600](https://github.com/dragginzgame/icydb/issues/600)),
