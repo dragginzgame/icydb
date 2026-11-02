@@ -2,7 +2,7 @@
 name = "icydb-testing-source-checks"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.295.0"
+version = "0.295.1"
 publish = false
 license-file = { workspace = true }
 description = "Shared development-only structural source checks"
