@@ -751,7 +751,7 @@ impl JournalTailStore {
             None => false,
         };
         #[cfg(test)]
-        if !(self.has_current_tail_control()).expect("fixture storage read should succeed") {
+        if !self.has_current_tail_control()? {
             self.initialize_current_tail_control()?;
         }
         #[cfg(test)]
