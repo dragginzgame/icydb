@@ -447,11 +447,14 @@ fn persisted_index_envelope_malformed_corpus_fails_closed() {
         ("oversized index entry", vec![0; 2]),
     ];
     for (label, bytes) in entry_cases {
-        let entry = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-        assert_err(
-            label,
-            entry.expect("storage operation should succeed").validate(),
-        );
+        let oversized = bytes.len() > 1;
+        match IndexEntryValue::from_bytes(Cow::Owned(bytes)) {
+            Ok(entry) => assert_err(label, entry.validate()),
+            Err(error) => {
+                assert!(oversized, "{label}");
+                std::assert_matches!(error, ic_storage::storable::CodecError::Bounds);
+            }
+        }
     }
 }
 

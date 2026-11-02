@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, LoweredKey, lower_access_with_schema_info},
+        access::{AccessPlan, LoweredKey, lower_access_with_schema_info},
         cursor::ValidatedGroupedCursor,
         direction::Direction,
         executor::{
@@ -125,11 +125,13 @@ fn lower_grouped_resume_anchor(
     let AccessPlan::Path(path) = &plan.logical_plan().access else {
         return Err(InternalError::query_executor_invariant());
     };
-    let (index, fixed) = match path.as_ref() {
-        AccessPath::IndexPrefix { index, values } => (index, values.as_slice()),
-        AccessPath::IndexRange { spec } => (spec.index_ref(), spec.prefix_values()),
-        _ => return Err(InternalError::query_executor_invariant()),
-    };
+    let (index, fixed) = path
+        .as_index_prefix_contract()
+        .or_else(|| {
+            path.as_index_range()
+                .map(|spec| (spec.index_ref().clone(), spec.prefix_values()))
+        })
+        .ok_or_else(InternalError::query_executor_invariant)?;
     let Value::List(keys) = boundary else {
         return Err(InternalError::query_executor_invariant());
     };
@@ -157,7 +159,7 @@ fn lower_grouped_resume_anchor(
     if grouped.next().is_some() {
         return Err(InternalError::query_executor_invariant());
     }
-    let prefix = AccessPlan::<Value>::index_prefix_from_contract(index.clone(), values);
+    let prefix = AccessPlan::<Value>::index_prefix_from_contract(index, values);
     let authority = plan.authority();
     let (prefixes, _) = lower_access_with_schema_info(
         authority.entity_tag(),

@@ -179,9 +179,16 @@ fn index_identity_generations_encode_as_disjoint_physical_namespaces() {
 }
 
 fn decode_must_fail_corrupted(bytes: Vec<u8>, label: &str) {
-    let raw =
-        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
-    IndexKey::try_from_raw(&raw).expect_err(label);
+    let oversized = bytes.len() > IndexKey::MAX_STORED_SIZE_USIZE;
+    match <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)) {
+        Ok(raw) => {
+            IndexKey::try_from_raw(&raw).expect_err(label);
+        }
+        Err(error) => {
+            assert!(oversized, "{label}");
+            std::assert_matches!(error, ic_storage::storable::CodecError::Bounds);
+        }
+    }
 }
 
 fn make_component(byte: u8) -> Vec<u8> {
@@ -279,9 +286,10 @@ fn index_key_rejects_undersized_bytes() {
 #[test]
 fn index_key_rejects_oversized_bytes() {
     let bytes = vec![0u8; IndexKey::MAX_STORED_SIZE_USIZE + 1];
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes))
-        .expect("fixture decoding");
-    IndexKey::try_from_raw(&raw).expect_err("oversized key should fail");
+    std::assert_matches!(
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes)),
+        Err(ic_storage::storable::CodecError::Bounds)
+    );
 }
 
 #[test]

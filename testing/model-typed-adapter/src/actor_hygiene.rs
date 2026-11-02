@@ -57,7 +57,7 @@ fn actor_requests_keep_the_declared_memory_authority() {
     let requests = generated::icydb_memory_requests().expect("generated requests should validate");
     assert_eq!(requests.len(), 7);
     assert!(requests.iter().all(|request| {
-        request.authority() == "icydb.actor_hygiene"
+        request.authority() == "icydb_actor_hygiene"
             && request
                 .stable_key()
                 .as_str()

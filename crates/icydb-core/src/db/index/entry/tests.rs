@@ -182,15 +182,9 @@ fn index_entry_value_rejects_invalid_witness() {
 
 #[test]
 fn index_entry_value_rejects_oversized_payload() {
-    let raw_key = raw_key_for(PrimaryKeyComponent::Int64(1));
     let bytes = vec![0u8; MAX_INDEX_ENTRY_BYTES as usize + 1];
     let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-    std::assert_matches!(
-        raw.as_ref()
-            .expect("storage operation should succeed")
-            .decode_row_witness(&raw_key),
-        Err(IndexEntryCorruption::TooLarge)
-    );
+    std::assert_matches!(raw, Err(ic_storage::storable::CodecError::Bounds));
 }
 
 #[test]
@@ -243,9 +237,14 @@ fn index_entry_value_decode_fuzz_does_not_panic() {
             *byte = (seed >> 24) as u8;
         }
 
-        let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-        let _ = raw
-            .expect("storage operation should succeed")
-            .decode_row_witness(&raw_key_for(PrimaryKeyComponent::Int64(1)));
+        match IndexEntryValue::from_bytes(Cow::Owned(bytes)) {
+            Ok(raw) => {
+                let _ = raw.decode_row_witness(&raw_key_for(PrimaryKeyComponent::Int64(1)));
+            }
+            Err(error) => {
+                assert!(len > MAX_INDEX_ENTRY_BYTES as usize);
+                std::assert_matches!(error, ic_storage::storable::CodecError::Bounds);
+            }
+        }
     }
 }
