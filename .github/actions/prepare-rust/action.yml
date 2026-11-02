@@ -1,0 +1,33 @@
+name: Prepare the repository Rust compiler
+description: Project the workspace support policy, install its compiler and verify actual identities.
+inputs:
+  components:
+    description: Components required by this lane.
+    default: ''
+  targets:
+    description: Additional targets required by this lane.
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Prepare policy readers
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      run: |
+        bash scripts/dev/install-host-tools.sh --consumer "$GITHUB_WORKSPACE"
+        echo "$GITHUB_WORKSPACE/.tools/host/bin" >> "$GITHUB_PATH"
+    - name: Read the workspace compiler policy
+      id: policy
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      run: |
+        version="$(bash scripts/ci/read-cargo-workspace-rust-version.sh Cargo.toml)"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
+        echo "RUST_CURRENT=$version" >> "$GITHUB_ENV"
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+      with:
+        toolchain: ${{ steps.policy.outputs.version }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+    - name: Admit actual Cargo and rustc identities
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      run: bash scripts/ci/check-rust-compiler.sh

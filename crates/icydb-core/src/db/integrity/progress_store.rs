@@ -29,8 +29,8 @@ use crate::{
     traits::CanisterKind,
 };
 
-use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -154,20 +154,21 @@ impl ProgressRecordKey {
 }
 
 impl Storable for ProgressRecordKey {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(&self.0))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
         let mut key = [0; 32];
         if bytes.len() == key.len() {
             key.copy_from_slice(bytes.as_ref());
         }
-        Self(key)
+        Ok(Self(key))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_vec()
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0.to_vec())
     }
 
     const BOUND: Bound = Bound::Bounded {
@@ -180,16 +181,17 @@ impl Storable for ProgressRecordKey {
 struct ProgressRecordBytes(Vec<u8>);
 
 impl Storable for ProgressRecordBytes {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.0.as_slice())
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(self.0.as_slice()))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
+        Ok(Self(bytes.into_owned()))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0)
     }
 
     const BOUND: Bound = Bound::Bounded {
@@ -327,19 +329,25 @@ impl InspectionProgressStore {
             // Only virgin allocations may initialize a new map.
             map: if memory.size() == 0 {
                 StableBTreeMap::create(memory)
+                    .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
             } else {
                 StableBTreeMap::load(memory)
+                    .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
             },
         };
         if store.map.is_empty() {
-            store.map.insert(
-                PROGRESS_HEADER_KEY,
-                ProgressRecordBytes(encode_progress_header()),
-            );
+            store
+                .map
+                .insert(
+                    PROGRESS_HEADER_KEY,
+                    ProgressRecordBytes(encode_progress_header()),
+                )
+                .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
         } else {
             let header = store
                 .map
                 .get(&PROGRESS_HEADER_KEY)
+                .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
                 .ok_or(IntegrityJobError::CorruptProgressHeader)?;
             decode_progress_header(&header.0)?;
             if store.job_count()? > MAX_PROGRESS_JOBS_GLOBAL {
@@ -353,6 +361,7 @@ impl InspectionProgressStore {
         let raw = self
             .map
             .get(&ProgressRecordKey::from_job_id(job_id))
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
             .ok_or(IntegrityJobError::JobNotFound)?;
         decode_job_record(&raw.0, job_id)
     }
@@ -366,7 +375,11 @@ impl InspectionProgressStore {
         if key == PROGRESS_HEADER_KEY {
             return Err(IntegrityJobError::CorruptProgressRecord);
         }
-        if let Some(raw) = self.map.get(&key) {
+        if let Some(raw) = self
+            .map
+            .get(&key)
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
+        {
             return decode_job_record(&raw.0, job.id)
                 .map(Box::new)
                 .map(InsertJobResult::Occupied);
@@ -377,18 +390,24 @@ impl InspectionProgressStore {
             return Err(IntegrityJobError::CapacityExceeded);
         }
         self.map
-            .insert(key, ProgressRecordBytes(encode_job_record(job)?));
+            .insert(key, ProgressRecordBytes(encode_job_record(job)?))
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
         Ok(InsertJobResult::Inserted)
     }
 
     pub(super) fn replace(&mut self, job: &IntegrityJob) -> Result<(), IntegrityJobError> {
         job.validate()?;
         let key = ProgressRecordKey::from_job_id(job.id);
-        if !self.map.contains_key(&key) {
+        if !self
+            .map
+            .contains_key(&key)
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
+        {
             return Err(IntegrityJobError::JobNotFound);
         }
         self.map
-            .insert(key, ProgressRecordBytes(encode_job_record(job)?));
+            .insert(key, ProgressRecordBytes(encode_job_record(job)?))
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
         Ok(())
     }
 
@@ -397,7 +416,11 @@ impl InspectionProgressStore {
         job_id: ResumableJobId,
     ) -> Result<ResumableJobRecord, ResumableJobError> {
         let key = ProgressRecordKey::from_resumable_job_id(job_id)?;
-        let raw = self.map.get(&key).ok_or(ResumableJobError::NotFound)?;
+        let raw = self
+            .map
+            .get(&key)
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?
+            .ok_or(ResumableJobError::NotFound)?;
         decode_resumable_job_record(&raw.0, job_id)
     }
 
@@ -407,16 +430,22 @@ impl InspectionProgressStore {
     ) -> Result<(), ResumableJobError> {
         record.validate()?;
         let key = ProgressRecordKey::from_resumable_job_id(record.state().job_id)?;
-        if self.map.contains_key(&key) {
+        if self
+            .map
+            .contains_key(&key)
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?
+        {
             return Err(ResumableJobError::AlreadyExists);
         }
         if self.job_count().map_err(map_integrity_store_error)? >= MAX_PROGRESS_JOBS_NON_INTEGRITY {
             return Err(ResumableJobError::CapacityExceeded);
         }
-        self.map.insert(
-            key,
-            ProgressRecordBytes(encode_resumable_job_record(record)?),
-        );
+        self.map
+            .insert(
+                key,
+                ProgressRecordBytes(encode_resumable_job_record(record)?),
+            )
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?;
         Ok(())
     }
 
@@ -426,13 +455,19 @@ impl InspectionProgressStore {
     ) -> Result<(), ResumableJobError> {
         record.validate()?;
         let key = ProgressRecordKey::from_resumable_job_id(record.state().job_id)?;
-        if !self.map.contains_key(&key) {
+        if !self
+            .map
+            .contains_key(&key)
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?
+        {
             return Err(ResumableJobError::NotFound);
         }
-        self.map.insert(
-            key,
-            ProgressRecordBytes(encode_resumable_job_record(record)?),
-        );
+        self.map
+            .insert(
+                key,
+                ProgressRecordBytes(encode_resumable_job_record(record)?),
+            )
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?;
         Ok(())
     }
 
@@ -441,11 +476,18 @@ impl InspectionProgressStore {
         job_id: ResumableJobId,
     ) -> Result<(), ResumableJobError> {
         let key = ProgressRecordKey::from_resumable_job_id(job_id)?;
-        let Some(raw) = self.map.get(&key) else {
+        let Some(raw) = self
+            .map
+            .get(&key)
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?
+        else {
             return Ok(());
         };
         decode_resumable_job_record(&raw.0, job_id)?;
-        let _ = self.map.remove(&key);
+        let _ = self
+            .map
+            .remove(&key)
+            .map_err(|_| ResumableJobError::CorruptProgressStore)?;
         Ok(())
     }
 
@@ -454,7 +496,11 @@ impl InspectionProgressStore {
         job_id: MutationJobId,
     ) -> Result<MutationJobRecord, MutationJobError> {
         let key = ProgressRecordKey::from_mutation_job_id(job_id)?;
-        let raw = self.map.get(&key).ok_or(MutationJobError::NotFound)?;
+        let raw = self
+            .map
+            .get(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+            .ok_or(MutationJobError::NotFound)?;
         decode_mutation_job_record(&raw.0, job_id)
     }
 
@@ -464,7 +510,11 @@ impl InspectionProgressStore {
     ) -> Result<InsertMutationJobResult, MutationJobError> {
         record.validate()?;
         let key = ProgressRecordKey::from_mutation_job_id(record.state().job_id)?;
-        if let Some(raw) = self.map.get(&key) {
+        if let Some(raw) = self
+            .map
+            .get(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+        {
             return decode_mutation_job_record(&raw.0, record.state().job_id)
                 .map(Box::new)
                 .map(InsertMutationJobResult::Occupied);
@@ -472,10 +522,12 @@ impl InspectionProgressStore {
         if self.job_count().map_err(map_mutation_store_error)? >= MAX_PROGRESS_JOBS_NON_INTEGRITY {
             return Err(MutationJobError::CapacityExceeded);
         }
-        self.map.insert(
-            key,
-            ProgressRecordBytes(encode_mutation_job_record(record)?),
-        );
+        self.map
+            .insert(
+                key,
+                ProgressRecordBytes(encode_mutation_job_record(record)?),
+            )
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
         Ok(InsertMutationJobResult::Inserted)
     }
 
@@ -487,13 +539,19 @@ impl InspectionProgressStore {
     ) -> Result<(), MutationJobError> {
         record.validate()?;
         let key = ProgressRecordKey::from_mutation_job_id(record.state().job_id)?;
-        if !self.map.contains_key(&key) {
+        if !self
+            .map
+            .contains_key(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+        {
             return Err(MutationJobError::NotFound);
         }
-        self.map.insert(
-            key,
-            ProgressRecordBytes(encode_mutation_job_record(record)?),
-        );
+        self.map
+            .insert(
+                key,
+                ProgressRecordBytes(encode_mutation_job_record(record)?),
+            )
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
         Ok(())
     }
 
@@ -504,6 +562,7 @@ impl InspectionProgressStore {
         let current = self
             .map
             .get(&operation.key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
             .ok_or(MutationJobError::CorruptProgressStore)?;
         if current.0 != operation.before {
             return Err(MutationJobError::CorruptProgressStore);
@@ -518,6 +577,7 @@ impl InspectionProgressStore {
         let current = self
             .map
             .get(&operation.key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
             .ok_or(MutationJobError::CorruptProgressStore)?;
         if current.0 == operation.after {
             return Ok(());
@@ -526,13 +586,19 @@ impl InspectionProgressStore {
             return Err(MutationJobError::CorruptProgressStore);
         }
         self.map
-            .insert(operation.key, ProgressRecordBytes(operation.after.clone()));
+            .insert(operation.key, ProgressRecordBytes(operation.after.clone()))
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
         Ok(())
     }
 
-    fn apply_preflighted_mutation_progress(&mut self, operation: &MutationProgressRecordOp) {
+    fn apply_preflighted_mutation_progress(
+        &mut self,
+        operation: &MutationProgressRecordOp,
+    ) -> Result<(), MutationJobError> {
         self.map
-            .insert(operation.key, ProgressRecordBytes(operation.after.clone()));
+            .insert(operation.key, ProgressRecordBytes(operation.after.clone()))
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
+        Ok(())
     }
 
     /// Replace one mutation record without target-row work using the same exact
@@ -552,6 +618,7 @@ impl InspectionProgressStore {
         let current = self
             .map
             .get(&operation.key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
             .ok_or(MutationJobError::CorruptProgressStore)?;
         if current.0 != operation.after {
             return Err(MutationJobError::CorruptProgressStore);
@@ -565,7 +632,11 @@ impl InspectionProgressStore {
         expected_sequence: u64,
     ) -> Result<(), MutationJobError> {
         let key = ProgressRecordKey::from_mutation_job_id(job_id)?;
-        let Some(raw) = self.map.get(&key) else {
+        let Some(raw) = self
+            .map
+            .get(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+        else {
             return Ok(());
         };
         let record = decode_mutation_job_record(&raw.0, job_id)?;
@@ -578,7 +649,10 @@ impl InspectionProgressStore {
         if record.state().status == crate::db::MutationJobStatus::Active {
             return Err(MutationJobError::Active);
         }
-        let _ = self.map.remove(&key);
+        let _ = self
+            .map
+            .remove(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
         Ok(())
     }
 
@@ -595,13 +669,20 @@ impl InspectionProgressStore {
         validate_initial_continuation: impl FnOnce(&[u8]) -> Result<(), MutationJobError>,
     ) -> Result<(), MutationJobError> {
         let key = ProgressRecordKey::from_mutation_job_id(job_id)?;
-        let Some(raw) = self.map.get(&key) else {
+        let Some(raw) = self
+            .map
+            .get(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+        else {
             return Ok(());
         };
         let record = decode_mutation_job_record(&raw.0, job_id)?;
         let continuation = record.ensure_cancelable_at_sequence(expected_sequence)?;
         validate_initial_continuation(continuation)?;
-        let _ = self.map.remove(&key);
+        let _ = self
+            .map
+            .remove(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
         Ok(())
     }
 
@@ -617,11 +698,15 @@ impl InspectionProgressStore {
         let mut retained_record_bytes = 0_u64;
 
         for entry in &self.map {
+            let entry = entry.map_err(|_| MutationJobError::CorruptProgressStore)?;
             let key = *entry.key();
             if key == PROGRESS_HEADER_KEY {
                 continue;
             }
-            let bytes = &entry.value().0;
+            let bytes = &entry
+                .value()
+                .map_err(|_| MutationJobError::CorruptProgressStore)?
+                .0;
             retained_record_bytes = retained_record_bytes
                 .checked_add(
                     u64::try_from(bytes.len())
@@ -710,6 +795,7 @@ impl InspectionProgressStore {
         if self
             .map
             .remove(&ProgressRecordKey::from_job_id(job_id))
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
             .is_none()
         {
             return Err(IntegrityJobError::JobNotFound);
@@ -731,13 +817,16 @@ impl InspectionProgressStore {
         let mut records_scanned = 0;
         let mut entries = self.map.range((Excluded(lower), Unbounded));
         for entry in entries.by_ref().take(limit) {
+            let entry = entry.map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
             // The physical key owns lookup and pagination even when the payload
             // is corrupt. Every family consumes page work; only its owner may
             // interpret or retire its records.
             let job_id = IntegrityJobId::try_from_bytes(entry.key().0)?;
             next_checkpoint = Some(job_id);
             records_scanned += 1;
-            let bytes = entry.value();
+            let bytes = entry
+                .value()
+                .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
             if !bytes.0.starts_with(RESUMABLE_JOB_RECORD_MAGIC)
                 && !bytes.0.starts_with(MUTATION_JOB_RECORD_MAGIC)
             {
@@ -748,7 +837,11 @@ impl InspectionProgressStore {
             job_ids,
             next_checkpoint,
             records_scanned,
-            exhausted: entries.next().is_none(),
+            exhausted: entries
+                .next()
+                .transpose()
+                .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
+                .is_none(),
         })
     }
 
@@ -762,6 +855,7 @@ impl InspectionProgressStore {
     fn owner_job_count(&self, owner: &IntegrityJobOwner) -> Result<u64, IntegrityJobError> {
         let mut count = 0_u64;
         for entry in &self.map {
+            let entry = entry.map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
             if *entry.key() == PROGRESS_HEADER_KEY {
                 continue;
             }
@@ -772,7 +866,13 @@ impl InspectionProgressStore {
             let Ok(job_id) = IntegrityJobId::try_from_bytes(entry.key().0) else {
                 continue;
             };
-            let Ok(job) = decode_job_record(&entry.value().0, job_id) else {
+            let Ok(job) = decode_job_record(
+                &entry
+                    .value()
+                    .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
+                    .0,
+                job_id,
+            ) else {
                 continue;
             };
             if job.owner == *owner {
@@ -1074,7 +1174,7 @@ pub(in crate::db) fn apply_preflighted_mutation_progress_record_op<C: CanisterKi
     operation: &MutationProgressRecordOp,
 ) -> Result<(), InternalError> {
     with_mutation_progress_store::<C, _>(|store| {
-        store.apply_preflighted_mutation_progress(operation);
+        store.apply_preflighted_mutation_progress(operation)?;
         Ok(())
     })
     .map_err(|_| InternalError::commit_corruption())
@@ -1102,7 +1202,8 @@ pub(in crate::db) fn replace_progress_record_for_test<C: CanisterKind>(
     with_progress_store::<C, _>(|store| {
         store
             .map
-            .insert(ProgressRecordKey(key), ProgressRecordBytes(bytes));
+            .insert(ProgressRecordKey(key), ProgressRecordBytes(bytes))
+            .expect("fixture storage operation should succeed");
         Ok(())
     })
 }
@@ -1117,10 +1218,12 @@ pub(in crate::db) fn miskey_progress_record_for_test<C: CanisterKind>(
         let bytes = store
             .map
             .remove(&ProgressRecordKey::from_job_id(job_id))
+            .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
             .ok_or(IntegrityJobError::JobNotFound)?;
         store
             .map
-            .insert(ProgressRecordKey::from_job_id(stored_id), bytes);
+            .insert(ProgressRecordKey::from_job_id(stored_id), bytes)
+            .expect("fixture storage operation should succeed");
         Ok(())
     })
 }
@@ -1131,7 +1234,7 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
     let resolved_id = C::integrity_progress_memory_id().map_err(|_| IntegrityJobError::Internal)?;
     thread_local! {
         static MEMORIES: RefCell<
-            Vec<(u8, &'static str, crate::testing::TestMemoryOwner)>
+            Vec<(u64, &'static str, crate::testing::TestMemoryOwner)>
         > = const { RefCell::new(Vec::new()) };
     }
 
@@ -1174,7 +1277,8 @@ mod tests {
     #[test]
     fn retained_store_corruption_does_not_initialize_a_replacement() {
         crate::testing::assert_retained_store_header_preserved(|memory| {
-            InspectionProgressStore::open(memory).unwrap()
+            InspectionProgressStore::open(memory)
+                .map_err(|_| crate::error::InternalError::store_corruption())
         });
     }
 
@@ -1185,7 +1289,7 @@ mod tests {
         const STARTUP_STABLE_KEY: &'static str = "tests::retention::startup";
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "tests::retention::progress";
 
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(253)
         }
     }
@@ -1322,12 +1426,15 @@ mod tests {
         .unwrap();
         let mut store = InspectionProgressStore::open(test_memory(245)).unwrap();
         let key = ProgressRecordKey::from_job_id(job.id);
-        store.map.insert(key, ProgressRecordBytes(corrupt.clone()));
+        store
+            .map
+            .insert(key, ProgressRecordBytes(corrupt.clone()))
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.load(job.id),
             Err(IntegrityJobError::CorruptProgressRecord)
         );
-        assert_eq!(store.map.get(&key).unwrap().0, corrupt);
+        assert_eq!(store.map.get(&key).unwrap().unwrap().0, corrupt);
     }
 
     #[test]
@@ -1755,50 +1862,40 @@ mod tests {
     }
 
     #[test]
-    fn progress_stable_growth_is_measured_at_reservation_boundaries() {
-        const STABLE_PAGE_BYTES: u64 = 65_536;
-
+    fn progress_reservation_survives_reopen_and_refuses_growth_at_capacity() {
         let memory = crate::testing::test_memory_owner(249);
-        let mut store = InspectionProgressStore::open(memory.open())
-            .expect("isolated progress store should open");
-        let mut bytes_at_fifty_five = 0;
-        let mut bytes_at_fifty_six = 0;
+        let mut store = InspectionProgressStore::open(memory.open()).unwrap();
         for byte in 1..=56 {
             assert!(matches!(
                 store
                     .insert_mutation(&current_mutation_record(byte))
-                    .expect("record inside shared capacity should insert"),
-                InsertMutationJobResult::Inserted,
+                    .unwrap(),
+                InsertMutationJobResult::Inserted
             ));
-            if byte == 55 {
-                bytes_at_fifty_five = memory.size() * STABLE_PAGE_BYTES;
-            } else if byte == 56 {
-                bytes_at_fifty_six = memory.size() * STABLE_PAGE_BYTES;
-            }
         }
-        let mut bytes_at_sixty_three = 0;
         for byte in 200..=207 {
             assert!(matches!(
-                store
-                    .insert_new(&current_integrity_record(byte))
-                    .expect("record inside integrity reservation should insert"),
-                InsertJobResult::Inserted,
+                store.insert_new(&current_integrity_record(byte)).unwrap(),
+                InsertJobResult::Inserted
             ));
-            if byte == 206 {
-                bytes_at_sixty_three = memory.size() * STABLE_PAGE_BYTES;
-            }
         }
-        let bytes_at_sixty_four = memory.size() * STABLE_PAGE_BYTES;
-
-        assert_eq!(
-            (
-                bytes_at_fifty_five,
-                bytes_at_fifty_six,
-                bytes_at_sixty_three,
-                bytes_at_sixty_four,
-            ),
-            (38_993_920, 38_993_920, 43_319_296, 43_319_296),
-        );
+        let pages = memory.size();
+        drop(store);
+        let mut reopened = InspectionProgressStore::open(memory.open()).unwrap();
+        let full = reopened.inventory().unwrap();
+        assert_eq!(full.retained_count, 64);
+        assert_eq!(full.integrity_count, 8);
+        assert_eq!(full.mutation_count, 56);
+        assert!(matches!(
+            reopened.insert_mutation(&current_mutation_record(57)),
+            Err(MutationJobError::CapacityExceeded)
+        ));
+        assert!(matches!(
+            reopened.insert_new(&current_integrity_record(208)),
+            Err(IntegrityJobError::CapacityExceeded)
+        ));
+        assert_eq!(reopened.inventory().unwrap(), full);
+        assert_eq!(memory.size(), pages);
     }
 
     #[test]
@@ -2027,10 +2124,13 @@ mod tests {
                 && record.job_id == mutation.state().job_id.to_bytes()
         }));
 
-        store.map.insert(
-            ProgressRecordKey([202; 32]),
-            ProgressRecordBytes(b"undecodable-retained-slot".to_vec()),
-        );
+        store
+            .map
+            .insert(
+                ProgressRecordKey([202; 32]),
+                ProgressRecordBytes(b"undecodable-retained-slot".to_vec()),
+            )
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.inventory(),
             Err(MutationJobError::CorruptProgressStore),
@@ -2039,6 +2139,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one retention scenario checks corrupt keys, expiry and preserved receipts together"
+    )]
     fn retention_passes_corrupt_keys_without_losing_expiration_or_receipts() {
         use crate::db::integrity::{
             DeepIntegrityPageStatus, IntegrityJobReceipt, IntegrityPendingTerminal,
@@ -2048,14 +2152,17 @@ mod tests {
         with_progress_store::<RetentionCanister, _>(|store| {
             let mismatched = encode_job_record(&current_integrity_record(99)).unwrap();
             for byte in 1..=20 {
-                store.map.insert(
-                    ProgressRecordKey([byte; 32]),
-                    ProgressRecordBytes(if byte % 2 == 0 {
-                        mismatched.clone()
-                    } else {
-                        vec![0]
-                    }),
-                );
+                store
+                    .map
+                    .insert(
+                        ProgressRecordKey([byte; 32]),
+                        ProgressRecordBytes(if byte % 2 == 0 {
+                            mismatched.clone()
+                        } else {
+                            vec![0]
+                        }),
+                    )
+                    .expect("fixture storage operation should succeed");
             }
             let first = store.scan_after(None, 16)?;
             assert_eq!(first.records_scanned, 16);
@@ -2072,10 +2179,13 @@ mod tests {
             }
             let mut expired = current_integrity_record(21);
             expired.lease_deadline_nanos = 1;
-            store.map.insert(
-                ProgressRecordKey::from_job_id(expired.id),
-                ProgressRecordBytes(encode_job_record(&expired)?),
-            );
+            store
+                .map
+                .insert(
+                    ProgressRecordKey::from_job_id(expired.id),
+                    ProgressRecordBytes(encode_job_record(&expired)?),
+                )
+                .expect("fixture storage operation should succeed");
             for (byte, acknowledged) in [(22, true), (23, false)] {
                 let mut terminal = current_integrity_record(byte);
                 terminal.lease_deadline_nanos = 1;
@@ -2095,10 +2205,13 @@ mod tests {
                 page.page_sequence = 1;
                 page.pages_completed = 1;
                 terminal.validate()?;
-                store.map.insert(
-                    ProgressRecordKey::from_job_id(terminal.id),
-                    ProgressRecordBytes(encode_job_record(&terminal)?),
-                );
+                store
+                    .map
+                    .insert(
+                        ProgressRecordKey::from_job_id(terminal.id),
+                        ProgressRecordBytes(encode_job_record(&terminal)?),
+                    )
+                    .expect("fixture storage operation should succeed");
             }
             Ok(())
         })

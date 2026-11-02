@@ -83,6 +83,44 @@ mod tests {
     use crate::types::{Date, Timestamp};
 
     #[test]
+    fn persisted_text_expressions_share_frozen_unicode_mapping_and_whitespace() {
+        let source = Value::Text("\u{2003}ɤƛ İΟΣ\u{301}\u{a0}".into());
+        for (op, expected) in [
+            (
+                PersistedIndexExpressionOp::Lower,
+                "\u{2003}ɤƛ i\u{307}ος\u{301}\u{a0}",
+            ),
+            (
+                PersistedIndexExpressionOp::Upper,
+                "\u{2003}\u{a7cb}\u{a7dc} İΟΣ\u{301}\u{a0}",
+            ),
+            (PersistedIndexExpressionOp::Trim, "ɤƛ İΟΣ\u{301}"),
+            (
+                PersistedIndexExpressionOp::LowerTrim,
+                "ɤƛ i\u{307}ος\u{301}",
+            ),
+        ] {
+            let transformed = derive_non_null_scalar_expression_value(
+                scalar_index_expression_op(op),
+                ScalarExprValue::Text(source.as_text().unwrap().into()),
+            )
+            .unwrap();
+            assert_eq!(transformed, ScalarExprValue::Text(expected.into()));
+            assert_eq!(
+                derive_index_expression_value(op, &source),
+                Ok(Some(Value::Text(expected.into())))
+            );
+        }
+        // These formerly whitespace-like/invisible characters are not trimmed
+        // by the retained contract, even at either edge of a key.
+        let source = Value::Text("\u{180e}\u{200b}x\u{feff}".into());
+        assert_eq!(
+            derive_index_expression_value(PersistedIndexExpressionOp::Trim, &source),
+            Ok(Some(source))
+        );
+    }
+
+    #[test]
     fn borrowed_text_sources_preserve_canonical_transforms_and_rejections() {
         let source = Value::Text(" \u{2003}Straße İ\u{2003} ".to_string());
         for (op, expected) in [

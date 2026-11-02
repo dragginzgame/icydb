@@ -1,4 +1,4 @@
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 ///
 /// OptionalThreshold

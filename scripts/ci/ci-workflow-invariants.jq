@@ -22,19 +22,36 @@ def admits_server_tools:
   run_text | test("(^|\\s)(install-testkit|testkit-check)(\\s|$)");
 def has_run($pattern):
   any(.steps[]?; (run_text | test($pattern)) and .if == null and (.["continue-on-error"] // false) == false);
-def msrv_gate($script):
-  . as $job |
-  require($job.env.RUSTUP_TOOLCHAIN | if type == "string" then test("^[0-9]+\\.[0-9]+\\.[0-9]+$") else false end;
-    "MSRV must explicitly select its compiler"),
-  require(any($job.steps[]?; (.uses // "" | startswith("dtolnay/rust-toolchain@"))
-    and .with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}" and .with.targets == "wasm32-unknown-unknown");
-    "MSRV must install its selected compiler and Wasm target"),
-  require(all($job.steps[]?; .env.RUSTUP_TOOLCHAIN == null and .if == null and (.["continue-on-error"] // false) == false);
-    "MSRV steps must retain compiler selection and stop on failure"),
-  require($job | has_run("^\\s*bash scripts/ci/" + $script + "\\s*$"); "MSRV must run its owned compiler gate"),
-  ($job.steps as $steps | range(0; $steps|length) as $i |
-    select($steps[$i] | run_text | contains($script)) |
-    require(any($steps[0:$i][]; fetches_locked_workspace); "MSRV needs earlier locked cache preparation"));
+# Compiler support is qualified once inside the existing workspace lane.
+def compiler_gate($script; $adapter):
+  .steps as $steps |
+  require(any($steps[]?; run_text == ("bash scripts/ci/" + $script)
+    and .if == "matrix.lane == 'workspace'" and (.["continue-on-error"] // false) == false);
+    "workspace lane must retain its isolated compiler consumer proof"),
+  (range(0; $steps|length) as $i |
+    select($steps[$i] | run_text == ("bash scripts/ci/" + $script)) |
+    require(any($steps[0:$i][]; fetches_locked_workspace);
+      "compiler consumer proof needs earlier locked cache preparation"),
+    require(($adapter|not) or any($steps[0:$i][];
+      run_text == "cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml"
+      and .if == null and (.["continue-on-error"] // false) == false);
+      "external compiler consumers need their locked adapter graph"));
+def compiler_setup:
+  require(.env.RUSTUP_TOOLCHAIN == null and .env.RUST_CURRENT == null;
+    "job compiler selection must come from local policy"),
+  require(any(.steps[]?; .uses == "./.github/actions/prepare-rust" and .if == null
+    and (.["continue-on-error"] // false) == false);
+    "Rust lane must prepare and admit its policy-selected compiler"),
+  (.steps as $steps | range(0; $steps|length) as $i |
+    select($steps[$i] | run_text | test("^\\s*cargo\\s+fetch\\s")) |
+    require(any($steps[0:$i][]; .uses == "./.github/actions/prepare-rust");
+      "compiler preparation must precede locked dependency fetching")),
+  (.steps[]? |
+    require(.env.RUSTUP_TOOLCHAIN == null and .env.RUST_CURRENT == null;
+      "steps must not override the admitted compiler"),
+    (select(.uses == "./.github/actions/prepare-rust") |
+      require(.with.toolchain == null;
+        "compiler setup reads policy instead of an independent selector")));
 def matrix_routes($routes):
   . as $job |
   require($job.strategy["fail-fast"] == false; "parallel Rust validation must retain every lane"),
@@ -70,6 +87,13 @@ require(has("permissions") and (.permissions != null);
     require(any($steps[0:$index][]; run_text | test("\\bmake\\s+install-gh\\b"));
       "job \($job) uses gh api before its install-gh prerequisite"))),
 
+# Every maintained compilation lane consumes the same setup action. The action
+# records policy-selected Cargo/rustc identities; host/runtime proofs stay distinct.
+require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
+  "workflow compiler selection must come from local policy"),
+(["static","rust","macos_host","wire_browser","wasm_size_report","shard","merge"][] as $job |
+  select(.jobs|has($job)) | .jobs[$job] | compiler_setup),
+
 # Reuse action-reference rules, including reusable workflows. The existing full
 # dependency gate retains checkout exceptions, containers and Cargo provenance.
 ({file: $file, kind: "workflow", data: .} | checks | select(.rule == "action-ref") |
@@ -92,9 +116,9 @@ require(has("permissions") and (.permissions != null);
 
 (select($file == ".github/workflows/ci.yml") |
   . as $ci |
-  (["dependency_msrv","static","rust","macos_host","wire_browser","check"][] as $job |
+  (["static","rust","macos_host","wire_browser","check"][] as $job |
     require($ci.jobs|has($job); "CI is missing product job \($job)")),
-  (.jobs.dependency_msrv | msrv_gate("check-public-msrv.sh")),
+  (.jobs.rust | compiler_gate("check-public-compiler.sh"; false)),
   (.jobs.rust | ic_preparation("matrix.lane == 'workspace'"; "make \"$MAKE_TARGET\"")),
   (.jobs.rust | matrix_routes([["core","ci-core"],["workspace","ci-workspace"],["tier-a","ci-sql-tier-a"]])),
   require(.jobs.check | needs_are(["static","rust","macos_host","wire_browser"]);
@@ -105,7 +129,7 @@ require(has("permissions") and (.permissions != null);
   require(.jobs.wire_browser | has_run("^\\s*make check-wire-browser\\s*$"); "product browser gate must exercise native codec contracts"),
   require(any(.jobs.macos_host.steps[]?; run_text|contains("make check-portable-automation")); "native host must execute portable product fixtures"),
   (.jobs | to_entries[] | .key as $job | .value.steps[]? |
-    require(run_text|test("testing/canic-adapter|fetch-adapter|install-testkit|testkit-check|check-canic-adapter-msrv|icydb-testing-integration|test-wire-browser|build-canister-production")|not;
+    require(run_text|test("testing/canic-adapter|fetch-adapter|install-testkit|testkit-check|check-canic-adapter-compiler|icydb-testing-integration|test-wire-browser|build-canister-production")|not;
       "product job \($job) dispatches adapter qualification")),
   require(all(.jobs.rust.strategy.matrix.include[]?; .lane != "tier-b"); "installed Tier B belongs to adapter qualification"),
   (.jobs.rust.steps as $steps | range(0; $steps|length) as $i |
@@ -124,14 +148,14 @@ require(has("permissions") and (.permissions != null);
 
 (select($file == ".github/workflows/canic-adapter.yml") |
   . as $adapter |
-  (["dependency_msrv","static","rust","macos_host","wire_browser","check","wasm_size_report","release"][] as $job |
+  (["static","rust","macos_host","wire_browser","check","wasm_size_report","release"][] as $job |
     require($adapter.jobs|has($job); "adapter qualification is missing \($job)")),
   require(.on|has("workflow_dispatch"); "adapter qualification must be explicitly dispatchable"),
   require((.on.push.paths|length)>0 and (.on.pull_request.paths|length)>0;
     "adapter qualification must scope automatic runs to integration changes"),
   require(all(.on.push.paths[],.on.pull_request.paths[]; . != "crates/**" and . != "Cargo.toml" and . != "Cargo.lock");
     "unrelated core edits must not require adapter alignment"),
-  (.jobs.dependency_msrv | msrv_gate("check-canic-adapter-msrv.sh")),
+  (.jobs.rust | compiler_gate("check-canic-adapter-compiler.sh"; true)),
   require(.jobs.wasm_size_report.env.IC_TOOLS=="ic-wasm wasm-opt"; "adapter Wasm report needs its IC selection"),
   (.jobs.rust | ic_preparation("matrix.lane == 'workspace' || matrix.lane == 'tier-b'"; "make \"$MAKE_TARGET\"")),
   (.jobs.wasm_size_report | ic_preparation(null; "bash scripts/ci/wasm-size-report.sh")),
@@ -144,8 +168,8 @@ require(has("permissions") and (.permissions != null);
   require(.jobs.wire_browser | has_run("^\\s*make test-wire-browser\\s*$"); "installed browser qualification must remain selected"),
   require(.jobs.check | needs_are(["static","rust","macos_host","wire_browser"]); "adapter check must aggregate its own proof"),
   require(.jobs.wasm_size_report | needs_are([]); "adapter Wasm evidence must run independently"),
-  require(.jobs.release | needs_are(["dependency_msrv","check","wasm_size_report"]);
-    "canister artifacts need adapter MSRV, validation and Wasm evidence"),
+  require(.jobs.release | needs_are(["check","wasm_size_report"]);
+    "canister artifacts need adapter validation (including compiler consumers) and Wasm evidence"),
   (.jobs.rust.steps as $steps |
     require(any($steps[]; .if=="matrix.lane == 'workspace' || matrix.lane == 'tier-b'"
       and (.["continue-on-error"]//false)==false and (run_text|contains("make install-testkit >"))

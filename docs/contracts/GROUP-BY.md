@@ -146,6 +146,13 @@ select this route only when one accepted index contract proves the stream
 complete and ordered for the declared key tuple; otherwise it uses complete
 hash grouping.
 
+On continuation, ordered grouping lowers the last emitted key tuple through
+the accepted index contract and seeks beyond that complete group's physical
+prefix, in either direction. Equality-bound leading components and the original
+access bounds remain in force. Earlier groups are not folded again or charged
+again against the page's cumulative group-work limit. Hash grouping retains its
+complete-input work requirement.
+
 Execution does not switch strategies from runtime observations and does not
 combine partial hash state with ordered emission.
 

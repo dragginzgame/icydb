@@ -1,158 +1,82 @@
-//! Project typed memory bootstrap causes into bounded public diagnostics.
-//! Allocation/admission/recovery ownership remains with their existing owners.
+//! Project current Storage admission and directory failures into public diagnostics.
 
 use crate::{
     db::{DatabaseBootstrapError, MemoryBootstrapAdmissionError},
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
 };
-use ic_memory::{
-    AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
-    MemoryDeclarationError, MemoryResolutionError, RuntimeAdoptionError, RuntimeBootstrapError,
-    RuntimeConstructionError, RuntimeOpenError,
+use ic_storage::{
+    DirectoryError, RuntimeBootstrapError, RuntimeConstructionError, RuntimeOpenError,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, RuntimeBoundaryCode};
 
 pub(super) fn bootstrap_error(cause: &DatabaseBootstrapError) -> Error {
     let classified = match cause {
-        DatabaseBootstrapError::Construction(cause) => construction_error(cause),
+        DatabaseBootstrapError::Construction(cause) => match cause.as_ref() {
+            RuntimeConstructionError::Directory(error) => Some(directory_error(error)),
+            RuntimeConstructionError::BackingAlreadyClaimed => None,
+        },
         DatabaseBootstrapError::Binding(_) => None,
-        DatabaseBootstrapError::Bootstrap(cause) => cold_bootstrap_error(cause),
-        DatabaseBootstrapError::Adoption(cause) => adoption_error(cause),
+        DatabaseBootstrapError::Bootstrap(cause) => match cause.as_ref() {
+            RuntimeBootstrapError::Admission(_) => Some(boundary(
+                RuntimeBoundaryCode::MemoryDeclarationInvalid,
+                vec![],
+            )),
+            RuntimeBootstrapError::BindingMismatch => Some(boundary(
+                RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch,
+                vec![],
+            )),
+            RuntimeBootstrapError::Policy(error) => Some(admission_error(error)),
+            RuntimeBootstrapError::Directory(error) => Some(directory_error(error)),
+            RuntimeBootstrapError::NotBootstrapped => None,
+        },
+        DatabaseBootstrapError::Adoption(cause) => match cause.as_ref() {
+            RuntimeOpenError::NotAdmitted(_) => Some(boundary(
+                RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch,
+                vec![],
+            )),
+            RuntimeOpenError::Directory(error) => Some(directory_error(error)),
+            _ => None,
+        },
     };
-    // Unknown upstream variants and unrelated internal faults must not acquire a
-    // configuration classification merely because they crossed bootstrap.
-    classified.unwrap_or_else(|| {
-        Error::from_kind(
-            ErrorKind::Runtime(RuntimeErrorKind::Internal),
-            ErrorOrigin::Runtime,
-        )
+    classified.unwrap_or_else(|| runtime_error(RuntimeErrorKind::Internal))
+}
+
+const fn runtime_error(kind: RuntimeErrorKind) -> Error {
+    Error::from_kind(ErrorKind::Runtime(kind), ErrorOrigin::Runtime)
+}
+
+const fn directory_error(error: &DirectoryError) -> Error {
+    // Storage owns framing validation. Do not parse its diagnostic strings to
+    // distinguish unsupported bytes from corrupt current-format metadata.
+    runtime_error(match error {
+        DirectoryError::Invalid(_) | DirectoryError::Wire(_) => RuntimeErrorKind::Corruption,
+        DirectoryError::Budget | DirectoryError::ArithmeticOverflow => {
+            RuntimeErrorKind::Unsupported
+        }
+        _ => RuntimeErrorKind::Internal,
     })
 }
 
-fn construction_error(cause: &RuntimeConstructionError) -> Option<Error> {
-    match cause {
-        RuntimeConstructionError::BucketSizeMismatch {
-            persisted,
-            requested,
-        } => Some(boundary(
-            RuntimeBoundaryCode::MemoryBucketSizeMismatch,
-            vec![
-                (DiagnosticFactTag::Expected, u64::from(*requested)),
-                (DiagnosticFactTag::Actual, u64::from(*persisted)),
-            ],
-        )),
-        _ => None,
-    }
-}
-
-fn cold_bootstrap_error(
-    cause: &RuntimeBootstrapError<MemoryBootstrapAdmissionError>,
-) -> Option<Error> {
-    match cause {
-        RuntimeBootstrapError::DeclarationSnapshotMismatch
-        | RuntimeBootstrapError::AllocationPoolMismatch => Some(boundary(
-            RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch,
-            vec![],
-        )),
-        RuntimeBootstrapError::AdmissionPolicy(cause)
-        | RuntimeBootstrapError::Validation(AllocationValidationError::Policy(cause)) => {
-            admission_error(cause)
-        }
-        // Poisoned historical selection is returned before the policy wrapper.
-        RuntimeBootstrapError::Admission(cause) => historical_error(cause),
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::Exhausted { .. }) => {
-            Some(boundary(
-                RuntimeBoundaryCode::MemoryAllocationResolutionFailed,
-                vec![],
-            ))
-        }
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::Pool(cause)) => Some(boundary(
-            RuntimeBoundaryCode::MemoryAllocationResolutionFailed,
-            pool_id_facts(cause),
-        )),
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::UnmanagedAllocation { id }) => {
-            Some(boundary(
-                RuntimeBoundaryCode::MemoryAllocationResolutionFailed,
-                vec![(DiagnosticFactTag::ActualMemoryId, u64::from(*id))],
-            ))
-        }
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::Declarations(cause)) => {
-            declaration_error(cause)
-        }
-        _ => None,
-    }
-}
-
-fn admission_error(cause: &MemoryBootstrapAdmissionError) -> Option<Error> {
+fn admission_error(cause: &MemoryBootstrapAdmissionError) -> Error {
     match cause {
         MemoryBootstrapAdmissionError::UnsupportedKey(_)
-        | MemoryBootstrapAdmissionError::InvalidDeclaration(_) => Some(boundary(
-            RuntimeBoundaryCode::MemoryDeclarationInvalid,
-            vec![],
-        )),
-        MemoryBootstrapAdmissionError::IncompleteRoles { store, .. } => Some(boundary(
+        | MemoryBootstrapAdmissionError::InvalidDeclaration(_) => {
+            boundary(RuntimeBoundaryCode::MemoryDeclarationInvalid, vec![])
+        }
+        MemoryBootstrapAdmissionError::IncompleteRoles { store, .. } => boundary(
             RuntimeBoundaryCode::MemoryAllocationRolesIncomplete,
             vec![(
                 DiagnosticFactTag::ExpectedCount,
                 if store.is_some() { 4 } else { 3 },
             )],
-        )),
-        MemoryBootstrapAdmissionError::NamespaceRemoved(_) => Some(boundary(
-            RuntimeBoundaryCode::MemoryNamespaceRemoved,
-            vec![],
-        )),
-        MemoryBootstrapAdmissionError::HistoricalJournal(cause) => historical_error(cause),
-    }
-}
-
-fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
-    let facts = match cause {
-        BootstrapAdmissionError::Pool(cause) => pool_id_facts(cause),
-        BootstrapAdmissionError::Unknown(_)
-        | BootstrapAdmissionError::Duplicate(_)
-        | BootstrapAdmissionError::TooManyDeclarations => vec![],
-        BootstrapAdmissionError::Declarations(cause) => return declaration_error(cause),
-        _ => return None,
-    };
-    Some(boundary(
-        RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable,
-        facts,
-    ))
-}
-
-fn declaration_error(cause: &MemoryDeclarationError) -> Option<Error> {
-    match cause {
-        MemoryDeclarationError::TooManyDeclarations
-        | MemoryDeclarationError::DuplicateRequest { .. }
-        | MemoryDeclarationError::InvalidAuthority { .. }
-        | MemoryDeclarationError::ReservedAuthority { .. }
-        | MemoryDeclarationError::ReservedStableKey { .. } => Some(boundary(
-            RuntimeBoundaryCode::MemoryDeclarationInvalid,
-            vec![],
-        )),
-        _ => None,
-    }
-}
-
-fn adoption_error(cause: &RuntimeAdoptionError) -> Option<Error> {
-    let facts = match cause {
-        RuntimeAdoptionError::UnknownAuthority { .. }
-        | RuntimeAdoptionError::AuthorityMismatch { .. }
-        | RuntimeAdoptionError::Open(RuntimeOpenError::StableKeyNotCommitted(_)) => vec![],
-        _ => return None,
-    };
-    Some(boundary(
-        RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch,
-        facts,
-    ))
-}
-
-fn pool_id_facts(cause: &MemoryAllocationPoolError) -> Vec<(DiagnosticFactTag, u64)> {
-    match cause {
-        MemoryAllocationPoolError::ExcludedSlot { id } => {
-            vec![(DiagnosticFactTag::ActualMemoryId, u64::from(*id))]
+        ),
+        MemoryBootstrapAdmissionError::NamespaceRemoved(_) => {
+            boundary(RuntimeBoundaryCode::MemoryNamespaceRemoved, vec![])
         }
-        _ => vec![],
+        MemoryBootstrapAdmissionError::HistoricalJournal(_) => boundary(
+            RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable,
+            vec![],
+        ),
     }
 }
 

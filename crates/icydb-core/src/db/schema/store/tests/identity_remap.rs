@@ -116,7 +116,8 @@ fn identity_field_remap_preserves_exhaustion_in_heap_publication() {
 #[test]
 fn identity_field_remap_replays_before_canonical_fold() {
     let memory = crate::testing::test_memory_owner(227);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     publish_initial(&mut store);
     let (range, advance) = exhausted_range();
     store.fold_identity_range_advance(range, advance).unwrap();
@@ -132,7 +133,8 @@ fn identity_field_remap_replays_before_canonical_fold() {
     let old_key = RawSchemaKey::from_identity_state(ENTITY, FieldId::new(2));
     assert!(store.get_canonical_raw_value(&old_key).unwrap().is_some());
     drop(store);
-    let mut reopened = SchemaStore::init_journaled(memory.open());
+    let mut reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     reopened
         .apply_journaled_accepted_schema_candidate(
             test_database_incarnation(),
@@ -201,10 +203,12 @@ fn identity_field_remap_rejects_occupied_destination_without_effects() {
     .unwrap()
     .retire()
     .unwrap();
-    store.insert_durable_raw_value(
-        RawSchemaKey::from_identity_state(ENTITY, FieldId::new(1)),
-        encode_identity_state(&retired).unwrap(),
-    );
+    store
+        .insert_durable_raw_value(
+            RawSchemaKey::from_identity_state(ENTITY, FieldId::new(1)),
+            encode_identity_state(&retired).unwrap(),
+        )
+        .expect("fixture storage operation should succeed");
     let before = store
         .identity_state_inventory_for_integrity(test_database_incarnation())
         .unwrap();

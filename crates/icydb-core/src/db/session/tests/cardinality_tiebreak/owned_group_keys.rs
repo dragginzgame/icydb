@@ -7,6 +7,108 @@ use crate::{
     value::Value,
 };
 
+#[test]
+fn ordered_group_pages_seek_beyond_preceding_groups() {
+    let session = initialize();
+    for id in 0..24 {
+        insert_row(&session, id, "common", &format!("group-{:02}", id / 2));
+    }
+    for descending in [false, true] {
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .filter(FieldRef::new("rare").gte(InputValue::text("group-00".into())))
+            .group_by("rare")
+            .order_by(if descending {
+                crate::db::desc("rare")
+            } else {
+                asc("rare")
+            })
+            .aggregate(count())
+            .grouped_limits(4, 64 * 1024)
+            .limit(2);
+        let mut next = Some(query.clone());
+        let mut observed = Vec::new();
+        while let Some(current) = next.take() {
+            let page = session
+                .execute_public_dynamic_grouped_query(&current)
+                .unwrap();
+            assert!(
+                page.rows
+                    .iter()
+                    .all(|row| row.aggregate_values() == [OutputValue::nat64(2)])
+            );
+            observed.extend(page.rows.iter().map(|row| row.group_key().to_vec()));
+            next = page.next_cursor.map(|cursor| query.clone().cursor(cursor));
+            assert!(observed.len() <= 12);
+        }
+        let mut expected = (0..12)
+            .map(|id| vec![OutputValue::text(format!("group-{id:02}"))])
+            .collect::<Vec<_>>();
+        if descending {
+            expected.reverse();
+        }
+        assert_eq!(observed, expected);
+    }
+}
+
+#[test]
+fn ordered_group_prefix_pages_preserve_fixed_and_compound_keys() {
+    let values = [Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)];
+    seed_order_groups(AcceptedFieldKind::Nat64, &values);
+    let session = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
+    session.execute_admin_sql_ddl("CREATE INDEX grouped_idx ON PlannerRow (category, operand, label) EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2").unwrap();
+    for fixed_group in [false, true] {
+        for descending in [false, true] {
+            for trusted in [false, true] {
+                let order = |field| {
+                    if descending {
+                        crate::db::desc(field)
+                    } else {
+                        asc(field)
+                    }
+                };
+                let mut query = DynamicQuery::new(ENTITY_NAME)
+                    .filter(FieldRef::new("category").eq(InputValue::nat64(3)));
+                if fixed_group {
+                    query = query.group_by("category").order_by(order("category"));
+                }
+                let query = query
+                    .group_by("operand")
+                    .group_by("label")
+                    .order_by(order("operand"))
+                    .order_by(order("label"))
+                    .aggregate(count())
+                    .aggregate(sum("id"))
+                    .grouped_limits(4, 64 * 1024)
+                    .limit(1);
+                for _ in 0..2 {
+                    let mut next = Some(query.clone());
+                    let mut observed = Vec::new();
+                    while let Some(current) = next.take() {
+                        let page = if trusted {
+                            session.execute_trusted_dynamic_grouped_query(&current)
+                        } else {
+                            session.execute_public_dynamic_grouped_query(&current)
+                        }
+                        .unwrap();
+                        observed.extend(page.rows.iter().map(|row| {
+                            (row.group_key().to_vec(), row.aggregate_values().to_vec())
+                        }));
+                        next = page.next_cursor.map(|cursor| query.clone().cursor(cursor));
+                        assert!(observed.len() <= ORDER_ROWS.len());
+                    }
+                    let mut expected = expected_order_groups(&values, true, descending);
+                    if fixed_group {
+                        for (key, _) in &mut expected {
+                            key.insert(0, OutputValue::nat64(3));
+                        }
+                    }
+                    assert_eq!(observed, expected);
+                }
+            }
+        }
+    }
+}
+
 fn initialize_group_schema(kind: AcceptedFieldKind) {
     scalar_page_limits::initialize_payload_schema(
         vec![
@@ -178,7 +280,12 @@ fn assert_group_missing_rows() {
         .unwrap()
         .to_raw()
         .unwrap();
-        assert!(store.with_data_mut(|data| data.remove(&key)).is_some());
+        assert!(
+            store
+                .with_data_mut(|data| data.remove(&key))
+                .expect("storage operation should succeed")
+                .is_some()
+        );
     }
     let grouped = DynamicQuery::new(ENTITY_NAME)
         .group_by("operand")

@@ -1,4 +1,5 @@
 # Engineering contracts by task
+<!-- Shared companions: docs/tool-store-maintenance.md -->
 
 These contracts supplement the [engineering baseline](../DRAGGINZGAME.md).
 Read the applicable sections when the task touches their subject. This file is
@@ -53,11 +54,13 @@ product, release and recovery obligations remain binding when applicable.
   those follow the contribution and validation rules below.
 - Work within the authorized repositories and preserve unrelated dirty work.
   Re-read dirty files before editing. Agents working in one repository must not
-  edit another contributor's sibling checkout in place. Relevant cross-repository
-  fixes and adoption work in `dragginzgame/*` have standing authorization through
-  the [isolated PR workflow](contributions.md#cross-repository-pull-requests):
-  use a separate worktree or clone, topic branch, scoped edits and checks, commits,
-  branch push and PR. Do not ask for separate permission for those steps.
+  edit another contributor's sibling checkout in place. Cross-repository source
+  work requires an explicit destination/change scope; PR creation requires a PR
+  request or that destination's authorized configured delivery workflow. Use the
+  [isolated PR workflow](contributions.md#cross-repository-pull-requests) when
+  authorized, carrying its necessary substeps forward without repeated permission.
+  Routine version, lock and snapshot adoption belongs to the receiving owner;
+  do not create unsolicited adoption PRs or duplicate an active owner's work.
   Preserve explicit read-only instructions, repository exclusions and active
   ownership. Contributions under other GitHub owners require explicit
   target/action authorization.
@@ -66,29 +69,35 @@ product, release and recovery obligations remain binding when applicable.
 - Ordinary implementation does not include staging, commits or release execution. During
   ordinary implementation, leave the real checkout's index, package/application
   release versions and Git refs alone. Do not run `git add .`, `git add -A`,
-  `git commit`, version-bump helpers, `git tag`, pushes, `make release-*` or
+  `git commit`, package version-bump helpers, `git tag`, pushes, `make release-*` or
   mutating release adapters to finish a coding task. This includes release
   recovery and indirect calls from scripts or Make targets. "Keep going",
   "prepare the release", "work on 0.4" and "ready to push?" authorize no such
   effects unless the session already delegates delivery. Prepare source, numbered
-  changelog notes and validation within the established scope. A release/ship/deploy
+  changelog notes, and in Shared Tooling only the matching pending `VERSION` under the
+  [next-version rules](changelogs.md#automatic-next-version-selection), and
+  validation within the established scope. A release/ship/deploy
   request delegates its corresponding workflow and routine group/version/order
   choices under [delegated delivery](contributions.md#delegated-delivery).
   Continue that workflow without per-step permission; preserve explicit target
-  restrictions and the standing isolated PR boundary.
-- Follow the [contribution rules](contributions.md): ordinary contributions
-  from people and agents use branches and pull requests. Agents may create
+  restrictions and the explicitly scoped isolated PR boundary. A dependency
+  blocker does not extend delivery to another repository: report the required
+  supplier work without starting its release preparation, gates or deployment.
+- Follow the [contribution rules](contributions.md): contributions submitted
+  for review use branches and pull requests; ordinary agent implementation
+  leaves reviewable local changes. Agents may create
   scoped commits when asked to commit or deliver a PR. A PR request includes the
   branch, commits, branch push and PR creation/update needed to deliver it;
   do not require the maintainer to commit first or approve each substep again.
-  The standing cross-repository PR workflow supplies the same scoped authority
-  without a separate PR request. Neither route authorizes release versions or tags.
+  PR creation elsewhere requires the destination scope in the contribution
+  rules; neither an issue nor a dependency update grants it. A PR-only request
+  does not authorize package release versions or tags.
 - A PR request does not authorize merging, pushing directly to `main`, `master`
   or another integration/release branch, or rewriting shared history. Those
   effects require explicit authorization. Preserve branch protections and
   required reviews/checks. Ordinary repair or continuation requests authorize
-  local work in the current repository; the standing cross-repository PR workflow
-  separately authorizes only its isolated contribution commits and branch pushes.
+  local work in the current repository; an explicitly requested cross-repository
+  PR separately authorizes its isolated contribution commits and branch push.
 - Agents may execute package/manifest version changes, tags, pushes, publication,
   deployment and paid effects when explicitly authorized for their target and effect.
   Authorization includes the necessary documented substeps of the requested
@@ -110,7 +119,7 @@ product, release and recovery obligations remain binding when applicable.
   searching and reading issues remain permitted. Prepare external issue content
   for review before requesting authorization. This does not authorize
   unrelated messages or release effects. Cross-repository source contributions
-  use the separate isolated PR authority above, not issue-posting authority.
+  require the separate explicit contribution authority above, not issue-posting authority.
 
 ## Ownership and simplification
 
@@ -294,6 +303,70 @@ product, release and recovery obligations remain binding when applicable.
   Follow the [pre-1.0 contract rules](#pre-10-contracts); do not silently change a
   public interface or introduce parallel codecs/fallback readers for adoption.
 
+## Wasm optimization
+
+- Shared Tooling owns the common decision process and evidence requirements.
+  IC Tooling's `ic-build` owns reusable Cargo/Wasm optimization mechanics and
+  the canonical recommendations, recipe definitions and qualification evidence.
+  Improve that owner when shared support is missing; do not establish competing
+  general-purpose optimizer policies in consumers. Existing local adapters stay
+  explicit until a qualified shared replacement is available.
+- A dependency owner's required target/backend flags must be explicit inputs to
+  the consuming build recipe, not assumed to propagate from that dependency's
+  Cargo configuration. The build owner must compose existing flags, resolve
+  environment/config precedence, reject contradictory selections and record the
+  effective command. Qualify actual caller wiring and bind those settings to
+  artifact provenance/cache identity; recommendation text alone is not adoption.
+- Consumers own deployment limits, representative workloads, required Wasm
+  features, interface/upgrade compatibility and release admission. They select
+  a qualified recipe and record product-specific deviations with their reason
+  and evidence. Cargo profile settings still belong in the consuming workspace;
+  depending on `ic-build` does not inherit or enforce a profile. Shared recipes
+  must expose their effective settings so local projections can be checked.
+- Define the objective before selecting settings: raw Wasm/code-section limits,
+  runtime instruction or cycle budgets, and the priority among them. A setting
+  called `z`, `Oz` or `O3` is not proof of an optimum. Prefer a reproducible,
+  qualified choice; do not silently search for and change the recipe on each
+  release.
+- Wasm footprint comparisons, benchmark summaries and optimization acceptance
+  report two separate metrics from the same final uncompressed module: total
+  module bytes (all sections) and code-section bytes. Show absolute before/after
+  values and byte deltas for both; percentages may supplement them. Label units
+  explicitly, using bytes and optionally MiB (1 MiB = 1,048,576 bytes). If either
+  measurement is unavailable, say so; do not substitute compressed size or infer
+  code-section size from total size. State the code-section measurement method
+  when reporting headroom against the IC admission limit.
+- The IC [resource limits](https://docs.internetcomputer.org/references/resource-limits/)
+  currently list a 12 MiB (12,582,912-byte) code-section limit per canister
+  (checked 2026-11-01). This is distinct from total module size. Verify the target
+  network/runtime limit when making admission claims; compression cannot reduce
+  the code-section size checked by the runtime.
+- Do not use gzip, zip or other compressed byte counts to rank Wasm footprint,
+  claim Wasm size savings or establish code-section headroom. Omit compressed
+  sizes from Wasm comparison tables, progress updates and final summaries unless
+  transport/compression measurement is explicitly requested. A requested transport
+  comparison must be labelled separately and cannot replace either raw metric.
+  This reporting rule does not remove compression or required upload admission
+  checks from deployment tooling.
+- Treat compiler optimization and post-link `wasm-opt` as separate stages of
+  one recipe. Record compiler/target and optimizer identities, Cargo profile,
+  LTO/codegen settings, ordered optimizer arguments, features and input identity.
+  Compare final deployable artifacts under matched inputs; a post-link pass
+  does not erase the effect of the compiler profile. Preserve required module
+  contracts and run the relevant runtime/upgrade checks when settings change.
+- Routine performance work uses the actual deployment recipe as its primary
+  measurement. Library benchmarks name the consumer recipe they represent and
+  state any missing deployment stages. Keep correctness controls for matched
+  logical values; additional profiles answer a named comparison question.
+  Do not require an exhaustive optimization matrix in ordinary consumer CI.
+- Reconsider recommendations when compiler/optimizer changes, workload changes
+  or observed regressions justify it. Use a small explicit candidate comparison,
+  widening it only when the result needs it. Retain absolute final sizes and
+  runtime costs, tradeoffs and limitations at the owning recipe. A codec beating
+  another codec under two profiles does not choose between those profiles.
+  Tool upgrades or changed recommendations require consumer qualification before
+  adoption; they do not silently rewrite deployment settings.
+
 ## Gzip encoding
 
 - IC Tooling's `ic-host-artifacts::artifact::encode_gzip`, behind its `gzip`
@@ -452,6 +525,13 @@ contracts; ordinary development does not require rereading these mechanics.
   default; PR delivery prepares a review branch and validates the admitted merged
   commit afresh before tagging. Never select another policy to bypass a rejected
   push or branch protection.
+- Independent release groups may select a complete, consumer-owned gate under
+  the [group validation contract](../docs/release-group-validation.md). Account
+  for every stage, including affected consumers, public identities, generated
+  inputs, native hosts and installed behavior. Shared changes broaden the plan;
+  unknown scope refuses or uses the existing full gate. Keep full repository CI,
+  source/archive admission and recovery intact. Group selection alone grants no
+  omission; qualify the mapping before enabling it in a release adapter.
 - Standard release entrypoints must select their required prepared executables
   through the consumer's offline admission interface; do not require maintainers
   to export tool paths in each shell. Fresh preflight prepares missing selections
@@ -501,6 +581,22 @@ contracts; ordinary development does not require rereading these mechanics.
   on success, failure and retry. Never append cargo clean or equivalent cleanup.
   Cleanup requires explicit scope and authority. Tools may clean temporary files
   they own; they must not erase consumer artifacts or the only retained evidence.
+- Managed tool setup retains current declared requirements across consumers,
+  selected deliverables, small provenance receipts and explicitly needed recovery
+  evidence. Successful builds discard their private compiler scratch after byte
+  admission, while installation custody is still held. Historical selectors and
+  automatic previous-version fallbacks are not permanent liveness roots. Use the
+  producer's [store maintenance contract](../docs/tool-store-maintenance.md),
+  including expiring failed attempts, recovery pins, preview, physical-byte
+  accounting and explicit quiescence where executable users cannot be leased.
+  Updating one consumer must not upgrade or reclaim another consumer's selection.
+- Product owners declare native cache roots and age/size budgets, separate final
+  deliverables and receipts from incremental/compiler output, and enforce those
+  budgets at a serialized maintenance boundary. An active build or recovery pin
+  prevents reclamation, not an unlimited retention exemption after work finishes.
+  Adopt shared mechanics rather than adding consumer-specific deletion scripts.
+  Legacy stores, unknown ownership and unrelated files require explicit migration;
+  a policy update alone does not authorize a one-off machine cleanup.
 - Explicit workspace cleanup is the disk-reclamation boundary. With no operator
   overrides or package/profile/target selection, `cargo clean` must remove the
   owning workspace's entire `target/`, including nested compiler outputs, generated
@@ -515,7 +611,22 @@ contracts; ordinary development does not require rereading these mechanics.
   Clearly named selective cleanup commands may keep their documented scope.
   Operator-selected Cargo environment variables and CLI filters retain their
   normal meanings; do not override the user's Cargo installation or global config.
-- Retention prohibits automatic cleanup, not user-requested cleanup. Do not run
+- Workspace-owned scratch belongs beneath the owning workspace's `target/`,
+  normally `target/tmp/`, including generated fixture projects, temporary build
+  trees and intermediate downloads. Create unique per-run directories there so
+  explicit workspace cleanup reclaims them along with compiler outputs. Do not
+  default to repository `.tmp/`, `tmp/` or system `/tmp` merely for convenience.
+- Use outside-target scratch only when the operation needs it, such as an atomic
+  replacement on the destination filesystem, a fixture that removes `target/`
+  itself, or evidence explicitly required to survive cleanup. Document the reason,
+  ownership and cleanup/retention boundary alongside the caller. A `.tmp` filename
+  used for an atomic write is not a general scratch directory. Keep overrides
+  local to the command; do not globally change `TMPDIR` or another workspace's
+  output location. Repositories without Cargo use their documented artifact root.
+  Existing outside-target artifacts still require scoped cleanup authority;
+  adopting this rule does not authorize deleting or relocating retained evidence.
+- Consumer artifact preservation does not prohibit user-requested cleanup or the
+  admitted managed-cache lifecycle above. Do not run
   cleanup concurrently with builds. Evidence that must survive an explicit clean
   belongs outside `target/`; document any separate tool stores or caches rather
   than implying Cargo cleans them. Qualify cleanup changes with disposable
@@ -598,7 +709,8 @@ contracts; ordinary development does not require rereading these mechanics.
   Adopt those catalogs with the installers; do not maintain independent default
   copies. A consumer exception requires an explicitly selected catalog and a
   documented reason and native qualification. Host, IC and Rust exceptions are
-  independent. Product tools, PocketIC selection and compiler policy stay local.
+  independent. Product tools and PocketIC selection stay local; compiler setup
+  implements the shared [support policy](cargo-dependencies.md#minimum-supported-rust-version-msrv).
   Host, IC and Cargo installers share verified bundles per user across checkouts
   while retaining each repository's pinned selection. Cargo tools use the standard
   tool-build environment and exact build identities; application compiler flags
@@ -656,12 +768,15 @@ contracts; ordinary development does not require rereading these mechanics.
   Keep version/source selections in the root; children select target conditions,
   features and publication policy. Keep the
   [minimum supported Rust version](cargo-dependencies.md#minimum-supported-rust-version-msrv)
-  as low as the qualified package dependency path permits, independently of the
-  development toolchain. CI must explicitly check each advertised floor;
-  documented package groups may have different floors. Do not upgrade a toolchain
-  or raise MSRV without an established need and appropriate validation.
-- Consume every externally maintained IC-specific dependency through `ic-platform`,
-  including DFINITY packages. Apply the
+  aligned with the approved Rust 1.99.1 development/release compiler. Retire older
+  compiler support and consolidate duplicate qualification under that policy,
+  retaining distinct target, host, feature and consumer proofs. Future compiler
+  changes require a maintainer decision and appropriate validation.
+- Select the [Platform package owner](cargo-dependencies.md#platform-package-owners)
+  matching the capability: Types for identities, Runtime for IC0/execution, and
+  the Platform facade for crypto/external adapters. Keep externally maintained
+  IC-specific dependencies, including DFINITY packages, behind the reviewed
+  Platform boundary. Direct Runtime usage grants no raw SDK exception. Apply the
   [external IC dependency boundary](cargo-dependencies.md#external-ic-dependency-boundary)
   to production, build, test and tooling code, optional features and all targets.
   JavaScript/TypeScript SDK Core consumers use the separate npm package
@@ -763,8 +878,9 @@ contracts; ordinary development does not require rereading these mechanics.
   matching issue under the issue authorization above. Include a concrete fix or
   patch where feasible and its actual validation results. Keep shared snapshots
   intact; repair at the source owner and adopt a reviewed committed revision.
-  Relevant repairs may proceed through the standing isolated PR workflow;
-  sibling working checkouts remain untouched.
+  Source repairs and PRs require explicit scope under the isolated contribution
+  workflow; routine adoption stays with the receiving owner and sibling working
+  checkouts remain untouched.
   If issue access or a remote is unavailable, report the finding and blocker to
   the maintainer without inventing an issue URL or creating a local tracker.
 - Report the outcome, changed files, relevant verification, skipped checks,

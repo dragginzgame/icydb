@@ -72,7 +72,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
         }
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
-        Ok(store.with_data(|data_store| data_store.get_canonical(raw_key)))
+        store.with_data(|data_store| data_store.get_canonical(raw_key))
     }
 
     fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -83,7 +83,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
 
-        Ok(store.with_data(|data_store| data_store.contains_canonical(raw_key)))
+        store.with_data(|data_store| data_store.contains_canonical(raw_key))
     }
 
     fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -97,7 +97,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for CanonicalCommitReader<'_, C
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexStoreKey,
     ) -> Result<Option<IndexEntryValue>, InternalError> {
-        Ok(index_store.with_borrow(|store| store.get_canonical(key)))
+        index_store.with_borrow(|store| store.get_canonical(key))
     }
 
     fn read_index_keys_in_raw_range(
@@ -504,15 +504,15 @@ mod tests {
     }
 
     impl CanisterKind for TestCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(1)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.runtime_entity_catalog.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(3)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.runtime_entity_catalog.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(2)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =

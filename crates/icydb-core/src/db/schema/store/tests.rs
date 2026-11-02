@@ -364,26 +364,53 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
 fn raw_schema_key_round_trips_identity_owner() {
     let key =
         RawSchemaKey::from_identity_state(EntityTag::new(0x0102_0304_0506_0708), FieldId::new(1));
-    let decoded = RawSchemaKey::from_bytes(Cow::Owned(key.to_bytes().into_owned()));
+    let decoded = RawSchemaKey::from_bytes(Cow::Owned(
+        key.to_bytes()
+            .expect("storage operation should succeed")
+            .into_owned(),
+    ));
     assert_eq!(
-        key.to_bytes().as_ref(),
+        key.to_bytes().expect("fixture encoding").as_ref(),
         &[
             0x04, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00,
             0x00, 0x01,
         ]
     );
-    assert_eq!(decoded.entity_tag(), EntityTag::new(0x0102_0304_0506_0708));
-    assert_eq!(decoded.version(), 1);
+    assert_eq!(
+        decoded
+            .expect("storage operation should succeed")
+            .entity_tag(),
+        EntityTag::new(0x0102_0304_0506_0708)
+    );
+    assert_eq!(
+        decoded.expect("storage operation should succeed").version(),
+        1
+    );
 }
 
 #[test]
 fn raw_schema_control_record_round_trips_opaque_bytes() {
     let snapshot = RawSchemaValue::from_encoded_control_record(b"ICYDBAEB\x01\x02\x03".to_vec());
-    let encoded = snapshot.to_bytes().into_owned();
+    let encoded = snapshot
+        .to_bytes()
+        .expect("storage operation should succeed")
+        .into_owned();
     let decoded = <RawSchemaValue as Storable>::from_bytes(Cow::Owned(encoded));
 
-    assert_eq!(decoded.as_bytes(), b"ICYDBAEB\x01\x02\x03");
-    assert_eq!(decoded.into_bytes(), b"ICYDBAEB\x01\x02\x03");
+    assert_eq!(
+        decoded
+            .as_ref()
+            .expect("storage operation should succeed")
+            .as_bytes(),
+        b"ICYDBAEB\x01\x02\x03"
+    );
+    assert_eq!(
+        decoded
+            .expect("storage operation should succeed")
+            .into_bytes()
+            .expect("fixture encoding"),
+        b"ICYDBAEB\x01\x02\x03"
+    );
 }
 
 #[test]
@@ -414,21 +441,37 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
     let inactive_count_key = RawSchemaKey::from_cardinality_count(CardinalityCountSlot::A, digest);
     let building_count_key = RawSchemaKey::from_cardinality_count(CardinalityCountSlot::B, digest);
     assert_eq!(
-        header_key.to_bytes().as_ref(),
+        header_key.to_bytes().expect("fixture encoding").as_ref(),
         &[5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     );
     assert_eq!(
-        cursor_key.to_bytes().as_ref(),
+        cursor_key.to_bytes().expect("fixture encoding").as_ref(),
         &[5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
     );
-    assert_eq!(inactive_count_key.to_bytes().as_ref()[0], 6);
-    assert_eq!(building_count_key.to_bytes().as_ref()[0], 7);
     assert_eq!(
-        &building_count_key.to_bytes().as_ref()[1..],
+        inactive_count_key
+            .to_bytes()
+            .expect("fixture encoding")
+            .as_ref()[0],
+        6
+    );
+    assert_eq!(
+        building_count_key
+            .to_bytes()
+            .expect("fixture encoding")
+            .as_ref()[0],
+        7
+    );
+    assert_eq!(
+        &building_count_key
+            .to_bytes()
+            .expect("fixture encoding")
+            .as_ref()[1..],
         &digest.as_bytes()[..15]
     );
 
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     store
         .insert_canonical_raw_value(header_key, header.encode())
         .expect("generation header should persist");
@@ -442,7 +485,8 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
         .insert_canonical_raw_value(building_count_key, count.encode().to_vec())
         .expect("count record should persist");
     drop(store);
-    let reopened = SchemaStore::init_journaled(memory.open());
+    let reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     let reopened_header = reopened
         .get_canonical_raw_value(&header_key)
         .expect("header read should succeed")
@@ -474,7 +518,8 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
 
 #[test]
 fn cardinality_header_cache_revalidates_changed_canonical_bytes() {
-    let mut store = SchemaStore::init_journaled(test_memory(242));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(242)).expect("fixture storage should initialize");
     let header = CardinalityGenerationHeader::new(
         CardinalityGenerationId::INITIAL,
         CardinalityGenerationState::Ready,
@@ -507,7 +552,8 @@ fn cardinality_header_cache_revalidates_changed_canonical_bytes() {
 
 #[test]
 fn cardinality_count_page_preflight_rejects_overflow_and_uncoalesced_input() {
-    let mut store = SchemaStore::init_journaled(test_memory(251));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(251)).expect("fixture storage should initialize");
     let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
     let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, u64::MAX)
         .expect("maximum count should construct");
@@ -574,7 +620,8 @@ fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publica
     let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
     let count = CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, digest, 3)
         .expect("initial count should encode");
-    let mut store = SchemaStore::init_journaled(test_memory(250));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(250)).expect("fixture storage should initialize");
     store
         .write_cardinality_generation_header(header)
         .expect("Ready header should persist");
@@ -669,7 +716,8 @@ fn invalid_cardinality_records_leave_maintenance_unavailable_without_writes() {
             .encode()
             .to_vec(),
     ];
-    let mut store = SchemaStore::init_journaled(test_memory(250));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(250)).expect("fixture storage should initialize");
     store.write_cardinality_generation_header(header).unwrap();
     for bytes in cases {
         store
@@ -720,7 +768,8 @@ fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
         CardinalityBuildTotals::default(),
     )
     .expect("initial row cursor should be valid");
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     store
         .write_cardinality_generation_header(header)
         .expect("Building header should persist");
@@ -771,7 +820,8 @@ fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
         cursor,
     );
     drop(store);
-    let reopened = SchemaStore::init_journaled(memory.open());
+    let reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert!(
         reopened
             .cardinality_count_slot_is_empty(CardinalityCountSlot::A)
@@ -794,7 +844,8 @@ fn raw_schema_value_storable_bound_does_not_amplify_stable_btree_nodes() {
 #[test]
 fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
     let memory = crate::testing::test_memory_owner(229);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     let initial = empty_accepted_schema_candidate_for_tests(
         "test::PreparedCatalog",
         AcceptedSchemaRevision::INITIAL,
@@ -857,6 +908,7 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
             .unwrap()
             .unwrap()
             .to_bytes()
+            .expect("fixture encoding")
             .as_ref(),
         bundle_bytes.as_slice()
     );
@@ -869,7 +921,8 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
         identity_bytes.as_slice()
     );
     drop(store);
-    let reopened = SchemaStore::init_journaled(memory.open());
+    let reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert_eq!(
         reopened
             .current_accepted_schema_root()
@@ -890,7 +943,8 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
 
 #[test]
 fn prepared_catalog_fold_rechecks_root_before_writing_payloads() {
-    let mut store = SchemaStore::init_journaled(test_memory(229));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(229)).expect("fixture storage should initialize");
     let initial = empty_accepted_schema_candidate_for_tests(
         "test::PreparedCatalog",
         AcceptedSchemaRevision::INITIAL,
@@ -1014,7 +1068,12 @@ fn assert_current_publication_rejects_missing_identity(mut store: SchemaStore, j
     let expected = crate::error::InternalError::identity_state_corruption();
     assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
     assert_eq!(error.diagnostic().detail(), expected.diagnostic().detail());
-    assert!(store.get_raw_value(&key).is_none());
+    assert!(
+        store
+            .get_raw_value(&key)
+            .expect("storage operation should succeed")
+            .is_none()
+    );
     assert_eq!(
         store
             .current_accepted_schema_root()
@@ -1040,7 +1099,7 @@ fn durable_current_publication_cannot_repair_missing_identity_state() {
 fn replayed_current_publication_cannot_repair_missing_identity_state() {
     let memory = crate::testing::test_memory_owner(229);
     assert_current_publication_rejects_missing_identity(
-        SchemaStore::init_journaled(memory.open()),
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize"),
         true,
     );
 }
@@ -1048,7 +1107,8 @@ fn replayed_current_publication_cannot_repair_missing_identity_state() {
 #[test]
 fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
     let memory = crate::testing::test_memory_owner(229);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     let initial = empty_accepted_schema_candidate_for_tests(
         "test::JournaledSchemaStore",
         AcceptedSchemaRevision::INITIAL,
@@ -1091,7 +1151,8 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
     assert_eq!(store.canonical_len_for_tests(), 2);
 
     drop(store);
-    let mut reopened = SchemaStore::init_journaled(memory.open());
+    let mut reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert_eq!(
         reopened
             .current_accepted_schema_bundle()
@@ -1170,6 +1231,7 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
         store
             .get_raw_value(&key)
             .expect("published identity must have explicit state")
+            .expect("storage operation should succeed")
             .as_bytes(),
     )
     .expect("published identity state should decode");
@@ -1275,7 +1337,9 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
 
     let mut malformed = encode_identity_state(&state).expect("identity state should encode");
     malformed[9] ^= 0xFF;
-    store.insert_durable_raw_value(key, malformed);
+    store
+        .insert_durable_raw_value(key, malformed)
+        .expect("fixture storage operation should succeed");
     let error = store
         .current_accepted_schema_bundle()
         .expect_err("malformed identity state must be corruption");
@@ -1377,7 +1441,8 @@ fn journaled_identity_range_replay_and_fold_share_exact_advance_identity() {
         field_id,
         AcceptedFieldKind::Nat128,
     );
-    let mut store = SchemaStore::init_journaled(test_memory(182));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(182)).expect("fixture storage should initialize");
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1451,6 +1516,7 @@ fn identity_removal_retires_state_and_reuse_is_rejected() {
         store
             .get_raw_value(&key)
             .expect("retired identity state must be retained")
+            .expect("storage operation should succeed")
             .as_bytes(),
     )
     .expect("retired state should decode");
@@ -1503,7 +1569,8 @@ fn journaled_identity_retirement_replays_and_folds_with_schema_publication() {
     let removed =
         empty_accepted_schema_candidate_for_tests(store_path, AcceptedSchemaRevision::new(2));
     let memory = crate::testing::test_memory_owner(181);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1535,7 +1602,8 @@ fn journaled_identity_retirement_replays_and_folds_with_schema_publication() {
     );
 
     drop(store);
-    let mut reopened = SchemaStore::init_journaled(memory.open());
+    let mut reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     reopened
         .apply_journaled_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1578,10 +1646,12 @@ fn identity_state_inventory_enforces_the_database_lifetime_cap() {
         let state = IdentityState::new_active(owner, AcceptedFieldKind::Nat64)
             .and_then(|state| state.retire())
             .expect("retired identity fixture should admit");
-        store.insert_durable_raw_value(
-            RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()),
-            encode_identity_state(&state).expect("retired identity state should encode"),
-        );
+        store
+            .insert_durable_raw_value(
+                RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()),
+                encode_identity_state(&state).expect("retired identity state should encode"),
+            )
+            .expect("fixture storage operation should succeed");
     }
     assert_eq!(
         store
@@ -1704,7 +1774,8 @@ fn catalog_selection_fixture() -> (EntityTag, CandidateSchemaRevision, SchemaSto
     )
     .expect("accepted bundle should build");
     let candidate = CandidateSchemaRevision::new(bundle).expect("accepted candidate should encode");
-    let mut store = SchemaStore::init_journaled(test_memory(227));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(227)).expect("fixture storage should initialize");
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1733,7 +1804,8 @@ fn runtime_entity_lookups_preserve_effective_and_canonical_bundles() {
             .is_none()
     );
     let memory = crate::testing::test_memory_owner(237);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1991,7 +2063,8 @@ fn selected_bundle_borrow_rejects_foreign_and_replaced_authority() {
 
 #[test]
 fn schema_store_catalog_metadata_is_absent_without_accepted_entities() {
-    let mut store = SchemaStore::init_journaled(test_memory(241));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(241)).expect("fixture storage should initialize");
 
     assert_eq!(
         store
@@ -2006,7 +2079,8 @@ fn schema_store_catalog_metadata_is_absent_without_accepted_entities() {
 #[test]
 fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
     let memory = crate::testing::test_memory_owner(240);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     let initial = metadata_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
     let newer = metadata_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
     let other = metadata_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
@@ -2052,7 +2126,8 @@ fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
         "catalog fingerprint must change when latest accepted schema catalog changes"
     );
     drop(store);
-    let mut store = SchemaStore::init_journaled(memory.open());
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert_eq!(store.catalog_metadata().unwrap(), Some(updated_metadata));
     publish_metadata_candidate(
         &mut store,
@@ -2069,6 +2144,7 @@ fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
     drop(store);
     assert_eq!(
         SchemaStore::init_journaled(memory.open())
+            .expect("fixture storage should initialize")
             .catalog_metadata()
             .unwrap(),
         Some(reduced)
@@ -2080,7 +2156,8 @@ fn schema_store_catalog_metadata_is_independent_of_insertion_order() {
     let first = metadata_schema_snapshot_for_test(SchemaVersion::new(2), "First");
     let second = metadata_schema_snapshot_for_test(SchemaVersion::new(3), "Second");
 
-    let mut left = SchemaStore::init_journaled(test_memory(239));
+    let mut left =
+        SchemaStore::init_journaled(test_memory(239)).expect("fixture storage should initialize");
     publish_metadata_candidate(
         &mut left,
         AcceptedSchemaRevision::NONE,
@@ -2090,7 +2167,8 @@ fn schema_store_catalog_metadata_is_independent_of_insertion_order() {
         ],
     );
 
-    let mut right = SchemaStore::init_journaled(test_memory(238));
+    let mut right =
+        SchemaStore::init_journaled(test_memory(238)).expect("fixture storage should initialize");
     publish_metadata_candidate(
         &mut right,
         AcceptedSchemaRevision::NONE,
@@ -2116,7 +2194,8 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
         "payload_idx",
     );
 
-    let mut base = SchemaStore::init_journaled(test_memory(237));
+    let mut base =
+        SchemaStore::init_journaled(test_memory(237)).expect("fixture storage should initialize");
     publish_metadata_candidate(
         &mut base,
         AcceptedSchemaRevision::NONE,
@@ -2127,7 +2206,8 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
         .expect("base allocation metadata should derive")
         .expect("base allocation metadata should be present");
 
-    let mut indexed = SchemaStore::init_journaled(test_memory(236));
+    let mut indexed =
+        SchemaStore::init_journaled(test_memory(236)).expect("fixture storage should initialize");
     publish_metadata_candidate(
         &mut indexed,
         AcceptedSchemaRevision::NONE,
@@ -2476,11 +2556,14 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
         ConstraintId::new(1).unwrap(),
     );
     let snapshot = |value| RawSchemaValue::from_encoded_control_record(vec![value]);
-    let mut store = SchemaStore::init_journaled(test_memory(232));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(232)).expect("fixture storage should initialize");
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical.insert(key, snapshot(11));
+    canonical
+        .insert(key, snapshot(11))
+        .expect("fixture storage operation should succeed");
 
     store
         .publish_positioned_journal_entry(key, None, overlay_position(1))
@@ -2498,12 +2581,15 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical.remove(&key);
+    canonical
+        .remove(&key)
+        .expect("fixture storage operation should succeed");
     store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
             .get_raw_value_for_backend(&key)
             .expect("later schema value must remain visible")
+            .expect("storage operation should succeed")
             .as_bytes(),
         [33],
     );
@@ -2518,12 +2604,15 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical.insert(key, snapshot(33));
+    canonical
+        .insert(key, snapshot(33))
+        .expect("fixture storage operation should succeed");
     store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
             .get_raw_value_for_backend(&key)
             .expect("canonical schema value should remain visible")
+            .expect("storage operation should succeed")
             .as_bytes(),
         [33],
     );
@@ -2543,7 +2632,8 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     let positioned_without_overlay_key =
         RawSchemaKey::from_accepted_root_slot(0).expect("root slot should encode");
     let snapshot = |value| RawSchemaValue::from_encoded_control_record(vec![value]);
-    let mut store = SchemaStore::init_journaled(test_memory(231));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(231)).expect("fixture storage should initialize");
 
     let SchemaStoreBackend::Journaled {
         canonical,
@@ -2553,7 +2643,9 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical.insert(canonical_only_key, snapshot(11));
+    canonical
+        .insert(canonical_only_key, snapshot(11))
+        .expect("fixture storage operation should succeed");
     positions.publish_preflighted(positioned_without_overlay_key, position);
     store
         .publish_positioned_journal_entry(positioned_key, Some(snapshot(22)), position)
@@ -2581,7 +2673,12 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     else {
         panic!("positioned schema test requires a journaled store");
     };
-    assert!(canonical.get(&canonical_only_key).is_some());
+    assert!(
+        canonical
+            .get(&canonical_only_key)
+            .expect("storage operation should succeed")
+            .is_some()
+    );
     assert!(!positions.is_positioned(&positioned_key));
     assert!(!positions.is_positioned(&positioned_without_overlay_key));
 
@@ -2746,7 +2843,8 @@ fn schema_control_range_merges_ordered_live_values_and_tombstones() {
     let key =
         |id| RawSchemaKey::from_constraint_validation_job(entity, ConstraintId::new(id).unwrap());
     let value = |byte| RawSchemaValue::from_encoded_control_record(vec![byte]);
-    let mut store = SchemaStore::init_journaled(test_memory(234));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(234)).expect("fixture storage should initialize");
     let SchemaStoreBackend::Journaled {
         canonical,
         live,
@@ -2756,9 +2854,15 @@ fn schema_control_range_merges_ordered_live_values_and_tombstones() {
     else {
         unreachable!()
     };
-    canonical.insert(key(1), value(11));
-    canonical.insert(key(2), value(22));
-    canonical.insert(key(3), value(33));
+    canonical
+        .insert(key(1), value(11))
+        .expect("fixture storage operation should succeed");
+    canonical
+        .insert(key(2), value(22))
+        .expect("fixture storage operation should succeed");
+    canonical
+        .insert(key(3), value(33))
+        .expect("fixture storage operation should succeed");
     tombstones.insert(key(1));
     live.insert(key(2), value(44));
     live.insert(key(4), value(55));
@@ -2783,7 +2887,7 @@ fn schema_control_range_merges_ordered_live_values_and_tombstones() {
                     visited.push((key.version(), value.as_bytes()[0]));
                     if visited.len() == stop_after {
                         return if fail {
-                            Err(7_u8)
+                            Err(crate::testing::VisitorTestError::Callback(7))
                         } else {
                             Ok(SchemaStoreVisit::Stop)
                         };
@@ -2791,7 +2895,14 @@ fn schema_control_range_merges_ordered_live_values_and_tombstones() {
                     Ok(SchemaStoreVisit::Continue)
                 },
             );
-            assert_eq!(result, if fail { Err(7) } else { Ok(()) });
+            assert_eq!(
+                result,
+                if fail {
+                    Err(crate::testing::VisitorTestError::Callback(7))
+                } else {
+                    Ok(())
+                }
+            );
             let expected = match direction {
                 Direction::Asc => [(2, 44), (3, 33), (4, 55)],
                 Direction::Desc => [(4, 55), (3, 33), (2, 44)],
@@ -2822,10 +2933,12 @@ fn allocation_metadata_reports_selected_authority_corruption() {
     let (_, _, mut store) = catalog_selection_fixture();
     assert!(store.allocation_metadata().unwrap().is_some());
     let selection = store.current_accepted_schema_root().unwrap().unwrap();
-    store.insert_durable_raw_value(
-        RawSchemaKey::from_accepted_root_slot(selection.slot()).unwrap(),
-        vec![0xff],
-    );
+    store
+        .insert_durable_raw_value(
+            RawSchemaKey::from_accepted_root_slot(selection.slot()).unwrap(),
+            vec![0xff],
+        )
+        .expect("fixture storage operation should succeed");
     let error = store
         .allocation_metadata()
         .expect_err("corrupt selected root must reject metadata derivation");
@@ -2842,7 +2955,7 @@ fn retained_schema_corruption_does_not_initialize_a_replacement() {
 fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
     for mut store in [
         SchemaStore::init_heap(),
-        SchemaStore::init_journaled(test_memory(181)),
+        SchemaStore::init_journaled(test_memory(181)).expect("fixture storage should initialize"),
     ] {
         let entity = EntityTag::new(101);
         let field = FieldId::new(1);
@@ -2861,7 +2974,12 @@ fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
             )
             .unwrap();
         let key = RawSchemaKey::from_identity_state(entity, field);
-        let valid = store.get_raw_value(&key).unwrap().into_bytes();
+        let valid = store
+            .get_raw_value(&key)
+            .unwrap()
+            .unwrap()
+            .into_bytes()
+            .expect("fixture encoding");
         store.current_accepted_schema_bundle_ref().unwrap().unwrap();
         let reads = super::IDENTITY_STATE_INVENTORY_READS.with(std::cell::Cell::get);
         for _ in 0..3 {
@@ -2873,13 +2991,17 @@ fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
         );
         let misses = accepted_schema_bundle_cache_miss_count_for_tests();
         // A malformed replacement must revoke the proof without rebuilding the bundle.
-        store.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(vec![0xff]));
+        store
+            .insert_raw_value(key, RawSchemaValue::from_encoded_control_record(vec![0xff]))
+            .expect("fixture storage operation should succeed");
         for _ in 0..2 {
             let error = store.current_accepted_schema_bundle_ref().unwrap_err();
             assert_eq!(error.class(), ErrorClass::Corruption);
             assert_eq!(error.origin(), ErrorOrigin::Identity);
         }
-        store.insert_durable_raw_value(key, valid.clone());
+        store
+            .insert_durable_raw_value(key, valid.clone())
+            .expect("fixture storage operation should succeed");
         store.current_accepted_schema_bundle_ref().unwrap().unwrap();
         assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), misses);
         store
@@ -2892,7 +3014,9 @@ fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
                 .class(),
             ErrorClass::Corruption
         );
-        store.insert_durable_raw_value(key, valid.clone());
+        store
+            .insert_durable_raw_value(key, valid.clone())
+            .expect("fixture storage operation should succeed");
         store.current_accepted_schema_bundle_ref().unwrap().unwrap();
         if matches!(store.backend, SchemaStoreBackend::Journaled { .. }) {
             store.insert_canonical_raw_value(key, vec![0xff]).unwrap();

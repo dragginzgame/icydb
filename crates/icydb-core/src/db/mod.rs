@@ -75,9 +75,8 @@ pub use commit::{ExactBacklogMeasurement, install_startup_recovery_wakeup};
 pub use data::DataStore;
 pub use database_format::provide_boot_entropy;
 pub use diagnostics::{
-    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, MemoryAllocation,
-    MemoryAllocationBinding, MemoryAllocations, MemoryExtent, SchemaStoreSnapshot, StorageReport,
-    StoreSnapshotStorageMode,
+    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, MemoryAllocation, MemoryAllocations,
+    MemoryExtent, SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
 };
 #[doc(hidden)]
 pub use dynamic_write::{
@@ -110,6 +109,7 @@ pub use key_taxonomy::{
     PrimaryKeyEncodeError, PrimaryKeyValue, ScalarRelationTargetKey,
     validate_entity_key_bytes_buffer,
 };
+pub(crate) use memory_runtime::allocation_id;
 #[doc(hidden)]
 pub use memory_runtime::open_memory;
 pub use memory_runtime::{MemoryRuntimeBindingError, bind_memory_runtime, memory_runtime};

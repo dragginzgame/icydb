@@ -100,8 +100,8 @@ fn normalized_partial_indexes_replay_the_same_effects_as_uninterrupted_writes() 
                             store
                                 .visit_entries(|key, value| {
                                     entries.push((
-                                        key.to_bytes().into_owned(),
-                                        value.to_bytes().into_owned(),
+                                        key.to_bytes().expect("fixture encoding").into_owned(),
+                                        value.to_bytes().expect("fixture encoding").into_owned(),
                                     ));
                                     Ok::<_, InternalError>(IndexStoreVisit::Continue)
                                 })

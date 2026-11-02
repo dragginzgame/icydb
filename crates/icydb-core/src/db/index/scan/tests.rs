@@ -34,7 +34,7 @@ fn scalar_scan_key(value: i64, suffix: u64) -> RawIndexStoreKey {
 }
 
 fn raw_key(value: u8) -> RawIndexStoreKey {
-    <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+    <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value])).expect("fixture decoding")
 }
 
 fn seed_entry(store: &mut IndexStore, key: RawIndexStoreKey, canonical: bool) {
@@ -43,7 +43,9 @@ fn seed_entry(store: &mut IndexStore, key: RawIndexStoreKey, canonical: bool) {
             .apply_canonical_entry(key, Some(IndexEntryValue::presence()))
             .unwrap();
     } else {
-        store.insert(key, IndexEntryValue::presence());
+        store
+            .insert(key, IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
     }
 }
 
@@ -51,13 +53,18 @@ fn seed_entry(store: &mut IndexStore, key: RawIndexStoreKey, canonical: bool) {
 fn empty_envelopes_skip_populated_store_traversal() {
     for (mut store, journaled) in [
         (IndexStore::init_heap(), false),
-        (IndexStore::init_journaled(test_memory(97)), true),
+        (
+            IndexStore::init_journaled(test_memory(97)).expect("fixture storage should initialize"),
+            true,
+        ),
     ] {
         // Populate canonical storage, then retain a live overlay as well.
         for value in 1..=3 {
             seed_entry(&mut store, scalar_scan_key(value, 1), journaled);
         }
-        store.insert(scalar_scan_key(4, 1), IndexEntryValue::presence());
+        store
+            .insert(scalar_scan_key(4, 1), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
 
         let low = scalar_scan_key(1, 1);
         let high = scalar_scan_key(3, 1);
@@ -159,7 +166,10 @@ fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
     let bounds = (Bound::Included(lower), Bound::Included(upper));
     for (mut store, journaled) in [
         (IndexStore::init_heap(), false),
-        (IndexStore::init_journaled(test_memory(98)), true),
+        (
+            IndexStore::init_journaled(test_memory(98)).expect("fixture storage should initialize"),
+            true,
+        ),
     ] {
         let probe = |store: &IndexStore| {
             store
@@ -171,40 +181,56 @@ fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
         assert!(!probe(&store));
         seed_entry(&mut store, candidate.clone(), journaled);
         assert!(!probe(&store));
-        store.insert(conflicting.clone(), IndexEntryValue::presence());
+        store
+            .insert(conflicting.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
         assert!(probe(&store));
         if journaled {
             store
                 .apply_canonical_entry(conflicting.clone(), Some(IndexEntryValue::presence()))
                 .unwrap();
             store
-                .reset_journaled_live_projection(0, FoldWatermark::initial())
+                .reset_journaled_live_projection(
+                    0,
+                    FoldWatermark::initial(),
+                    &std::collections::BTreeSet::new(),
+                )
                 .unwrap();
         }
         assert!(probe(&store));
-        store.remove(&conflicting);
+        store
+            .remove(&conflicting)
+            .expect("fixture storage operation should succeed");
         assert!(!probe(&store));
-        store.insert(conflicting.clone(), IndexEntryValue::presence());
-        store.remove(&candidate);
+        store
+            .insert(conflicting.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .remove(&candidate)
+            .expect("fixture storage operation should succeed");
         assert!(probe(&store));
     }
 }
 
 #[test]
 fn visit_raw_entries_in_range_preserves_directional_store_order() {
-    let mut index_store = IndexStore::init_journaled(test_memory(91));
+    let mut index_store =
+        IndexStore::init_journaled(test_memory(91)).expect("fixture storage should initialize");
     for value in [1_u8, 2, 3] {
-        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
+        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+            .expect("fixture decoding");
         let raw_entry = IndexEntryValue::presence();
-        index_store.insert(raw_key, raw_entry);
+        index_store
+            .insert(raw_key, raw_entry)
+            .expect("fixture storage operation should succeed");
     }
 
-    let lower = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
-        vec![1],
-    )));
-    let upper = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
-        vec![3],
-    )));
+    let lower = Bound::Included(
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![1])).expect("fixture decoding"),
+    );
+    let upper = Bound::Included(
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![3])).expect("fixture decoding"),
+    );
     let mut asc = Vec::new();
     index_store
         .visit_raw_entries_in_range(
@@ -238,22 +264,28 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
 
 #[test]
 fn visit_entries_preserves_store_order_and_supports_early_stop() {
-    let mut index_store = IndexStore::init_journaled(test_memory(92));
+    let mut index_store =
+        IndexStore::init_journaled(test_memory(92)).expect("fixture storage should initialize");
     for value in [3_u8, 1, 2] {
-        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
+        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+            .expect("fixture decoding");
         let raw_entry = IndexEntryValue::presence();
-        index_store.insert(raw_key, raw_entry);
+        index_store
+            .insert(raw_key, raw_entry)
+            .expect("fixture storage operation should succeed");
     }
 
     let mut visited = Vec::new();
-    let _: Result<(), std::convert::Infallible> = index_store.visit_entries(|raw_key, _| {
-        visited.push(raw_key.as_bytes()[0]);
-        Ok(if visited.len() == 2 {
-            IndexStoreVisit::Stop
-        } else {
-            IndexStoreVisit::Continue
+    index_store
+        .visit_entries(|raw_key, _| {
+            visited.push(raw_key.as_bytes()[0]);
+            Ok::<_, crate::error::InternalError>(if visited.len() == 2 {
+                IndexStoreVisit::Stop
+            } else {
+                IndexStoreVisit::Continue
+            })
         })
-    });
+        .expect("fixture traversal should succeed");
 
     assert_eq!(
         visited,
@@ -266,17 +298,20 @@ fn visit_entries_preserves_store_order_and_supports_early_stop() {
 fn heap_index_store_preserves_range_order_and_early_stop() {
     let mut index_store = IndexStore::init_heap();
     for value in [3_u8, 1, 2] {
-        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]));
+        let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+            .expect("fixture decoding");
         let raw_entry = IndexEntryValue::presence();
-        index_store.insert(raw_key, raw_entry);
+        index_store
+            .insert(raw_key, raw_entry)
+            .expect("fixture storage operation should succeed");
     }
 
-    let lower = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
-        vec![1],
-    )));
-    let upper = Bound::Included(<RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(
-        vec![3],
-    )));
+    let lower = Bound::Included(
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![1])).expect("fixture decoding"),
+    );
+    let upper = Bound::Included(
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![3])).expect("fixture decoding"),
+    );
     let mut asc = Vec::new();
     index_store
         .visit_raw_entries_in_range(
@@ -304,14 +339,16 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
     assert_eq!(desc, vec![3, 2, 1]);
 
     let mut stopped = Vec::new();
-    let _: Result<(), std::convert::Infallible> = index_store.visit_entries(|raw_key, _| {
-        stopped.push(raw_key.as_bytes()[0]);
-        Ok(if stopped.len() == 2 {
-            IndexStoreVisit::Stop
-        } else {
-            IndexStoreVisit::Continue
+    index_store
+        .visit_entries(|raw_key, _| {
+            stopped.push(raw_key.as_bytes()[0]);
+            Ok::<_, crate::error::InternalError>(if stopped.len() == 2 {
+                IndexStoreVisit::Stop
+            } else {
+                IndexStoreVisit::Continue
+            })
         })
-    });
+        .expect("fixture traversal should succeed");
     assert_eq!(stopped, vec![1, 2]);
 }
 
@@ -319,8 +356,14 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
 fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
     for (mut index_store, fold) in [
         (IndexStore::init_heap(), false),
-        (IndexStore::init_journaled(test_memory(94)), false),
-        (IndexStore::init_journaled(test_memory(96)), true),
+        (
+            IndexStore::init_journaled(test_memory(94)).expect("fixture storage should initialize"),
+            false,
+        ),
+        (
+            IndexStore::init_journaled(test_memory(96)).expect("fixture storage should initialize"),
+            true,
+        ),
     ] {
         for value in [10_u8, 11, 12, 20, 21, 22] {
             seed_entry(&mut index_store, raw_key(value), fold);
@@ -387,16 +430,33 @@ fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
 fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
     for (mut store, canonical, mixed) in [
         (IndexStore::init_heap(), false, false),
-        (IndexStore::init_journaled(test_memory(98)), false, false),
-        (IndexStore::init_journaled(test_memory(99)), true, false),
-        (IndexStore::init_journaled(test_memory(100)), true, true),
+        (
+            IndexStore::init_journaled(test_memory(98)).expect("fixture storage should initialize"),
+            false,
+            false,
+        ),
+        (
+            IndexStore::init_journaled(test_memory(99)).expect("fixture storage should initialize"),
+            true,
+            false,
+        ),
+        (
+            IndexStore::init_journaled(test_memory(100))
+                .expect("fixture storage should initialize"),
+            true,
+            true,
+        ),
     ] {
         for value in 1..=3 {
             seed_entry(&mut store, raw_key(value), canonical);
         }
         if mixed {
-            store.insert(raw_key(4), IndexEntryValue::presence());
-            store.remove(&raw_key(2));
+            store
+                .insert(raw_key(4), IndexEntryValue::presence())
+                .expect("fixture storage operation should succeed");
+            store
+                .remove(&raw_key(2))
+                .expect("fixture storage operation should succeed");
         }
         let lower = Bound::Included(raw_key(1));
         let upper = Bound::Included(raw_key(3));
@@ -462,7 +522,8 @@ fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
 
 #[test]
 fn merged_ranges_admit_complete_structural_state_before_reading() {
-    let mut index_store = IndexStore::init_journaled(test_memory(95));
+    let mut index_store =
+        IndexStore::init_journaled(test_memory(95)).expect("fixture storage should initialize");
     for value in [10_u8, 11, 20, 21] {
         seed_entry(&mut index_store, raw_key(value), true);
     }

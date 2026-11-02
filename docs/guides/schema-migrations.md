@@ -466,8 +466,12 @@ lifecycle or production rows.
    premature publication. Abort only where the phase permits; redeploy the exact
    source actor to inspect retained source data after abort. Once rewriting
    starts, resume the exact plan rather than deploying the source as a rollback.
-   The example has one finding page; larger cases must follow the maintained
-   bounded page/acknowledgement contract. Finite host advancement-limit exhaustion
+   Rejection retains only the first bounded batch of at most 64 findings;
+   `Advance` replays it without scanning further. There is no finding-page
+   acknowledgement or continuation. Fixing data alone also does not create a
+   new generated submission identity after abort; that retry limitation remains
+   tracked in [#96](https://github.com/dragginzgame/icydb/issues/96).
+   Finite host advancement-limit exhaustion
    means incomplete qualification, not success or permission to raise runtime
    limits.
 6. **Keep attributable evidence.** Record selected tests and passed/failed/ignored

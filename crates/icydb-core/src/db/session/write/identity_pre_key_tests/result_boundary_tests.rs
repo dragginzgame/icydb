@@ -152,7 +152,13 @@ fn stored_row(id: u64) -> Option<Vec<u8>> {
         .expect("fixture key should encode")
         .to_raw()
         .expect("fixture key should encode");
-    DATA_STORE.with(|store| store.borrow().get(&key).map(|row| row.as_bytes().to_vec()))
+    DATA_STORE.with(|store| {
+        store
+            .borrow()
+            .get(&key)
+            .expect("fixture read")
+            .map(|row| row.as_bytes().to_vec())
+    })
 }
 
 fn assert_result_boundary(surface: BatchSurface) {

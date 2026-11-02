@@ -332,11 +332,8 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     if target.database_identity() != record.receipt().database_identity() {
         return Err(InternalError::schema_application_conflict());
     }
-    let candidate_head = match record.receipt().outcome() {
-        SchemaChangeOutcome::Pending {
-            job,
-            candidate_head,
-        } if job.id() == job_id => candidate_head,
+    match record.receipt().outcome() {
+        SchemaChangeOutcome::Pending { job, .. } if job.id() == job_id => {}
         SchemaChangeOutcome::Applied { .. } => {
             return Ok(SchemaChangeProgress::new(
                 record.receipt().clone(),
@@ -350,7 +347,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
             ));
         }
         _ => return Err(InternalError::store_corruption()),
-    };
+    }
     let [activation] = record.activations() else {
         return Err(InternalError::store_corruption());
     };
@@ -391,12 +388,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
         });
     let pending = snapshot.constraint_catalog().activation(constraint_id);
     if accepted && pending.is_none() {
-        return finalize_schema_application(
-            db,
-            &record,
-            candidate_head,
-            SchemaChangeProgressStatus::Applied,
-        );
+        return finalize_schema_application(db, &record, SchemaChangeProgressStatus::Applied);
     }
     let pending = pending.ok_or_else(InternalError::store_corruption)?;
     if pending.origin() != ConstraintOrigin::Generated
@@ -418,7 +410,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     )?;
     let status = schema_change_progress_status(snapshot, entity_tag, constraint_id, progress)?;
     if status == SchemaChangeProgressStatus::Applied {
-        finalize_schema_application(db, &record, candidate_head, status)
+        finalize_schema_application(db, &record, status)
     } else {
         Ok(SchemaChangeProgress::new(record.receipt().clone(), status))
     }
@@ -823,14 +815,12 @@ pub(in crate::db) fn migrate_schema<C: CanisterKind>(
             expected_database,
             expected_head,
             expected_plan,
-            acknowledged_finding_page,
         } => advance_metadata_schema_migration(
             db,
             proposal,
             expected_database,
             &expected_head,
             expected_plan,
-            acknowledged_finding_page,
         ),
         SchemaMigrationCommand::Abort {
             expected_database,
@@ -1020,7 +1010,6 @@ fn advance_metadata_schema_migration<C: CanisterKind>(
     expected_database: TargetDatabaseIdentity,
     expected_head: &ExpectedAcceptedHead,
     expected_plan: SchemaMigrationPlanDigest,
-    acknowledged_finding_page: Option<u64>,
 ) -> Result<SchemaMigrationStatusPage, InternalError> {
     let plan = proposal
         .migration()
@@ -1038,19 +1027,9 @@ fn advance_metadata_schema_migration<C: CanisterKind>(
     {
         let target = schema_application_target(db)?;
         validate_active_migration_target(&record, &target)?;
-        return advance_active_schema_migration(
-            db,
-            proposal,
-            &target,
-            &record,
-            acknowledged_finding_page,
-        );
+        return advance_active_schema_migration(db, proposal, &target, &record);
     }
-    if acknowledged_finding_page.is_some() {
-        return Err(InternalError::schema_migration(
-            SchemaMigrationCode::CandidateMismatch,
-        ));
-    }
+
     let submission_key = migration_submission_key(Some(expected_plan))?;
     if let Some(record) = load_exact_migration_record(
         expected_database,
@@ -1285,24 +1264,14 @@ fn prepared_physical_schema_migration(
 }
 
 #[cfg(feature = "migration")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the closed phase match keeps every durable migration transition and publication boundary exhaustive"
-)]
 fn advance_active_schema_migration<C: CanisterKind>(
     db: &Db<C>,
     proposal: &SchemaProposal,
     target: &SchemaApplicationTarget,
     record: &SchemaMigrationRecord,
-    acknowledged_finding_page: Option<u64>,
 ) -> Result<SchemaMigrationStatusPage, InternalError> {
     match record.phase() {
         PersistedSchemaMigrationPhase::Prepared => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             let validating = record.transition(
                 PersistedSchemaMigrationPhase::Validating,
                 record.progress().clone(),
@@ -1311,11 +1280,6 @@ fn advance_active_schema_migration<C: CanisterKind>(
             active_migration_status(proposal, target, &validating)
         }
         PersistedSchemaMigrationPhase::Validating => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             let planned = recompile_active_physical_migration(db, proposal, record)?;
             let page =
                 validate_migration_page(db, &planned, record.progress(), record.plan_digest())?;
@@ -1339,22 +1303,7 @@ fn advance_active_schema_migration<C: CanisterKind>(
             publish_migration_record_replacement(record, &advanced)?;
             active_migration_status(proposal, target, &advanced)
         }
-        PersistedSchemaMigrationPhase::Rejected => {
-            if acknowledged_finding_page.is_some()
-                && acknowledged_finding_page != record.progress().finding_page()
-            {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
-            active_migration_status(proposal, target, record)
-        }
         PersistedSchemaMigrationPhase::ReadyToRewrite => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             let progress = record.progress().begin_row_phase()?;
             let rewriting =
                 record.transition(PersistedSchemaMigrationPhase::RewritingRows, progress)?;
@@ -1362,11 +1311,6 @@ fn advance_active_schema_migration<C: CanisterKind>(
             active_migration_status(proposal, target, &rewriting)
         }
         PersistedSchemaMigrationPhase::RewritingRows => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             let planned = recompile_active_physical_migration(db, proposal, record)?;
             let page =
                 rewrite_migration_page(db, &planned, record.progress(), record.plan_digest())?;
@@ -1389,11 +1333,6 @@ fn advance_active_schema_migration<C: CanisterKind>(
             active_migration_status(proposal, target, &advanced)
         }
         PersistedSchemaMigrationPhase::RebuildingIndexes => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             let planned = recompile_active_physical_migration(db, proposal, record)?;
             let rebuilt = migration_derived_domain_count(db, &planned)?;
             let progress = record
@@ -1406,11 +1345,6 @@ fn advance_active_schema_migration<C: CanisterKind>(
             active_migration_status(proposal, target, &validating)
         }
         PersistedSchemaMigrationPhase::FinalValidation => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             let planned = recompile_active_physical_migration(db, proposal, record)?;
             let page = final_validate_migration_page(db, &planned, record.progress())?;
             let (progress, exhausted) = page.into_parts();
@@ -1424,19 +1358,11 @@ fn advance_active_schema_migration<C: CanisterKind>(
             active_migration_status(proposal, target, &advanced)
         }
         PersistedSchemaMigrationPhase::Publishing => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
             publish_completed_physical_migration(db, proposal, record)
         }
-        PersistedSchemaMigrationPhase::Applied | PersistedSchemaMigrationPhase::Aborted => {
-            if acknowledged_finding_page.is_some() {
-                return Err(InternalError::schema_migration(
-                    SchemaMigrationCode::CandidateMismatch,
-                ));
-            }
+        PersistedSchemaMigrationPhase::Rejected
+        | PersistedSchemaMigrationPhase::Applied
+        | PersistedSchemaMigrationPhase::Aborted => {
             active_migration_status(proposal, target, record)
         }
     }
@@ -2363,9 +2289,9 @@ fn preflight_initial_application(
             .iter()
             .find(|authority| authority.path == candidate.store_path())
             .ok_or_else(InternalError::store_invariant)?;
-        if !authority.handle.with_data(DataStore::is_empty)
+        if !authority.handle.with_data(DataStore::is_empty)?
             || authority.handle.index_state() != IndexState::Ready
-            || !authority.handle.with_index(IndexStore::is_empty)
+            || !authority.handle.with_index(IndexStore::is_empty)?
         {
             return Err(InternalError::store_unsupported());
         }
@@ -2978,20 +2904,18 @@ const fn schema_change_validation_phase(
 fn finalize_schema_application<C: CanisterKind>(
     db: &Db<C>,
     record: &SchemaApplicationRecord,
-    candidate_head: &ExpectedAcceptedHead,
     status: SchemaChangeProgressStatus,
 ) -> Result<SchemaChangeProgress, InternalError> {
-    if schema_application_target(db)?.accepted_head() != candidate_head {
-        return Err(InternalError::schema_application_conflict());
-    }
+    // Continuation has proved promotion of this record's exact activation.
+    // Unrelated accepted publications may have changed the predicted database
+    // head; record current authority rather than stranding a validated job.
+    let accepted_head = schema_application_target(db)?.accepted_head().clone();
     let receipt = SchemaChangeReceipt::new(
         record.receipt().database_identity(),
         record.receipt().submission_key().clone(),
         record.receipt().proposal_digest(),
         record.receipt().prior_head().clone(),
-        SchemaChangeOutcome::Applied {
-            accepted_head: candidate_head.clone(),
-        },
+        SchemaChangeOutcome::Applied { accepted_head },
     )?;
     let terminal = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
     let operation = SchemaApplicationRecordOp::replace(record, &terminal)?;
@@ -3321,7 +3245,7 @@ fn write_allocation_identity(
         None => write_hash_tag_u8(hasher, 0),
         Some(allocation) => {
             write_hash_tag_u8(hasher, 1);
-            write_hash_tag_u8(hasher, allocation.memory_id());
+            hasher.update(allocation.memory_id().to_le_bytes());
             write_hash_str_u32(hasher, allocation.stable_key());
         }
     }
@@ -3514,19 +3438,19 @@ mod tests {
         static ABORT_JOURNAL_MEMORY: crate::testing::TestMemoryOwner = crate::testing::test_memory_owner(183);
         static ABORT_DATA: RefCell<DataStore> =
             ABORT_DATA_MEMORY.with(|memory| {
-                RefCell::new(DataStore::init_journaled(memory.open()))
+                RefCell::new(DataStore::init_journaled(memory.open()).expect("fixture storage should initialize"))
             });
         static ABORT_INDEX: RefCell<IndexStore> =
             ABORT_INDEX_MEMORY.with(|memory| {
-                RefCell::new(IndexStore::init_journaled(memory.open()))
+                RefCell::new(IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize"))
             });
         static ABORT_SCHEMA: RefCell<SchemaStore> =
             ABORT_SCHEMA_MEMORY.with(|memory| {
-                RefCell::new(SchemaStore::init_journaled(memory.open()))
+                RefCell::new(SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize"))
             });
         static ABORT_JOURNAL: RefCell<JournalTailStore> =
             ABORT_JOURNAL_MEMORY.with(|memory| {
-                RefCell::new(JournalTailStore::init(memory.open()))
+                RefCell::new(JournalTailStore::init(memory.open()).expect("fixture storage should initialize"))
             });
         static ABORT_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
@@ -3551,13 +3475,13 @@ mod tests {
     #[cfg(feature = "migration")]
     thread_local! {
         static MIGRATION_EXECUTION_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(210)));
+            RefCell::new(DataStore::init_journaled(test_memory(210)).expect("fixture storage should initialize"));
         static MIGRATION_EXECUTION_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(211)));
+            RefCell::new(IndexStore::init_journaled(test_memory(211)).expect("fixture storage should initialize"));
         static MIGRATION_EXECUTION_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(212)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(212)).expect("fixture storage should initialize"));
         static MIGRATION_EXECUTION_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(213)));
+            RefCell::new(JournalTailStore::init(test_memory(213)).expect("fixture storage should initialize"));
         static MIGRATION_EXECUTION_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -3581,13 +3505,13 @@ mod tests {
     #[cfg(feature = "migration")]
     thread_local! {
         static MIGRATION_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(200)));
+            RefCell::new(DataStore::init_journaled(test_memory(200)).expect("fixture storage should initialize"));
         static MIGRATION_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(201)));
+            RefCell::new(IndexStore::init_journaled(test_memory(201)).expect("fixture storage should initialize"));
         static MIGRATION_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(202)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(202)).expect("fixture storage should initialize"));
         static MIGRATION_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(203)));
+            RefCell::new(JournalTailStore::init(test_memory(203)).expect("fixture storage should initialize"));
         static MIGRATION_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -3611,13 +3535,13 @@ mod tests {
     #[cfg(feature = "migration")]
     thread_local! {
         static MIGRATION_FINDING_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(206)));
+            RefCell::new(DataStore::init_journaled(test_memory(206)).expect("fixture storage should initialize"));
         static MIGRATION_FINDING_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(207)));
+            RefCell::new(IndexStore::init_journaled(test_memory(207)).expect("fixture storage should initialize"));
         static MIGRATION_FINDING_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(208)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(208)).expect("fixture storage should initialize"));
         static MIGRATION_FINDING_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(209)));
+            RefCell::new(JournalTailStore::init(test_memory(209)).expect("fixture storage should initialize"));
         static MIGRATION_FINDING_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -3640,13 +3564,13 @@ mod tests {
 
     thread_local! {
         static EVOLUTION_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(192)));
+            RefCell::new(DataStore::init_journaled(test_memory(192)).expect("fixture storage should initialize"));
         static EVOLUTION_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(193)));
+            RefCell::new(IndexStore::init_journaled(test_memory(193)).expect("fixture storage should initialize"));
         static EVOLUTION_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(194)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(194)).expect("fixture storage should initialize"));
         static EVOLUTION_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(195)));
+            RefCell::new(JournalTailStore::init(test_memory(195)).expect("fixture storage should initialize"));
         static EVOLUTION_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -3674,15 +3598,15 @@ mod tests {
     }
 
     impl CanisterKind for AbortCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(184)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.application_abort.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(186)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.application_abort.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(185)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -3696,15 +3620,15 @@ mod tests {
     }
 
     impl CanisterKind for EvolutionCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(196)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule_evolution.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(198)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.rule_evolution.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(197)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -3721,16 +3645,16 @@ mod tests {
 
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(204)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_validation.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(206)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.migration_validation.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(205)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -3747,16 +3671,16 @@ mod tests {
 
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationExecutionCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(214)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_execution.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(216)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.migration_execution.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(215)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -3773,15 +3697,15 @@ mod tests {
 
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationFindingCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(210)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_finding.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(212)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.migration_finding.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(211)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -4962,28 +4886,53 @@ mod tests {
             // Drop the crashed collection before reopening its exclusive lease.
             drop(store.replace(DataStore::init_heap()));
             ABORT_DATA_MEMORY.with(|memory| {
-                drop(store.replace(DataStore::init_journaled(memory.open())));
+                drop(
+                    store.replace(
+                        DataStore::init_journaled(memory.open())
+                            .expect("fixture storage should initialize"),
+                    ),
+                );
             });
         });
         ABORT_INDEX.with(|store| {
             // Drop the crashed collection before reopening its exclusive lease.
             drop(store.replace(IndexStore::init_heap()));
             ABORT_INDEX_MEMORY.with(|memory| {
-                drop(store.replace(IndexStore::init_journaled(memory.open())));
+                drop(
+                    store.replace(
+                        IndexStore::init_journaled(memory.open())
+                            .expect("fixture storage should initialize"),
+                    ),
+                );
             });
         });
         ABORT_SCHEMA.with(|store| {
             // Drop the crashed collection before reopening its exclusive lease.
             drop(store.replace(SchemaStore::init_heap()));
             ABORT_SCHEMA_MEMORY.with(|memory| {
-                drop(store.replace(SchemaStore::init_journaled(memory.open())));
+                drop(
+                    store.replace(
+                        SchemaStore::init_journaled(memory.open())
+                            .expect("fixture storage should initialize"),
+                    ),
+                );
             });
         });
         ABORT_JOURNAL.with(|store| {
             // Drop the crashed collection before reopening its exclusive lease.
-            drop(store.replace(JournalTailStore::init(test_memory(254))));
+            drop(
+                store.replace(
+                    JournalTailStore::init(test_memory(254))
+                        .expect("fixture storage should initialize"),
+                ),
+            );
             ABORT_JOURNAL_MEMORY.with(|memory| {
-                drop(store.replace(JournalTailStore::init(memory.open())));
+                drop(
+                    store.replace(
+                        JournalTailStore::init(memory.open())
+                            .expect("fixture storage should initialize"),
+                    ),
+                );
             });
         });
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");
@@ -5165,7 +5114,7 @@ mod tests {
         reason = "the validation replay, staging, and unchanged-row assertions form one scenario"
     )]
     fn qualify_migration_abort_domains(extra_entries: u64) {
-        use std::convert::Infallible;
+        use crate::error::InternalError;
 
         use super::{ensure_generated_schema_application_admitted, migrate_schema};
         use crate::db::{
@@ -5223,7 +5172,7 @@ mod tests {
         let row_bytes = || {
             store.with_data(|data| {
                 let mut rows = Vec::new();
-                let result: Result<(), Infallible> = data.visit_entries(|key, row| {
+                let result: Result<(), InternalError> = data.visit_entries(|key, row| {
                     rows.push((key.as_bytes().to_vec(), row.as_bytes().to_vec()));
                     Ok(StoreVisit::Continue)
                 });
@@ -5260,7 +5209,6 @@ mod tests {
             expected_database: target.database_identity(),
             expected_head: target.accepted_head().clone(),
             expected_plan: plan,
-            acknowledged_finding_page: None,
         };
         assert_eq!(
             migrate_schema(&db, &proposal, command())
@@ -5311,7 +5259,7 @@ mod tests {
                 .expect("staging before a cursor marker should be idempotent");
         }
         assert_eq!(
-            store.with_index(IndexStore::len),
+            (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
             2,
             "replaying an uncheckpointed page must retain one exact staged key per row",
         );
@@ -5322,7 +5270,7 @@ mod tests {
         assert!(ready.findings().is_empty());
         assert_eq!(row_bytes(), before_rows, "validation must not rewrite rows");
         assert_eq!(
-            store.with_index(IndexStore::len),
+            (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
             2,
             "the isolated candidate unique generation should be durably staged",
         );
@@ -5334,7 +5282,7 @@ mod tests {
                     crate::db::direction::Direction::Asc,
                     |raw, _| {
                         candidate = Some(*IndexKey::try_from_raw(raw).unwrap().index_id());
-                        Ok::<_, Infallible>(true)
+                        Ok::<_, InternalError>(true)
                     },
                 )
                 .unwrap();
@@ -5368,7 +5316,9 @@ mod tests {
                 .expect("unrelated abort-scan key should build")
                 .to_raw()
                 .expect("unrelated abort-scan key should encode");
-                index.insert(key, IndexEntryValue::presence());
+                index
+                    .insert(key, IndexEntryValue::presence())
+                    .expect("fixture storage operation should succeed");
             }
         });
         let abort = || SchemaMigrationCommand::Abort {
@@ -5379,13 +5329,16 @@ mod tests {
         if extra_entries != 0 {
             let cleaning = migrate_schema(&db, &proposal, abort()).unwrap();
             assert_eq!(cleaning.phase(), SchemaMigrationPhase::ReadyToRewrite);
-            assert_eq!(store.with_index(IndexStore::len), 516);
+            assert_eq!(
+                (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
+                516
+            );
         }
         let aborted =
             migrate_schema(&db, &proposal, abort()).expect("pre-rewrite migration should abort");
         assert_eq!(aborted.phase(), SchemaMigrationPhase::Aborted);
         assert_eq!(
-            store.with_index(IndexStore::len),
+            (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
             513,
             "abort must remove only planner-invisible candidate generations",
         );
@@ -5475,7 +5428,6 @@ mod tests {
             expected_database: target.database_identity(),
             expected_head: target.accepted_head().clone(),
             expected_plan: plan,
-            acknowledged_finding_page: None,
         };
         for expected in [
             SchemaMigrationPhase::Prepared,
@@ -5595,7 +5547,10 @@ mod tests {
                 crate::value::Value::Nat64(9),
             ],
         );
-        assert_eq!(store.with_index(IndexStore::len), 3);
+        assert_eq!(
+            (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
+            3
+        );
         let accepted = store
             .with_schema(SchemaStore::current_accepted_schema_bundle)
             .expect("published candidate bundle should remain readable")
@@ -5633,7 +5588,7 @@ mod tests {
         reason = "all four finding families share one ordered historical scan fixture"
     )]
     fn physical_migration_validation_reports_every_typed_finding_family_without_writes() {
-        use std::convert::Infallible;
+        use crate::error::InternalError;
 
         use super::migrate_schema;
         use crate::db::{
@@ -5700,7 +5655,7 @@ mod tests {
         let row_bytes = || {
             store.with_data(|data| {
                 let mut rows = Vec::new();
-                let result: Result<(), Infallible> = data.visit_entries(|key, row| {
+                let result: Result<(), InternalError> = data.visit_entries(|key, row| {
                     rows.push((key.as_bytes().to_vec(), row.as_bytes().to_vec()));
                     Ok(StoreVisit::Continue)
                 });
@@ -5726,7 +5681,6 @@ mod tests {
             expected_database: target.database_identity(),
             expected_head: target.accepted_head().clone(),
             expected_plan: plan,
-            acknowledged_finding_page: None,
         };
         assert_eq!(
             migrate_schema(&db, &proposal, command())
@@ -5782,7 +5736,7 @@ mod tests {
             "rejected validation must not rewrite accepted rows"
         );
         assert_eq!(
-            store.with_index(IndexStore::len),
+            (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
             0,
             "a rejected page must not publish any staged generation"
         );

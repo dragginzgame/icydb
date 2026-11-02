@@ -235,6 +235,14 @@ Commit markers are **authoritative**, not diagnostic.
 
 ### Marker-bound Identity allocation
 
+For heap schema metadata, preflight combines every advancing owner into one
+encoded retained checkpoint per store. The existing temporary-memory budget
+admits each image before allocation, and all preparation completes before marker
+publication. The synchronous apply window transfers those prepared bytes without
+re-decoding the accepted bundle. An interrupted window discards this transient
+preparation and replays the marker's original per-range effects under the current
+checkpoint format; no schema publication may intervene within the window.
+
 Identity allocation is tentative until marker publication. One statement
 aggregates generated values into one contiguous range per accepted owner and
 revalidates every expected high-water immediately before publication. A stale

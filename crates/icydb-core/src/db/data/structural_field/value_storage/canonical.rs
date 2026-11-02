@@ -244,6 +244,55 @@ pub(super) fn select_canonical_map_path<'a>(
     Ok((cursor, selected))
 }
 
+/// Select sibling members in one canonical traversal, retaining first matches.
+/// Every unselected child is still validated at its original nesting depth.
+pub(super) fn select_canonical_map_members<'a>(
+    encoded: &'a [u8],
+    offset: usize,
+    depth: u16,
+    prefix: &[Box<[u8]>],
+    members: &[&[u8]],
+    selected: &mut [Option<&'a [u8]>],
+) -> Result<usize, FieldDecodeError> {
+    ensure_depth(depth)?;
+    if encoded.get(offset) == Some(&TAG_NULL) {
+        return skip_canonical_value(encoded, offset, depth);
+    }
+    let (_, len, mut cursor) = canonical_collection_head_at(encoded, offset, TAG_MAP)?;
+    len.checked_mul(2).ok_or_else(FieldDecodeError::new)?;
+    let child_depth = depth.saturating_add(1);
+    let mut matched = false;
+    for _ in 0..len {
+        let key_start = cursor;
+        cursor = skip_canonical_value(encoded, cursor, child_depth)?;
+        let key = decode_binary_text_payload_bytes_if_text(&encoded[key_start..cursor])?;
+        if let Some((segment, remaining)) = prefix.split_first() {
+            if !matched && key == Some(segment.as_ref()) {
+                matched = true;
+                cursor = select_canonical_map_members(
+                    encoded,
+                    cursor,
+                    child_depth,
+                    remaining,
+                    members,
+                    selected,
+                )?;
+            } else {
+                cursor = skip_canonical_value(encoded, cursor, child_depth)?;
+            }
+        } else {
+            let value_start = cursor;
+            cursor = skip_canonical_value(encoded, cursor, child_depth)?;
+            for (member, result) in members.iter().zip(selected.iter_mut()) {
+                if result.is_none() && key == Some(*member) {
+                    *result = Some(&encoded[value_start..cursor]);
+                }
+            }
+        }
+    }
+    Ok(cursor)
+}
+
 // Borrow a skip-bounded map key without revalidating its envelope or UTF-8.
 // Only compare these bytes with a compiled text segment, after canonical skip.
 fn decode_binary_text_payload_bytes_if_text(

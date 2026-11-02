@@ -54,8 +54,8 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
-use ic_storage::adapter::{MapIter, StableBTreeMap, Storable, storable::Bound as StorableBound};
+use ic_storage::adapter::{MapEntry, StableBTreeMap, Storable, storable::Bound as StorableBound};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use sha2::Digest;
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, Ref, RefCell};
@@ -265,28 +265,24 @@ impl RawSchemaKey {
 }
 
 impl Storable for RawSchemaKey {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(&self.0))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        debug_assert_eq!(
-            bytes.len(),
-            SCHEMA_KEY_BYTES_USIZE,
-            "RawSchemaKey::from_bytes received unexpected byte length",
-        );
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
 
         if bytes.len() != SCHEMA_KEY_BYTES_USIZE {
-            return Self([0u8; SCHEMA_KEY_BYTES_USIZE]);
+            return Err(ic_storage::storable::CodecError::Bounds);
         }
 
         let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
         out.copy_from_slice(bytes.as_ref());
-        Self(out)
+        Ok(Self(out))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_vec()
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0.to_vec())
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
@@ -474,16 +470,17 @@ impl AcceptedCatalogSnapshotSelection {
 }
 
 impl Storable for RawSchemaValue {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.as_bytes())
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self::from_encoded_control_record(bytes.into_owned())
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
+        Ok(Self::from_encoded_control_record(bytes.into_owned()))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.payload
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.payload)
     }
 
     const BOUND: StorableBound = StorableBound::Unbounded;
@@ -728,10 +725,11 @@ pub(in crate::db) struct PreparedCardinalityBuildPage {
     cursor: (RawSchemaKey, RawSchemaValue),
 }
 
-/// Fully preflighted exact count and Ready-watermark transition for one fold.
+/// Fully preflighted count, header and optional build-cursor transition for one fold.
 pub(in crate::db) struct PreparedCardinalityMaintenance {
     count_entries: Vec<(RawSchemaKey, Option<RawSchemaValue>)>,
     header: (RawSchemaKey, RawSchemaValue),
+    cursor: Option<(RawSchemaKey, RawSchemaValue)>,
 }
 
 #[derive(Clone, Copy)]
@@ -761,16 +759,15 @@ impl SchemaStore {
     /// # Panics
     /// Panics if retained storage has an invalid header or unsupported layout,
     /// or the backing storage fails. Invalid retained contents are not replaced.
-    #[must_use]
-    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
+    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
         // Only a virgin allocation may be initialized; retained authority must
         // never be silently replaced when its storage header is unrecognized.
         let canonical = if memory.size() == 0 {
-            StableBTreeMap::create(memory)
+            StableBTreeMap::create(memory).map_err(InternalError::from)?
         } else {
-            StableBTreeMap::load(memory)
+            StableBTreeMap::load(memory).map_err(InternalError::from)?
         };
-        Self {
+        Ok(Self {
             backend: SchemaStoreBackend::Journaled {
                 canonical,
                 live: StdBTreeMap::new(),
@@ -780,7 +777,7 @@ impl SchemaStore {
             accepted_bundle_cache: RefCell::new(None),
             cardinality_header_cache: RefCell::new(None),
             accepted_catalog_scope: OnceCell::new(),
-        }
+        })
     }
 
     /// Load the sole current durable cardinality-generation header.
@@ -821,7 +818,8 @@ impl SchemaStore {
         InternalError,
     > {
         self.read_cardinality_generation_control(|entry| {
-            CardinalityBuildCursor::decode(entry.value().as_bytes()).map(Some)
+            CardinalityBuildCursor::decode(entry.value().map_err(InternalError::from)?.as_bytes())
+                .map(Some)
         })
     }
 
@@ -836,11 +834,9 @@ impl SchemaStore {
     }
 
     // Project the lazy cursor entry so lifecycle reads never materialize its payload.
-    fn read_cardinality_generation_control<'a, C: Default>(
-        &'a self,
-        mut read_cursor: impl FnMut(
-            <MapIter<'a, RawSchemaKey, RawSchemaValue> as Iterator>::Item,
-        ) -> Result<C, InternalError>,
+    fn read_cardinality_generation_control<C: Default>(
+        &self,
+        mut read_cursor: impl FnMut(MapEntry<RawSchemaKey, RawSchemaValue>) -> Result<C, InternalError>,
     ) -> Result<(Option<CardinalityGenerationHeader>, C), InternalError> {
         let SchemaStoreBackend::Journaled { canonical, .. } = &self.backend else {
             return Err(InternalError::store_invariant());
@@ -850,8 +846,11 @@ impl SchemaStore {
         let mut header = None;
         let mut cursor = C::default();
         for entry in canonical.range(header_key..=cursor_key) {
+            let entry = entry.map_err(InternalError::from)?;
             if *entry.key() == header_key {
-                header = Some(self.decode_cardinality_header_cached(&entry.value())?);
+                header = Some(self.decode_cardinality_header_cached(
+                    &entry.value().map_err(InternalError::from)?,
+                )?);
             } else if *entry.key() == cursor_key {
                 cursor = read_cursor(entry)?;
             } else {
@@ -936,8 +935,12 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-        canonical.insert(RawSchemaKey::from_cardinality_generation_header(), encoded);
-        canonical.remove(&RawSchemaKey::from_cardinality_build_cursor());
+        canonical
+            .insert(RawSchemaKey::from_cardinality_generation_header(), encoded)
+            .map_err(InternalError::from)?;
+        canonical
+            .remove(&RawSchemaKey::from_cardinality_build_cursor())
+            .map_err(InternalError::from)?;
         Ok(next)
     }
 
@@ -959,7 +962,9 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-        canonical.insert(RawSchemaKey::from_cardinality_generation_header(), encoded);
+        canonical
+            .insert(RawSchemaKey::from_cardinality_generation_header(), encoded)
+            .map_err(InternalError::from)?;
         Ok(ready)
     }
 
@@ -988,8 +993,12 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-        canonical.insert(RawSchemaKey::from_cardinality_generation_header(), encoded);
-        canonical.remove(&RawSchemaKey::from_cardinality_build_cursor());
+        canonical
+            .insert(RawSchemaKey::from_cardinality_generation_header(), encoded)
+            .map_err(InternalError::from)?;
+        canonical
+            .remove(&RawSchemaKey::from_cardinality_build_cursor())
+            .map_err(InternalError::from)?;
         Ok(ready)
     }
 
@@ -1025,17 +1034,20 @@ impl SchemaStore {
         keys.try_reserve_exact(collect_limit)
             .map_err(|_| InternalError::store_unsupported())?;
         for entry in canonical.range(bounds).take(collect_limit) {
+            let entry = entry.map_err(InternalError::from)?;
             keys.push(*entry.key());
         }
         let has_more = keys.len() > limit;
         for key in keys.into_iter().take(limit) {
-            canonical.remove(&key);
+            canonical.remove(&key).map_err(InternalError::from)?;
         }
         if !has_more {
-            canonical.insert(
-                RawSchemaKey::from_cardinality_build_cursor(),
-                RawSchemaValue::from_encoded_control_record(encoded_cursor),
-            );
+            canonical
+                .insert(
+                    RawSchemaKey::from_cardinality_build_cursor(),
+                    RawSchemaValue::from_encoded_control_record(encoded_cursor),
+                )
+                .map_err(InternalError::from)?;
         }
         Ok(has_more)
     }
@@ -1133,9 +1145,11 @@ impl SchemaStore {
             return Err(InternalError::store_invariant());
         };
         for (key, value) in prepared.count_entries {
-            canonical.insert(key, value);
+            canonical.insert(key, value).map_err(InternalError::from)?;
         }
-        canonical.insert(prepared.cursor.0, prepared.cursor.1);
+        canonical
+            .insert(prepared.cursor.0, prepared.cursor.1)
+            .map_err(InternalError::from)?;
         Ok(())
     }
 
@@ -1166,19 +1180,40 @@ impl SchemaStore {
         next_source: CardinalitySourceIdentity,
         changes: &[(CardinalityCountDigest, i64)],
     ) -> Result<Option<PreparedCardinalityMaintenance>, InternalError> {
-        if current.state() != CardinalityGenerationState::Ready
-            || current.validate_source(current_source).is_err()
+        if current.validate_source(current_source).is_err()
             || self.cardinality_generation_header()? != Some(current)
-            || self.cardinality_build_cursor()?.is_some()
         {
             return Err(InternalError::store_corruption());
         }
         let next = CardinalityGenerationHeader::new(
             current.generation(),
-            CardinalityGenerationState::Ready,
+            current.state(),
             current.slot(),
             next_source,
         );
+        let cursor = self.cardinality_build_cursor()?;
+        let cursor = match (current.state(), cursor) {
+            (CardinalityGenerationState::Ready, None) => None,
+            (CardinalityGenerationState::Building, None) if changes.is_empty() => None,
+            (CardinalityGenerationState::Building, Some(cursor)) => {
+                cursor.validate_header(current)?;
+                // Totals record builder work, not the current live row count.
+                // Fold maintenance preserves that history and its exclusive scan position.
+                let next_cursor = CardinalityBuildCursor::new(
+                    current.generation(),
+                    current.slot(),
+                    next_source,
+                    cursor.phase(),
+                    cursor.checkpoint().cloned(),
+                    cursor.totals(),
+                )?;
+                Some((
+                    RawSchemaKey::from_cardinality_build_cursor(),
+                    RawSchemaValue::from_encoded_control_record(next_cursor.encode()?),
+                ))
+            }
+            _ => return Err(InternalError::store_corruption()),
+        };
         let mut count_entries = Vec::new();
         count_entries
             .try_reserve_exact(changes.len())
@@ -1226,6 +1261,7 @@ impl SchemaStore {
         }
         Ok(Some(PreparedCardinalityMaintenance {
             count_entries,
+            cursor,
             header: (
                 RawSchemaKey::from_cardinality_generation_header(),
                 RawSchemaValue::from_encoded_control_record(next.encode()),
@@ -1243,12 +1279,17 @@ impl SchemaStore {
         };
         for (key, value) in prepared.count_entries {
             if let Some(value) = value {
-                canonical.insert(key, value);
+                canonical.insert(key, value).map_err(InternalError::from)?;
             } else {
-                canonical.remove(&key);
+                canonical.remove(&key).map_err(InternalError::from)?;
             }
         }
-        canonical.insert(prepared.header.0, prepared.header.1);
+        canonical
+            .insert(prepared.header.0, prepared.header.1)
+            .map_err(InternalError::from)?;
+        if let Some((key, value)) = prepared.cursor {
+            canonical.insert(key, value).map_err(InternalError::from)?;
+        }
         Ok(())
     }
 
@@ -1262,6 +1303,7 @@ impl SchemaStore {
         Ok(canonical
             .range(RawSchemaKey::cardinality_count_range_bounds(slot))
             .next()
+            .transpose()?
             .is_none())
     }
 
@@ -1470,7 +1512,7 @@ impl SchemaStore {
     ) -> Result<IdentityState, InternalError> {
         let key = RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id());
         let raw = match view {
-            IdentityStateStorageView::Effective => self.get_raw_value(&key),
+            IdentityStateStorageView::Effective => self.get_raw_value(&key)?,
             IdentityStateStorageView::Canonical => self.get_canonical_raw_value(&key)?,
         }
         .ok_or_else(InternalError::identity_state_corruption)?;
@@ -1497,7 +1539,7 @@ impl SchemaStore {
         let bytes = encode_identity_state(&advanced)?;
         match target {
             IdentityStateWriteTarget::Materialized => {
-                self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
+                self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes))?;
             }
             IdentityStateWriteTarget::Canonical => {
                 self.insert_canonical_raw_value(key, bytes)?;
@@ -1561,7 +1603,8 @@ impl SchemaStore {
                 IdentityStateStorageView::Canonical,
             ) => {
                 for entry in canonical.range((bounds.0, bounds.1)) {
-                    collect(entry.key(), &entry.value())?;
+                    let entry = entry.map_err(InternalError::from)?;
+                    collect(entry.key(), &entry.value().map_err(InternalError::from)?)?;
                 }
             }
             (SchemaStoreBackend::Heap(_), IdentityStateStorageView::Canonical) => {
@@ -1631,13 +1674,13 @@ impl SchemaStore {
             ) => {
                 live.remove(&key);
                 tombstones.remove(&key);
-                canonical.remove(&key);
+                canonical.remove(&key).map_err(InternalError::from)?;
             }
             (
                 SchemaStoreBackend::Journaled { canonical, .. },
                 IdentityStateWriteTarget::Canonical,
             ) => {
-                canonical.remove(&key);
+                canonical.remove(&key).map_err(InternalError::from)?;
             }
             (SchemaStoreBackend::Heap(_), IdentityStateWriteTarget::Canonical) => {
                 return Err(InternalError::store_invariant());
@@ -1712,10 +1755,11 @@ impl SchemaStore {
         let mut canonical_first = None;
         let mut canonical_second = None;
         for entry in canonical.range(first_key..=second_key) {
+            let entry = entry.map_err(InternalError::from)?;
             if *entry.key() == first_key {
-                canonical_first = Some(entry.value().clone());
+                canonical_first = Some(entry.value().map_err(InternalError::from)?.clone());
             } else if *entry.key() == second_key {
-                canonical_second = Some(entry.value().clone());
+                canonical_second = Some(entry.value().map_err(InternalError::from)?.clone());
             } else {
                 return Err(InternalError::store_corruption());
             }
@@ -1734,10 +1778,10 @@ impl SchemaStore {
                 .cloned()
                 .or_else(|| canonical_second.clone())
         };
-        let effective_first = effective_first.map(RawSchemaValue::into_bytes);
-        let effective_second = effective_second.map(RawSchemaValue::into_bytes);
-        let canonical_first = canonical_first.map(RawSchemaValue::into_bytes);
-        let canonical_second = canonical_second.map(RawSchemaValue::into_bytes);
+        let effective_first = effective_first.map(|value| value.payload);
+        let effective_second = effective_second.map(|value| value.payload);
+        let canonical_first = canonical_first.map(|value| value.payload);
+        let canonical_second = canonical_second.map(|value| value.payload);
         Ok((
             select_current_accepted_schema_root([
                 effective_first.as_deref(),
@@ -1757,7 +1801,7 @@ impl SchemaStore {
         constraint_id: ConstraintId,
     ) -> Result<Option<ConstraintValidationJob>, InternalError> {
         let key = RawSchemaKey::from_constraint_validation_job(entity, constraint_id);
-        self.get_raw_value(&key)
+        self.get_raw_value(&key)?
             .map(|raw| decode_constraint_validation_job(raw.as_bytes()))
             .transpose()
     }
@@ -1770,7 +1814,7 @@ impl SchemaStore {
         let key =
             RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id());
         let bytes = encode_constraint_validation_job(job)?;
-        let _ = self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
+        let _ = self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes))?;
         Ok(())
     }
 
@@ -1810,7 +1854,9 @@ impl SchemaStore {
         let key =
             RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id());
         let bytes = encode_constraint_validation_job(job)?;
-        canonical.insert(key, RawSchemaValue::from_encoded_control_record(bytes));
+        canonical
+            .insert(key, RawSchemaValue::from_encoded_control_record(bytes))
+            .map_err(InternalError::from)?;
         Ok(())
     }
 
@@ -1835,10 +1881,12 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-        canonical.remove(&RawSchemaKey::from_constraint_validation_job(
-            entity,
-            constraint_id,
-        ));
+        canonical
+            .remove(&RawSchemaKey::from_constraint_validation_job(
+                entity,
+                constraint_id,
+            ))
+            .map_err(InternalError::from)?;
         Ok(())
     }
 
@@ -2013,7 +2061,10 @@ impl SchemaStore {
         let previous = if tombstones.contains(&key) {
             None
         } else {
-            live.get(&key).cloned().or_else(|| canonical.get(&key))
+            match live.get(&key) {
+                Some(value) => Some(value.clone()),
+                None => canonical.get(&key).map_err(InternalError::from)?,
+            }
         };
         if let Some(snapshot) = snapshot {
             tombstones.remove(&key);
@@ -2543,7 +2594,7 @@ impl SchemaStore {
             return Ok(replacement.cloned());
         }
         let raw = match view {
-            IdentityStateStorageView::Effective => self.get_raw_value(&key),
+            IdentityStateStorageView::Effective => self.get_raw_value(&key)?,
             IdentityStateStorageView::Canonical => self.get_canonical_raw_value(&key)?,
         };
         raw.map(|raw| decode_constraint_validation_job(raw.as_bytes()))
@@ -2646,7 +2697,7 @@ impl SchemaStore {
                 target,
             )?;
             let persisted_bundle = self
-                .get_raw_value(&bundle_key)
+                .get_raw_value(&bundle_key)?
                 .ok_or_else(InternalError::store_corruption)?;
             let _verified = decode_verified_accepted_schema_revision_bundle(
                 candidate.root(),
@@ -2718,7 +2769,7 @@ impl SchemaStore {
                     state.owner().entity_tag(),
                     state.owner().field_id(),
                 );
-                self.insert_durable_raw_value(key, encode_identity_state(state)?);
+                self.insert_durable_raw_value(key, encode_identity_state(state)?)?;
             }
             if self.identity_state_inventory(IdentityStateStorageView::Effective)?
                 != *checkpoint_identity_states
@@ -2740,16 +2791,16 @@ impl SchemaStore {
         }
 
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
-        self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
+        self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec())?;
         for state in checkpoint_identity_states.values() {
             let key = RawSchemaKey::from_identity_state(
                 state.owner().entity_tag(),
                 state.owner().field_id(),
             );
-            self.insert_durable_raw_value(key, encode_identity_state(state)?);
+            self.insert_durable_raw_value(key, encode_identity_state(state)?)?;
         }
         let root_key = RawSchemaKey::from_accepted_root_slot(0)?;
-        self.insert_durable_raw_value(root_key, candidate.encoded_root().to_vec());
+        self.insert_durable_raw_value(root_key, candidate.encoded_root().to_vec())?;
 
         let selected = self
             .current_accepted_schema_root()?
@@ -3133,9 +3184,9 @@ impl SchemaStore {
         target: IdentityStateWriteTarget,
     ) -> Result<(), InternalError> {
         match target {
-            IdentityStateWriteTarget::Durable => self.insert_durable_raw_value(key, bytes),
+            IdentityStateWriteTarget::Durable => self.insert_durable_raw_value(key, bytes)?,
             IdentityStateWriteTarget::Materialized => {
-                self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
+                self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes))?;
             }
             IdentityStateWriteTarget::Canonical => self.insert_canonical_raw_value(key, bytes)?,
         }
@@ -3147,14 +3198,14 @@ impl SchemaStore {
         &mut self,
         key: RawSchemaKey,
         snapshot: RawSchemaValue,
-    ) -> Option<RawSchemaValue> {
+    ) -> Result<Option<RawSchemaValue>, InternalError> {
         self.invalidate_accepted_bundle_cache_for_key(key);
         let previous_journaled = if matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
-            self.get_raw_value_for_backend(&key)
+            self.get_raw_value_for_backend(&key)?
         } else {
             None
         };
-        match &mut self.backend {
+        Ok(match &mut self.backend {
             SchemaStoreBackend::Heap(map) => map.insert(key, snapshot),
             SchemaStoreBackend::Journaled {
                 live, tombstones, ..
@@ -3163,28 +3214,27 @@ impl SchemaStore {
                 live.insert(key, snapshot);
                 previous_journaled
             }
-        }
+        })
     }
 
     /// Load one opaque schema/control value by key.
-    #[must_use]
-    fn get_raw_value(&self, key: &RawSchemaKey) -> Option<RawSchemaValue> {
-        match &self.backend {
+    fn get_raw_value(&self, key: &RawSchemaKey) -> Result<Option<RawSchemaValue>, InternalError> {
+        Ok(match &self.backend {
             SchemaStoreBackend::Heap(map) => map.get(key).cloned(),
-            SchemaStoreBackend::Journaled { .. } => self.get_raw_value_for_backend(key),
-        }
+            SchemaStoreBackend::Journaled { .. } => self.get_raw_value_for_backend(key)?,
+        })
     }
 
     fn accepted_root_slot_bytes(&self, slot: usize) -> Result<Option<Vec<u8>>, InternalError> {
         let key = RawSchemaKey::from_accepted_root_slot(slot)?;
-        Ok(self.get_raw_value(&key).map(RawSchemaValue::into_bytes))
+        Ok(self.get_raw_value(&key)?.map(|value| value.payload))
     }
 
     fn canonical_root_slot_bytes(&self, slot: usize) -> Result<Option<Vec<u8>>, InternalError> {
         let key = RawSchemaKey::from_accepted_root_slot(slot)?;
         Ok(self
             .get_canonical_raw_value(&key)?
-            .map(RawSchemaValue::into_bytes))
+            .map(|value| value.payload))
     }
 
     fn current_root_matches_candidate(
@@ -3199,7 +3249,7 @@ impl SchemaStore {
         }
         let key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         let bundle = self
-            .get_raw_value(&key)
+            .get_raw_value(&key)?
             .ok_or_else(InternalError::store_corruption)?;
         let _verified =
             decode_verified_accepted_schema_revision_bundle(candidate.root(), bundle.as_bytes())?;
@@ -3234,7 +3284,9 @@ impl SchemaStore {
         key: &RawSchemaKey,
     ) -> Result<Option<RawSchemaValue>, InternalError> {
         match &self.backend {
-            SchemaStoreBackend::Journaled { canonical, .. } => Ok(canonical.get(key)),
+            SchemaStoreBackend::Journaled { canonical, .. } => {
+                Ok(canonical.get(key).map_err(InternalError::from)?)
+            }
             SchemaStoreBackend::Heap(_) => Err(InternalError::store_invariant()),
         }
     }
@@ -3248,14 +3300,20 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-        canonical.insert(key, RawSchemaValue::from_encoded_control_record(bytes));
+        canonical
+            .insert(key, RawSchemaValue::from_encoded_control_record(bytes))
+            .map_err(InternalError::from)?;
         Ok(())
     }
 
     // Initial accepted-catalog bootstrap persists immutable bundle/root values
     // directly in the schema allocation. Later online schema mutation will
     // carry the same values through the journal before calling this primitive.
-    fn insert_durable_raw_value(&mut self, key: RawSchemaKey, bytes: Vec<u8>) {
+    fn insert_durable_raw_value(
+        &mut self,
+        key: RawSchemaKey,
+        bytes: Vec<u8>,
+    ) -> Result<(), InternalError> {
         self.invalidate_accepted_bundle_cache_for_key(key);
         let value = RawSchemaValue::from_encoded_control_record(bytes);
         match &mut self.backend {
@@ -3270,9 +3328,10 @@ impl SchemaStore {
             } => {
                 live.remove(&key);
                 tombstones.remove(&key);
-                canonical.insert(key, value);
+                canonical.insert(key, value).map_err(InternalError::from)?;
             }
         }
+        Ok(())
     }
 
     fn invalidate_accepted_bundle_cache_for_key(&mut self, key: RawSchemaKey) {
@@ -3370,6 +3429,7 @@ impl SchemaStore {
             return Err(InternalError::store_invariant());
         };
         for entry in canonical.range(RawSchemaKey::all_catalog_range_bounds()) {
+            let entry = entry.map_err(InternalError::from)?;
             let has_relevant_overlay = matches!(view, IdentityStateStorageView::Effective)
                 || positions.is_positioned(entry.key())
                 || live.contains_key(entry.key())
@@ -3468,10 +3528,13 @@ impl SchemaStore {
             } => {
                 let stale = canonical
                     .range(RawSchemaKey::all_catalog_range_bounds())
-                    .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
+                    .map(|entry| entry.map(|entry| *entry.key()))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .filter(|key| !keep.contains(key))
                     .collect::<Vec<_>>();
                 for key in stale {
-                    canonical.remove(&key);
+                    canonical.remove(&key).map_err(InternalError::from)?;
                 }
                 Self::retain_heap_catalog_entries(live, &keep);
                 let cleared = tombstones
@@ -3519,8 +3582,8 @@ impl SchemaStore {
         Self::retain_heap_catalog_entries(live, &keep);
         let canonical_keys = canonical
             .range(RawSchemaKey::all_catalog_range_bounds())
-            .map(|entry| *entry.key())
-            .collect::<Vec<_>>();
+            .map(|entry| entry.map(|entry| *entry.key()))
+            .collect::<Result<Vec<_>, _>>()?;
         for key in canonical_keys {
             if keep.contains(&key) {
                 tombstones.remove(&key);
@@ -3541,10 +3604,13 @@ impl SchemaStore {
         };
         let stale = canonical
             .range(RawSchemaKey::all_catalog_range_bounds())
-            .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
+            .map(|entry| entry.map(|entry| *entry.key()))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|key| !keep.contains(key))
             .collect::<Vec<_>>();
         for key in stale {
-            canonical.remove(&key);
+            canonical.remove(&key).map_err(InternalError::from)?;
         }
         Ok(())
     }
@@ -3597,7 +3663,7 @@ impl SchemaStore {
         if !cache_matches {
             let key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
             let raw = self
-                .get_raw_value(&key)
+                .get_raw_value(&key)?
                 .ok_or_else(InternalError::store_corruption)?;
             let bundle =
                 decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
@@ -3702,7 +3768,7 @@ impl SchemaStore {
             .map(|cached| Rc::clone(&cached.cardinality_domain)))
     }
 
-    fn visit_constraint_validation_jobs_in_view<E>(
+    fn visit_constraint_validation_jobs_in_view<E: From<InternalError>>(
         &self,
         view: IdentityStateStorageView,
         visitor: impl FnMut(&RawSchemaKey, &RawSchemaValue) -> Result<SchemaStoreVisit, E>,
@@ -3739,7 +3805,10 @@ impl SchemaStore {
             ) => {
                 let mut visitor = visitor;
                 for entry in canonical.range((bounds.0, bounds.1)) {
-                    if visitor(entry.key(), &entry.value())?.should_stop() {
+                    let entry = entry.map_err(InternalError::from)?;
+                    if visitor(entry.key(), &entry.value().map_err(InternalError::from)?)?
+                        .should_stop()
+                    {
                         break;
                     }
                 }
@@ -3766,11 +3835,14 @@ impl SchemaStore {
             .current_accepted_schema_root()?
             .ok_or_else(InternalError::store_corruption)?;
         let key = RawSchemaKey::from_accepted_root_slot(selected.slot())?;
-        self.insert_durable_raw_value(key, vec![0xff]);
+        self.insert_durable_raw_value(key, vec![0xff])?;
         Ok(())
     }
 
-    fn get_raw_value_for_backend(&self, key: &RawSchemaKey) -> Option<RawSchemaValue> {
+    fn get_raw_value_for_backend(
+        &self,
+        key: &RawSchemaKey,
+    ) -> Result<Option<RawSchemaValue>, InternalError> {
         let SchemaStoreBackend::Journaled {
             canonical,
             live,
@@ -3778,16 +3850,18 @@ impl SchemaStore {
             ..
         } = &self.backend
         else {
-            return None;
+            return Ok(None);
         };
-
         if tombstones.contains(key) {
-            return None;
+            return Ok(None);
         }
-        live.get(key).cloned().or_else(|| canonical.get(key))
+        Ok(match live.get(key) {
+            Some(value) => Some(value.clone()),
+            None => canonical.get(key).map_err(InternalError::from)?,
+        })
     }
 
-    fn visit_journaled_raw_value_range<E>(
+    fn visit_journaled_raw_value_range<E: From<InternalError>>(
         canonical: &StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
         live: &StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: &BTreeSet<RawSchemaKey>,
@@ -3797,14 +3871,23 @@ impl SchemaStore {
     ) -> Result<(), E> {
         // Share visitor dispatch and stop/error propagation; iterator direction
         // stays statically selected before traversal.
-        let mut visit_entry = |entry: OrderedOverlayEntry<
-            <MapIter<'_, RawSchemaKey, RawSchemaValue> as Iterator>::Item,
-            (&RawSchemaKey, &RawSchemaValue),
-        >| {
-            let result = match entry {
-                OrderedOverlayEntry::Canonical(entry) => visitor(entry.key(), &entry.value()),
-                OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot),
-            };
+        type VisitEntry<'a> = Result<
+            OrderedOverlayEntry<
+                MapEntry<RawSchemaKey, RawSchemaValue>,
+                (&'a RawSchemaKey, &'a RawSchemaValue),
+            >,
+            ic_storage::adapter::CollectionError,
+        >;
+        let mut visit_entry = |entry: VisitEntry<'_>| {
+            let result = (|| -> Result<SchemaStoreVisit, E> {
+                let entry = entry.map_err(InternalError::from)?;
+                match entry {
+                    OrderedOverlayEntry::Canonical(entry) => {
+                        visitor(entry.key(), &entry.value().map_err(InternalError::from)?)
+                    }
+                    OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot),
+                }
+            })();
             match result {
                 Ok(visit) if !visit.should_stop() => ControlFlow::Continue(()),
                 result => ControlFlow::Break(result.map(|_| ())),

@@ -6,14 +6,14 @@
 
 use std::{collections::BTreeMap, error::Error, fmt};
 
-use ic_memory::{BootstrapAdmission, BootstrapAdmissionError, StableKey};
+use ic_storage::{AdmissionError, BootstrapAdmission, SealedDeclarationSnapshot, StableKey};
 
 /// Rejection of IcyDB's logical allocation set before allocation commitment.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MemoryBootstrapAdmissionError {
     /// A key in the reserved `icydb.` domain does not name a current allocation role.
     UnsupportedKey(String),
-    /// IcyDB roles require logical requests with authority `icydb.<namespace>`.
+    /// IcyDB roles require logical requests with authority `icydb_<namespace>`.
     InvalidDeclaration(String),
     /// A current namespace lacks controls, or a current store lacks its quartet.
     IncompleteRoles {
@@ -25,7 +25,7 @@ pub enum MemoryBootstrapAdmissionError {
     /// Historical database identity must remain in the original current declarations.
     NamespaceRemoved(String),
     /// A historical journal could not be selected under current host authority.
-    HistoricalJournal(BootstrapAdmissionError),
+    HistoricalJournal(AdmissionError),
 }
 
 impl fmt::Display for MemoryBootstrapAdmissionError {
@@ -84,16 +84,17 @@ impl Error for MemoryBootstrapAdmissionError {
 /// Rejects unsupported IcyDB keys, incorrectly authorized current declarations, incomplete role sets, omitted historical namespaces, and failed
 /// historical-journal selection. Propagate rejection to abort this bootstrap.
 pub fn prepare_memory_bootstrap(
+    declarations: &SealedDeclarationSnapshot,
     admission: &mut BootstrapAdmission<'_>,
 ) -> Result<(), MemoryBootstrapAdmissionError> {
     // Group only the original sealed requests. Another consumer's historical
     // selections must not manufacture current controls or a current store.
     let mut groups = BTreeMap::<(&str, Option<&str>), u8>::new();
-    for request in admission.declarations().requests() {
+    for request in declarations.requests() {
         let Some(role) = allocation_role(request.stable_key())? else {
             continue;
         };
-        if request.authority().strip_prefix("icydb.") != Some(role.namespace) {
+        if request.authority().strip_prefix("icydb_") != Some(role.namespace) {
             return Err(MemoryBootstrapAdmissionError::InvalidDeclaration(
                 request.stable_key().as_str().to_owned(),
             ));
@@ -110,11 +111,11 @@ pub fn prepare_memory_bootstrap(
         }
     }
 
-    // Recovery already bounds this metadata to 255 records. Copy only omitted
+    // Storage bounds this metadata with its configured allocation ceiling. Copy only omitted
     // journal identities so selection can mutably borrow admission afterward.
     let mut journals = Vec::new();
-    for record in admission.recovered_allocations() {
-        let Some(role) = allocation_role(record.stable_key())? else {
+    for (key, _, _) in admission.recovered_allocations() {
+        let Some(role) = allocation_role(key)? else {
             continue;
         };
         if !groups.contains_key(&(role.namespace, None)) {
@@ -126,10 +127,7 @@ pub fn prepare_memory_bootstrap(
             && role.bit == 0b1000
             && !groups.contains_key(&(role.namespace, role.store))
         {
-            journals.push((
-                format!("icydb.{}", role.namespace),
-                record.stable_key().clone(),
-            ));
+            journals.push((format!("icydb_{}", role.namespace), key.clone()));
         }
     }
     for (authority, key) in journals {

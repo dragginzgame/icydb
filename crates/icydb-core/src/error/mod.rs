@@ -1921,6 +1921,28 @@ impl InternalError {
     }
 }
 
+impl From<ic_storage::storable::CodecError> for InternalError {
+    fn from(_: ic_storage::storable::CodecError) -> Self {
+        Self::store_corruption()
+    }
+}
+
+impl From<ic_storage::adapter::CollectionError> for InternalError {
+    fn from(error: ic_storage::adapter::CollectionError) -> Self {
+        use ic_storage::adapter::CollectionError;
+        match error {
+            CollectionError::Format | CollectionError::Budget => Self::store_unsupported(),
+            CollectionError::Growth | CollectionError::Poisoned => Self::store_internal(),
+            CollectionError::NotEmpty | CollectionError::Bounds => Self::store_invariant(),
+            CollectionError::Codec(_)
+            | CollectionError::Corrupt(_)
+            | CollectionError::Checksum
+            | CollectionError::Wire(_)
+            | CollectionError::Cell(_) => Self::store_corruption(),
+        }
+    }
+}
+
 impl From<diagnostic_code::QueryReadAdmissionCode> for InternalError {
     fn from(reason: diagnostic_code::QueryReadAdmissionCode) -> Self {
         Self {

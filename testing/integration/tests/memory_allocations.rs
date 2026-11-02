@@ -3,7 +3,7 @@
 use ic_platform::principal::ExternalPrincipal as Principal;
 use icydb::{
     Error, ErrorOrigin,
-    db::{MemoryAllocationBinding, StorageReport},
+    db::StorageReport,
     diagnostic::RuntimeBoundaryCode,
 };
 use icydb_testing_build::{
@@ -29,28 +29,12 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
         .unwrap();
     let report = response.unwrap();
     let allocations = report.memory_allocations().unwrap();
-    assert_eq!(allocations.bucket_size_pages, 16);
-    assert_eq!(allocations.memories.len(), 255);
-    assert_eq!(allocations.physical_extent.bytes, before.len() as u64);
-    assert_eq!(
-        allocations.physical_extent.bytes,
-        allocations.manager_metadata_bytes
-            + allocations.allocated_bucket_bytes
-            + allocations.unmanaged_bytes
-    );
-    assert_eq!(
-        allocations.allocated_bucket_bytes,
-        allocations.virtual_extent.bytes + allocations.bucket_slack_bytes
-    );
-    assert!(matches!(
-        allocations.memories[0].binding,
-        MemoryAllocationBinding::Ledger { .. }
-    ));
-    assert!(allocations.memories.iter().any(|slot| matches!(
-        slot.binding,
-        MemoryAllocationBinding::Current { .. }
-    ) && slot.allocated_bytes > 0));
-    assert_eq!(allocations.metadata_bytes_read, 34_848);
+    assert!(allocations.current_generation > 0);
+    assert!(!allocations.memories.is_empty());
+    assert_eq!(allocations.virtual_extent.bytes, allocations.virtual_extent.wasm_pages * 65_536);
+    assert_eq!(allocations.virtual_extent.bytes,
+        allocations.memories.iter().map(|entry| entry.virtual_extent.bytes).sum::<u64>());
+    assert!(allocations.memories.iter().all(|entry| entry.allocation_id > 0 && entry.stable_key.starts_with("icydb.")));
 
     let repeated: Result<StorageReport, Error> = fixture
         .pocket_ic()

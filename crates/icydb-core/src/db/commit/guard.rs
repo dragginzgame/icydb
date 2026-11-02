@@ -400,7 +400,7 @@ mod tests {
         const MEMORY_ID: u8 = 242;
         const STABLE_KEY: &str = "icydb.test.commit_guard_missing_wakeup.v1";
 
-        select_commit_memory_allocation(MEMORY_ID, STABLE_KEY);
+        select_commit_memory_allocation(MEMORY_ID.into(), STABLE_KEY);
         let allocation = super::super::memory::current_commit_memory_allocation()
             .expect("commit allocation should resolve");
         let memory = commit_memory_handle(allocation).expect("commit memory should open");

@@ -4,19 +4,54 @@ use super::{K, P, catalog, snapshot};
 use crate::db::{
     QueryError, RequestExecutionRoot,
     access::SemanticIndexAccessContract,
+    data::{AcceptedStructuralRowAuthority, StructuralRowContract},
     query::{plan::VisibleIndexes, preparation::PreparationWork},
+    resource::budget::MaintenanceConstructionBudget,
     schema::{
         AcceptedSchemaSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaIndexId, SchemaInfo,
+        UniqueConstraintProjection,
     },
     test_support::request_with_limit,
 };
+use crate::types::EntityTag;
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
 use std::rc::Rc;
+
+// Real accepted row authority and both maintained index key families share the
+// same three-pair predicate; only the physical candidate identity is changed.
+fn candidate_projections() -> (StructuralRowContract, Vec<PersistedIndexSnapshot>) {
+    let accepted = accepted_indexes();
+    let candidates = accepted
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .map(|index| {
+            PersistedIndexSnapshot::new_sql_ddl(
+                index.schema_id(),
+                index.ordinal(),
+                index.name().into(),
+                index.store().into(),
+                true,
+                index.key().clone(),
+                index.predicate().cloned(),
+            )
+            .clone_with_schema_identity(index.schema_id(), index.ordinal(), 1)
+        })
+        .collect();
+    let contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
+        "tests::Filtered",
+        accepted,
+        catalog(),
+    )
+    .unwrap()
+    .into_row_contract();
+    (contract, candidates)
+}
 
 fn accepted_indexes() -> Rc<AcceptedSchemaSnapshot> {
     let kind = K::Text { max_len: None };
@@ -161,6 +196,114 @@ fn each_index_projection_keeps_its_canonical_predicate_at_the_exact_boundary() {
                 assert_eq!(result.unwrap().predicate_semantics(), Some(&expected));
             } else {
                 assert_resource(&result.unwrap_err().diagnostic_facts(), 2, 3);
+            }
+        }
+    }
+}
+
+#[test]
+fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
+    let (contract, candidates) = candidate_projections();
+    for index in &candidates {
+        for (limit, admitted) in [(2, false), (3, true), (4, true)] {
+            let budget = MaintenanceConstructionBudget::with_limit_for_tests(
+                Resource::PredicateExpressionSteps,
+                limit,
+            );
+            let result = budget.run(
+                |work| {
+                    UniqueConstraintProjection::new(
+                        EntityTag::new(7),
+                        index,
+                        &contract,
+                        |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
+                    )
+                },
+                std::convert::identity,
+            );
+            if admitted {
+                assert!(result.is_ok());
+            } else {
+                let error = result
+                    .err()
+                    .expect("the third comparison exceeds the page budget");
+                assert_resource(&error.diagnostic_facts(), 2, 3);
+            }
+        }
+    }
+}
+
+#[test]
+fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
+    let (contract, candidates) = candidate_projections();
+    for (limit, admitted) in [(5, false), (6, true)] {
+        let budget = MaintenanceConstructionBudget::with_limit_for_tests(
+            Resource::PredicateExpressionSteps,
+            limit,
+        );
+        budget
+            .run(
+                |work| {
+                    UniqueConstraintProjection::new(
+                        EntityTag::new(7),
+                        &candidates[0],
+                        &contract,
+                        |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
+                    )
+                },
+                std::convert::identity,
+            )
+            .unwrap();
+        let result = budget.run(
+            |work| {
+                UniqueConstraintProjection::new(
+                    EntityTag::new(7),
+                    &candidates[1],
+                    &contract,
+                    |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
+                )
+            },
+            std::convert::identity,
+        );
+        if admitted {
+            assert!(result.is_ok());
+        } else {
+            let error = result.err().expect("both projections share one allowance");
+            assert_resource(&error.diagnostic_facts(), 5, 6);
+            let retained = budget.run(|_| Ok(()), std::convert::identity).unwrap_err();
+            assert_eq!(retained.diagnostic_facts(), error.diagnostic_facts());
+        }
+    }
+}
+
+#[cfg(feature = "migration")]
+#[test]
+fn migration_candidate_normalization_uses_the_existing_page_budget() {
+    let (contract, candidates) = candidate_projections();
+    for index in &candidates {
+        for (limit, admitted) in [(2, false), (3, true)] {
+            let budget = MaintenanceConstructionBudget::with_limit_for_tests(
+                Resource::PredicateExpressionSteps,
+                limit,
+            );
+            let result = budget.run(
+                |work| {
+                    crate::db::schema::MigrationIndexProjection::new(
+                        EntityTag::new(7),
+                        index,
+                        &contract,
+                        work,
+                    )
+                },
+                std::convert::identity,
+            );
+            if admitted {
+                assert!(result.is_ok());
+            } else {
+                let error = result
+                    .err()
+                    .expect("migration must admit predicate work before rows");
+                assert_resource(&error.diagnostic_facts(), 2, 3);
             }
         }
     }

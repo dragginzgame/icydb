@@ -788,7 +788,11 @@ fn canister_id_admission_preserves_valid_and_absent_observations() {
             .args(["canister", "list"])
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "canister id {id:?}: {output:?}"
+        );
         if !id.trim().is_empty() {
             assert!(
                 String::from_utf8(output.stdout)

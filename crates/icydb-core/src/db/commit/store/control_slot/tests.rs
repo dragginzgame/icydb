@@ -12,7 +12,7 @@ fn registry(count: usize) -> Vec<PersistedStoreAllocation> {
                 PersistedStoreAllocationState::Retired
             },
             roles: std::array::from_fn(|role| PersistedStoreAllocationIdentity {
-                memory_id: u8::try_from(entry * STORE_ALLOCATION_ROLES + role).unwrap(),
+                memory_id: 1_000 + u64::try_from(entry * STORE_ALLOCATION_ROLES + role).unwrap(),
                 stable_key: format!("store.s{entry}.r{role}.v1"),
             }),
         })
@@ -33,7 +33,7 @@ fn wire_registry(registry: &[PersistedStoreAllocation], marker: &[u8]) -> Vec<u8
             PersistedStoreAllocationState::Retired => 2,
         });
         for role in &entry.roles {
-            bytes.push(role.memory_id);
+            bytes.extend_from_slice(&role.memory_id.to_le_bytes());
             bytes.push(u8::try_from(role.stable_key.len()).unwrap());
             bytes.extend_from_slice(role.stable_key.as_bytes());
         }
@@ -110,6 +110,8 @@ fn borrowed_control_preserves_empty_and_maximal_registry_bytes_and_owned_output(
 #[test]
 fn control_encoder_and_decoder_share_registry_rejections() {
     let valid = registry(2);
+    let mut zero_id = valid.clone();
+    zero_id[0].roles[0].memory_id = 0;
     let mut bad_id = valid.clone();
     bad_id[1].roles[3].memory_id = bad_id[0].roles[0].memory_id;
     let mut bad_key = valid.clone();
@@ -120,7 +122,7 @@ fn control_encoder_and_decoder_share_registry_rejections() {
     bad_grammar[1].roles[3].stable_key = "INVALID.v1".to_string();
     let mut long_key = valid;
     long_key[1].roles[3].stable_key = format!("{}.v1", "a".repeat(MAX_STABLE_KEY_BYTES));
-    for invalid in [bad_id, bad_key, bad_order, bad_grammar, long_key] {
+    for invalid in [zero_id, bad_id, bad_key, bad_order, bad_grammar, long_key] {
         assert_corrupt_control(&wire_registry(&invalid, &[]));
         let error = encode_empty_commit_control_slot(
             DatabaseIncarnationId::try_from_bytes([0x31; 16]).unwrap(),
@@ -148,7 +150,7 @@ fn borrowed_control_rejects_malformed_registry_before_returning_metadata() {
     bad_state[CURRENT_CONTROL_PREFIX_BYTES] = 0;
     assert_corrupt_control(&bad_state);
     let mut bad_utf8 = bytes;
-    bad_utf8[CURRENT_CONTROL_PREFIX_BYTES + 3] = 0xff;
+    bad_utf8[CURRENT_CONTROL_PREFIX_BYTES + 1 + 8 + 1] = 0xff;
     assert_corrupt_control(&bad_utf8);
 }
 

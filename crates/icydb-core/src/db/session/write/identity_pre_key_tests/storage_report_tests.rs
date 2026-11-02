@@ -5,6 +5,7 @@ use super::{
     drive_journaled_recovery_to_completion, dynamic_payload_patch, initialize,
     initialize_journaled_multi_entity, insert_exact_key_fixture,
 };
+use crate::error::InternalError;
 use crate::{
     db::{
         DbSession, DynamicMutation,
@@ -20,12 +21,11 @@ use crate::{
     traits::CanisterKind,
     value::InputValue,
 };
-use std::convert::Infallible;
 
 // Keep malformed-key bytes separate from the physical store's own accounting.
 fn corrupt_data_bytes(data: &DataStore) -> u64 {
     let mut bytes = 0;
-    let _: Result<(), Infallible> = data.visit_entries(|key, row| {
+    let _: Result<(), InternalError> = data.visit_entries(|key, row| {
         if DecodedDataStoreKey::try_from_raw(key).is_err() {
             bytes += key.as_bytes().len() as u64 + row.len() as u64;
         }
@@ -34,6 +34,10 @@ fn corrupt_data_bytes(data: &DataStore) -> u64 {
     bytes
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one report oracle compares every retained store and allocation field"
+)]
 fn assert_report<C: CanisterKind>(
     session: &DbSession<C>,
     valid_rows: u64,
@@ -50,13 +54,18 @@ fn assert_report<C: CanisterKind>(
                     .with_data(|data| (data.len(), data.memory_bytes(), corrupt_data_bytes(data)));
                 let index = store.with_index(|index| {
                     let mut namespaces = [0u64; 2];
-                    let _: Result<(), Infallible> = index.visit_entries(|key, _| {
+                    let result: Result<(), InternalError> = index.visit_entries(|key, _| {
                         if let Ok(key) = IndexKey::try_from_raw(key) {
                             namespaces[usize::from(key.key_kind() == IndexKeyKind::System)] += 1;
                         }
                         Ok(IndexStoreVisit::Continue)
                     });
-                    (index.len(), index.memory_bytes(), namespaces)
+                    result.expect("fixture traversal");
+                    (
+                        index.len().expect("fixture length"),
+                        index.memory_bytes().expect("fixture size"),
+                        namespaces,
+                    )
                 });
                 (path, data, index)
             })
@@ -153,25 +162,31 @@ fn corrupt_entries<C: CanisterKind>(session: &DbSession<C>, path: &str) {
         data.insert(
             RawDataStoreKey::from_persisted_bytes(vec![1]),
             canonical_row_from_stored_raw_row(RawRow::try_new(vec![2, 3]).unwrap()),
-        );
+        )
+        .expect("fixture storage operation should succeed");
     });
     store.with_index_mut(|index| {
         let mut valid_key = None;
-        let _: Result<(), Infallible> = index.visit_entries(|key, _| {
+        let result: Result<(), InternalError> = index.visit_entries(|key, _| {
             if IndexKey::try_from_raw(key).unwrap().key_kind() != IndexKeyKind::System {
                 valid_key = Some(key.clone());
                 return Ok(IndexStoreVisit::Stop);
             }
             Ok(IndexStoreVisit::Continue)
         });
-        index.insert(
-            valid_key.expect("fixture should have a user index"),
-            IndexEntryValue::from_persisted_bytes(vec![9]),
-        );
-        index.insert(
-            RawIndexStoreKey::from_persisted_bytes(vec![1]),
-            IndexEntryValue::presence(),
-        );
+        result.expect("fixture traversal");
+        index
+            .insert(
+                valid_key.expect("fixture should have a user index"),
+                IndexEntryValue::from_persisted_bytes(vec![9]),
+            )
+            .expect("fixture storage operation should succeed");
+        index
+            .insert(
+                RawIndexStoreKey::from_persisted_bytes(vec![1]),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
     });
 }
 

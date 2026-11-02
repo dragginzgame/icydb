@@ -1,8 +1,8 @@
-use model_api::prelude::*;
+use runtime_api::model::prelude::*;
 
 #[cfg(test)]
 mod default_conversion_hygiene {
-    use model_api::prelude::*;
+    use runtime_api::model::prelude::*;
 
     trait CallerInto {
         fn into(self) -> Self;

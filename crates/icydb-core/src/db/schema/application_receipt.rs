@@ -184,7 +184,8 @@ pub enum SchemaChangeOutcome {
     Pending {
         /// Resumable job identity.
         job: SchemaChangeJob,
-        /// Candidate head reserved by the pending work.
+        /// Predicted final head when admitted. Unrelated schema publications may
+        /// change it; the applied receipt records the actual accepted head.
         candidate_head: ExpectedAcceptedHead,
     },
     /// The authorized owner aborted a pending activation.

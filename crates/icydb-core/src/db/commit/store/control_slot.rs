@@ -46,7 +46,7 @@ const CURRENT_CONTROL_PREFIX_BYTES: usize = COMMIT_CONTROL_MAGIC.len()
 pub(super) const CURRENT_COMMIT_CONTROL_HEADER_BYTES: usize =
     CURRENT_CONTROL_PREFIX_BYTES + COMMIT_MARKER_LENGTH_BYTES;
 pub(super) const MAX_CURRENT_COMMIT_CONTROL_HEADER_BYTES: usize = CURRENT_CONTROL_PREFIX_BYTES
-    + MAX_PERSISTED_STORE_ALLOCATIONS * (1 + STORE_ALLOCATION_ROLES * (2 + MAX_STABLE_KEY_BYTES))
+    + MAX_PERSISTED_STORE_ALLOCATIONS * (1 + STORE_ALLOCATION_ROLES * (9 + MAX_STABLE_KEY_BYTES))
     + COMMIT_MARKER_LENGTH_BYTES;
 
 /// Current encoded commit-control bytes retained through the live apply phase.
@@ -94,7 +94,7 @@ pub(in crate::db) enum PersistedStoreAllocationState {
 /// Owned stable-memory allocation identity retained after generated removal.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct PersistedStoreAllocationIdentity {
-    memory_id: u8,
+    memory_id: u64,
     stable_key: String,
 }
 
@@ -107,7 +107,7 @@ impl PersistedStoreAllocationIdentity {
         })
     }
 
-    pub(in crate::db) const fn memory_id(&self) -> u8 {
+    pub(in crate::db) const fn memory_id(&self) -> u64 {
         self.memory_id
     }
 
@@ -195,7 +195,7 @@ impl CommitControlSlotRef<'_> {
 /// Fixed role identities borrowing names from the bounded control payload.
 struct StoreAllocationRef<'a> {
     state: PersistedStoreAllocationState,
-    roles: [(u8, &'a str); STORE_ALLOCATION_ROLES],
+    roles: [(u64, &'a str); STORE_ALLOCATION_ROLES],
 }
 
 pub(super) struct CommitControlHeader {
@@ -466,7 +466,7 @@ fn write_current_control_prefix(
             PersistedStoreAllocationState::Retired => 2,
         });
         for role in &entry.roles {
-            out.push(role.memory_id);
+            out.extend_from_slice(&role.memory_id.to_le_bytes());
             out.push(
                 u8::try_from(role.stable_key.len())
                     .map_err(|_| InternalError::store_unsupported())?,
@@ -487,7 +487,7 @@ fn read_registry_entry<'a>(
     };
     let mut roles = [(0, ""); STORE_ALLOCATION_ROLES];
     for role in &mut roles {
-        let memory_id = reader.read_u8().map_err(primitive_decode_error)?;
+        let memory_id = reader.read_u64_le().map_err(primitive_decode_error)?;
         let key_len = usize::from(reader.read_u8().map_err(primitive_decode_error)?);
         let key_bytes = reader.read_exact(key_len).map_err(primitive_decode_error)?;
         let stable_key = std::str::from_utf8(key_bytes)
@@ -500,7 +500,7 @@ fn read_registry_entry<'a>(
 // Owned encoder inputs and borrowed decoder inputs share all registry checks.
 // Ordering needs only four IDs, not an allocated key per entry.
 fn validate_registry<'a>(
-    registry: impl ExactSizeIterator<Item = [(u8, &'a str); STORE_ALLOCATION_ROLES]>,
+    registry: impl ExactSizeIterator<Item = [(u64, &'a str); STORE_ALLOCATION_ROLES]>,
 ) -> Result<(), InternalError> {
     if registry.len() > MAX_PERSISTED_STORE_ALLOCATIONS {
         return Err(InternalError::store_unsupported());
@@ -511,7 +511,10 @@ fn validate_registry<'a>(
     for roles in registry {
         for (memory_id, stable_key) in roles {
             validate_stable_key(stable_key)?;
-            if memory_ids.contains(&memory_id) || stable_keys.contains(&stable_key) {
+            if memory_id == 0
+                || memory_ids.contains(&memory_id)
+                || stable_keys.contains(&stable_key)
+            {
                 return Err(control_slot_canonical_envelope_required());
             }
             memory_ids.push(memory_id);
@@ -561,7 +564,7 @@ fn validate_cursor_key(key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES]) -> Result<(),
 }
 
 fn validate_stable_key(stable_key: &str) -> Result<(), InternalError> {
-    ic_memory::StableKey::parse(stable_key)
+    ic_storage::StableKey::parse(stable_key)
         .map(|_| ())
         .map_err(|_| control_slot_canonical_envelope_required())
 }

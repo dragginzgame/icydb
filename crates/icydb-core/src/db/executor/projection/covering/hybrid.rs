@@ -263,6 +263,7 @@ fn read_hybrid_projection_row_fields_from_store(
     // storage never decides an execution decode strategy.
     charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
     let stored_row = data_store.read(raw_key);
+    let stored_row = stored_row?;
     let Some(raw_row) = stored_row.as_row() else {
         return Ok(None);
     };

@@ -6,8 +6,8 @@ macro_rules! request_future_queries {
     ($(($name:ident, $marker:ident, $method:literal, $value:literal)),+ $(,)?) => {
         $(
             #[icydb::request_execution]
-            async fn $name() -> u32 {
-                std::future::ready($value).await
+            async fn $name() -> Result<u32, icydb::Error> {
+                Ok(std::future::ready($value).await)
             }
             canic_icydb::wire_endpoint!(query, $method,
                 icydb_testing_wasm_helpers::fixture_wire::$marker::ID,
@@ -88,15 +88,14 @@ request_future_queries!(
     (request_future_63, RequestFuture63, "request_future_63", 63),
 );
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(
         vec![icydb::db::MemoryAuthority::new(
-            "icydb.default_empty",
+            "icydb_default_empty",
             "icydb.default_empty.",
         )?],
-        vec![],
     )
 }
 

@@ -61,4 +61,5 @@ pub(in crate::db::executor) struct GroupedRouteStage {
     pub(in crate::db::executor) grouped_route_plan: ExecutionRoutePlan,
     pub(in crate::db::executor) index_specs: IndexSpecBundle,
     pub(in crate::db::executor) continuation: GroupedContinuationContext,
+    pub(in crate::db::executor) resume_anchor: Option<crate::db::access::LoweredKey>,
 }

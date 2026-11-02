@@ -106,6 +106,10 @@ fn project_slot_row_dense_into(
     charge_projection_steps(prepared_projection.compiled_exprs().len())?;
     shaped.clear();
 
+    if project_retained_sibling_paths(prepared_projection.compiled_exprs(), row, shaped)? {
+        return Ok(());
+    }
+
     if project_slot_row_direct_octet_lengths_into(prepared_projection, row, shaped)? {
         return Ok(());
     }
@@ -338,6 +342,21 @@ fn project_scalar_data_row_into(
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
 
+    if order_values.is_none()
+        && project_sibling_paths(compiled_fields, shaped, |root, prefix, members, shaped| {
+            crate::db::executor::projection::path::resolve_slot_sibling_paths(
+                &row_fields,
+                root,
+                prefix,
+                members,
+                shaped,
+            )
+            .map_err(|error| InternalError::classified(error.class(), error.origin()))
+        })?
+    {
+        return Ok(());
+    }
+
     for compiled in compiled_fields {
         if let Some(value) = order_values.and_then(|values| values.projection_value(compiled)) {
             shaped.push(value);
@@ -353,6 +372,79 @@ fn project_scalar_data_row_into(
     }
 
     Ok(())
+}
+
+// Retained rows borrow their parent map; projection owns only selected leaves.
+fn project_retained_sibling_paths(
+    compiled_fields: &[CompiledExpr],
+    row: &RetainedSlotRow,
+    shaped: &mut Vec<Value>,
+) -> Result<bool, InternalError> {
+    project_sibling_paths(
+        compiled_fields,
+        shaped,
+        |root_slot, prefix, members, shaped| {
+            let root = row.slot_ref(root_slot).ok_or_else(|| {
+                ProjectionEvalError::missing_field_path_value(root_slot).into_internal_error()
+            })?;
+            crate::db::executor::projection::path::resolve_value_sibling_paths(
+                root, prefix, members, shaped,
+            )
+            .map_err(|error| InternalError::classified(error.class(), error.origin()))
+        },
+    )
+}
+
+// Only unconditional sibling paths share a traversal. Mixed expressions keep
+// their authored evaluation order and CASE/COALESCE laziness.
+fn project_sibling_paths(
+    compiled_fields: &[CompiledExpr],
+    shaped: &mut Vec<Value>,
+    resolve: impl FnOnce(usize, &[Box<[u8]>], &[&[u8]], &mut Vec<Value>) -> Result<(), InternalError>,
+) -> Result<bool, InternalError> {
+    if compiled_fields.len() < 2 {
+        return Ok(false);
+    }
+    let Some(CompiledExpr::FieldPath {
+        root_slot,
+        segment_bytes,
+        ..
+    }) = compiled_fields.first()
+    else {
+        return Ok(false);
+    };
+    let Some((_, prefix)) = segment_bytes.split_last() else {
+        return Ok(false);
+    };
+    for compiled in compiled_fields {
+        let CompiledExpr::FieldPath {
+            root_slot: slot,
+            segment_bytes: path,
+            ..
+        } = compiled
+        else {
+            return Ok(false);
+        };
+        if slot != root_slot || path.split_last().is_none_or(|(_, parent)| parent != prefix) {
+            return Ok(false);
+        }
+    }
+    // Admit both borrowed member names and selected slices before allocation.
+    // These are row-local scratch; leaf materialization retains its existing owner.
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        (compiled_fields.len() as u64)
+            .saturating_mul((size_of::<&[u8]>() + size_of::<Option<&[u8]>>()) as u64),
+    )?;
+    let mut members = Vec::with_capacity(compiled_fields.len());
+    members.extend(compiled_fields.iter().filter_map(|compiled| {
+        let CompiledExpr::FieldPath { segment_bytes, .. } = compiled else {
+            return None;
+        };
+        segment_bytes.last().map(AsRef::as_ref)
+    }));
+    resolve(*root_slot, prefix, &members, shaped)?;
+    Ok(true)
 }
 
 fn charge_projection_steps(count: usize) -> Result<(), InternalError> {

@@ -5,15 +5,14 @@ canic_icydb::mount! {
     icydb_schema(authorization = controller);
 }
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<runtime_api::db::MemoryAllocationPool, runtime_api::db::MemoryAllocationPoolError> {
-    runtime_api::db::MemoryAllocationPool::new(
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<runtime_api::db::AllocationGrants, runtime_api::db::AdmissionError> {
+    runtime_api::db::AllocationGrants::new(
         vec![runtime_api::db::MemoryAuthority::new(
-            "icydb.default_empty",
+            "icydb_default_empty",
             "icydb.default_empty.",
         )?],
-        vec![],
     )
 }
 

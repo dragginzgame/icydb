@@ -11,9 +11,7 @@ use model::{
     IndexStoreSnapshotStats, StoreSnapshotAllocationIdentity, StoreSnapshotSchemaMetadata,
 };
 
-pub use memory_allocations::{
-    MemoryAllocation, MemoryAllocationBinding, MemoryAllocations, MemoryExtent,
-};
+pub use memory_allocations::{MemoryAllocation, MemoryAllocations, MemoryExtent};
 pub use model::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,

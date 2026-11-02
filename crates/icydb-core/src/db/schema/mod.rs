@@ -264,14 +264,15 @@ pub(in crate::db) use live_schema_checkpoint::schema_migration_record_matches_fo
 #[cfg(test)]
 pub(in crate::db) use live_schema_checkpoint::take_migration_record_load_count_for_tests;
 pub(in crate::db) use live_schema_checkpoint::{
-    apply_entity_source_lineage_catalog_op, preflight_entity_source_lineage_catalog_op,
-    verify_entity_source_lineage_catalog_op,
+    PreparedLiveIdentityCheckpoint, apply_live_identity_range_checkpoint,
+    apply_live_schema_checkpoint, apply_prepared_live_identity_checkpoints,
+    load_live_schema_checkpoint, preflight_live_schema_checkpoint,
+    prepare_live_identity_ranges_checkpoint, verify_live_identity_range_checkpoint,
+    verify_live_schema_checkpoint,
 };
 pub(in crate::db) use live_schema_checkpoint::{
-    apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
-    load_live_schema_checkpoint, preflight_live_identity_range_checkpoint,
-    preflight_live_schema_checkpoint, verify_live_identity_range_checkpoint,
-    verify_live_schema_checkpoint,
+    apply_entity_source_lineage_catalog_op, preflight_entity_source_lineage_catalog_op,
+    verify_entity_source_lineage_catalog_op,
 };
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use live_schema_checkpoint::{

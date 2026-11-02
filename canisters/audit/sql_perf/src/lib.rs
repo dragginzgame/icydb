@@ -48,15 +48,14 @@ use icydb_testing_audit_sql_perf_fixtures::{
     sql_perf::PerfAuditCardinalityTie,
 };
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(
         vec![icydb::db::MemoryAuthority::new(
-            "icydb.sql_perf",
+            "icydb_sql_perf",
             "icydb.sql_perf.",
         )?],
-        vec![],
     )
 }
 

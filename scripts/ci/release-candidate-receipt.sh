@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="${ICYDB_RELEASE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$ROOT_DIR/.tools/host/bin:$PATH"
-VERSION_READER="$SCRIPT_DIR/read-cargo-workspace-version.sh"
+# shellcheck source=scripts/release/group.sh
+source "$SCRIPT_DIR/../release/group.sh"
+VERSION_READER="$SCRIPT_DIR/../release/version.sh"
 RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
 
 usage() {
@@ -16,7 +18,7 @@ is_release_note_path() {
     local path="$1"
 
     case "$path" in
-        CHANGELOG.md|docs/changelog/*.md)
+        "$RELEASE_CHANGELOG"|"releases/$RELEASE_GROUP/"*.md)
             return 0
             ;;
         *)
@@ -29,7 +31,7 @@ validate_version() {
     local version="$1"
 
     if [[ ! "$version" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; then
-        echo "Invalid workspace version: $version" >&2
+        echo "Invalid release-group version: $version" >&2
         exit 1
     fi
 }
@@ -93,26 +95,20 @@ validate_changed_paths() (
             ;;
     esac
 
-    cargo metadata --manifest-path "$ROOT_DIR/Cargo.toml" --locked --offline --no-deps --format-version 1 > "$inspection/metadata.json" || exit 1
+    local source_commit
+    source_commit="$(git -C "$ROOT_DIR" rev-parse --verify "$base^{commit}")" || exit 1
+    (cd "$ROOT_DIR"; RELEASE_COMMIT="$source_commit" RELEASE_VERSION="$release_version" \
+        bash "$SCRIPT_DIR/cargo-release-group.sh" plan "$RELEASE_GROUP") > "$inspection/plan.json" || exit 1
     # Capture each producer before comparing bytes. A process substitution can
     # hide an editor or Git failure after it has emitted complete-looking output.
     "${command[@]}" > "$inspection/paths" || exit 1
     while IFS= read -r -d '' path; do
-        if is_release_note_path "$path"; then
-            continue
-        fi
-        case "$path" in
-            Cargo.toml|Cargo.lock|README.md|*/Cargo.toml|ci/dependency-pinning-exceptions.json)
-                ;;
-            *)
-                echo "Release transition contains non-version path: $path" >&2
-                exit 1
-                ;;
-        esac
-
+        jq -e --arg path "$path" '.files | index($path) != null' "$inspection/plan.json" >/dev/null || {
+            echo "Release transition contains an unselected path: $path" >&2; exit 1;
+        }
         git -C "$ROOT_DIR" show "$base:$path" > "$inspection/source" || exit 1
         ICYDB_RELEASE_ROOT="$ROOT_DIR" bash "$SCRIPT_DIR/../release/render-candidate.sh" \
-            "$path" "$inspection/source" "$candidate_version" "$release_version" "$inspection/metadata.json" \
+            "$path" "$inspection/source" "$candidate_version" "$release_version" "$inspection/plan.json" \
             > "$inspection/expected" || exit 1
         case "$diff_mode" in
             working)
@@ -226,7 +222,7 @@ read_receipt() {
         lines[${#lines[@]}]="$line"
         [[ ${#lines[@]} -le 6 ]] || break
     done < "$receipt"
-    if [[ "${#lines[@]}" -ne 6 || "${lines[0]}" != "format=1" ]]; then
+    if [[ "${#lines[@]}" -ne 6 || "${lines[0]}" != "format=2:$RELEASE_GROUP" ]]; then
         echo "Malformed release candidate receipt: $receipt" >&2
         exit 1
     fi
@@ -254,9 +250,9 @@ read_receipt() {
 receipt_for_current_version() {
     local current_version
 
-    current_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
+    current_version="$(ICYDB_RELEASE_ROOT="$ROOT_DIR" bash "$VERSION_READER")" || exit 1
     validate_version "$current_version"
-    printf '%s/v%s.candidate\n' "$RELEASE_RECEIPT_DIR" "$current_version"
+    printf '%s/%s-v%s.candidate\n' "$RELEASE_RECEIPT_DIR" "$RELEASE_GROUP" "$current_version"
 }
 
 record_receipt() {
@@ -275,7 +271,7 @@ record_receipt() {
         exit 1
     fi
     candidate_version="$(bash "$SCRIPT_DIR/../release/read-committed-version.sh" "$ROOT_DIR" "$candidate_commit")" || exit 1
-    release_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
+    release_version="$(ICYDB_RELEASE_ROOT="$ROOT_DIR" bash "$VERSION_READER")" || exit 1
     validate_transition "$bump" "$candidate_version" "$release_version"
 
     verify_only_staged_release_notes
@@ -287,10 +283,10 @@ record_receipt() {
     validate_changed_paths working HEAD "" "$candidate_version" "$release_version"
     transition_hash="$(diff_hash working HEAD)"
     mkdir -p "$RELEASE_RECEIPT_DIR"
-    receipt="$RELEASE_RECEIPT_DIR/v$release_version.candidate"
+    receipt="$RELEASE_RECEIPT_DIR/$RELEASE_GROUP-v$release_version.candidate"
     temporary_receipt="$receipt.tmp.$$"
     printf '%s\n' \
-        "format=1" \
+        "format=2:$RELEASE_GROUP" \
         "bump=$bump" \
         "candidate_commit=$candidate_commit" \
         "candidate_version=$candidate_version" \
@@ -298,7 +294,7 @@ record_receipt() {
         "release_diff_sha256=$transition_hash" > "$temporary_receipt"
     mv "$temporary_receipt" "$receipt"
 
-    echo "Recorded tested release candidate $candidate_commit for v$release_version"
+    echo "Recorded tested release candidate $candidate_commit for $RELEASE_GROUP-v$release_version"
 }
 
 verify_staged() {
@@ -311,7 +307,7 @@ verify_staged() {
     fi
     read_receipt "$receipt"
     current_commit="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
-    current_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
+    current_version="$(ICYDB_RELEASE_ROOT="$ROOT_DIR" bash "$VERSION_READER")" || exit 1
 
     if [[ "$current_commit" != "$RECEIPT_CANDIDATE_COMMIT" ||
           "$current_version" != "$RECEIPT_RELEASE_VERSION" ]]; then
@@ -349,7 +345,7 @@ verify_commit() {
     }
     current_version="$(bash "$SCRIPT_DIR/../release/read-committed-version.sh" "$ROOT_DIR" "$release_commit")" || exit 1
     validate_version "$current_version"
-    receipt="$RELEASE_RECEIPT_DIR/v$current_version.candidate"
+    receipt="$RELEASE_RECEIPT_DIR/$RELEASE_GROUP-v$current_version.candidate"
     if [[ ! -f "$receipt" ]]; then
         echo "No release candidate receipt for the current version" >&2
         exit 1

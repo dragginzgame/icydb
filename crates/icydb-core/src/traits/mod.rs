@@ -6,7 +6,7 @@
 //! visitor traversal, executor policy, or public facade DTO behavior.
 //! Boundary: remaining reusable contracts consumed throughout `icydb-core`.
 
-use crate::db::memory_runtime;
+use crate::db::allocation_id;
 
 // ============================================================================
 // FOUNDATIONAL KINDS
@@ -32,50 +32,24 @@ pub trait Path {
 
 pub trait CanisterKind: Path + 'static {
     /// Resolve the commit slot from committed allocation authority.
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-        memory_runtime()
-            .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-            .memory_id(
-                &ic_memory::StableKey::parse(Self::COMMIT_STABLE_KEY).map_err(|_| {
-                    ic_memory::RuntimeOpenError::StableKeyNotCommitted(
-                        Self::COMMIT_STABLE_KEY.into(),
-                    )
-                })?,
-            )
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        allocation_id(Self::COMMIT_STABLE_KEY)
     }
 
     /// Durable stable-memory allocation key for commit marker storage.
     const COMMIT_STABLE_KEY: &'static str;
 
     /// Resolve the startup slot from committed allocation authority.
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-        memory_runtime()
-            .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-            .memory_id(
-                &ic_memory::StableKey::parse(Self::STARTUP_STABLE_KEY).map_err(|_| {
-                    ic_memory::RuntimeOpenError::StableKeyNotCommitted(
-                        Self::STARTUP_STABLE_KEY.into(),
-                    )
-                })?,
-            )
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        allocation_id(Self::STARTUP_STABLE_KEY)
     }
 
     /// Durable stable-memory allocation key for startup coordination state.
     const STARTUP_STABLE_KEY: &'static str;
 
     /// Resolve the integrity slot from committed allocation authority.
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-        memory_runtime()
-            .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-            .memory_id(
-                &ic_memory::StableKey::parse(Self::INTEGRITY_PROGRESS_STABLE_KEY).map_err(
-                    |_| {
-                        ic_memory::RuntimeOpenError::StableKeyNotCommitted(
-                            Self::INTEGRITY_PROGRESS_STABLE_KEY.into(),
-                        )
-                    },
-                )?,
-            )
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        allocation_id(Self::INTEGRITY_PROGRESS_STABLE_KEY)
     }
 
     /// Durable stable-memory allocation key for integrity-inspection progress.

@@ -28,10 +28,9 @@ struct StoreRegistryTokens {
 
 /// Validated canister-owned memory declarations emitted around store wiring.
 struct CanisterMemoryWiring<'a> {
-    bucket_size_pages: u16,
-    commit_stable_key: &'a str,
-    startup_stable_key: &'a str,
-    integrity_progress_stable_key: &'a str,
+    commit: &'a str,
+    startup: &'a str,
+    integrity_progress: &'a str,
 }
 
 /// Emit generated stores, optional frontends, and session accessors.
@@ -42,7 +41,7 @@ pub(super) fn generate_store_wiring(
     let icydb = &builder.icydb;
     let canister = &builder.canister;
     let memory_namespace = canister.memory_namespace();
-    let memory_authority = format!("icydb.{memory_namespace}");
+    let memory_authority = format!("icydb_{memory_namespace}");
     let store_registry = store_registry_tokens(builder, memory_namespace, &memory_authority);
     let commit_stable_key = canister.commit_stable_key();
     let startup_stable_key = canister.startup_stable_key();
@@ -55,10 +54,9 @@ pub(super) fn generate_store_wiring(
         frontend_surfaces,
         schema_bootstrap,
         CanisterMemoryWiring {
-            bucket_size_pages: canister.memory_profile().bucket_size_pages(),
-            commit_stable_key: &commit_stable_key,
-            startup_stable_key: &startup_stable_key,
-            integrity_progress_stable_key: &integrity_progress_stable_key,
+            commit: &commit_stable_key,
+            startup: &startup_stable_key,
+            integrity_progress: &integrity_progress_stable_key,
         },
     )
 }
@@ -321,10 +319,10 @@ fn store_cell_tokens(
                 #store_ty::#initializer(
                     #icydb::__macro::open_memory(#stable_key)
                     .expect(::std::concat!(
-                        "ic-memory committed allocation unavailable: ",
+                        "ic-storage committed allocation unavailable: ",
                         #stable_key
                     ))
-                )
+                ).expect("ic-storage collection initialization failed")
             );
         }
     }
@@ -484,10 +482,9 @@ fn store_wiring_tokens(
         store_inits,
     } = store_registry;
     let CanisterMemoryWiring {
-        bucket_size_pages,
-        commit_stable_key,
-        startup_stable_key,
-        integrity_progress_stable_key,
+        commit: commit_stable_key,
+        startup: startup_stable_key,
+        integrity_progress: integrity_progress_stable_key,
     } = memory;
     let store_registry_init = if store_inits.is_empty() {
         quote! {
@@ -533,7 +530,7 @@ fn store_wiring_tokens(
         /// Complete database memory requirements for host composition, without opening stores.
         pub fn icydb_memory_requests() -> ::std::result::Result<
             ::std::vec::Vec<#icydb::db::MemoryRequest>,
-            #icydb::db::MemoryDeclarationError,
+            #icydb::db::AdmissionError,
         > {
             [#commit_stable_key, #integrity_progress_stable_key, #startup_stable_key,
                 #(#stable_keys),*]
@@ -577,12 +574,11 @@ fn store_wiring_tokens(
                         let requirements = icydb_memory_requests()
                             .and_then(#icydb::db::SealedDeclarationSnapshot::new)
                             .map_err(#icydb::db::DatabaseBootstrapError::from)?;
-                        #icydb::__macro::ensure_default_memory_manager(
+                        #icydb::__macro::ensure_default_storage_runtime(
                             #memory_authority,
                             &requirements,
-                            ::core::num::NonZeroU16::new(#bucket_size_pages)
-                                .expect("validated memory profile has nonzero buckets"),
-                            crate::icydb_memory_pool,
+                             #icydb::db::StorageConfig::default(),
+                            crate::icydb_storage_grants,
                         )
                     })
                     .clone()
@@ -674,7 +670,7 @@ fn startup_observation_tokens(icydb: &TokenStream) -> TokenStream {
 mod tests {
     use super::*;
     use crate::node::StoreJournaledMemoryConfig;
-    use crate::node::{Canister, CanisterMemoryProfile, Def, Schema};
+    use crate::node::{Canister, Def, Schema};
     use std::sync::Arc;
 
     fn compact_tokens(tokens: TokenStream) -> String {
@@ -713,33 +709,11 @@ mod tests {
     }
 
     #[test]
-    fn profile_changes_bootstrap_without_changing_schema_authority() {
-        let baseline = actor_builder();
-        for (profile, pages) in [
-            (CanisterMemoryProfile::Compact, 4),
-            (CanisterMemoryProfile::General, 16),
-            (CanisterMemoryProfile::HighHeadroom, 128),
-        ] {
-            let builder = ActorBuilder::new(
-                Arc::clone(&baseline.schema),
-                baseline.canister.clone().with_memory_profile(profile),
-                icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new()).unwrap(),
-                None,
-                quote::quote!(::icydb),
-            );
-            let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
-            assert!(rendered.contains(&format!(
-                "ensure_default_memory_manager(\"icydb.test\",&requirements,::core::num::NonZeroU16::new({pages}u16).expect(\"validatedmemoryprofilehasnonzerobuckets\"),crate::icydb_memory_pool,)"
-            )));
-            assert_eq!(
-                builder.schema_fragment_bytes,
-                baseline.schema_fragment_bytes
-            );
-            assert_eq!(
-                builder.schema_submission_key,
-                baseline.schema_submission_key
-            );
-        }
+    fn generated_bootstrap_uses_current_storage_grants() {
+        let rendered = compact_tokens(generate_store_wiring(&actor_builder(), quote!()));
+        assert!(rendered.contains("ensure_default_storage_runtime"));
+        assert!(rendered.contains("::icydb::db::StorageConfig::default()"));
+        assert!(rendered.contains("crate::icydb_storage_grants"));
     }
 
     #[test]
@@ -850,7 +824,7 @@ mod tests {
         assert_eq!(rendered.matches("open_memory").count(), 4);
         assert_eq!(
             rendered
-                .matches("ic-memory committed allocation unavailable:")
+                .matches("ic-storage committed allocation unavailable:")
                 .count(),
             4
         );
@@ -885,7 +859,7 @@ mod tests {
             .4,
         );
         let registry = StoreRegistryTokens {
-            memory_authority: "icydb.demo".to_owned(),
+            memory_authority: "icydb_demo".to_owned(),
             stable_keys: Vec::new(),
             journal_defs: quote!(),
             data_defs: quote!(),
@@ -900,10 +874,9 @@ mod tests {
             quote!(),
             quote!(),
             CanisterMemoryWiring {
-                bucket_size_pages: 16,
-                commit_stable_key: "icydb.demo.commit.control.v1",
-                startup_stable_key: "icydb.demo.startup.control.v1",
-                integrity_progress_stable_key: "icydb.demo.integrity.progress.v1",
+                commit: "icydb.demo.commit.control.v1",
+                startup: "icydb.demo.startup.control.v1",
+                integrity_progress: "icydb.demo.integrity.progress.v1",
             },
         ));
 
@@ -913,7 +886,7 @@ mod tests {
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
             rendered
-                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",&requirements,::core::num::NonZeroU16::new(16u16).expect(\"validatedmemoryprofilehasnonzerobuckets\"),crate::icydb_memory_pool,)")
+                .contains("::icydb::__macro::ensure_default_storage_runtime(\"icydb_demo\",&requirements,::icydb::db::StorageConfig::default(),crate::icydb_storage_grants,)")
         );
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));

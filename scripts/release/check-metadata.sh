@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source scripts/release/group.sh
 export PATH="$PWD/.tools/host/bin:$PATH"
-version="$(bash scripts/ci/read-cargo-workspace-version.sh --stable "$PWD/Cargo.toml")" || exit 1
+version="$(bash scripts/release/version.sh)" || exit 1
 [[ "$version" == "${RELEASE_VERSION:?}" ]] || exit 1
-for path in CHANGELOG.md "docs/changelog/${version%.*}.md"; do
+for path in "$RELEASE_CHANGELOG" "releases/$RELEASE_GROUP/${version%.*}.md"; do
     awk -v heading="## [$version] - ${RELEASE_DATE:?}" \
         '$0 == heading { n++ } END { if (n != 1) exit 1 }' "$path"
 done
-bash scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped
+bash scripts/ci/cargo-release-group.sh check "$RELEASE_GROUP"
 YQ="${YQ:-$PWD/.tools/host/bin/yq}" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance

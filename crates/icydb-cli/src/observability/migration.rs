@@ -174,7 +174,6 @@ fn advance(
         expected_database: status.database_identity(),
         expected_head: status.accepted_head().clone(),
         expected_plan: plan,
-        acknowledged_finding_page: None,
     };
     call_command(target, &command)
 }
@@ -321,13 +320,6 @@ mod tests {
                         expected_database: database,
                         expected_head: head.clone(),
                         expected_plan: plan,
-                        acknowledged_finding_page: None,
-                    },
-                    SchemaMigrationCommand::Advance {
-                        expected_database: database,
-                        expected_head: head.clone(),
-                        expected_plan: plan,
-                        acknowledged_finding_page: Some(u64::MAX),
                     },
                 ] {
                     // The argument carries its own types, without service metadata.

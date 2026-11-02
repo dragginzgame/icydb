@@ -6,7 +6,7 @@
 #[cfg(not(test))]
 use crate::db::registry::open_committed_memory;
 use crate::{error::InternalError, traits::CanisterKind};
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -27,7 +27,7 @@ thread_local! {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CommitMemoryAllocation {
-    pub(in crate::db) memory_id: u8,
+    pub(in crate::db) memory_id: u64,
     pub(in crate::db) stable_key: &'static str,
 }
 
@@ -58,7 +58,7 @@ pub(in crate::db) fn current_commit_memory_allocation_if_configured()
 /// opens also verify the key/ID pair through that same authority. Selection
 /// neither allocates memory nor maintains a second collision registry.
 pub(in crate::db) fn select_commit_memory_allocation_for<C: CanisterKind>(
-    memory_id: u8,
+    memory_id: u64,
     stable_key: &'static str,
 ) {
     let allocation = CommitMemoryAllocation {
@@ -85,7 +85,7 @@ pub(in crate::db) fn current_schema_application_readiness_key()
 
 /// Select a raw fixture allocation without a generated readiness owner.
 #[cfg(test)]
-pub(in crate::db) fn select_commit_memory_allocation(memory_id: u8, stable_key: &'static str) {
+pub(in crate::db) fn select_commit_memory_allocation(memory_id: u64, stable_key: &'static str) {
     CURRENT_COMMIT_STORE.with(|cell| {
         cell.set(Some(CommitMemorySelection {
             allocation: CommitMemoryAllocation {
@@ -154,7 +154,7 @@ pub fn with_selected_commit_memory<R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ic_memory::Memory as _;
+    use ic_storage::Memory as _;
 
     #[test]
     fn current_commit_selection_can_switch_databases_and_return() {

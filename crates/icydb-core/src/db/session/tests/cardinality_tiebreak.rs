@@ -93,15 +93,15 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(162)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.cardinality-tiebreak.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(163)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.test.cardinality-tiebreak.startup.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(164)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -115,15 +115,15 @@ impl Path for JournaledTestCanister {
 }
 
 impl CanisterKind for JournaledTestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(159)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.cardinality_tie.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(161)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.cardinality_tie.startup.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(160)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.cardinality_tie.integrity.v1";
@@ -146,13 +146,13 @@ thread_local! {
         registry
     };
     static JOURNALED_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init_journaled(test_memory(155)));
+        RefCell::new(DataStore::init_journaled(test_memory(155)).expect("fixture storage should initialize"));
     static JOURNALED_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init_journaled(test_memory(156)));
+        RefCell::new(IndexStore::init_journaled(test_memory(156)).expect("fixture storage should initialize"));
     static JOURNALED_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(157)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(157)).expect("fixture storage should initialize"));
     static JOURNALED_TAIL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(158)));
+        RefCell::new(JournalTailStore::init(test_memory(158)).expect("fixture storage should initialize"));
     static JOURNALED_STORE_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry.register_journaled_store(

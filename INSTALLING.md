@@ -35,17 +35,20 @@ The maintained [facade-only example](testing/model-facade-only/) and
 routes, including renamed Cargo dependencies and generated macro resolution.
 Use the same release tag for every IcyDB package.
 
-Until [#179](https://github.com/dragginzgame/icydb/issues/179) is resolved, runtime
-adapter detection also sees `icydb` in development and inactive target-specific
-dependencies. Keep those declarations out of schema-only manifests; adding one
-can generate runtime references that an ordinary library build cannot resolve.
+The macro import selects runtime emission ([#179](https://github.com/dragginzgame/icydb/issues/179)).
+Direct `icydb-model` entity/record macros always produce schema-only declarations,
+even with normal, development, optional or target-specific `icydb` dependencies.
+Use `icydb::model::{entity, record}` or `icydb::model::prelude::*` for runtime
+typed adapters and field references. Consumers previously importing these macros
+directly from `icydb-model` alongside `icydb` must change those imports. Cargo
+still controls whether a selected runtime dependency is available; its presence
+in a manifest is no longer treated as an emission signal.
 
-The public runtime `icydb` crate path supports Rust `1.91.0` and newer.
-Its library dependency path, including `icydb-model` and
-`icydb-model-macros`, retains the same floor. Other workspace-only packages
-may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
-latest stable Rust channel selected by `rust-toolchain.toml`. Update an existing
-installation with `rustup update stable`.
+All IcyDB packages require Rust `1.99.1` or newer. Repository development,
+lint and release qualification use the exact `1.99.1` compiler pinned in
+`rust-toolchain.toml`, including the independent Canic workspace. Prepare it with
+`rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy`.
+Compiler adoption does not update package versions or release the repository.
 
 Repository contributors use two independent Cargo selections. The root workspace
 owns IcyDB libraries, CLI and neutral helpers. Canic-dependent actors and tests
@@ -69,8 +72,10 @@ Development-branch adoption also requires the current
 [format-cut review](docs/contracts/PERSISTED_FORMAT_INVENTORY.md#0291-authoring-and-deep-job-codec-cut).
 Rebuilding generated schema artifacts does not migrate an earlier allocation
 ledger, source lineage, migration/application receipts or Deep integrity jobs.
-The pending 0.291 release requires fresh/reset installations or a separately
-reviewed retained-data transition; no automatic conversion or reset is provided.
+The pending 0.295 database release requires fresh installations. Storage 0.65
+uses new B-tree map framing; earlier collection images reject without reset or
+conversion. Preserve earlier binaries and backups for required recovery/export.
+A retained-data transition needs separate review and authorization.
 
 ## Explicit Endpoint Declarations
 

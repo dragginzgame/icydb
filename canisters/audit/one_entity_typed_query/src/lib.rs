@@ -21,15 +21,14 @@ use icydb::types::{Id, Ulid};
 use icydb::{db::DynamicQuery, db::query::FieldRef};
 use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(
         vec![icydb::db::MemoryAuthority::new(
-            "icydb.one_simple",
+            "icydb_one_simple",
             "icydb.one_simple.",
         )?],
-        vec![],
     )
 }
 

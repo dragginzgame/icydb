@@ -9,16 +9,20 @@ use crate::{
     },
     testing::{test_memory, test_memory_with_backing},
 };
-use ic_memory::{Memory, VectorMemory};
+use ic_storage::{Memory, VectorMemory};
 use std::ops::Bound;
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one matrix compares heap and journaled stores across row-presence transitions"
+)]
 fn previous_rows_move_out_of_live_storage_without_changing_presence() {
     for (journaled, canonical) in [(false, false), (true, false), (true, true)] {
         let mut store = if journaled {
-            DataStore::init_journaled(test_memory(229))
+            DataStore::init_journaled(test_memory(229)).expect("fixture storage should initialize")
         } else {
             DataStore::init_heap()
         };
@@ -29,12 +33,18 @@ fn previous_rows_move_out_of_live_storage_without_changing_presence() {
                 .fold_recovered_journal_put(key.clone(), raw_row(11))
                 .unwrap();
         }
-        store.rebuild_entity_cardinality_from_entries();
+        store
+            .rebuild_entity_cardinality_from_entries()
+            .expect("fixture storage operation should succeed");
         let first = RawRow::try_new(vec![22; 4_096]).unwrap();
         let first_pointer = first.as_bytes().as_ptr();
         let previous = store.insert(key.clone(), canonical_row_from_stored_raw_row(first));
         assert_eq!(
-            previous.map(|row| row.as_bytes().to_vec()),
+            previous
+                .as_ref()
+                .expect("fixture read")
+                .as_ref()
+                .map(|row| row.as_bytes().to_vec()),
             canonical.then(|| vec![11])
         );
 
@@ -43,37 +53,93 @@ fn previous_rows_move_out_of_live_storage_without_changing_presence() {
         let previous = store
             .insert(key.clone(), canonical_row_from_stored_raw_row(second))
             .unwrap();
-        assert_eq!(previous.as_bytes().as_ptr(), first_pointer);
-        assert_eq!(previous.as_bytes(), vec![22; 4_096]);
+        assert_eq!(
+            previous
+                .as_ref()
+                .expect("storage operation should succeed")
+                .as_bytes()
+                .as_ptr(),
+            first_pointer
+        );
+        assert_eq!(
+            previous
+                .as_ref()
+                .expect("storage operation should succeed")
+                .as_bytes(),
+            vec![22; 4_096]
+        );
         assert_eq!(store.exact_entity_count(entity), Some(1));
         let previous = store.remove(&key).unwrap();
-        assert_eq!(previous.as_bytes().as_ptr(), second_pointer);
-        assert_eq!(previous.as_bytes(), vec![33; 4_096]);
+        assert_eq!(
+            previous
+                .as_ref()
+                .expect("storage operation should succeed")
+                .as_bytes()
+                .as_ptr(),
+            second_pointer
+        );
+        assert_eq!(
+            previous
+                .as_ref()
+                .expect("storage operation should succeed")
+                .as_bytes(),
+            vec![33; 4_096]
+        );
         assert_eq!(store.exact_entity_count(entity), Some(0));
-        assert!(!store.contains(&key));
-        assert!(store.remove(&key).is_none());
+        assert!(!(store.contains(&key)).expect("fixture read"));
+        assert!(
+            store
+                .remove(&key)
+                .expect("storage operation should succeed")
+                .is_none()
+        );
 
         // A tombstone must hide the stable predecessor after delete/reinsert.
         assert!(
             store
                 .insert(key.clone(), canonical_row_from_stored_raw_row(raw_row(44)))
+                .expect("storage operation should succeed")
                 .is_none()
         );
-        assert_eq!(store.get(&key).unwrap().as_bytes(), [44]);
+        assert_eq!(
+            store
+                .get(&key)
+                .unwrap()
+                .expect("storage operation should succeed")
+                .as_bytes(),
+            [44]
+        );
         assert_eq!(store.exact_entity_count(entity), Some(1));
-        assert_eq!(store.remove(&key).unwrap().as_bytes(), [44]);
+        assert_eq!(
+            store
+                .remove(&key)
+                .unwrap()
+                .expect("storage operation should succeed")
+                .as_bytes(),
+            [44]
+        );
         assert_eq!(store.exact_entity_count(entity), Some(0));
         if journaled {
             assert_eq!(
                 store.exact_entity_cardinality_delta(entity),
                 Some(if canonical { -1 } else { 0 })
             );
-            assert_eq!(store.contains_canonical(&key), canonical);
+            assert_eq!(
+                (store.contains_canonical(&key)).expect("storage operation should succeed"),
+                canonical
+            );
             for value in [55, 66] {
                 store
                     .apply_recovered_journal_put(key.clone(), raw_row(value))
                     .unwrap();
-                assert_eq!(store.get(&key).unwrap().as_bytes(), [value]);
+                assert_eq!(
+                    store
+                        .get(&key)
+                        .unwrap()
+                        .expect("storage operation should succeed")
+                        .as_bytes(),
+                    [value]
+                );
                 assert_eq!(store.exact_entity_count(entity), Some(1));
                 assert_eq!(
                     store.exact_entity_cardinality_delta(entity),
@@ -87,7 +153,7 @@ fn previous_rows_move_out_of_live_storage_without_changing_presence() {
                 .unwrap_err();
             assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation);
             assert_eq!(store.generation(), generation);
-            assert!(!store.contains(&key));
+            assert!(!(store.contains(&key)).expect("fixture read"));
         }
     }
 }
@@ -127,15 +193,19 @@ fn entity_count_facts_preserve_no_change_guards_and_invalid_key_refusal() {
 fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
     for materialized in [false, true] {
         let memory = crate::testing::test_memory_owner(230);
-        let mut store = DataStore::init_journaled(memory.open());
+        let mut store =
+            DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         let key = raw_key(1, 1);
         store
             .fold_recovered_journal_put(key.clone(), raw_row(11))
             .expect("canonical seed");
         drop(store);
-        let mut store = DataStore::init_journaled(memory.open());
+        let mut store =
+            DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         if materialized {
-            store.rebuild_entity_cardinality_from_entries();
+            store
+                .rebuild_entity_cardinality_from_entries()
+                .expect("fixture storage operation should succeed");
         }
         for (index, payload) in [Some(22), None, None, Some(33), Some(44), None]
             .into_iter()
@@ -148,10 +218,16 @@ fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
                     overlay_position(index as u64 + 1),
                 )
                 .expect("positioned effect");
-            assert_eq!(store.contains(&key), payload.is_some());
-            assert!(store.contains_canonical(&key));
             assert_eq!(
-                store.get(&key).map(|row| row.as_bytes().to_vec()),
+                (store.contains(&key)).expect("storage operation should succeed"),
+                payload.is_some()
+            );
+            assert!((store.contains_canonical(&key)).expect("fixture read"));
+            assert_eq!(
+                store
+                    .get(&key)
+                    .expect("fixture read")
+                    .map(|row| row.as_bytes().to_vec()),
                 payload.map(|value| vec![value])
             );
             assert_eq!(
@@ -172,8 +248,11 @@ fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
                     overlay_position(index as u64 + 7),
                 )
                 .expect("absent/live effect");
-            assert_eq!(store.contains(&missing_key), payload.is_some());
-            assert!(!store.contains_canonical(&missing_key));
+            assert_eq!(
+                (store.contains(&missing_key)).expect("storage operation should succeed"),
+                payload.is_some()
+            );
+            assert!(!(store.contains_canonical(&missing_key)).expect("fixture read"));
             assert_eq!(
                 store.exact_entity_count(EntityTag::new(1)),
                 materialized.then_some(u64::from(payload.is_some()))
@@ -206,10 +285,13 @@ fn overlay_position(sequence: u64) -> JournalOverlayPosition {
     )
 }
 
-fn seed_store(memory_id: u8, entries: &[(u64, u64, u8)]) -> DataStore {
-    let mut store = DataStore::init_journaled(test_memory(memory_id));
+fn seed_store(memory_id: u64, entries: &[(u64, u64, u8)]) -> DataStore {
+    let mut store = DataStore::init_journaled(test_memory(memory_id))
+        .expect("fixture storage should initialize");
     for (entity, id, row) in entries {
-        store.insert_raw_for_test(raw_key(*entity, *id), raw_row(*row));
+        store
+            .insert_raw_for_test(raw_key(*entity, *id), raw_row(*row))
+            .expect("fixture storage operation should succeed");
     }
     store
 }
@@ -217,7 +299,9 @@ fn seed_store(memory_id: u8, entries: &[(u64, u64, u8)]) -> DataStore {
 fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
     let mut store = DataStore::init_heap();
     for (entity, id, row) in entries {
-        store.insert_raw_for_test(raw_key(*entity, *id), raw_row(*row));
+        store
+            .insert_raw_for_test(raw_key(*entity, *id), raw_row(*row))
+            .expect("fixture storage operation should succeed");
     }
     store
 }
@@ -225,8 +309,9 @@ fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
 #[test]
 fn data_store_emptiness_tracks_visible_keys_across_backings_and_repeated_effects() {
     let memory = crate::testing::test_memory_owner(226);
-    let mut canonical = DataStore::init_journaled(memory.open());
-    assert!(canonical.is_empty());
+    let mut canonical =
+        DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
+    assert!((canonical.is_empty()).expect("fixture read"));
     for id in 1..=2 {
         canonical
             .fold_recovered_journal_put(raw_key(1, id), raw_row(11))
@@ -234,67 +319,94 @@ fn data_store_emptiness_tracks_visible_keys_across_backings_and_repeated_effects
     }
     drop(canonical);
     // Reopen without optional cardinality evidence; keys remain the authority.
-    let canonical = DataStore::init_journaled(memory.open());
+    let canonical =
+        DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert_eq!(canonical.exact_entity_count(EntityTag::new(1)), None);
 
-    let mut mixed = DataStore::init_journaled(test_memory(227));
+    let mut mixed =
+        DataStore::init_journaled(test_memory(227)).expect("fixture storage should initialize");
     mixed
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .unwrap();
-    mixed.insert_raw_for_test(raw_key(1, 1), raw_row(22));
-    mixed.insert_raw_for_test(raw_key(1, 2), raw_row(12));
+    mixed
+        .insert_raw_for_test(raw_key(1, 1), raw_row(22))
+        .expect("fixture storage operation should succeed");
+    mixed
+        .insert_raw_for_test(raw_key(1, 2), raw_row(12))
+        .expect("fixture storage operation should succeed");
 
     let mut heap = DataStore::init_heap();
-    let mut live = DataStore::init_journaled(test_memory(228));
-    assert!(heap.is_empty());
-    assert!(live.is_empty());
+    let mut live =
+        DataStore::init_journaled(test_memory(228)).expect("fixture storage should initialize");
+    assert!((heap.is_empty()).expect("fixture read"));
+    assert!((live.is_empty()).expect("fixture read"));
     for store in [&mut heap, &mut live] {
-        store.insert_raw_for_test(raw_key(1, 1), raw_row(11));
-        store.insert_raw_for_test(raw_key(1, 2), raw_row(12));
+        store
+            .insert_raw_for_test(raw_key(1, 1), raw_row(11))
+            .expect("fixture storage operation should succeed");
+        store
+            .insert_raw_for_test(raw_key(1, 2), raw_row(12))
+            .expect("fixture storage operation should succeed");
     }
     for mut store in [heap, live, canonical, mixed] {
-        assert!(!store.is_empty());
+        assert!(!(store.is_empty()).expect("fixture read"));
         assert_eq!(store.len(), 2);
         // The key visitor underlying emptiness must honor a first-key stop.
         let mut first = Vec::new();
-        let _: Result<(), Infallible> = store.visit_key_range(.., |key| {
-            first.push(key.clone());
-            Ok(StoreVisit::Stop)
-        });
+        store
+            .visit_key_range(.., |key| {
+                first.push(key.clone());
+                Ok::<_, crate::error::InternalError>(StoreVisit::Stop)
+            })
+            .expect("fixture traversal should succeed");
         assert_eq!(first, [raw_key(1, 1)]);
 
-        store.remove(&raw_key(1, 1));
-        assert!(!store.is_empty());
-        store.remove(&raw_key(1, 2));
-        assert!(store.is_empty());
+        store
+            .remove(&raw_key(1, 1))
+            .expect("fixture storage operation should succeed");
+        assert!(!(store.is_empty()).expect("fixture read"));
+        store
+            .remove(&raw_key(1, 2))
+            .expect("fixture storage operation should succeed");
+        assert!((store.is_empty()).expect("fixture read"));
         assert_eq!(store.len(), 0);
         assert!(collect_keys(&store).is_empty());
 
-        store.insert_raw_for_test(raw_key(1, 2), raw_row(22));
-        store.insert_raw_for_test(raw_key(1, 2), raw_row(33));
-        assert!(!store.is_empty());
+        store
+            .insert_raw_for_test(raw_key(1, 2), raw_row(22))
+            .expect("fixture storage operation should succeed");
+        store
+            .insert_raw_for_test(raw_key(1, 2), raw_row(33))
+            .expect("fixture storage operation should succeed");
+        assert!(!(store.is_empty()).expect("fixture read"));
         assert_eq!(store.len(), 1);
-        store.remove(&raw_key(1, 2));
-        assert!(store.is_empty());
+        store
+            .remove(&raw_key(1, 2))
+            .expect("fixture storage operation should succeed");
+        assert!((store.is_empty()).expect("fixture read"));
     }
 }
 
 #[test]
 fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
     let heap = seed_heap_store(&[(1, 1, 11)]);
-    assert!(heap.contains_canonical(&raw_key(1, 1)));
-    assert!(!heap.contains_canonical(&raw_key(1, 2)));
+    assert!(
+        heap.contains_canonical(&raw_key(1, 1))
+            .expect("fixture read")
+    );
+    assert!(!(heap.contains_canonical(&raw_key(1, 2))).expect("fixture read"));
     assert!(matches!(
-        heap.read(&raw_key(1, 1)),
+        heap.read(&raw_key(1, 1)).expect("fixture read"),
         StoredRowRead::Borrowed(row) if row.as_bytes() == [11]
     ));
 
-    let mut journaled = DataStore::init_journaled(test_memory(228));
+    let mut journaled =
+        DataStore::init_journaled(test_memory(228)).expect("fixture storage should initialize");
     journaled
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .expect("canonical row should fold");
     assert!(matches!(
-        journaled.read(&raw_key(1, 1)),
+        journaled.read(&raw_key(1, 1)).expect("fixture read"),
         StoredRowRead::Owned(row) if row.as_bytes() == [11]
     ));
 
@@ -302,7 +414,7 @@ fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
         .apply_recovered_journal_put(raw_key(1, 1), raw_row(22))
         .expect("live override should apply");
     assert!(matches!(
-        journaled.read(&raw_key(1, 1)),
+        journaled.read(&raw_key(1, 1)).expect("fixture read"),
         StoredRowRead::Borrowed(row) if row.as_bytes() == [22]
     ));
 }
@@ -310,11 +422,14 @@ fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
 #[test]
 fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
     let key = raw_key(1, 1);
-    let mut store = DataStore::init_journaled(test_memory(230));
+    let mut store =
+        DataStore::init_journaled(test_memory(230)).expect("fixture storage should initialize");
     store
         .fold_recovered_journal_put(key.clone(), raw_row(11))
         .expect("canonical row should seed");
-    store.rebuild_entity_cardinality_from_entries();
+    store
+        .rebuild_entity_cardinality_from_entries()
+        .expect("fixture storage operation should succeed");
 
     store
         .publish_positioned_journal_entry(key.clone(), Some(raw_row(22)), overlay_position(1))
@@ -334,7 +449,10 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
         .expect("first batch should become canonical");
     store.apply_prepared_position_retirement(prepared);
     assert!(
-        store.get(&key).is_none(),
+        store
+            .get(&key)
+            .expect("storage operation should succeed")
+            .is_none(),
         "newer tombstone must remain visible"
     );
 
@@ -356,6 +474,7 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
         store
             .get(&key)
             .expect("reinsert must remain visible")
+            .expect("storage operation should succeed")
             .as_bytes(),
         [33],
     );
@@ -375,6 +494,7 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
         store
             .get(&key)
             .expect("canonical reinsert should remain")
+            .expect("storage operation should succeed")
             .as_bytes(),
         [33],
     );
@@ -387,7 +507,8 @@ fn data_store_tiny_fold_stays_within_one_memory_manager_bucket() {
     let data_memory = test_memory_with_backing(23, memory.clone());
     // Attribute only the store's growth, excluding the bootstrapped ledger.
     let bootstrap_pages = memory.size();
-    let mut store = DataStore::init_journaled(data_memory);
+    let mut store =
+        DataStore::init_journaled(data_memory).expect("fixture storage should initialize");
 
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(7))
@@ -402,10 +523,12 @@ fn data_store_tiny_fold_stays_within_one_memory_manager_bucket() {
 
 fn collect_keys(store: &DataStore) -> Vec<RawDataStoreKey> {
     let mut keys = Vec::new();
-    let _: Result<(), Infallible> = store.visit_entries(|key, _row| {
-        keys.push(key.clone());
-        Ok(StoreVisit::Continue)
-    });
+    store
+        .visit_entries(|key, _row| {
+            keys.push(key.clone());
+            Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
+        })
+        .expect("fixture traversal should succeed");
     keys
 }
 
@@ -422,7 +545,8 @@ fn data_store_visit_entries_preserves_storage_key_order() {
 #[test]
 fn data_store_visit_range_preserves_raw_key_bounds() {
     let entries = [(1, 1, 11), (1, 2, 12), (1, 3, 13), (1, 4, 14)];
-    let mut canonical = DataStore::init_journaled(test_memory(226));
+    let mut canonical =
+        DataStore::init_journaled(test_memory(226)).expect("fixture storage should initialize");
     for (entity, id, value) in entries {
         canonical
             .fold_recovered_journal_put(raw_key(entity, id), raw_row(value))
@@ -440,7 +564,7 @@ fn data_store_visit_range_preserves_raw_key_bounds() {
         store
             .visit_range(bounds, |key, row| {
                 visited.push((key.clone(), row.as_bytes()[0]));
-                Ok::<_, Infallible>(StoreVisit::Continue)
+                Ok::<_, InternalError>(StoreVisit::Continue)
             })
             .unwrap();
         assert_eq!(visited, vec![(raw_key(1, 2), 12), (raw_key(1, 3), 13)]);
@@ -449,7 +573,7 @@ fn data_store_visit_range_preserves_raw_key_bounds() {
         store
             .visit_key_range(bounds, |key| {
                 keys.push(key.clone());
-                Ok::<_, Infallible>(StoreVisit::Continue)
+                Ok::<_, InternalError>(StoreVisit::Continue)
             })
             .unwrap();
         assert_eq!(keys, vec![raw_key(1, 2), raw_key(1, 3)]);
@@ -457,7 +581,7 @@ fn data_store_visit_range_preserves_raw_key_bounds() {
         store
             .visit_key_range_rev(bounds, |key| {
                 keys.push(key.clone());
-                Ok::<_, Infallible>(StoreVisit::Continue)
+                Ok::<_, InternalError>(StoreVisit::Continue)
             })
             .unwrap();
         assert_eq!(keys, vec![raw_key(1, 3), raw_key(1, 2)]);
@@ -470,7 +594,7 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
         let mut store = if backend == 0 {
             DataStore::init_heap()
         } else {
-            DataStore::init_journaled(test_memory(229))
+            DataStore::init_journaled(test_memory(229)).expect("fixture storage should initialize")
         };
         for (id, value) in [(1, 11), (2, 12), (3, 13)] {
             if backend == 2 {
@@ -478,7 +602,9 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
                     .fold_recovered_journal_put(raw_key(1, id), raw_row(value))
                     .unwrap();
             } else {
-                store.insert_raw_for_test(raw_key(1, id), raw_row(value));
+                store
+                    .insert_raw_for_test(raw_key(1, id), raw_row(value))
+                    .expect("fixture storage operation should succeed");
             }
         }
         for direction in [Direction::Asc, Direction::Desc] {
@@ -494,7 +620,7 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
                     direction,
                     |key| {
                         preflighted.push(key.clone());
-                        Ok::<_, Infallible>(if key == &raw_key(1, 2) {
+                        Ok::<_, InternalError>(if key == &raw_key(1, 2) {
                             StoreVisit::Stop
                         } else {
                             StoreVisit::Continue
@@ -502,7 +628,7 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
                     },
                     |key, row| {
                         visited.push((key.clone(), row.as_bytes()[0]));
-                        Ok::<_, Infallible>(StoreVisit::Continue)
+                        Ok::<_, InternalError>(StoreVisit::Continue)
                     },
                 )
                 .expect("single-backing range should use the fused visitor");
@@ -525,7 +651,8 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
 #[test]
 fn journaled_data_visitors_preserve_typed_failures_and_early_stop() {
     for backend in 0..3 {
-        let mut store = DataStore::init_journaled(test_memory(229));
+        let mut store =
+            DataStore::init_journaled(test_memory(229)).expect("fixture storage should initialize");
         if backend != 1 {
             for id in [1, 3, 5] {
                 store
@@ -539,16 +666,22 @@ fn journaled_data_visitors_preserve_typed_failures_and_early_stop() {
                     .apply_recovered_journal_put(raw_key(1, id), raw_row(22))
                     .unwrap();
             }
-            store.remove(&raw_key(1, 1));
+            store
+                .remove(&raw_key(1, 1))
+                .expect("fixture storage operation should succeed");
         }
         for fail in [false, true] {
-            let expected = if fail { Err(7_u8) } else { Ok(()) };
+            let expected = if fail {
+                Err(crate::testing::VisitorTestError::Callback(7))
+            } else {
+                Ok(())
+            };
             let first = u64::from(backend == 0);
             let mut rows = Vec::new();
             let result = store.visit_range(.., |key, row| {
                 rows.push((key.clone(), row.as_bytes()[0]));
                 if fail {
-                    Err(7_u8)
+                    Err(crate::testing::VisitorTestError::Callback(7))
                 } else {
                     Ok(StoreVisit::Stop)
                 }
@@ -563,7 +696,7 @@ fn journaled_data_visitors_preserve_typed_failures_and_early_stop() {
                 let mut visit = |key: &RawDataStoreKey| {
                     keys.push(key.clone());
                     if fail {
-                        Err(7_u8)
+                        Err(crate::testing::VisitorTestError::Callback(7))
                     } else {
                         Ok(StoreVisit::Stop)
                     }
@@ -588,22 +721,26 @@ fn data_store_entity_cardinality_tracks_heap_writes() {
     assert_eq!(store.exact_entity_count(EntityTag::new(2)), Some(1));
     assert_eq!(store.exact_entity_count(EntityTag::new(3)), Some(0));
 
-    store.insert_raw_for_test(raw_key(1, 2), raw_row(22));
+    store
+        .insert_raw_for_test(raw_key(1, 2), raw_row(22))
+        .expect("fixture storage operation should succeed");
     assert_eq!(
         store.exact_entity_count(EntityTag::new(1)),
         Some(2),
         "replacing a row must not change entity cardinality",
     );
 
-    store.insert_raw_for_test(raw_key(1, 3), raw_row(13));
+    store
+        .insert_raw_for_test(raw_key(1, 3), raw_row(13))
+        .expect("fixture storage operation should succeed");
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(3));
 
     let removed = store.remove(&raw_key(1, 1));
-    assert!(removed.is_some());
+    assert!(removed.expect("storage operation should succeed").is_some());
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
 
     let removed = store.remove(&raw_key(1, 99));
-    assert!(removed.is_none());
+    assert!(removed.expect("storage operation should succeed").is_none());
     assert_eq!(
         store.exact_entity_count(EntityTag::new(1)),
         Some(2),
@@ -613,7 +750,8 @@ fn data_store_entity_cardinality_tracks_heap_writes() {
 
 #[test]
 fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
-    let mut store = DataStore::init_journaled(test_memory(226));
+    let mut store =
+        DataStore::init_journaled(test_memory(226)).expect("fixture storage should initialize");
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .expect("canonical seed should fold");
@@ -623,7 +761,9 @@ fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
     store
         .fold_recovered_journal_put(raw_key(2, 1), raw_row(21))
         .expect("canonical seed should fold");
-    store.rebuild_entity_cardinality_from_entries();
+    store
+        .rebuild_entity_cardinality_from_entries()
+        .expect("fixture storage operation should succeed");
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
     assert_eq!(store.exact_entity_count(EntityTag::new(2)), Some(1));
 
@@ -633,7 +773,9 @@ fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
     store
         .apply_recovered_journal_put(raw_key(1, 3), raw_row(33))
         .expect("live replacement should apply");
-    store.remove(&raw_key(1, 1));
+    store
+        .remove(&raw_key(1, 1))
+        .expect("fixture storage operation should succeed");
     assert_eq!(
         store.exact_entity_count(EntityTag::new(1)),
         Some(2),
@@ -652,7 +794,8 @@ fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
 
 #[test]
 fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
-    let mut store = DataStore::init_journaled(test_memory(227));
+    let mut store =
+        DataStore::init_journaled(test_memory(227)).expect("fixture storage should initialize");
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .expect("canonical seed should fold");
@@ -662,12 +805,16 @@ fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
     store
         .fold_recovered_journal_put(raw_key(1, 3), raw_row(13))
         .expect("canonical seed should fold");
-    store.rebuild_entity_cardinality_from_entries();
+    store
+        .rebuild_entity_cardinality_from_entries()
+        .expect("fixture storage operation should succeed");
 
     store
         .apply_recovered_journal_put(raw_key(1, 2), raw_row(22))
         .expect("live replacement should apply");
-    store.remove(&raw_key(1, 3));
+    store
+        .remove(&raw_key(1, 3))
+        .expect("fixture storage operation should succeed");
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
 
     store
@@ -687,7 +834,8 @@ fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
 #[test]
 fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
     let memory = crate::testing::test_memory_owner(230);
-    let mut store = DataStore::init_journaled(memory.open());
+    let mut store =
+        DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .expect("canonical seed should fold");
@@ -696,10 +844,11 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
         .expect("canonical seed should fold");
     drop(store);
 
-    let mut reopened = DataStore::init_journaled(memory.open());
+    let mut reopened =
+        DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
 
-    assert!(reopened.contains(&raw_key(1, 1)));
-    assert!(reopened.contains(&raw_key(1, 2)));
+    assert!((reopened.contains(&raw_key(1, 1))).expect("fixture read"));
+    assert!((reopened.contains(&raw_key(1, 2))).expect("fixture read"));
     assert_eq!(
         reopened.exact_entity_count(EntityTag::new(1)),
         None,
@@ -729,7 +878,8 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
 #[test]
 fn empty_journaled_data_store_retains_exact_zero_cardinality_without_scanning() {
     let memory = crate::testing::test_memory_owner(231);
-    let mut store = DataStore::init_journaled(memory.open());
+    let mut store =
+        DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
 
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(0));
     store
@@ -738,24 +888,29 @@ fn empty_journaled_data_store_retains_exact_zero_cardinality_without_scanning() 
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(0));
     drop(store);
 
-    let reopened = DataStore::init_journaled(memory.open());
+    let reopened =
+        DataStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert_eq!(reopened.exact_entity_count(EntityTag::new(1)), Some(0));
 }
 
 #[test]
 fn data_store_entity_cardinality_fails_closed_for_malformed_raw_keys() {
     let mut store = seed_heap_store(&[(1, 1, 11)]);
-    store.insert_raw_for_test(
-        RawDataStoreKey::from_persisted_bytes(vec![1, 2, 3]),
-        raw_row(99),
-    );
+    store
+        .insert_raw_for_test(
+            RawDataStoreKey::from_persisted_bytes(vec![1, 2, 3]),
+            raw_row(99),
+        )
+        .expect("fixture storage operation should succeed");
 
     assert_eq!(
         store.exact_entity_count(EntityTag::new(1)),
         None,
         "malformed raw keys should disable entity-cardinality metadata",
     );
-    store.rebuild_entity_cardinality_from_entries();
+    store
+        .rebuild_entity_cardinality_from_entries()
+        .expect("fixture storage operation should succeed");
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), None);
 }
 
@@ -764,14 +919,16 @@ fn data_store_visit_entries_can_stop_without_error() {
     let store = seed_store(224, &[(1, 1, 11), (1, 2, 12), (1, 3, 13)]);
 
     let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_entries(|key, _row| {
-        visited.push(key.clone());
-        Ok(if visited.len() == 2 {
-            StoreVisit::Stop
-        } else {
-            StoreVisit::Continue
+    store
+        .visit_entries(|key, _row| {
+            visited.push(key.clone());
+            Ok::<_, crate::error::InternalError>(if visited.len() == 2 {
+                StoreVisit::Stop
+            } else {
+                StoreVisit::Continue
+            })
         })
-    });
+        .expect("fixture traversal should succeed");
 
     assert_eq!(visited, vec![raw_key(1, 1), raw_key(1, 2)]);
 }
@@ -785,46 +942,53 @@ fn heap_data_store_preserves_order_bounds_and_early_stop() {
     assert_eq!(collect_keys(&store), expected);
 
     let mut ranged = Vec::new();
-    let _: Result<(), Infallible> = store.visit_range(
-        (
-            Bound::Included(raw_key(1, 1)),
-            Bound::Excluded(raw_key(1, 3)),
-        ),
-        |key, row| {
-            ranged.push((key.clone(), row.as_bytes()[0]));
-            Ok(StoreVisit::Continue)
-        },
-    );
+    store
+        .visit_range(
+            (
+                Bound::Included(raw_key(1, 1)),
+                Bound::Excluded(raw_key(1, 3)),
+            ),
+            |key, row| {
+                ranged.push((key.clone(), row.as_bytes()[0]));
+                Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
+            },
+        )
+        .expect("fixture traversal should succeed");
     assert_eq!(ranged, vec![(raw_key(1, 1), 11), (raw_key(1, 2), 12)]);
 
     let mut ranged_keys = Vec::new();
-    let _: Result<(), Infallible> = store.visit_key_range(
-        (
-            Bound::Included(raw_key(1, 1)),
-            Bound::Excluded(raw_key(1, 3)),
-        ),
-        |key| {
-            ranged_keys.push(key.clone());
-            Ok(StoreVisit::Continue)
-        },
-    );
+    store
+        .visit_key_range(
+            (
+                Bound::Included(raw_key(1, 1)),
+                Bound::Excluded(raw_key(1, 3)),
+            ),
+            |key| {
+                ranged_keys.push(key.clone());
+                Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
+            },
+        )
+        .expect("fixture traversal should succeed");
     assert_eq!(ranged_keys, vec![raw_key(1, 1), raw_key(1, 2)]);
 
     let mut stopped = Vec::new();
-    let _: Result<(), Infallible> = store.visit_entries(|key, _| {
-        stopped.push(key.clone());
-        Ok(if stopped.len() == 2 {
-            StoreVisit::Stop
-        } else {
-            StoreVisit::Continue
+    store
+        .visit_entries(|key, _| {
+            stopped.push(key.clone());
+            Ok::<_, crate::error::InternalError>(if stopped.len() == 2 {
+                StoreVisit::Stop
+            } else {
+                StoreVisit::Continue
+            })
         })
-    });
+        .expect("fixture traversal should succeed");
     assert_eq!(stopped, vec![raw_key(1, 1), raw_key(1, 2)]);
 }
 
 #[test]
 fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
-    let mut store = DataStore::init_journaled(test_memory(225));
+    let mut store =
+        DataStore::init_journaled(test_memory(225)).expect("fixture storage should initialize");
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .expect("canonical seed should fold");
@@ -843,36 +1007,42 @@ fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
     store
         .apply_recovered_journal_put(raw_key(1, 5), raw_row(55))
         .expect("live override should apply");
-    store.remove(&raw_key(1, 1));
+    store
+        .remove(&raw_key(1, 1))
+        .expect("fixture storage operation should succeed");
 
     let mut asc = Vec::new();
-    let _: Result<(), Infallible> = store.visit_range(
-        (
-            Bound::Included(raw_key(1, 0)),
-            Bound::Included(raw_key(1, 5)),
-        ),
-        |key, row| {
-            asc.push((key.clone(), row.as_bytes()[0]));
-            Ok(if asc.len() == 2 {
-                StoreVisit::Stop
-            } else {
-                StoreVisit::Continue
-            })
-        },
-    );
+    store
+        .visit_range(
+            (
+                Bound::Included(raw_key(1, 0)),
+                Bound::Included(raw_key(1, 5)),
+            ),
+            |key, row| {
+                asc.push((key.clone(), row.as_bytes()[0]));
+                Ok::<_, crate::error::InternalError>(if asc.len() == 2 {
+                    StoreVisit::Stop
+                } else {
+                    StoreVisit::Continue
+                })
+            },
+        )
+        .expect("fixture traversal should succeed");
     assert_eq!(asc, vec![(raw_key(1, 0), 10), (raw_key(1, 3), 13)]);
 
     let mut desc_keys = Vec::new();
-    let _: Result<(), Infallible> = store.visit_key_range_rev(
-        (
-            Bound::Included(raw_key(1, 0)),
-            Bound::Included(raw_key(1, 5)),
-        ),
-        |key| {
-            desc_keys.push(key.clone());
-            Ok(StoreVisit::Continue)
-        },
-    );
+    store
+        .visit_key_range_rev(
+            (
+                Bound::Included(raw_key(1, 0)),
+                Bound::Included(raw_key(1, 5)),
+            ),
+            |key| {
+                desc_keys.push(key.clone());
+                Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
+            },
+        )
+        .expect("fixture traversal should succeed");
     assert_eq!(
         desc_keys,
         vec![raw_key(1, 5), raw_key(1, 4), raw_key(1, 3), raw_key(1, 0),],
@@ -902,7 +1072,7 @@ fn retained_store_corruption_does_not_initialize_a_replacement() {
 fn canonical_page_checkpoint_excludes_the_unconsumed_row() {
     for journaled in [false, true] {
         let mut store = if journaled {
-            DataStore::init_journaled(test_memory(228))
+            DataStore::init_journaled(test_memory(228)).expect("fixture storage should initialize")
         } else {
             DataStore::init_heap()
         };
@@ -912,10 +1082,12 @@ fn canonical_page_checkpoint_excludes_the_unconsumed_row() {
                     .fold_recovered_journal_put(raw_key(1, id), raw_row(1))
                     .unwrap();
             } else {
-                store.insert(
-                    raw_key(1, id),
-                    canonical_row_from_stored_raw_row(raw_row(1)),
-                );
+                store
+                    .insert(
+                        raw_key(1, id),
+                        canonical_row_from_stored_raw_row(raw_row(1)),
+                    )
+                    .expect("fixture storage operation should succeed");
             }
         }
         for accepted in 0..=3 {
@@ -959,15 +1131,25 @@ fn canonical_page_checkpoint_excludes_the_unconsumed_row() {
 
 #[test]
 fn mixed_row_preflight_preserves_overlay_precedence_and_stopping() {
-    let mut store = DataStore::init_journaled(test_memory(229));
+    let mut store =
+        DataStore::init_journaled(test_memory(229)).expect("fixture storage should initialize");
     for id in 1..=4 {
         store
             .fold_recovered_journal_put(raw_key(1, id), raw_row(10 + u8::try_from(id).unwrap()))
             .unwrap();
     }
-    store.insert_raw_for_test(raw_key(1, 2), raw_row(22));
-    store.insert_raw_for_test(raw_key(1, 5), raw_row(15));
-    assert!(store.remove(&raw_key(1, 3)).is_some());
+    store
+        .insert_raw_for_test(raw_key(1, 2), raw_row(22))
+        .expect("fixture storage operation should succeed");
+    store
+        .insert_raw_for_test(raw_key(1, 5), raw_row(15))
+        .expect("fixture storage operation should succeed");
+    assert!(
+        store
+            .remove(&raw_key(1, 3))
+            .expect("storage operation should succeed")
+            .is_some()
+    );
     for direction in [Direction::Asc, Direction::Desc] {
         let mut expected = [
             (raw_key(1, 1), 11),
@@ -996,26 +1178,30 @@ fn mixed_row_preflight_preserves_overlay_precedence_and_stopping() {
                     preflighted.push(key.clone());
                     if stop_before && key == &raw_key(1, 2) {
                         if fail {
-                            return Err(31_u8);
+                            return Err(crate::testing::VisitorTestError::Callback(31));
                         }
                         return Ok(StoreVisit::Stop);
                     }
-                    Ok(StoreVisit::Continue)
+                    Ok::<_, crate::testing::VisitorTestError>(StoreVisit::Continue)
                 },
                 |key, row| {
                     visited.push((key.clone(), row.as_bytes()[0]));
                     if stop_after && key == &raw_key(1, 2) {
                         if fail {
-                            return Err(47_u8);
+                            return Err(crate::testing::VisitorTestError::Callback(47));
                         }
                         return Ok(StoreVisit::Stop);
                     }
-                    Ok(StoreVisit::Continue)
+                    Ok::<_, crate::testing::VisitorTestError>(StoreVisit::Continue)
                 },
             );
             let stopping = stop_before || stop_after;
             let expected_result = if fail {
-                Err(if stop_before { 31 } else { 47 })
+                Err(crate::testing::VisitorTestError::Callback(if stop_before {
+                    31
+                } else {
+                    47
+                }))
             } else {
                 Ok(!stopping)
             };

@@ -72,6 +72,15 @@ pub(super) fn add(generator: &mut Generator) -> Result<()> {
         false,
         &"SELECT value, COUNT(*) FROM Entry GROUP BY value /* é🦀 */",
     )?;
+    let mut snapshot = serde_json::to_value(icydb::db::StorageReport::default())?;
+    snapshot["memory_allocations"] = serde_json::json!({
+        "current_generation": 7,
+        "virtual_extent": { "wasm_pages": 2, "bytes": 131_072 },
+        "memories": [{ "allocation_id": u64::MAX, "stable_key": "icydb.example.store.rows.data.v1",
+            "virtual_extent": { "wasm_pages": 2, "bytes": 131_072 } }]
+    });
+    let snapshot: icydb::db::StorageReport = serde_json::from_value(snapshot)?;
+    generator.vector(RpcMethod::Snapshot, true, &Ok::<_, PublicError>(snapshot))?;
     Ok(())
 }
 

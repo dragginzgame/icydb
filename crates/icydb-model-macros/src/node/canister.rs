@@ -5,26 +5,6 @@
 
 use crate::prelude::*;
 
-/// Macro vocabulary only; the model owns profile defaults and page counts.
-#[derive(Debug, FromMeta)]
-#[darling(rename_all = "snake_case")]
-enum MemoryProfile {
-    Compact,
-    General,
-    HighHeadroom,
-}
-
-impl MemoryProfile {
-    pub(crate) fn generated_tokens(&self, paths: &CratePaths) -> TokenStream {
-        let model = &paths.model;
-        let mut tokens = TokenStream::new();
-        let variant = format_ident!("{self:?}");
-        tokens.extend(quote!(#model::node::CanisterMemoryProfile::#variant));
-
-        tokens
-    }
-}
-
 ///
 /// Canister
 /// regardless of the path, the name is used to uniquely identify each canister
@@ -36,8 +16,6 @@ pub struct Canister {
     pub(crate) def: Def,
 
     pub(crate) memory_namespace: String,
-    #[darling(default)]
-    memory_profile: Option<MemoryProfile>,
 
     #[darling(default)]
     migrations: Option<MigrationPlan>,
@@ -75,10 +53,6 @@ impl HasSchemaPart for Canister {
         let model = &paths.model;
         let def = self.def.schema_part(paths);
         let memory_namespace = &self.memory_namespace;
-        let memory_profile = self.memory_profile.as_ref().map(|profile| {
-            let profile = profile.generated_tokens(paths);
-            quote!(.with_memory_profile(#profile))
-        });
         let migration_plan = self.migrations.as_ref().map_or_else(
             || quote!(::core::option::Option::None),
             |value| MigrationPlan::constructor_tokens(value, paths),
@@ -90,7 +64,7 @@ impl HasSchemaPart for Canister {
                 #def,
                 #memory_namespace,
                 #migration_plan,
-            ) #memory_profile
+            )
         }
     }
 }
@@ -150,35 +124,6 @@ impl Canister {
 mod tests {
     use super::*;
 
-    fn parse_canister(extra: TokenStream) -> Result<Canister, DarlingError> {
-        let items = darling::ast::NestedMeta::parse_meta_list(quote! {
-            memory_namespace = "test",
-            #extra
-        })
-        .expect("test macro arguments should parse");
-        Canister::from_list(&items)
-    }
-
-    #[test]
-    fn memory_profile_accepts_only_closed_names_and_omission() {
-        assert!(parse_canister(quote!()).unwrap().memory_profile.is_none());
-        for (name, expected) in [
-            ("compact", "Compact"),
-            ("general", "General"),
-            ("high_headroom", "HighHeadroom"),
-        ] {
-            let canister = parse_canister(quote!(memory_profile = #name)).unwrap();
-            let profile = canister.memory_profile.unwrap();
-            assert_eq!(format!("{profile:?}"), expected);
-            assert_eq!(
-                profile.generated_tokens(&CratePaths::test()).to_string(),
-                format!(":: icydb_model :: node :: CanisterMemoryProfile :: {expected}"),
-            );
-        }
-        assert!(parse_canister(quote!(memory_profile = "unknown")).is_err());
-        assert!(parse_canister(quote!(memory_profile = 16)).is_err());
-    }
-
     #[test]
     fn generated_commit_stable_key_matches_schema_formatter() {
         let item: syn::ItemStruct = syn::parse_quote! {
@@ -187,7 +132,6 @@ mod tests {
         let canister = Canister {
             def: Def::new(item, crate::crate_path::CratePaths::test()),
             memory_namespace: "demo_rpg".to_string(),
-            memory_profile: None,
             migrations: None,
         };
         assert_eq!(

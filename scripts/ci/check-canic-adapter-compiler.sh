@@ -1,30 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The public package owns its compiler promise; the workspace's internal floor
-# and the repository toolchain must not substitute for that minimum.
+# Qualify the isolated public graph on the repository's admitted compiler.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$ROOT"
-metadata="$(cargo metadata --locked --offline --no-deps --format-version 1)"
-expected="$(jq -er '.packages[] | select(.name == "icydb") | .rust_version' <<< "$metadata")"
-for tool in rustc cargo; do
-  identity="$("$tool" --version)"
-  printf '%s\n' "$identity"
-  read -r _ actual _ <<< "$identity"
-  if [[ "$actual" != "$expected" ]]; then
-    printf 'Public MSRV requires %s %s; selected version is %s.\n' "$tool" "$expected" "$actual" >&2
-    exit 1
-  fi
-done
+bash "$ROOT/scripts/ci/check-rust-compiler.sh"
+
+expected="$(bash "$ROOT/scripts/ci/read-cargo-workspace-rust-version.sh" "$ROOT/Cargo.toml")"
 
 # External expansion is a separate compiler boundary from the defining library.
 # Cargo derives each disposable consumer lock from the selected workspace lock;
 # metadata membership prevents an offline resolution from selecting another graph.
-scratch="$(mktemp -d "${TMPDIR:-$ROOT/.cache}/icydb-endpoint-msrv.XXXXXX")"
+scratch="$(mktemp -d "${TMPDIR:-$ROOT/.cache}/icydb-endpoint-compiler.XXXXXX")"
 finish() {
   local status=$?
   if [[ "$status" == 0 ]]; then rm -rf "$scratch"
-  else printf 'Failed external MSRV consumer retained: %s\n' "$scratch" >&2; fi
+  else printf 'Failed external compiler consumer retained: %s\n' "$scratch" >&2; fi
 }
 trap finish EXIT
 cargo metadata --locked --offline --manifest-path "$ROOT/testing/canic-adapter/Cargo.toml" --format-version 1 > "$scratch/workspace.json"
@@ -38,7 +29,7 @@ for dependency in icydb runtime_api; do
   mkdir -p "$consumer/src"
   cat > "$consumer/Cargo.toml" <<TOML
 [package]
-name = "icydb-endpoint-msrv-probe"
+name = "icydb-endpoint-compiler-probe"
 version = "0.0.0"
 edition = "2024"
 rust-version = "$expected"

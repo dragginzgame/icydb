@@ -1,5 +1,5 @@
 use crate::schema::test::TestStore;
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 ///
 /// ClampEntity

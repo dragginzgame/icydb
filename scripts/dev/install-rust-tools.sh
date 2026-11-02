@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh ci/tool-versions.env scripts/ci/describe-tool-selection.pl
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh scripts/dev/tool-store-maintenance.pl ci/tool-versions.env scripts/ci/describe-tool-selection.pl
 set -euo pipefail
 
 ROOT="$0"
@@ -15,9 +15,11 @@ preflight=false
 describe=false
 package='' selected_version='' lockfile='' kind='' target='' profile=''
 features_csv='' features_json='[]'
+selection_key=''
 usage() {
     echo 'usage: install-rust-tools.sh [--consumer DIR] [--versions FILE] [--check [--wait-seconds N] | --preflight | --describe]' >&2
     echo '   or: install-rust-tools.sh [--consumer DIR] --package NAME (--version X.Y.Z | --lockfile FILE) (--bin NAME | --example NAME) --profile (debug | release) [--features NAME[,NAME]...]... [--check [--wait-seconds N] | --describe]' >&2
+    echo 'Optional --selection-key NAME distinguishes concurrent requirements for the same package/target/profile.' >&2
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -26,6 +28,9 @@ while [[ $# -gt 0 ]]; do
             if [[ "$1" == --consumer ]]; then consumer="$2"; else versions_file="$2"; fi
             shift 2 ;;
         --check) check_only=true; shift ;;
+        --selection-key)
+            [[ $# -ge 2 && "$2" =~ ^[A-Za-z0-9_.:+-]+$ && -z "$selection_key" ]] || { usage; exit 2; }
+            selection_key="$2"; shift 2 ;;
         --wait-seconds)
             [[ $# -ge 2 && -z "$check_wait_seconds" && -n "$2" ]] || { usage; exit 2; }
             check_wait_seconds="$2"; shift 2 ;;
@@ -143,6 +148,7 @@ if [[ -n "$package$selected_version$lockfile$kind$target$profile$features_csv" ]
         echo 'Rust tools require exact stable versions' >&2; exit 2;
     }
 else
+    [[ -z "$selection_key" ]] || { echo '--selection-key requires one selected Cargo tool' >&2; exit 2; }
     records="$(perl "$ROOT/scripts/ci/tool-catalog-records.pl" rust "$versions_file")"
     tool_names=() tool_versions=()
     while IFS=$'\t' read -r tool version _ _; do
@@ -270,6 +276,7 @@ rust_setup_hint() {
             else printf ' --version %q' "$selected_version"; fi
             printf ' --%s %q --profile %q' "$kind" "$target" "$profile"
             [[ -z "$features_csv" ]] || printf ' --features %q' "$features_csv"
+            [[ -z "$selection_key" ]] || printf ' --selection-key %q' "$selection_key"
             printf '\n'
         else
             printf ' --versions %q\n' "$catalog"
@@ -395,6 +402,9 @@ install_selected() (
     trap 'exit 130' INT
     trap 'exit 143' TERM
     run_setup_phase source-preparation '' cargo_source || { status=$?; rust_setup_hint; exit "$status"; }
+    [[ ! -e "$store_root/maintenance.lock" && ! -L "$store_root/maintenance.lock" ]] || {
+        echo 'Tool store maintenance is active; retry after it finishes' >&2; exit 75;
+    }
     tool_store_init rust "$inputs" || exit $?
     tool_root="$install_root"
     active="$install_root/selected-$store_id"
@@ -412,13 +422,21 @@ install_selected() (
         elif destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
             tool_store_unlocked && run_setup_phase selection-reuse '' check_selected; then
             check_locked_selection || exit $?
+            perl "$ROOT/scripts/dev/tool-store-maintenance.pl" register "$store_root" "$selection_consumer" \
+                "${selection_key:-$package:$kind:$target:$profile}" "$destination" || exit $?
             printf '%s/bin/%s\n' "$active" "$target" || exit $?
             exit 0
         fi
     elif [[ -e "$active" ]]; then
         echo "unmanaged Cargo tool selection: $active" >&2; exit 1
-    elif [[ "$check_only" == true ]]; then
-        printf 'No prepared Cargo tool selection for the current compiler/build inputs: %s\n' "$active" >&2
+    else
+        perl "$ROOT/scripts/dev/tool-store-maintenance.pl" explain "$store_root" "$selection_consumer" \
+            "${selection_key:-$package:$kind:$target:$profile}" "$inputs" >&2 || {
+                echo 'Prior selection diagnostics unavailable; requested source still requires normal admission' >&2
+            }
+        if [[ "$check_only" == true ]]; then
+            printf 'No prepared Cargo tool selection for the current compiler/build inputs: %s\n' "$active" >&2
+        fi
     fi
     [[ "$check_only" == false ]] || {
         echo "missing or invalid shared Cargo tool: $package $selected_version ($kind:$target, $profile)" >&2
@@ -429,6 +447,7 @@ install_selected() (
     mkdir "$lock" || exit $?
     lock_owned=true
     run_setup_phase lock-wait '' tool_store_acquire "$setup_wait_seconds" || exit $?
+    [[ ! -e "$store_root/maintenance.lock" && ! -L "$store_root/maintenance.lock" ]] || exit 75
     if [[ "$tool_store_waited" == true ]]; then
         check_build_inputs || exit $?
         check_locked_selection || exit $?
@@ -437,6 +456,7 @@ install_selected() (
         tool_store_reference "$destination" || exit $?
     else
         tool_store_new || exit $?
+        printf '{"schema":1}\n' > "$stage/managed.json" || exit $?
         selected_paths "$stage" || exit $?
         printf '%s\n' "$inputs" > "$stage/inputs.json" || exit $?
         printf '%s\n' "$packaged_lock" > "$stage/Cargo.lock" || exit $?
@@ -457,6 +477,9 @@ install_selected() (
     fi
     check_locked_selection || exit $?
     tool_store_activate "$destination" || exit $?
+    perl "$ROOT/scripts/dev/tool-store-maintenance.pl" register "$store_root" "$selection_consumer" \
+        "${selection_key:-$package:$kind:$target:$profile}" "$destination" || exit $?
+    perl "$ROOT/scripts/dev/tool-store-maintenance.pl" trim "$store_root" "$destination" "$$" || exit $?
     printf '%s/bin/%s\n' "$active" "$target"
 )
 

@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "shared_metadata_files": [
+    "ci/dependency-pinning-exceptions.json"
+  ],
+  "groups": [
+    {
+      "name": "database",
+      "primary": "icydb",
+      "version": "package",
+      "members": [
+        "icydb",
+        "icydb-core",
+        "icydb-diagnostic-code",
+        "icydb-model",
+        "icydb-model-macros",
+        "icydb-schema",
+        "icydb-testing-audit-default-empty-fixtures",
+        "icydb-testing-audit-group-path-fixtures",
+        "icydb-testing-audit-one-simple-fixtures",
+        "icydb-testing-audit-sql-perf-fixtures",
+        "icydb-testing-audit-ten-simple-fixtures",
+        "icydb-testing-build",
+        "icydb-testing-codec-query",
+        "icydb-testing-demo-rpg-fixtures",
+        "icydb-testing-model-schema-only",
+        "icydb-testing-model-typed-adapter",
+        "icydb-testing-source-checks",
+        "icydb-testing-sql-generator",
+        "icydb-testing-sqlite-reference",
+        "icydb-testing-test-fixtures",
+        "icydb-testing-test-sql-fixtures",
+        "icydb-testing-wasm-helpers"
+      ],
+      "changelog": "releases/database/CHANGELOG.md",
+      "dependencies": [
+        "icydb",
+        "icydb-core",
+        "icydb-diagnostic-code",
+        "icydb-model",
+        "icydb-model-macros",
+        "icydb-schema",
+        "icydb-testing-audit-default-empty-fixtures",
+        "icydb-testing-audit-group-path-fixtures",
+        "icydb-testing-audit-one-simple-fixtures",
+        "icydb-testing-audit-sql-perf-fixtures",
+        "icydb-testing-audit-ten-simple-fixtures",
+        "icydb-testing-build",
+        "icydb-testing-codec-query",
+        "icydb-testing-demo-rpg-fixtures",
+        "icydb-testing-model-schema-only",
+        "icydb-testing-model-typed-adapter",
+        "icydb-testing-source-checks",
+        "icydb-testing-sql-generator",
+        "icydb-testing-sqlite-reference",
+        "icydb-testing-test-fixtures",
+        "icydb-testing-test-sql-fixtures",
+        "icydb-testing-wasm-helpers",
+        "model_api",
+        "runtime_api"
+      ],
+      "metadata_files": [
+        "releases/database/0.295.md"
+      ]
+    },
+    {
+      "name": "cli",
+      "primary": "icydb-cli",
+      "version": "package",
+      "members": [
+        "icydb-cli"
+      ],
+      "changelog": "releases/cli/CHANGELOG.md",
+      "dependencies": [
+        "icydb-cli"
+      ],
+      "metadata_files": [
+        "releases/cli/0.295.md"
+      ]
+    }
+  ]
+}

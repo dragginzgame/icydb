@@ -16,8 +16,8 @@ use crate::{
     error::{ErrorClass, InternalError},
     types::EntityTag,
 };
-use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ops::Bound::{Included, Unbounded};
@@ -447,20 +447,16 @@ impl JournalTailKey {
 }
 
 impl Storable for JournalTailKey {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
         let mut bytes = Vec::with_capacity(JOURNAL_TAIL_KEY_BYTES as usize);
         bytes.extend_from_slice(&self.sequence.get().to_be_bytes());
         bytes.extend_from_slice(&self.chunk_index.to_be_bytes());
 
-        Cow::Owned(bytes)
+        Ok(Cow::Owned(bytes))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        debug_assert_eq!(
-            bytes.len(),
-            JOURNAL_TAIL_KEY_BYTES as usize,
-            "JournalTailKey::from_bytes received unexpected byte length",
-        );
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
 
         let mut sequence = [0u8; 8];
         let mut chunk_index = [0u8; 4];
@@ -469,14 +465,14 @@ impl Storable for JournalTailKey {
             chunk_index.copy_from_slice(&bytes.as_ref()[8..]);
         }
 
-        Self::new(
+        Ok(Self::new(
             JournalSequence::new(u64::from_be_bytes(sequence)),
             u32::from_be_bytes(chunk_index),
-        )
+        ))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.to_bytes().into_owned()
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.to_bytes()?.into_owned())
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
@@ -499,16 +495,17 @@ impl RawJournalChunk {
 }
 
 impl Storable for RawJournalChunk {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.as_bytes())
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
+        Ok(Self(bytes.into_owned()))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0)
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
@@ -523,16 +520,15 @@ impl JournalTailStore {
     /// # Panics
     /// Panics if retained storage has an invalid header or unsupported layout,
     /// or the backing storage fails. Invalid retained contents are not replaced.
-    #[must_use]
-    pub fn init(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
-        Self {
+    pub fn init(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
+        Ok(Self {
             // Only virgin allocations may initialize a new map.
             map: if memory.size() == 0 {
-                StableBTreeMap::create(memory)
+                StableBTreeMap::create(memory).map_err(InternalError::from)?
             } else {
-                StableBTreeMap::load(memory)
+                StableBTreeMap::load(memory).map_err(InternalError::from)?
             },
-        }
+        })
     }
 
     /// Initialize the exact current-format tail control on an empty tail.
@@ -541,7 +537,7 @@ impl JournalTailStore {
         if !self.preflight_current_tail_control_initialization()? {
             return Ok(());
         }
-        self.apply_current_tail_control_initialization();
+        self.apply_current_tail_control_initialization()?;
         Ok(())
     }
 
@@ -552,44 +548,54 @@ impl JournalTailStore {
         if self
             .map
             .contains_key(&JournalTailKey::tail_convergence_control())
+            .map_err(InternalError::from)?
         {
             let control = self.current_tail_control()?;
             self.entity_mutation_revision_count()?;
-            if !control.is_empty() || self.has_stored_batch() {
+            if !control.is_empty() || self.has_stored_batch()? {
                 return Err(journal_tail_corruption());
             }
             return Ok(false);
         }
-        if self.has_stored_batch() {
+        if self.has_stored_batch()? {
             return Err(InternalError::store_unsupported());
         }
         Ok(true)
     }
 
     /// Publish preflighted empty tail and entity-revision authority together.
-    pub(in crate::db) fn apply_current_tail_control_initialization(&mut self) {
-        self.map.insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(encode_tail_control(JournalTailControl::empty())),
-        );
-        self.map.insert(
-            JournalTailKey::entity_mutation_revision_control(),
-            RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(0)),
-        );
+    pub(in crate::db) fn apply_current_tail_control_initialization(
+        &mut self,
+    ) -> Result<(), InternalError> {
+        self.map
+            .insert(
+                JournalTailKey::tail_convergence_control(),
+                RawJournalChunk::from_bytes(encode_tail_control(JournalTailControl::empty())),
+            )
+            .map_err(InternalError::from)?;
+        self.map
+            .insert(
+                JournalTailKey::entity_mutation_revision_control(),
+                RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(0)),
+            )
+            .map_err(InternalError::from)?;
+
+        Ok(())
     }
 
     /// Return whether current-format exact tail authority is present.
     #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn has_current_tail_control(&self) -> bool {
+    pub(in crate::db) fn has_current_tail_control(&self) -> Result<bool, InternalError> {
         self.map
             .contains_key(&JournalTailKey::tail_convergence_control())
+            .map_err(InternalError::from)
     }
 
     /// Load the exact current-format retained-tail contribution.
     pub(in crate::db) fn current_tail_control(&self) -> Result<JournalTailControl, InternalError> {
         self.map
             .get(&JournalTailKey::tail_convergence_control())
+            .map_err(InternalError::from)?
             .ok_or_else(journal_tail_corruption)
             .and_then(|raw| decode_tail_control(raw.as_bytes()))
     }
@@ -679,13 +685,17 @@ impl JournalTailStore {
                 Included(JournalTailKey::new(JournalSequence::new(1), 0)),
                 Unbounded,
             ))
-            .next();
+            .next()
+            .transpose()
+            .map_err(InternalError::from)?;
         match (control.is_empty(), first) {
             (true, None) => Ok(control),
             (false, Some(entry))
                 if entry.key().sequence == expected_head && entry.key().chunk_index == 0 =>
             {
-                let header = inspect_raw_journal_batch_fixed_header(entry.value().as_bytes())?;
+                let header = inspect_raw_journal_batch_fixed_header(
+                    entry.value().map_err(InternalError::from)?.as_bytes(),
+                )?;
                 if header.journal_sequence() != expected_head
                     || control.head_database_commit_sequence()
                         != Some(header.database_commit_sequence())
@@ -741,7 +751,7 @@ impl JournalTailStore {
             None => false,
         };
         #[cfg(test)]
-        if !self.has_current_tail_control() {
+        if !(self.has_current_tail_control()).expect("fixture storage read should succeed") {
             self.initialize_current_tail_control()?;
         }
         #[cfg(test)]
@@ -754,7 +764,7 @@ impl JournalTailStore {
             self.prepare_entity_mutation_revision_update(batch, &affected_entity_tags)?;
         if identical_replay {
             self.validate_replayed_batch_against_control(header)?;
-            self.apply_prepared_entity_mutation_revision_update(entity_revision_update);
+            self.apply_prepared_entity_mutation_revision_update(entity_revision_update)?;
             return Ok(());
         }
         let current_control = self.current_tail_control()?;
@@ -780,19 +790,24 @@ impl JournalTailStore {
 
         for (chunk_key, chunk) in chunks {
             self.map
-                .insert(chunk_key, RawJournalChunk::from_bytes(chunk));
+                .insert(chunk_key, RawJournalChunk::from_bytes(chunk))
+                .map_err(InternalError::from)?;
         }
         if let Some(revision) = next_data_mutation_revision {
-            self.map.insert(
-                JournalTailKey::data_mutation_revision(),
-                RawJournalChunk::from_bytes(encode_data_mutation_revision(revision)),
-            );
+            self.map
+                .insert(
+                    JournalTailKey::data_mutation_revision(),
+                    RawJournalChunk::from_bytes(encode_data_mutation_revision(revision)),
+                )
+                .map_err(InternalError::from)?;
         }
-        self.apply_prepared_entity_mutation_revision_update(entity_revision_update);
-        self.map.insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(encode_tail_control(next_control)),
-        );
+        self.apply_prepared_entity_mutation_revision_update(entity_revision_update)?;
+        self.map
+            .insert(
+                JournalTailKey::tail_convergence_control(),
+                RawJournalChunk::from_bytes(encode_tail_control(next_control)),
+            )
+            .map_err(InternalError::from)?;
         // Checked append preflight guarantees monotonic controls. Observe only
         // the published contribution; identical replay returns before this point.
         crate::metrics::record_journal_movement(
@@ -838,6 +853,7 @@ impl JournalTailStore {
         let highest_row_sequence = self
             .map
             .get(&JournalTailKey::data_mutation_revision())
+            .map_err(InternalError::from)?
             .map_or(Ok(JournalSequence::new(0)), |raw| {
                 decode_data_mutation_revision(raw.as_bytes())
             })?;
@@ -851,6 +867,7 @@ impl JournalTailStore {
     pub(in crate::db) fn access_state_revision(&self) -> Result<u64, InternalError> {
         self.map
             .get(&JournalTailKey::access_state_revision())
+            .map_err(InternalError::from)?
             .map_or(Ok(1), |raw| decode_access_state_revision(raw.as_bytes()))
     }
 
@@ -860,10 +877,12 @@ impl JournalTailStore {
             .access_state_revision()?
             .checked_add(1)
             .ok_or_else(journal_tail_corruption)?;
-        self.map.insert(
-            JournalTailKey::access_state_revision(),
-            RawJournalChunk::from_bytes(encode_access_state_revision(revision)),
-        );
+        self.map
+            .insert(
+                JournalTailKey::access_state_revision(),
+                RawJournalChunk::from_bytes(encode_access_state_revision(revision)),
+            )
+            .map_err(InternalError::from)?;
         Ok(revision)
     }
 
@@ -889,24 +908,37 @@ impl JournalTailStore {
                 u32::MAX,
             )),
         )) {
+            let entry = entry.map_err(InternalError::from)?;
             match entry.key().chunk_index {
                 0 => {
-                    watermark = decode_fold_watermark(entry.value().as_bytes())?;
+                    watermark = decode_fold_watermark(
+                        entry.value().map_err(InternalError::from)?.as_bytes(),
+                    )?;
                 }
                 DATA_MUTATION_REVISION_CONTROL_CHUNK => {
-                    let _revision = decode_data_mutation_revision(entry.value().as_bytes())?;
+                    let _revision = decode_data_mutation_revision(
+                        entry.value().map_err(InternalError::from)?.as_bytes(),
+                    )?;
                 }
                 ACCESS_STATE_REVISION_CONTROL_CHUNK => {
-                    let _revision = decode_access_state_revision(entry.value().as_bytes())?;
+                    let _revision = decode_access_state_revision(
+                        entry.value().map_err(InternalError::from)?.as_bytes(),
+                    )?;
                 }
                 TAIL_CONVERGENCE_CONTROL_CHUNK => {
-                    let _control = decode_tail_control(entry.value().as_bytes())?;
+                    let _control = decode_tail_control(
+                        entry.value().map_err(InternalError::from)?.as_bytes(),
+                    )?;
                 }
                 ENTITY_MUTATION_REVISION_CONTROL_CHUNK => {
-                    let _count = decode_entity_mutation_revision_control(entry.value().as_bytes())?;
+                    let _count = decode_entity_mutation_revision_control(
+                        entry.value().map_err(InternalError::from)?.as_bytes(),
+                    )?;
                 }
                 ENTITY_MUTATION_REVISION_DATA_CHUNK_START.. => {
-                    let _entries = decode_entity_mutation_revision_chunk(entry.value().as_bytes())?;
+                    let _entries = decode_entity_mutation_revision_chunk(
+                        entry.value().map_err(InternalError::from)?.as_bytes(),
+                    )?;
                 }
             }
         }
@@ -932,10 +964,12 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
 
-        self.map.insert(
-            JournalTailKey::fold_watermark(),
-            RawJournalChunk::from_bytes(encode_fold_watermark(watermark)),
-        );
+        self.map
+            .insert(
+                JournalTailKey::fold_watermark(),
+                RawJournalChunk::from_bytes(encode_fold_watermark(watermark)),
+            )
+            .map_err(InternalError::from)?;
 
         Ok(())
     }
@@ -945,9 +979,12 @@ impl JournalTailStore {
     /// The persisted fold watermark remains authoritative if cleanup is
     /// interrupted after the watermark is advanced.
     #[cfg(test)]
-    pub(in crate::db) fn clear_batches_through(&mut self, watermark: JournalSequence) {
+    pub(in crate::db) fn clear_batches_through(
+        &mut self,
+        watermark: JournalSequence,
+    ) -> Result<(), InternalError> {
         if watermark == FOLD_WATERMARK_CONTROL_SEQUENCE {
-            return;
+            return Ok(());
         }
 
         let keys = self
@@ -956,11 +993,12 @@ impl JournalTailStore {
                 Included(JournalTailKey::new(JournalSequence::new(1), 0)),
                 Included(JournalTailKey::new(watermark, u32::MAX)),
             ))
-            .map(|entry| *entry.key())
-            .collect::<Vec<_>>();
+            .map(|entry| entry.map(|entry| *entry.key()))
+            .collect::<Result<Vec<_>, _>>()?;
         for key in keys {
-            let _ = self.map.remove(&key);
+            let _ = self.map.remove(&key).map_err(InternalError::from)?;
         }
+        Ok(())
     }
 
     /// Preflight exact complete-batch retirement before canonical mutation begins.
@@ -993,8 +1031,8 @@ impl JournalTailStore {
                 Included(JournalTailKey::new(batch.journal_sequence(), 0)),
                 Included(JournalTailKey::new(batch.journal_sequence(), u32::MAX)),
             ))
-            .map(|entry| *entry.key())
-            .collect();
+            .map(|entry| entry.map(|entry| *entry.key()))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(PreparedJournalBatchRetirement {
             next_watermark,
             next_control,
@@ -1011,19 +1049,25 @@ impl JournalTailStore {
     pub(in crate::db) fn apply_prepared_batch_retirement(
         &mut self,
         retirement: PreparedJournalBatchRetirement,
-    ) {
-        self.map.insert(
-            JournalTailKey::fold_watermark(),
-            RawJournalChunk::from_bytes(encode_fold_watermark(retirement.next_watermark)),
-        );
-        self.map.insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(encode_tail_control(retirement.next_control)),
-        );
+    ) -> Result<(), InternalError> {
+        self.map
+            .insert(
+                JournalTailKey::fold_watermark(),
+                RawJournalChunk::from_bytes(encode_fold_watermark(retirement.next_watermark)),
+            )
+            .map_err(InternalError::from)?;
+        self.map
+            .insert(
+                JournalTailKey::tail_convergence_control(),
+                RawJournalChunk::from_bytes(encode_tail_control(retirement.next_control)),
+            )
+            .map_err(InternalError::from)?;
         for key in retirement.batch_keys {
-            let _ = self.map.remove(&key);
+            let _ = self.map.remove(&key).map_err(InternalError::from)?;
         }
         crate::metrics::record_journal_movement(true, retirement.contribution);
+
+        Ok(())
     }
 
     /// Return whether any physical journal batch remains in this tail.
@@ -1031,15 +1075,17 @@ impl JournalTailStore {
     /// Recovery uses this single-lookup boundary after advancing the fold
     /// watermark. A retained batch below or above that watermark means cleanup
     /// is incomplete, so marker authority must remain published.
-    #[must_use]
-    pub(in crate::db) fn has_stored_batch(&self) -> bool {
-        self.map
+    pub(in crate::db) fn has_stored_batch(&self) -> Result<bool, InternalError> {
+        Ok(self
+            .map
             .range((
                 Included(JournalTailKey::new(JournalSequence::new(1), 0)),
                 Unbounded,
             ))
             .next()
-            .is_some()
+            .transpose()
+            .map_err(InternalError::from)?
+            .is_some())
     }
 
     /// Visit complete batches after the durable fold watermark in replay order.
@@ -1065,6 +1111,8 @@ impl JournalTailStore {
                     Unbounded,
                 ))
                 .next()
+                .transpose()
+                .map_err(InternalError::from)?
             else {
                 break;
             };
@@ -1107,6 +1155,8 @@ impl JournalTailStore {
                 Unbounded,
             ))
             .next()
+            .transpose()
+            .map_err(InternalError::from)?
         else {
             return Ok(None);
         };
@@ -1183,7 +1233,10 @@ impl JournalTailStore {
         self.map
             .iter()
             .filter_map(|entry| {
-                let sequence = entry.key().sequence;
+                let sequence = entry
+                    .expect("storage operation should succeed")
+                    .key()
+                    .sequence;
                 (sequence != FOLD_WATERMARK_CONTROL_SEQUENCE).then_some(sequence)
             })
             .collect::<BTreeSet<_>>()
@@ -1215,13 +1268,18 @@ impl JournalTailStore {
         let mut entries = self
             .map
             .get(&key)
+            .map_err(InternalError::from)?
             .ok_or_else(journal_tail_corruption)
             .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
         entries.remove(chunk_offset);
-        self.map.insert(
-            key,
-            RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(entries.as_slice())?),
-        );
+        self.map
+            .insert(
+                key,
+                RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(
+                    entries.as_slice(),
+                )?),
+            )
+            .map_err(InternalError::from)?;
         Ok(())
     }
 
@@ -1260,11 +1318,12 @@ impl JournalTailStore {
         for (chunk_index, chunk) in bytes.chunks(JOURNAL_TAIL_CHUNK_BYTES as usize).enumerate() {
             let chunk_index = u32::try_from(chunk_index).map_err(|_| journal_tail_corruption())?;
             let key = JournalTailKey::new(sequence, chunk_index);
-            if self.map.contains_key(&key) {
+            if self.map.contains_key(&key).map_err(InternalError::from)? {
                 continue;
             }
             self.map
-                .insert(key, RawJournalChunk::from_bytes(chunk.to_vec()));
+                .insert(key, RawJournalChunk::from_bytes(chunk.to_vec()))
+                .map_err(InternalError::from)?;
         }
 
         Ok(())
@@ -1294,6 +1353,7 @@ impl JournalTailStore {
                 .get(&JournalTailKey::entity_mutation_revision_data_chunk(
                     chunk_ordinal,
                 )?)
+                .map_err(InternalError::from)?
                 .ok_or_else(journal_tail_corruption)
                 .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
             if chunk.len() != expected_entries {
@@ -1317,6 +1377,8 @@ impl JournalTailStore {
                 )),
             ))
             .next()
+            .transpose()
+            .map_err(InternalError::from)?
             .is_some()
         {
             return Err(journal_tail_corruption());
@@ -1327,6 +1389,7 @@ impl JournalTailStore {
     fn entity_mutation_revision_count(&self) -> Result<usize, InternalError> {
         self.map
             .get(&JournalTailKey::entity_mutation_revision_control())
+            .map_err(InternalError::from)?
             .ok_or_else(journal_tail_corruption)
             .and_then(|raw| decode_entity_mutation_revision_control(raw.as_bytes()))
     }
@@ -1419,13 +1482,14 @@ impl JournalTailStore {
     fn apply_prepared_entity_mutation_revision_update(
         &mut self,
         update: PreparedEntityMutationRevisionUpdate,
-    ) {
+    ) -> Result<(), InternalError> {
         for key in update.removals {
-            let _removed = self.map.remove(&key);
+            let _removed = self.map.remove(&key).map_err(InternalError::from)?;
         }
         for (key, chunk) in update.writes {
-            self.map.insert(key, chunk);
+            self.map.insert(key, chunk).map_err(InternalError::from)?;
         }
+        Ok(())
     }
 
     fn prepare_entity_mutation_revision_chunks(
@@ -1446,6 +1510,7 @@ impl JournalTailStore {
             let mut entries = self
                 .map
                 .get(&key)
+                .map_err(InternalError::from)?
                 .ok_or_else(journal_tail_corruption)
                 .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
             let mut apply = |global_ordinal: usize,
@@ -1497,7 +1562,7 @@ impl JournalTailStore {
         entries: Vec<EntityMutationRevisionEntry>,
     ) -> Result<(), InternalError> {
         let update = self.prepare_entity_mutation_revision_replacement(entries)?;
-        self.apply_prepared_entity_mutation_revision_update(update);
+        self.apply_prepared_entity_mutation_revision_update(update)?;
         Ok(())
     }
 
@@ -1519,8 +1584,8 @@ impl JournalTailStore {
                     u32::MAX,
                 )),
             ))
-            .map(|entry| *entry.key())
-            .collect::<Vec<_>>();
+            .map(|entry| entry.map(|entry| *entry.key()))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut writes = Vec::new();
         for (chunk_ordinal, chunk) in entries
             .chunks(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK)
@@ -1550,6 +1615,7 @@ impl JournalTailStore {
         let current = self
             .map
             .get(&JournalTailKey::data_mutation_revision())
+            .map_err(InternalError::from)?
             .map_or(Ok(JournalSequence::new(0)), |raw| {
                 decode_data_mutation_revision(raw.as_bytes())
             })?;
@@ -1588,13 +1654,17 @@ impl JournalTailStore {
                 Included(JournalTailKey::new(sequence, u32::MAX)),
             ))
             .next()
+            .transpose()
+            .map_err(InternalError::from)?
         else {
             return Ok(None);
         };
         if first.key().chunk_index != 0 {
             return Err(journal_tail_corruption());
         }
-        let header = inspect_raw_journal_batch_fixed_header(first.value().as_bytes())?;
+        let header = inspect_raw_journal_batch_fixed_header(
+            first.value().map_err(InternalError::from)?.as_bytes(),
+        )?;
         if header.journal_sequence() != sequence {
             return Err(journal_tail_corruption());
         }
@@ -1716,10 +1786,14 @@ impl JournalTailStore {
             Included(JournalTailKey::new(sequence, 0)),
             Included(JournalTailKey::new(sequence, u32::MAX)),
         )) {
+            let entry = entry.map_err(InternalError::from)?;
             if entry.key().chunk_index != expected_chunk {
                 return Err(journal_tail_corruption());
             }
-            visit(expected_chunk, entry.value().as_bytes())?;
+            visit(
+                expected_chunk,
+                entry.value().map_err(InternalError::from)?.as_bytes(),
+            )?;
             expected_chunk = expected_chunk
                 .checked_add(1)
                 .ok_or_else(journal_tail_corruption)?;
@@ -1736,7 +1810,7 @@ impl JournalTailStore {
         let batch = match self.decode_inspection_batch(sequence, accumulator) {
             Ok(Some(batch)) => batch,
             Ok(None) => {
-                let Some(next) = self.next_batch_sequence_at_or_after(sequence) else {
+                let Some(next) = self.next_batch_sequence_at_or_after(sequence)? else {
                     let prior = sequence
                         .get()
                         .checked_sub(1)
@@ -1765,7 +1839,7 @@ impl JournalTailStore {
                     JournalInspectionCheckpoint::AfterBatch {
                         sequence: sequence.get(),
                     },
-                    !self.has_batch_after(sequence),
+                    !self.has_batch_after(sequence)?,
                     Some(malformed_batch_issue(sequence, &error)),
                     true,
                 ));
@@ -1778,7 +1852,7 @@ impl JournalTailStore {
                 JournalInspectionCheckpoint::AfterBatch {
                     sequence: sequence.get(),
                 },
-                !self.has_batch_after(sequence),
+                !self.has_batch_after(sequence)?,
                 None,
                 false,
             ));
@@ -1812,7 +1886,7 @@ impl JournalTailStore {
                     JournalInspectionCheckpoint::AfterBatch {
                         sequence: sequence.get(),
                     },
-                    !self.has_batch_after(sequence),
+                    !self.has_batch_after(sequence)?,
                     Some(malformed_batch_issue(sequence, &error)),
                     true,
                 ));
@@ -1861,7 +1935,7 @@ impl JournalTailStore {
                     JournalInspectionCheckpoint::AfterBatch {
                         sequence: sequence.get(),
                     },
-                    !self.has_batch_after(sequence),
+                    !self.has_batch_after(sequence)?,
                     Some(JournalIntegrityIssue::DuplicateBatchIdentity {
                         sequence: sequence.get(),
                         prior_sequence: prior_sequence.get(),
@@ -1876,7 +1950,7 @@ impl JournalTailStore {
             JournalInspectionCheckpoint::AfterBatch {
                 sequence: sequence.get(),
             },
-            !self.has_batch_after(sequence),
+            !self.has_batch_after(sequence)?,
             None,
             false,
         ))
@@ -1898,24 +1972,33 @@ impl JournalTailStore {
         Ok(Some(batch))
     }
 
-    fn has_batch_after(&self, sequence: JournalSequence) -> bool {
+    fn has_batch_after(&self, sequence: JournalSequence) -> Result<bool, InternalError> {
         let Some(next) = sequence.next() else {
-            return false;
+            return Ok(false);
         };
-        self.map
+        Ok(self
+            .map
             .range((Included(JournalTailKey::new(next, 0)), Unbounded))
             .next()
-            .is_some()
+            .transpose()
+            .map_err(InternalError::from)?
+            .is_some())
     }
 
     fn next_batch_sequence_at_or_after(
         &self,
         sequence: JournalSequence,
-    ) -> Option<JournalSequence> {
-        self.map
+    ) -> Result<Option<JournalSequence>, InternalError> {
+        for entry in self
+            .map
             .range((Included(JournalTailKey::new(sequence, 0)), Unbounded))
-            .map(|entry| entry.key().sequence)
-            .find(|candidate| *candidate != FOLD_WATERMARK_CONTROL_SEQUENCE)
+        {
+            let candidate = entry?.key().sequence;
+            if candidate != FOLD_WATERMARK_CONTROL_SEQUENCE {
+                return Ok(Some(candidate));
+            }
+        }
+        Ok(None)
     }
 
     fn blocked_identity_progress(
@@ -1926,7 +2009,7 @@ impl JournalTailStore {
     ) -> Result<JournalIntegrityPage, InternalError> {
         let next = prior_sequence.next().ok_or_else(journal_tail_corruption)?;
         let next = self
-            .next_batch_sequence_at_or_after(next)
+            .next_batch_sequence_at_or_after(next)?
             .filter(|next| *next < sequence);
         Ok(match next {
             Some(next) => JournalInspectionAccumulator::finish(
@@ -1943,7 +2026,7 @@ impl JournalTailStore {
                 JournalInspectionCheckpoint::AfterBatch {
                     sequence: sequence.get(),
                 },
-                !self.has_batch_after(sequence),
+                !self.has_batch_after(sequence)?,
                 None,
                 true,
             ),
@@ -2450,7 +2533,8 @@ mod convergence_control_tests {
         let sequence = JournalSequence::new(1);
         let encoded = encode_journal_batch(&multi_chunk_batch(1, 1)).unwrap();
         for missing_chunk in [0, 1] {
-            let mut store = JournalTailStore::init(test_memory(241));
+            let mut store = JournalTailStore::init(test_memory(241))
+                .expect("fixture storage should initialize");
             assert!(
                 store
                     .raw_batch_bytes_for_sequence(sequence)
@@ -2478,6 +2562,7 @@ mod convergence_control_tests {
                 store
                     .map
                     .remove(&JournalTailKey::new(sequence, missing_chunk))
+                    .expect("storage operation should succeed")
                     .is_some()
             );
             for result in [
@@ -2489,7 +2574,8 @@ mod convergence_control_tests {
                 assert_eq!(error.origin(), ErrorOrigin::Store);
             }
         }
-        let mut store = JournalTailStore::init(test_memory(241));
+        let mut store =
+            JournalTailStore::init(test_memory(241)).expect("fixture storage should initialize");
         let prefix = encoded[..JOURNAL_TAIL_CHUNK_BYTES as usize].to_vec();
         store
             .insert_raw_batch_for_tests(sequence, prefix.clone())
@@ -2508,10 +2594,13 @@ mod convergence_control_tests {
     }
 
     fn set_control(store: &mut JournalTailStore, control: JournalTailControl) {
-        store.map.insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(encode_tail_control(control)),
-        );
+        store
+            .map
+            .insert(
+                JournalTailKey::tail_convergence_control(),
+                RawJournalChunk::from_bytes(encode_tail_control(control)),
+            )
+            .expect("fixture storage operation should succeed");
     }
 
     fn multi_chunk_batch(journal_sequence: u64, database_commit_sequence: u64) -> JournalBatch {
@@ -2540,7 +2629,8 @@ mod convergence_control_tests {
 
     #[test]
     fn prior_identity_inspection_does_not_trust_a_corrupted_matching_header() {
-        let mut store = JournalTailStore::init(test_memory(174));
+        let mut store =
+            JournalTailStore::init(test_memory(174)).expect("fixture storage should initialize");
         store.initialize_current_tail_control().unwrap();
         let first = batch(1, 7);
         let second = batch(2, 8);
@@ -2564,10 +2654,13 @@ mod convergence_control_tests {
                 .batch_id(),
             second.batch_id(),
         );
-        store.map.insert(
-            JournalTailKey::new(JournalSequence::new(1), 0),
-            RawJournalChunk::from_bytes(bytes),
-        );
+        store
+            .map
+            .insert(
+                JournalTailKey::new(JournalSequence::new(1), 0),
+                RawJournalChunk::from_bytes(bytes),
+            )
+            .expect("fixture storage operation should succeed");
         let page = store
             .inspect_page(
                 JournalInspectionCheckpoint::BeforeBatch { sequence: 2 },
@@ -2583,7 +2676,8 @@ mod convergence_control_tests {
     fn retirement_uses_next_header_but_consumption_validates_all_chunks() {
         for missing_chunk in [None, Some(1), Some(3)] {
             let memory = crate::testing::test_memory_owner(174);
-            let mut store = JournalTailStore::init(memory.open());
+            let mut store =
+                JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
             store.initialize_current_tail_control().unwrap();
             let first = batch(1, 7);
             let second = multi_chunk_batch(2, 8);
@@ -2595,15 +2689,19 @@ mod convergence_control_tests {
                     store
                         .map
                         .remove(&JournalTailKey::new(JournalSequence::new(2), chunk))
+                        .expect("storage operation should succeed")
                         .is_some()
                 );
             }
 
             let watermark = FoldWatermark::new(JournalSequence::new(1), 1);
             let retirement = store.prepare_batch_retirement(&first, watermark).unwrap();
-            store.apply_prepared_batch_retirement(retirement);
+            store
+                .apply_prepared_batch_retirement(retirement)
+                .expect("fixture storage operation should succeed");
             drop(store);
-            let reopened = JournalTailStore::init(memory.open());
+            let reopened =
+                JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
             let control = reopened.current_tail_control().unwrap();
             assert_eq!(control.batch_count(), 1);
             assert_eq!(control.record_count(), 1);
@@ -2612,7 +2710,7 @@ mod convergence_control_tests {
                 control.head_database_commit_sequence(),
                 Some(DatabaseCommitSequence::new(8))
             );
-            assert!(reopened.has_stored_batch());
+            assert!((reopened.has_stored_batch()).expect("fixture storage read should succeed"));
             let next = reopened.next_batch_after(JournalSequence::new(1));
             if missing_chunk.is_some() {
                 assert_eq!(next.unwrap_err().class(), ErrorClass::Corruption);
@@ -2625,7 +2723,8 @@ mod convergence_control_tests {
     #[test]
     fn retirement_rejects_missing_malformed_or_miskeyed_next_headers_without_effects() {
         for invalid_header in [0, 1, 2] {
-            let mut store = JournalTailStore::init(test_memory(174));
+            let mut store = JournalTailStore::init(test_memory(174))
+                .expect("fixture storage should initialize");
             store.initialize_current_tail_control().unwrap();
             let first = batch(1, 7);
             store.append_batch(&first).unwrap();
@@ -2638,13 +2737,19 @@ mod convergence_control_tests {
                 1 => {
                     store
                         .map
-                        .insert(key, RawJournalChunk::from_bytes(vec![0xFF]));
+                        .insert(key, RawJournalChunk::from_bytes(vec![0xFF]))
+                        .expect("fixture storage operation should succeed");
                 }
                 2 => {
-                    store.map.insert(
-                        key,
-                        RawJournalChunk::from_bytes(encode_journal_batch(&batch(3, 8)).unwrap()),
-                    );
+                    store
+                        .map
+                        .insert(
+                            key,
+                            RawJournalChunk::from_bytes(
+                                encode_journal_batch(&batch(3, 8)).unwrap(),
+                            ),
+                        )
+                        .expect("fixture storage operation should succeed");
                 }
                 _ => unreachable!(),
             }
@@ -2670,7 +2775,8 @@ mod convergence_control_tests {
     #[test]
     fn exact_controls_append_replay_retire_and_reopen() {
         let memory = crate::testing::test_memory_owner(176);
-        let mut store = JournalTailStore::init(memory.open());
+        let mut store =
+            JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
         store
             .initialize_current_tail_control()
             .expect("empty current control should initialize");
@@ -2715,10 +2821,13 @@ mod convergence_control_tests {
         let retirement = store
             .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
             .expect("first retirement should preflight");
-        store.apply_prepared_batch_retirement(retirement);
+        store
+            .apply_prepared_batch_retirement(retirement)
+            .expect("fixture storage operation should succeed");
         drop(store);
 
-        let mut reopened = JournalTailStore::init(memory.open());
+        let mut reopened =
+            JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
         let remaining = reopened
             .current_tail_control()
             .expect("control should reopen");
@@ -2731,14 +2840,16 @@ mod convergence_control_tests {
         let retirement = reopened
             .prepare_batch_retirement(&second, FoldWatermark::new(JournalSequence::new(2), 2))
             .expect("second retirement should preflight");
-        reopened.apply_prepared_batch_retirement(retirement);
+        reopened
+            .apply_prepared_batch_retirement(retirement)
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             reopened
                 .current_tail_control()
                 .expect("control should decode"),
             JournalTailControl::empty(),
         );
-        assert!(!reopened.has_stored_batch());
+        assert!(!(reopened.has_stored_batch()).expect("fixture storage read should succeed"));
     }
 
     #[test]
@@ -2786,7 +2897,8 @@ mod convergence_control_tests {
             MAX_JOURNAL_BATCH_BYTES as usize
         );
 
-        let mut store = JournalTailStore::init(test_memory(174));
+        let mut store =
+            JournalTailStore::init(test_memory(174)).expect("fixture storage should initialize");
         store.initialize_current_tail_control().unwrap();
         store.append_batch(&batch).unwrap();
         let control = store.current_tail_control().unwrap();
@@ -2803,7 +2915,8 @@ mod convergence_control_tests {
 
     #[test]
     fn append_rejects_nonmonotonic_database_sequence_before_tail_mutation() {
-        let mut store = JournalTailStore::init(test_memory(177));
+        let mut store =
+            JournalTailStore::init(test_memory(177)).expect("fixture storage should initialize");
         store.initialize_current_tail_control().unwrap();
         store.append_batch(&batch(1, 10)).unwrap();
 
@@ -2817,7 +2930,8 @@ mod convergence_control_tests {
 
     #[test]
     fn aggregate_overflow_and_retirement_underflow_fail_closed() {
-        let mut overflow = JournalTailStore::init(test_memory(178));
+        let mut overflow =
+            JournalTailStore::init(test_memory(178)).expect("fixture storage should initialize");
         overflow.initialize_current_tail_control().unwrap();
         set_control(
             &mut overflow,
@@ -2829,9 +2943,10 @@ mod convergence_control_tests {
             },
         );
         assert!(overflow.append_batch(&batch(1, 2)).is_err());
-        assert!(!overflow.has_stored_batch());
+        assert!(!(overflow.has_stored_batch()).expect("fixture storage read should succeed"));
 
-        let mut underflow = JournalTailStore::init(test_memory(179));
+        let mut underflow =
+            JournalTailStore::init(test_memory(179)).expect("fixture storage should initialize");
         underflow.initialize_current_tail_control().unwrap();
         let retained = batch(1, 3);
         underflow.append_batch(&retained).unwrap();
@@ -2853,36 +2968,46 @@ mod convergence_control_tests {
                 )
                 .is_err()
         );
-        assert!(underflow.has_stored_batch());
+        assert!((underflow.has_stored_batch()).expect("fixture storage read should succeed"));
     }
 
     #[test]
     fn missing_malformed_and_mismatched_head_controls_fail_closed() {
-        let mut store = JournalTailStore::init(test_memory(180));
+        let mut store =
+            JournalTailStore::init(test_memory(180)).expect("fixture storage should initialize");
         assert!(store.current_tail_control().is_err());
-        store.map.insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(vec![0xFF; TAIL_CONVERGENCE_BYTES]),
-        );
+        store
+            .map
+            .insert(
+                JournalTailKey::tail_convergence_control(),
+                RawJournalChunk::from_bytes(vec![0xFF; TAIL_CONVERGENCE_BYTES]),
+            )
+            .expect("fixture storage operation should succeed");
         assert!(store.current_tail_control().is_err());
 
-        let mut entity_authority = JournalTailStore::init(test_memory(181));
+        let mut entity_authority =
+            JournalTailStore::init(test_memory(181)).expect("fixture storage should initialize");
         entity_authority.initialize_current_tail_control().unwrap();
         entity_authority
             .map
-            .remove(&JournalTailKey::entity_mutation_revision_control());
+            .remove(&JournalTailKey::entity_mutation_revision_control())
+            .expect("fixture storage operation should succeed");
         let error = entity_authority
             .validate_current_tail_authority()
             .expect_err("current tail authority requires its entity-revision control");
         assert_eq!(error.class(), ErrorClass::Corruption);
         assert_eq!(error.origin(), ErrorOrigin::Store);
-        entity_authority.map.insert(
-            JournalTailKey::entity_mutation_revision_control(),
-            RawJournalChunk::from_bytes(vec![0xFF; ENTITY_MUTATION_REVISION_CONTROL_BYTES]),
-        );
+        entity_authority
+            .map
+            .insert(
+                JournalTailKey::entity_mutation_revision_control(),
+                RawJournalChunk::from_bytes(vec![0xFF; ENTITY_MUTATION_REVISION_CONTROL_BYTES]),
+            )
+            .expect("fixture storage operation should succeed");
         assert!(entity_authority.validate_current_tail_authority().is_err());
 
-        let mut mismatch = JournalTailStore::init(test_memory(175));
+        let mut mismatch =
+            JournalTailStore::init(test_memory(175)).expect("fixture storage should initialize");
         mismatch.initialize_current_tail_control().unwrap();
         let retained = batch(1, 4);
         mismatch.append_batch(&retained).unwrap();

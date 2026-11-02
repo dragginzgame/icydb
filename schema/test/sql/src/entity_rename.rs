@@ -2,7 +2,7 @@
 //! The store and canister owners remain the ordinary SQL fixture.
 
 use crate::sql::SqlTestStore;
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 // Creation qualification reuses this populated source with either a metadata
 // rename or one physical field addition. Unchanged companions stay at version 1.

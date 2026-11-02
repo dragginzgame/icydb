@@ -137,7 +137,7 @@ do
   fi
 done
 
-if ! rg -q --fixed-strings 'pub use icydb_model as model;' "$FACADE_LIB"; then
+if ! rg -q --fixed-strings 'pub mod model {' "$FACADE_LIB"; then
   echo "the public facade must expose application authoring through icydb::model" >&2
   status=1
 fi

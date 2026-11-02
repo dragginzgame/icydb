@@ -50,10 +50,10 @@ impl StorageReport {
         }
     }
 
-    /// Borrow canister-wide physical allocation accounting.
+    /// Borrow the canister-wide retained allocation directory and logical extents.
     ///
-    /// Absent when no default memory runtime exists. This includes other
-    /// libraries' allocations and the ledger, not just this database's stores.
+    /// Absent when no Storage runtime is bound. The directory includes other
+    /// libraries' retained allocations; it does not confer opening authority.
     #[must_use]
     pub const fn memory_allocations(&self) -> Option<&MemoryAllocations> {
         self.memory_allocations.as_ref()
@@ -107,7 +107,7 @@ pub struct SchemaStoreSnapshot {
     pub(crate) commit: StoreCommitParticipation,
     pub(crate) recovery: StoreRecoveryCapability,
     pub(crate) schema_metadata: StoreSchemaMetadataCapability,
-    pub(crate) memory_id: Option<u8>,
+    pub(crate) memory_id: Option<u64>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
     pub(crate) schema_fingerprint_method_version: Option<u8>,
@@ -140,19 +140,19 @@ impl StoreSnapshotStorageMode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct StoreSnapshotAllocationIdentity {
-    memory_id: u8,
+    memory_id: u64,
     stable_key: String,
 }
 
 impl StoreSnapshotAllocationIdentity {
-    pub(super) const fn new(memory_id: u8, stable_key: String) -> Self {
+    pub(super) const fn new(memory_id: u64, stable_key: String) -> Self {
         Self {
             memory_id,
             stable_key,
         }
     }
 
-    const fn memory_id(&self) -> u8 {
+    const fn memory_id(&self) -> u64 {
         self.memory_id
     }
 }
@@ -207,7 +207,7 @@ struct StoreRoleSnapshotFields {
     commit: StoreCommitParticipation,
     recovery: StoreRecoveryCapability,
     schema_metadata: StoreSchemaMetadataCapability,
-    memory_id: Option<u8>,
+    memory_id: Option<u64>,
     stable_key: Option<String>,
     schema_version: Option<u32>,
     schema_fingerprint_method_version: Option<u8>,
@@ -344,7 +344,7 @@ impl SchemaStoreSnapshot {
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
     #[must_use]
-    pub const fn memory_id(&self) -> Option<u8> {
+    pub const fn memory_id(&self) -> Option<u64> {
         self.memory_id
     }
 
@@ -396,7 +396,7 @@ pub struct DataStoreSnapshot {
     pub(crate) commit: StoreCommitParticipation,
     pub(crate) recovery: StoreRecoveryCapability,
     pub(crate) schema_metadata: StoreSchemaMetadataCapability,
-    pub(crate) memory_id: Option<u8>,
+    pub(crate) memory_id: Option<u64>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
     pub(crate) schema_fingerprint_method_version: Option<u8>,
@@ -481,7 +481,7 @@ impl DataStoreSnapshot {
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
     #[must_use]
-    pub const fn memory_id(&self) -> Option<u8> {
+    pub const fn memory_id(&self) -> Option<u64> {
         self.memory_id
     }
 
@@ -539,7 +539,7 @@ pub struct IndexStoreSnapshot {
     pub(crate) commit: StoreCommitParticipation,
     pub(crate) recovery: StoreRecoveryCapability,
     pub(crate) schema_metadata: StoreSchemaMetadataCapability,
-    pub(crate) memory_id: Option<u8>,
+    pub(crate) memory_id: Option<u64>,
     pub(crate) stable_key: Option<String>,
     pub(crate) schema_version: Option<u32>,
     pub(crate) schema_fingerprint_method_version: Option<u8>,
@@ -629,7 +629,7 @@ impl IndexStoreSnapshot {
 
     /// Return stable-memory manager ID, when generated wiring supplied it.
     #[must_use]
-    pub const fn memory_id(&self) -> Option<u8> {
+    pub const fn memory_id(&self) -> Option<u64> {
         self.memory_id
     }
 

@@ -82,6 +82,10 @@ fn assert_execution_diagnostics(
         .unwrap();
         if grouped {
             assert_eq!(
+                explain(prepared, &root).unwrap().order_pushdown(),
+                &crate::db::query::explain::ExplainOrderPushdown::NotApplicable
+            );
+            assert_eq!(
                 descriptor.execution_mode,
                 ExplainExecutionMode::Materialized
             );
@@ -163,7 +167,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
     .unwrap()
     .group_aggregates(grouped_diagnostic_aggregates())
     .grouped_limits(16, 4096);
-    for (query, is_grouped) in [(scalar, false), (grouped, true)] {
+    for (query, is_grouped) in diagnostic_query_cases(scalar, grouped) {
         let prepare = || {
             session
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -264,4 +268,22 @@ fn prepared_explain_handoff_requires_finalized_execution_facts() {
         QueryError::execute(InternalError::query_executor_invariant()).diagnostic(),
     );
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+}
+
+fn diagnostic_query_cases(
+    scalar: StructuralQuery,
+    grouped: StructuralQuery,
+) -> [(StructuralQuery, bool); 4] {
+    use crate::db::query::plan::OrderSpec;
+    let ordered = |field| {
+        scalar.clone().order_spec(OrderSpec {
+            fields: vec![asc(field).lower()],
+        })
+    };
+    [
+        (ordered("rare"), false),
+        (ordered("wide_branch"), false),
+        (scalar, false),
+        (grouped, true),
+    ]
 }

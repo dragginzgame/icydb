@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/dev/tool-store.sh scripts/ci/verify-file-checksum.sh
+# Shared companions: scripts/dev/tool-store.sh scripts/ci/verify-file-checksum.sh scripts/dev/native-package-inputs.pl
 # shellcheck disable=SC2154 # Sourced by the Cargo installer; caller owns selections.
 # shellcheck disable=SC2034 # The installer consumes the prepared inputs and lock state.
 
@@ -13,8 +13,12 @@ cargo_native_identity() (
     /usr/bin/cc --version || exit $?
     case "$(uname -s)" in
         Linux)
-            if [[ -x /usr/bin/dpkg-query ]]; then /usr/bin/dpkg-query -W -f='${Package}=${Version}\n'
-            elif [[ -x /usr/bin/rpm ]]; then /usr/bin/rpm -qa | sort
+            if [[ -x /usr/bin/dpkg-query ]]; then
+                /usr/bin/dpkg-query -W -f='${db:Status-Abbrev}\t${binary:Package}\t${Version}\n' |
+                    perl "$ROOT/scripts/dev/native-package-inputs.pl" dpkg /var/lib/dpkg/info
+            elif [[ -x /usr/bin/rpm ]]; then
+                /usr/bin/rpm -qa --qf 'PACKAGE\t%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n[%{FILENAMES}\n]' |
+                    perl "$ROOT/scripts/dev/native-package-inputs.pl" rpm
             else echo 'Cargo sharing requires a qualified Linux native package inventory' >&2; exit 1; fi ;;
         Darwin)
             /usr/bin/sw_vers || exit $?
@@ -79,14 +83,19 @@ cargo_build_init() {
         false|0) ;;
         *) echo 'CARGO_NET_OFFLINE must be true/false or 1/0' >&2; return 1 ;;
     esac
-    # System tools/SDKs are the standard native build environment. Fingerprint
-    # native package state too: upgrading libraries must select another build.
+    # System tools/SDKs are the standard native build environment.
+    # Managed headers, libraries and native build tools affect reuse; unrelated
+    # application package changes do not. Unmanaged native roots are unsupported.
     native_identity="$(cargo_native_identity)" || return 1
     native_digest="$(printf '%s\n' "$native_identity" | perl -MDigest::SHA=sha256_hex -0777 -ne 'print sha256_hex($_)')" || return 1
     local compiler_digest cargo_digest policy_digest
     compiler_digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$compiler")" || return 1
     cargo_digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$cargo_bin")" || return 1
-    policy_digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$ROOT/scripts/dev/cargo-tool-build.sh")" || return 1
+    policy_digest="$(
+        for policy_file in cargo-tool-build.sh native-package-inputs.pl; do
+            bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$ROOT/scripts/dev/$policy_file" || exit $?
+        done | perl -MDigest::SHA=sha256_hex -0777 -ne 'print sha256_hex($_)'
+    )" || return 1
     build_identity="$(jq -cnS --arg compiler "$compiler_version" --arg cargo "$cargo_version" \
         --arg compiler_path "$compiler_root" --arg native "$native_digest" --arg host "$host" \
         --arg compiler_sha256 "$compiler_digest" --arg cargo_sha256 "$cargo_digest" --arg policy "$policy_digest" \
@@ -174,7 +183,7 @@ cargo_build() {
     local feature_options=()
     [[ -z "${features_csv:-}" ]] || feature_options=(--features "$features_csv")
     cargo_cache_check || return 1
-    mkdir "$candidate/home" || return 1
+    (umask 077; mkdir "$candidate/home") || return 1
     # No caller PATH, flags, wrappers, Cargo config or arbitrary environment is
     # passed to the build. The exact packaged lockfile is required above.
     (umask 077; cd "$candidate/home" && "${build_environment[@]}" "HOME=$candidate/home" "$cargo_bin" install \

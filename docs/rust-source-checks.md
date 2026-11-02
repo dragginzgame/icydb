@@ -12,7 +12,7 @@ with status two. Unknown options are CLI errors with status two.
 
 Compile this snapshot source as a binary target in a consumer-owned private
 package using the consumer's existing workspace and selected lockfile. It needs
-Rust 2024 on Rust 1.88 or newer,
+Rust 2024 on the approved Rust 1.99.1 compiler,
 Clap 4 with `std`, `help`, `usage` and `error-context`, `proc-macro2` with
 `span-locations` and `syn` with `full` and `visit` (the consumer
 selects compatible published versions). It needs no product/runtime dependencies
@@ -39,8 +39,8 @@ change during execution.
 Shared Tooling's native CI compiles the scanner on Linux and both macOS hosts
 using the producer-only templates and locked graph under `ci/runtime-panics/`.
 This representative graph does not select consumer dependencies. CI explicitly
-prepares Rust 1.88 with Clippy and rustfmt, then runs
-`bash scripts/ci/qualify-runtime-panics.sh 1.88.0 NEW-ABSOLUTE-EVIDENCE-DIRECTORY`.
+reuses the Rust 1.99.1 compiler already prepared from `rust-toolchain.toml`, then
+runs `bash scripts/ci/qualify-runtime-panics.sh 1.99.1 NEW-ABSOLUTE-EVIDENCE-DIRECTORY`.
 The helper requires that compiler to be prepared already; it performs no tool
 installation. Cargo can fetch the exact locked sources; explicit offline settings
 remain authoritative. Compilation, strict Clippy, formatting and semantic logs,

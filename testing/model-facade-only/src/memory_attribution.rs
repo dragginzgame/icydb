@@ -2,21 +2,10 @@
 
 use std::{fs, sync::mpsc, thread};
 
-fn allocation_report() -> (u64, u64, u64, u64) {
-    let report = runtime_api::db::memory_runtime()
-        .unwrap()
-        .memory_allocation_summary()
-        .unwrap();
-    println!(
-        "current={:?} ledger={:?} unknown={:?}",
-        report.current_binding, report.ledger_binding, report.unknown_binding
-    );
-    (
-        report.physical_extent.bytes(),
-        report.virtual_extent.bytes(),
-        report.bucket_size_bytes(),
-        report.bucket_slack_bytes(),
-    )
+fn allocation_report() -> u64 {
+    let report = runtime_api::db::memory_runtime().unwrap().memory_allocations().unwrap();
+    println!("retained_allocations={report:?}");
+    report.iter().map(|entry| entry.pages * 65_536).sum()
 }
 
 fn report_process_memory(phase: &str) {
@@ -61,9 +50,9 @@ fn native_memory_attribution() {
             .collect();
         for phase in ["initialized", "one_row"] {
             for (worker, (_, receiver)) in controls.iter().enumerate() {
-                let (physical, virtual_bytes, bucket, slack) = receiver.recv().unwrap();
+                let virtual_bytes = receiver.recv().unwrap();
                 println!(
-                    "workers={workers} worker={worker} phase={phase} physical_bytes={physical} virtual_bytes={virtual_bytes} bucket_bytes={bucket} slack_bytes={slack}"
+                    "workers={workers} worker={worker} phase={phase} virtual_bytes={virtual_bytes}"
                 );
             }
             report_process_memory(phase);

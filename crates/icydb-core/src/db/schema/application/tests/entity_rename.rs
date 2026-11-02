@@ -237,7 +237,6 @@ fn advance(
             expected_database: candidate.target_database(),
             expected_head: candidate.expected_head().clone(),
             expected_plan: candidate.migration().unwrap().digest(),
-            acknowledged_finding_page: None,
         },
     )
 }

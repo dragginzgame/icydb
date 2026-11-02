@@ -136,38 +136,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bucket_mismatch_startup_failure_preserves_pages_through_wire() {
-        for (persisted, requested) in [(128, 16), (16, 4), (4, 128)] {
-            let cause = ic_memory::RuntimeConstructionError::BucketSizeMismatch {
-                persisted,
-                requested,
-            };
-            let failure = __startup_bootstrap_failure(DatabaseBootstrapError::from(cause));
-            let bytes =
-                icydb_schema::wire::encode_one(&failure).expect("bucket mismatch should encode");
-            let decoded = icydb_schema::wire::decode_one::<StartupFailure>(&bytes)
-                .expect("bucket mismatch should decode");
-            assert_eq!(decoded, failure);
-            assert_eq!(decoded.kind(), StartupFailureKind::DatabaseControl);
-            assert_eq!(
-                decoded.error().code(),
-                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH,
-            );
-            assert_eq!(decoded.error().origin(), crate::ErrorOrigin::Runtime);
-            assert_eq!(
-                decoded.error().core_facts().unwrap(),
-                vec![
-                    (
-                        icydb_diagnostic_code::DiagnosticFactTag::Expected,
-                        u64::from(requested)
-                    ),
-                    (
-                        icydb_diagnostic_code::DiagnosticFactTag::Actual,
-                        u64::from(persisted)
-                    ),
-                ],
-            );
-        }
+    fn rejected_image_failure_survives_wire_roundtrip() {
+        let cause = ic_storage::RuntimeConstructionError::Directory(
+            ic_storage::DirectoryError::Invalid("fixture image"),
+        );
+        let failure = __startup_bootstrap_failure(DatabaseBootstrapError::from(cause));
+        let bytes = icydb_schema::wire::encode_one(&failure).unwrap();
+        let decoded: StartupFailure = icydb_schema::wire::decode_one(&bytes).unwrap();
+        assert_eq!(decoded, failure);
+        assert_eq!(decoded.kind(), StartupFailureKind::DatabaseControl);
+        assert_eq!(
+            decoded.error().code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_CORRUPTION
+        );
+        assert_eq!(decoded.error().origin(), crate::ErrorOrigin::Runtime);
+        assert!(decoded.error().facts().is_empty());
     }
 
     #[test]

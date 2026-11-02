@@ -70,15 +70,6 @@ impl CratePathOverrides {
         *args = retained;
         Ok(overrides)
     }
-
-    /// Return whether this invocation can emit runtime-owned entity adapters.
-    ///
-    /// Schema-only packages deliberately have no `icydb` dependency and keep
-    /// producing model declarations without runtime code. Adding the runtime
-    /// facade makes entity adapters automatic; it is not a schema option.
-    pub(crate) fn has_icydb_runtime() -> bool {
-        crate_name(ICYDB_PACKAGE).is_ok()
-    }
 }
 
 /// Resolved dependencies passed explicitly to generated token construction.
@@ -89,13 +80,16 @@ pub struct CratePaths {
 }
 
 impl CratePathOverrides {
-    pub(crate) fn resolve(&self) -> Result<CratePaths, darling::Error> {
+    pub(crate) fn resolve(&self, runtime: bool) -> Result<CratePaths, darling::Error> {
         Ok(CratePaths {
             model: resolve_model_path(self.model.as_ref())?,
-            // Schema-only nodes never emit runtime references.
-            runtime: crate_name(ICYDB_PACKAGE)
-                .map(found_crate_path)
-                .unwrap_or_default(),
+            // The selected macro surface owns emission. Cargo manifest presence
+            // cannot prove that a dependency is available to this compilation.
+            runtime: if runtime {
+                icydb_runtime_path()?
+            } else {
+                TokenStream::new()
+            },
         })
     }
 }
@@ -162,7 +156,7 @@ mod tests {
         .unwrap();
         let paths = CratePathOverrides::extract(&mut args)
             .unwrap()
-            .resolve()
+            .resolve(false)
             .unwrap();
         assert_eq!(
             paths.model.to_string(),

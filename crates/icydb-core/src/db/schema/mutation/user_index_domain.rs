@@ -3,7 +3,7 @@
 //! Does not own: accepted-schema marker persistence or physical index apply.
 //! Boundary: accepted-domain or isolated-generation proofs -> exact raw index effects.
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(any(test, feature = "sql", feature = "migration"))]
 use crate::db::resource::construction::ConstructionBudget;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::{
@@ -33,7 +33,7 @@ use crate::{
             decode_index_key_frame, raw_user_index_entity_bounds,
         },
         key_taxonomy::PrimaryKeyValue,
-        predicate::PredicateProgram,
+        predicate::{Predicate, PredicateProgram},
         schema::{
             MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
             SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
@@ -258,7 +258,7 @@ impl StagedUserIndexDomainReplacement {
                 let mut budget = StagedUserIndexDomainBudget::standard();
                 let mut deletion_keys = Vec::new();
                 let construction: &dyn ConstructionBudget = work;
-                index_store.visit_raw_entries_in_range(
+                index_store.visit_raw_entries_in_range::<InternalError, _>(
                     (
                         Bound::Included(lower).as_ref(),
                         Bound::Included(upper).as_ref(),
@@ -589,6 +589,9 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     /// Accepted-schema fingerprint construction failed.
     Fingerprint(InternalError),
 
+    /// The backing store could not complete checked traversal.
+    Storage(InternalError),
+
     /// The backing index store is not query-ready before staging.
     IndexStoreNotReady,
 
@@ -614,12 +617,19 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     UnsupportedAcceptedIndex,
 }
 
+impl From<InternalError> for StagedUserIndexDomainError {
+    fn from(error: InternalError) -> Self {
+        Self::Storage(error)
+    }
+}
+
 impl StagedUserIndexDomainError {
     /// Preserve stable underlying causes and classify stage-owned rejection at
     /// the schema-publication boundary.
     pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::Fingerprint(error)
+            Self::Storage(error)
+            | Self::Fingerprint(error)
             | Self::KeyDerivation(error)
             | Self::PredicateEvaluation(error) => error,
             Self::CandidateUniqueConflict => InternalError::index_conflict(),
@@ -670,6 +680,7 @@ impl PreparedUserIndex {
     fn from_accepted_index(
         index: &crate::db::schema::PersistedIndexSnapshot,
         predicate_row_contract: Option<&StructuralRowContract>,
+        normalize: impl FnOnce(Predicate) -> Result<Predicate, InternalError>,
     ) -> Result<Self, StagedUserIndexDomainError> {
         let request = if index.key().is_field_path_only() {
             SchemaMutationRequest::from_accepted_field_path_index(index)
@@ -695,7 +706,7 @@ impl PreparedUserIndex {
                 Some(
                     bound
                         .for_row_contract(row_contract)
-                        .map(crate::db::predicate::normalize)
+                        .and_then(normalize)
                         .map_err(StagedUserIndexDomainError::KeyDerivation)?,
                 )
                 .map(|predicate| {
@@ -756,15 +767,18 @@ pub(in crate::db) struct UniqueConstraintProjection {
 
 impl UniqueConstraintProjection {
     /// Compile one exact unique-index owner against the accepted row contract.
+    /// The caller supplies normalization authority: maintenance borrows its page
+    /// budget; commit/replay preserves its already-accepted preparation contract.
     pub(in crate::db) fn new(
         entity_tag: EntityTag,
         index: &crate::db::schema::PersistedIndexSnapshot,
         row_contract: &StructuralRowContract,
+        normalize: impl FnOnce(Predicate) -> Result<Predicate, InternalError>,
     ) -> Result<Self, InternalError> {
         if !index.unique() || index.physical_generation() == 0 {
             return Err(InternalError::store_invariant());
         }
-        let prepared = PreparedUserIndex::from_accepted_index(index, Some(row_contract))
+        let prepared = PreparedUserIndex::from_accepted_index(index, Some(row_contract), normalize)
             .map_err(StagedUserIndexDomainError::into_internal_error)?;
         Ok(Self {
             entity_tag,
@@ -804,11 +818,15 @@ impl MigrationIndexProjection {
         entity_tag: EntityTag,
         index: &crate::db::schema::PersistedIndexSnapshot,
         row_contract: &StructuralRowContract,
+        work: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         if index.physical_generation() == 0 {
             return Err(InternalError::store_invariant());
         }
-        let prepared = PreparedUserIndex::from_accepted_index(index, Some(row_contract))
+        let prepared =
+            PreparedUserIndex::from_accepted_index(index, Some(row_contract), |predicate| {
+                crate::db::predicate::normalize_with_budget(predicate, work)
+            })
             .map_err(StagedUserIndexDomainError::into_internal_error)?;
         Ok(Self {
             entity_tag,
@@ -902,7 +920,11 @@ impl PreparedUserIndexProjection {
         let mut unique_index_ids = BTreeSet::new();
 
         for index in snapshot.indexes() {
-            let prepared = PreparedUserIndex::from_accepted_index(index, predicate_row_contract)?;
+            let prepared = PreparedUserIndex::from_accepted_index(
+                index,
+                predicate_row_contract,
+                |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
+            )?;
             if index.unique() {
                 unique_index_ids.insert(IndexId::new_with_generation(
                     entity_tag,
@@ -1042,7 +1064,7 @@ fn observe_current_user_index_domain(
     let (lower, upper) = raw_user_index_entity_bounds(entity_tag)
         .map_err(|_| StagedUserIndexDomainError::KeyEncode)?;
     let mut entries = Vec::new();
-    index_store.visit_raw_entries_in_range(
+    index_store.visit_raw_entries_in_range::<StagedUserIndexDomainError, _>(
         (
             Bound::Included(lower).as_ref(),
             Bound::Included(upper).as_ref(),
@@ -1079,7 +1101,7 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
     let (lower, upper) = raw_user_index_entity_bounds(entity_tag)
         .map_err(|_| StagedUserIndexDomainError::KeyEncode)?;
     let mut found = false;
-    index_store.visit_raw_entries_in_range(
+    index_store.visit_raw_entries_in_range::<StagedUserIndexDomainError, _>(
         (
             Bound::Included(lower).as_ref(),
             Bound::Included(upper).as_ref(),

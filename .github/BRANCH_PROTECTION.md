@@ -10,7 +10,6 @@ Configure branch protection for `main` to gate merges on reviews and CI.
 - Dismiss stale approvals when new commits are pushed: enabled
 - Require status checks to pass before merging: enabled
   - Select checks:
-    - `CI / dependency_msrv`
     - `CI / check`
 - Require branches to be up to date before merging: enabled
 - Include administrators: enabled (recommended)
@@ -29,11 +28,13 @@ Protected Tags
 Notes
 
 - Status check names correspond to jobs in `.github/workflows/ci.yml`.
-- Product MSRV and validation run independently. Canic qualification is a
-  path-scoped, manually dispatchable workflow; its adapter MSRV, `check` and
-  `wasm_size_report` jobs gate composed canister artifact delivery, not product
-  library releases. Require those results for affected integration changes or a
-  proposed source/dependency pairing; do not configure them as unconditional
+- Compiler qualification runs inside the product workspace lane and is covered
+  by `CI / check`. Remove any retired separate compiler requirement when applying
+  this configuration. Canic qualification is a path-scoped, manually dispatchable
+  workflow; external compiler consumers run in its workspace lane, and `check`
+  plus `wasm_size_report` gate composed artifact delivery, not library releases.
+  Require those results for affected integration changes or a proposed
+  source/dependency pairing; do not configure them as unconditional
   required checks on every core PR. A skipped path-scoped workflow can otherwise
   leave an unrelated PR waiting forever.
 - Live inspection on 2026-10-31 through the admin-authorized GitHub CLI found

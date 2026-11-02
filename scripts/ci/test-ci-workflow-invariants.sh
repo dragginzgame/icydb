@@ -51,35 +51,26 @@ status=0
 ( check fail unexpected-baseline-acceptance ) > "$fixture/assertion-control.log" 2>&1 || status=$?
 [[ "$status" == 1 ]]
 reset
-mutate 'del(.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN)'
-check fail missing-msrv-selection
+mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/prepare-rust"))'
+check fail missing-compiler-preparation
 reset
-mutate '.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN = "${{ env.RUST_CURRENT }}"'
-check fail wrong-msrv-selection
+mutate '(.jobs.rust.steps[] | select(.uses == "./.github/actions/prepare-rust")).with.toolchain = "stable"'
+check fail independent-compiler-selector
 reset
-mutate '(.jobs.dependency_msrv.steps[] | select(.with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}")).with.toolchain = "${{ env.RUST_CURRENT }}"'
-check fail wrong-msrv-installation
+mutate '.jobs.rust.env.RUSTUP_TOOLCHAIN = "stable"'
+check fail overridden-job-compiler
 reset
-mutate '(.jobs.dependency_msrv.steps[] | select(.with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}")) |= del(.with.targets)'
-check fail missing-msrv-wasm-target
+mutate '(.jobs.rust.steps[] | select(.run == "bash scripts/ci/check-public-compiler.sh")).env.RUSTUP_TOOLCHAIN = "stable"'
+check fail overridden-proof-compiler
 reset
-mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).env.RUSTUP_TOOLCHAIN = "${{ env.RUST_CURRENT }}"'
-check fail overridden-msrv-compiler
+mutate '.jobs.rust.steps |= map(select(.run != "bash scripts/ci/check-public-compiler.sh")) | .jobs.static.steps += [{"run": "bash scripts/ci/check-public-compiler.sh"}]'
+check fail compiler-proof-wrong-job
 reset
-mutate '.jobs.dependency_msrv.steps |= map(select(.run != "bash scripts/ci/check-public-msrv.sh")) | .jobs.static.steps += [{"run": "bash scripts/ci/check-public-msrv.sh"}]'
-check fail msrv-gate-wrong-job
+mutate '(.jobs.rust.steps[] | select(.run == "bash scripts/ci/check-public-compiler.sh")).continue-on-error = true'
+check fail ignored-compiler-proof
 reset
-mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).continue-on-error = true'
-check fail ignored-msrv-failure
-reset
-mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).if = "github.event_name == '\''pull_request'\''"'
-check fail conditional-msrv-gate
-reset
-mutate '.jobs.dependency_msrv.steps |= map(select(.run != "cargo fetch --locked"))'
-check fail missing-msrv-cache-preparation
-reset
-mutate '.jobs.dependency_msrv.steps |= (map(select(.run != "cargo fetch --locked")) + [.[] | select(.run == "cargo fetch --locked")])'
-check fail late-msrv-cache-preparation
+mutate '(.jobs.rust.steps[] | select(.run == "bash scripts/ci/check-public-compiler.sh")).if = "matrix.lane == '\''tier-a'\''"'
+check fail wrong-compiler-proof-lane
 reset
 mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("make check-portable-automation"; "make help")'
 check fail missing-native-portable-gate
@@ -257,12 +248,26 @@ mutate '.jobs.rust.uses = "owner/repo/.github/workflows/build.yml@main"'
 check fail shared-reusable-workflow-pin
 subject="$adapter_subject"
 reset
+mutate '.jobs.rust.steps |= map(select(.run != "bash scripts/ci/check-canic-adapter-compiler.sh"))'
+check fail missing-external-compiler-proof
+reset
+mutate '(.jobs.rust.steps[] | select(.run == "bash scripts/ci/check-canic-adapter-compiler.sh")).if = "matrix.lane == '\''tier-a'\''"'
+check fail wrong-external-compiler-proof-lane
+reset
 mutate '.jobs.wasm_size_report.needs = "check"'
 check fail dependent-wasm-evidence
 reset
-mutate '.jobs.release.needs = ["wasm_size_report", "check"]'
+mutate '.jobs.release.needs = ["wasm_size_report"]'
 check fail release-prerequisite
 subject="$core_subject"
+reset
+perl -0pi -e 's/(validate:\n\t[^\n]+\n)\t[^\n]+check-rust-compiler\n/$1/' "$fixture/Makefile"
+check fail missing-release-compiler-admission
+cp "$ROOT/Makefile" "$fixture/Makefile"
+reset
+perl -ni -e 'print unless m{^/\.github/actions/ }' "$fixture/.github/CODEOWNERS"
+check fail missing-compiler-action-owner
+cp "$ROOT/.github/CODEOWNERS" "$fixture/.github/CODEOWNERS"
 # Artifact tests must remain in the composed graph and include both SQL and
 # fleet assertions; checking an ignored-only subset drops the SQL obligation.
 reset

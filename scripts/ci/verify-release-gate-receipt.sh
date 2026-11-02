@@ -10,8 +10,9 @@ if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
     exit 2
 fi
 
+source "$ROOT_DIR/scripts/release/group.sh"
 shopt -s nullglob
-for receipt in "$RELEASE_RECEIPT_DIR"/v*.commit; do
+for receipt in "$RELEASE_RECEIPT_DIR"/"$RELEASE_GROUP"-v*.commit; do
     receipt_commit="$(sed -n '1p' "$receipt")"
     if [[ "$receipt_commit" != "$EXPECTED_COMMIT" ]]; then
         continue

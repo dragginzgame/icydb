@@ -3,7 +3,7 @@
 //! Does not own: failure classification, recovery progress, or publication policy.
 //! Boundary: typed failure and maintained binding -> one 2,048-byte stable control cell.
 
-use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory, StableKey};
+use ic_storage::{DefaultMemoryImpl, Memory, RuntimeMemory, StableKey};
 use icydb_diagnostic_code::{
     DiagnosticFactTag, ErrorCode, ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS,
     validate_raw_diagnostic_fact_schema,
@@ -36,7 +36,7 @@ const WASM_PAGE_BYTES: u64 = 65_536;
 const MAX_BINDING_KEY_BYTES: usize = 128;
 const FAILURE_IDENTITY_BYTES: usize = 1 + 2 + 1 + 1;
 const MAX_DIAGNOSTIC_FACT_BYTES: usize = MAX_PUBLIC_DIAGNOSTIC_FACTS * (1 + 8);
-const MAX_JOURNAL_BINDING_BYTES: usize = 1 + 16 + 1 + 1 + MAX_BINDING_KEY_BYTES + 40;
+const MAX_JOURNAL_BINDING_BYTES: usize = 1 + 16 + 8 + 1 + MAX_BINDING_KEY_BYTES + 40;
 pub(in crate::db) const MAX_ENCODED_STARTUP_FAILURE_RECEIPT_BYTES: usize = RECEIPT_HEADER_BYTES
     + FAILURE_IDENTITY_BYTES
     + MAX_DIAGNOSTIC_FACT_BYTES
@@ -47,7 +47,7 @@ const _: () =
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum StartupFailureBinding {
     DatabaseControl {
-        commit_memory_id: u8,
+        commit_memory_id: u64,
         commit_stable_key: String,
         control: Option<DatabaseControlBinding>,
     },
@@ -77,7 +77,7 @@ impl DatabaseControlBinding {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct StoreAllocationIdentityOwned {
-    pub(in crate::db) memory_id: u8,
+    pub(in crate::db) memory_id: u64,
     pub(in crate::db) stable_key: String,
 }
 
@@ -368,7 +368,7 @@ fn encode_binding(out: &mut Vec<u8>, binding: &StartupFailureBinding) -> Result<
             control,
         } => {
             out.push(1);
-            out.push(*commit_memory_id);
+            out.extend_from_slice(&commit_memory_id.to_le_bytes());
             write_string(out, commit_stable_key)?;
             match control {
                 None => out.push(0),
@@ -386,7 +386,7 @@ fn encode_binding(out: &mut Vec<u8>, binding: &StartupFailureBinding) -> Result<
         } => {
             out.push(2);
             out.extend_from_slice(&incarnation.to_bytes());
-            out.push(allocation.memory_id);
+            out.extend_from_slice(&allocation.memory_id.to_le_bytes());
             write_string(out, &allocation.stable_key)?;
             out.extend_from_slice(&proof.data_mutation_revision().to_le_bytes());
             out.extend_from_slice(&proof.fold_sequence().to_le_bytes());
@@ -421,7 +421,7 @@ fn encode_binding(out: &mut Vec<u8>, binding: &StartupFailureBinding) -> Result<
 fn decode_binding(reader: &mut ByteReader<'_>) -> Result<StartupFailureBinding, InternalError> {
     match reader.read_u8().map_err(primitive_decode_error)? {
         1 => {
-            let commit_memory_id = reader.read_u8().map_err(primitive_decode_error)?;
+            let commit_memory_id = reader.read_u64_le().map_err(primitive_decode_error)?;
             let commit_stable_key = read_binding_key(reader)?;
             let control = match reader.read_u8().map_err(primitive_decode_error)? {
                 0 => None,
@@ -446,7 +446,7 @@ fn decode_binding(reader: &mut ByteReader<'_>) -> Result<StartupFailureBinding, 
             )
             .map_err(|_| InternalError::startup_control_corruption())?;
             let allocation = StoreAllocationIdentityOwned {
-                memory_id: reader.read_u8().map_err(primitive_decode_error)?,
+                memory_id: reader.read_u64_le().map_err(primitive_decode_error)?,
                 stable_key: read_binding_key(reader)?,
             };
             let proof = JournalTailProofIdentity::from_persisted_parts(
@@ -547,7 +547,7 @@ fn read_binding_key(reader: &mut ByteReader<'_>) -> Result<String, InternalError
 #[cfg(test)]
 thread_local! {
     static TEST_STARTUP_MEMORIES: RefCell<
-        Vec<(u8, &'static str, crate::testing::TestMemoryOwner)>
+        Vec<(u64, &'static str, crate::testing::TestMemoryOwner)>
     > = const { RefCell::new(Vec::new()) };
 }
 
@@ -578,7 +578,7 @@ fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
 mod tests {
     use super::*;
     use crate::traits::Path;
-    use ic_memory::VectorMemory;
+    use ic_storage::VectorMemory;
 
     struct ReceiptCanister;
 
@@ -587,15 +587,15 @@ mod tests {
     }
 
     impl CanisterKind for ReceiptCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(236)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_receipt.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(237)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_receipt.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(238)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -617,27 +617,29 @@ mod tests {
     #[test]
     fn receipt_growth_refusal_preserves_empty_control_and_manager_metadata() {
         use crate::testing::{GrowthLimitedMemory, test_memory_runtime};
-        use ic_memory::MemoryManagerConfig;
+        use ic_storage::StorageConfig;
 
         let backing = VectorMemory::default();
+        let maximum_pages = std::rc::Rc::new(std::cell::Cell::new(u64::MAX));
         let runtime = test_memory_runtime(
             GrowthLimitedMemory {
                 backing: backing.clone(),
-                maximum_pages: 2,
+                maximum_pages: std::rc::Rc::clone(&maximum_pages),
             },
-            MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+            StorageConfig::default(),
         );
         let memory = runtime
-            .open_memory(&ic_memory::StableKey::parse("icydb.core_tests.slot_237.v1").unwrap())
+            .open_memory(&ic_storage::StableKey::parse("icydb.core_tests.slot_237.v1").unwrap())
             .unwrap();
+        maximum_pages.set(ic_storage::Memory::size(&backing));
         let before = backing.borrow().clone();
-        let summary = runtime.memory_allocation_summary().unwrap();
+        let summary = runtime.memory_allocations().unwrap();
         let error = write_cell(&memory, &[]).unwrap_err();
         assert_eq!(error.class(), crate::error::ErrorClass::Internal);
         assert_eq!(error.origin(), crate::error::ErrorOrigin::Recovery);
         assert_eq!(memory.size(), 0);
         assert_eq!(*backing.borrow(), before);
-        assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
+        assert_eq!(runtime.memory_allocations().unwrap(), summary);
         assert!(decode_cell(&memory).unwrap().is_none());
     }
 
@@ -656,11 +658,11 @@ mod tests {
 
     #[test]
     fn every_closed_binding_round_trips_in_the_current_envelope() {
-        assert_eq!(MAX_ENCODED_STARTUP_FAILURE_RECEIPT_BYTES, 927);
+        assert_eq!(MAX_ENCODED_STARTUP_FAILURE_RECEIPT_BYTES, 934);
         let database = StartupFailureReceipt::new(
             failure(StartupFailureKind::DatabaseControl),
             StartupFailureBinding::DatabaseControl {
-                commit_memory_id: 236,
+                commit_memory_id: 1_236,
                 commit_stable_key: ReceiptCanister::COMMIT_STABLE_KEY.to_string(),
                 control: Some(DatabaseControlBinding::new(incarnation(), [7; 32])),
             },
@@ -673,7 +675,7 @@ mod tests {
             StartupFailureBinding::JournalRecovery {
                 incarnation: incarnation(),
                 allocation: StoreAllocationIdentityOwned::from_identity(
-                    StoreAllocationIdentity::new(239, "icydb.test.rows.journal.v1"),
+                    StoreAllocationIdentity::new(1_239, "icydb.test.rows.journal.v1"),
                 ),
                 proof: JournalTailProofIdentity::from_persisted_parts(1, 0, 0, 1, 2),
             },
@@ -742,7 +744,7 @@ mod tests {
         let mismatch = StartupFailureReceipt::new(
             failure(StartupFailureKind::JournalRecovery),
             StartupFailureBinding::DatabaseControl {
-                commit_memory_id: 236,
+                commit_memory_id: 1_236,
                 commit_stable_key: ReceiptCanister::COMMIT_STABLE_KEY.to_string(),
                 control: None,
             },
@@ -752,7 +754,7 @@ mod tests {
         let malformed_allocation = StartupFailureReceipt::new(
             failure(StartupFailureKind::DatabaseControl),
             StartupFailureBinding::DatabaseControl {
-                commit_memory_id: 236,
+                commit_memory_id: 1_236,
                 commit_stable_key: "icydb.test.not-canonical.v1".to_string(),
                 control: None,
             },

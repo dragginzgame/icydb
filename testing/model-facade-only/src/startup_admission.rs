@@ -1,4 +1,4 @@
-//! Isolate generated startup pool failures in child processes, without runtime reset hooks.
+//! Isolate generated startup grant failures in child processes, without runtime reset hooks.
 
 use runtime_api::{
     self as icydb, ErrorCode,
@@ -7,15 +7,12 @@ use runtime_api::{
 
 const CASE_ENV: &str = "ICYDB_FACADE_MEMORY_FAILURE_CASE";
 
-pub(super) fn extend_pool(grants: &mut Vec<ic_memory::MemoryAuthority>, exclusions: &mut Vec<u8>) {
+pub(super) fn adjust_grants(grants: &mut Vec<ic_storage::MemoryAuthority>) {
     let Ok(case) = std::env::var(CASE_ENV) else {
         return;
     };
     if case == "missing_grant" {
         grants.clear();
-    }
-    if case == "excluded_pool" {
-        exclusions.extend(10..=254);
     }
 }
 
@@ -33,8 +30,8 @@ fn generated_memory_admission_errors_match_startup_and_db() {
         }
         let failure = crate::startup_state().unwrap_err();
         let code = match case.as_str() {
-            "excluded_pool" | "missing_grant" => {
-                ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_RESOLUTION_FAILED
+            "missing_grant" => {
+                ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID
             }
             _ => panic!("unknown fixture case"),
         };
@@ -58,7 +55,7 @@ fn generated_memory_admission_errors_match_startup_and_db() {
         assert!(icydb::db::memory_runtime().is_none());
         return;
     }
-    for case in ["excluded_pool", "missing_grant", "fresh_allowed"] {
+    for case in ["missing_grant", "fresh_allowed"] {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -101,24 +98,25 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
         assert!(
             requests
                 .iter()
-                .all(|request| request.authority() == "icydb.facade_only")
+                .all(|request| request.authority() == "icydb_facade_only")
         );
         assert!(icydb::db::memory_runtime().is_none());
         let mut composed = requests;
-        composed.push(ic_memory::MemoryRequest::new("host", "host.control.v1").unwrap());
-        let snapshot = ic_memory::SealedDeclarationSnapshot::new(composed).unwrap();
-        let pool = ic_memory::MemoryAllocationPool::new(
+        let host_request = ic_storage::MemoryRequest::new("host", "host.control.v1").unwrap();
+        let host_key = host_request.stable_key().clone();
+        composed.push(host_request);
+        let snapshot = ic_storage::SealedDeclarationSnapshot::new(composed).unwrap();
+        let pool = ic_storage::AllocationGrants::new(
             vec![
-                ic_memory::MemoryAuthority::new("icydb.facade_only", "icydb.facade_only.").unwrap(),
-                ic_memory::MemoryAuthority::new("host", "host.").unwrap(),
+                ic_storage::MemoryAuthority::new("icydb_facade_only", "icydb.facade_only.").unwrap(),
+                ic_storage::MemoryAuthority::new("host", "host.").unwrap(),
             ],
-            vec![],
         )
         .unwrap();
         let mut runtime =
-            ic_memory::MemoryRuntime::new(ic_memory::DefaultMemoryImpl::default()).unwrap();
+            ic_storage::MemoryRuntime::new(ic_storage::DefaultMemoryImpl::default()).unwrap();
         let committed = runtime
-            .bootstrap(&snapshot, &pool, &ic_memory::GenericAllocationPolicy)
+            .bootstrap(&snapshot, &pool, &ic_storage::GenericAllocationPolicy)
             .unwrap();
         let runtime = std::rc::Rc::new(runtime);
         icydb::db::bind_memory_runtime(std::rc::Rc::clone(&runtime)).unwrap();
@@ -129,7 +127,7 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
         );
         assert!(with_request_execution(|| icydb::db!()).is_ok());
         assert_eq!(runtime.committed_generation().unwrap(), committed);
-        assert!(runtime.open_memory("host.control.v1").is_ok());
+        assert!(runtime.open_memory(&host_key).is_ok());
     })
     .join()
     .unwrap();

@@ -259,15 +259,15 @@ mod tests {
     }
 
     impl CanisterKind for TestCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(244)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.mutation_job.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(246)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.mutation_job.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(245)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.mutation_job.progress.v1";

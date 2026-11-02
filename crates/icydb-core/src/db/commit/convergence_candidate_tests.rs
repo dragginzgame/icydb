@@ -24,7 +24,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory, VectorMemory};
+use ic_storage::{DefaultMemoryImpl, Memory, RuntimeMemory, VectorMemory};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Frozen cumulative limits proved by the convergence candidate.
@@ -72,7 +72,7 @@ type CandidateMemory = RuntimeMemory<DefaultMemoryImpl>;
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct CandidateHeadOrder {
     database_commit_sequence: DatabaseCommitSequence,
-    store_allocation: u8,
+    store_allocation: u64,
     journal_sequence: JournalSequence,
 }
 
@@ -86,7 +86,7 @@ struct DormantCandidateTail {
 
 impl DormantCandidateTail {
     fn new(allocation: StoreAllocationIdentity, memory: CandidateMemory) -> Self {
-        let mut tail = JournalTailStore::init(memory);
+        let mut tail = JournalTailStore::init(memory).expect("fixture storage should initialize");
         tail.initialize_current_tail_control()
             .expect("candidate tail should initialize");
         Self {
@@ -125,7 +125,10 @@ impl DormantConvergenceCandidate {
                 let memory_id =
                     u8::try_from(100 + ordinal).expect("candidate allocation should fit");
                 DormantCandidateTail::new(
-                    StoreAllocationIdentity::new(memory_id, "icydb.test.convergence.journal.v1"),
+                    StoreAllocationIdentity::new(
+                        memory_id.into(),
+                        "icydb.test.convergence.journal.v1",
+                    ),
                     memory,
                 )
             })
@@ -295,7 +298,8 @@ impl DormantConvergenceCandidate {
         }
         candidate
             .tail
-            .apply_prepared_batch_retirement(tail_retirement);
+            .apply_prepared_batch_retirement(tail_retirement)
+            .expect("fixture storage operation should succeed");
         candidate.batch_targets.remove(&batch.journal_sequence());
 
         Ok(Some(order))
@@ -405,7 +409,9 @@ fn isolated_memories(count: usize) -> Vec<CandidateMemory> {
     (0..count)
         .map(|ordinal| {
             crate::testing::test_memory(
-                u8::try_from(ordinal + 10).expect("test memory id should fit"),
+                u8::try_from(ordinal + 10)
+                    .expect("test memory id should fit")
+                    .into(),
             )
         })
         .collect()

@@ -243,7 +243,6 @@ fn rehearse(restart_before: bool) {
         expected_database: pending.database_identity(),
         expected_head: pending.accepted_head().clone(),
         expected_plan: pending.plan_digest().expect("successor has a plan"),
-        acknowledged_finding_page: None,
     };
     eprintln!(
         "entity-rename advance: input_blake3={}",

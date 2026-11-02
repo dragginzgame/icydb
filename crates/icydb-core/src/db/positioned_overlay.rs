@@ -212,7 +212,7 @@ mod tests {
 
     fn position(allocation: u8, sequence: u64) -> JournalOverlayPosition {
         JournalOverlayPosition::new(
-            StoreAllocationIdentity::new(allocation, "test::allocation"),
+            StoreAllocationIdentity::new(allocation.into(), "test::allocation"),
             JournalSequence::new(sequence),
         )
     }

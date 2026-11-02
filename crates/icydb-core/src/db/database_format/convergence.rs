@@ -22,19 +22,12 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use std::{cell::RefCell, thread::LocalKey};
 
-// Host grants select placement within the dependency's non-governance domain.
-const ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID + 1;
-const ALLOCATABLE_MEMORY_ID_MAX: u8 = ic_memory::MEMORY_MANAGER_MAX_ID;
+#[cfg(test)]
 pub(in crate::db) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;
 pub(in crate::db) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;
-const _: () = assert!(
-    CANISTER_CONTROL_ALLOCATION_COUNT
-        + MAX_PERSISTED_STORE_ALLOCATIONS * JOURNALED_STORE_ALLOCATION_WIDTH
-        <= ALLOCATABLE_MEMORY_ID_MAX as usize - ALLOCATABLE_MEMORY_ID_MIN as usize + 1
-);
 
 struct GeneratedStoreProposal {
     persisted: PersistedStoreAllocation,
@@ -226,7 +219,7 @@ fn publish_control_replacement(
     )?;
     before_tail_initialization();
     for tail in tails {
-        tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization);
+        tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization)?;
     }
     apply_prepared_commit_control_replacement(replacement);
     Ok(())
@@ -276,7 +269,7 @@ fn validate_persisted_allocation_set<'a, C: CanisterKind>(
     ];
     for entry in registry {
         for role in entry.roles() {
-            if !(ALLOCATABLE_MEMORY_ID_MIN..=ALLOCATABLE_MEMORY_ID_MAX).contains(&role.memory_id())
+            if role.memory_id() == 0
                 || memory_ids.contains(&role.memory_id())
                 || stable_keys.contains(&role.stable_key())
             {
@@ -330,7 +323,7 @@ pub(in crate::db) fn retired_journal_tail_control(
     JournalTailStore::init(store_memory_owned(
         journal.memory_id(),
         journal.stable_key(),
-    )?)
+    )?)?
     .validate_current_tail_authority()
 }
 
@@ -356,7 +349,7 @@ fn required_allocations(
 #[cfg(test)]
 thread_local! {
     static TEST_CONVERGENCE_MEMORIES: std::cell::RefCell<
-        Vec<(u8, String, crate::testing::TestMemoryOwner)>
+        Vec<(u64, String, crate::testing::TestMemoryOwner)>
     > = const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -375,7 +368,7 @@ use crate::db::database_format::allocation_pages;
 
 #[cfg(test)]
 fn store_memory_owned(
-    memory_id: u8,
+    memory_id: u64,
     stable_key: &str,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     TEST_CONVERGENCE_MEMORIES.with(|memories| {
@@ -395,7 +388,7 @@ fn store_memory_owned(
 
 #[cfg(not(test))]
 fn store_memory_owned(
-    memory_id: u8,
+    memory_id: u64,
     stable_key: &str,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_committed_memory(stable_key, memory_id).map_err(|_| InternalError::store_internal())
@@ -426,7 +419,7 @@ mod tests {
         traits::Path,
         types::EntityTag,
     };
-    use ic_memory::Memory;
+    use ic_storage::Memory;
     use std::cell::RefCell;
 
     const FRESH_PATH: &str = "convergence_tests::Fresh";
@@ -440,22 +433,22 @@ mod tests {
     }
 
     impl CanisterKind for ConvergenceCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(100)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.convergence.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(101)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.convergence.startup.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(102)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.convergence.integrity.v1";
     }
 
     const fn allocations(
-        first_memory_id: u8,
+        first_memory_id: u64,
         data_key: &'static str,
         index_key: &'static str,
         schema_key: &'static str,
@@ -472,16 +465,16 @@ mod tests {
     thread_local! {
         static FRESH_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(
             store_memory_owned(103, "icydb.test.convergence.fresh.data.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static FRESH_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(
             store_memory_owned(104, "icydb.test.convergence.fresh.index.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static FRESH_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(
             store_memory_owned(105, "icydb.test.convergence.fresh.schema.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static FRESH_JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(
             store_memory_owned(106, "icydb.test.convergence.fresh.journal.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static FRESH_REGISTRY: StoreRegistry = registry(
             FRESH_PATH,
             &FRESH_DATA,
@@ -499,28 +492,28 @@ mod tests {
 
         static LIFE_A_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(
             store_memory_owned(115, "icydb.test.convergence.lifea.data.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_A_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(
             store_memory_owned(116, "icydb.test.convergence.lifea.index.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_A_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(
             store_memory_owned(117, "icydb.test.convergence.lifea.schema.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_A_JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(
             store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_B_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(
             store_memory_owned(119, "icydb.test.convergence.lifeb.data.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_B_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(
             store_memory_owned(120, "icydb.test.convergence.lifeb.index.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_B_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(
             store_memory_owned(121, "icydb.test.convergence.lifeb.schema.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_B_JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(
             store_memory_owned(122, "icydb.test.convergence.lifeb.journal.v1").unwrap()
-        ));
+        ).expect("fixture storage should initialize"));
         static LIFE_A_REGISTRY: StoreRegistry = registry(
             LIFE_A_PATH,
             &LIFE_A_DATA,
@@ -618,8 +611,8 @@ mod tests {
     fn maximum_registry() -> Vec<PersistedStoreAllocation> {
         (0..MAX_PERSISTED_STORE_ALLOCATIONS)
             .map(|ordinal| {
-                let first = ALLOCATABLE_MEMORY_ID_MIN
-                    + u8::try_from(CANISTER_CONTROL_ALLOCATION_COUNT + ordinal * 4).unwrap();
+                let first =
+                    1 + u64::try_from(CANISTER_CONTROL_ALLOCATION_COUNT + ordinal * 4).unwrap();
                 let key = |role: &str| -> &'static str {
                     Box::leak(
                         format!("icydb.test.convergence.max.s{ordinal}.{role}.v1").into_boxed_str(),
@@ -716,7 +709,9 @@ mod tests {
             }
         }
         // A physical journal header is not virgin, even with no batches.
-        FRESH_JOURNAL.with_borrow(|tail| assert!(!tail.has_stored_batch()));
+        FRESH_JOURNAL.with_borrow(|tail| {
+            assert!(!(tail.has_stored_batch()).expect("fixture storage read should succeed"));
+        });
         assert!(require_fresh_proposal_roots(&proposals).is_err());
     }
 
@@ -822,10 +817,12 @@ mod tests {
             let retirement = tail
                 .prepare_batch_retirement(&batch, FoldWatermark::new(JournalSequence::new(1), 1))
                 .unwrap();
-            tail.apply_prepared_batch_retirement(retirement);
+            tail.apply_prepared_batch_retirement(retirement)
+                .expect("fixture storage operation should succeed");
             // Simulate restart without the generated owner: release the actual
             // journal lease before the retired-allocation reader opens it.
-            *tail = JournalTailStore::init(test_memory(254));
+            *tail = JournalTailStore::init(test_memory(254))
+                .expect("fixture storage should initialize");
         });
         let (_root, empty_database) = database(&LIFE_EMPTY_REGISTRY);
         ensure_current_convergence_format(&empty_database, &control, false, [0x17; 32]).unwrap();
@@ -852,7 +849,8 @@ mod tests {
         .unwrap();
         let mut tail = JournalTailStore::init(
             store_memory_owned(106, "icydb.test.convergence.fresh.journal.v1").unwrap(),
-        );
+        )
+        .expect("fixture storage should initialize");
         tail.append_batch(&unexpected).unwrap();
         drop(tail);
         let error = current_database_backlog().unwrap_err();
@@ -860,11 +858,13 @@ mod tests {
         assert_eq!(error.origin, ErrorOrigin::Store);
         let mut tail = JournalTailStore::init(
             store_memory_owned(106, "icydb.test.convergence.fresh.journal.v1").unwrap(),
-        );
+        )
+        .expect("fixture storage should initialize");
         let retirement = tail
             .prepare_batch_retirement(&unexpected, FoldWatermark::new(JournalSequence::new(2), 2))
             .unwrap();
-        tail.apply_prepared_batch_retirement(retirement);
+        tail.apply_prepared_batch_retirement(retirement)
+            .expect("fixture storage operation should succeed");
         drop(tail);
         assert_eq!(
             current_database_backlog().unwrap(),
@@ -977,7 +977,8 @@ mod tests {
         // before the retired-allocation reader opens that physical lease.
         let release_a = || {
             LIFE_A_JOURNAL.with_borrow_mut(|tail| {
-                *tail = JournalTailStore::init(test_memory(254));
+                *tail = JournalTailStore::init(test_memory(254))
+                    .expect("fixture storage should initialize");
             });
         };
         release_a();
@@ -986,11 +987,13 @@ mod tests {
         LIFE_A_JOURNAL.with_borrow_mut(|tail| {
             *tail = JournalTailStore::init(
                 store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
-            );
+            )
+            .expect("fixture storage should initialize");
             let retirement = tail
                 .prepare_batch_retirement(&retained, FoldWatermark::new(JournalSequence::new(1), 1))
                 .unwrap();
-            tail.apply_prepared_batch_retirement(retirement);
+            tail.apply_prepared_batch_retirement(retirement)
+                .expect("fixture storage operation should succeed");
         });
         release_a();
         ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
@@ -1006,17 +1009,20 @@ mod tests {
         .unwrap();
         let mut tail = JournalTailStore::init(
             store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
-        );
+        )
+        .expect("fixture storage should initialize");
         tail.append_batch(&unexpected).unwrap();
         drop(tail);
         assert!(ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).is_err());
         let mut tail = JournalTailStore::init(
             store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
-        );
+        )
+        .expect("fixture storage should initialize");
         let retirement = tail
             .prepare_batch_retirement(&unexpected, FoldWatermark::new(JournalSequence::new(2), 2))
             .unwrap();
-        tail.apply_prepared_batch_retirement(retirement);
+        tail.apply_prepared_batch_retirement(retirement)
+            .expect("fixture storage operation should succeed");
         drop(tail);
         ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
 

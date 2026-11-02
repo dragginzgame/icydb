@@ -33,13 +33,11 @@ use crate::{
     testing::{test_memory, test_memory_with_backing},
     types::EntityTag,
 };
-use ic_memory::{Memory, VectorMemory};
+use ic_storage::VectorMemory;
 use ic_storage::adapter::Storable;
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, collections::BTreeMap, mem::size_of};
-
-const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
 fn raw_data_store_key(fill: u64) -> RawDataStoreKey {
     raw_data_store_key_for(EntityTag::new(1), fill)
@@ -459,7 +457,8 @@ fn populated_schema_publication_preserves_entity_revisions_through_decode_and_ap
     // Both caller-built and recovered batches must establish exactly the
     // published inventory, then allow writes to either accepted entity.
     for batch in [&publication, &decoded] {
-        let mut store = JournalTailStore::init(test_memory(234));
+        let mut store =
+            JournalTailStore::init(test_memory(234)).expect("fixture storage should initialize");
         store.initialize_current_tail_control().unwrap();
         store.append_batch(batch).unwrap();
         store
@@ -1216,7 +1215,8 @@ fn commit_marker_rejects_duplicate_identity_owner_ranges_across_batches() {
 
 #[test]
 fn validation_job_appends_do_not_change_the_durable_data_revision() {
-    let mut store = JournalTailStore::init(test_memory(209));
+    let mut store =
+        JournalTailStore::init(test_memory(209)).expect("fixture storage should initialize");
     assert_eq!(
         store
             .data_mutation_revision()
@@ -1321,7 +1321,8 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
 
 #[test]
 fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
-    let mut store = JournalTailStore::init(test_memory(230));
+    let mut store =
+        JournalTailStore::init(test_memory(230)).expect("fixture storage should initialize");
     store
         .initialize_current_tail_control()
         .expect("current tail control should initialize");
@@ -1375,11 +1376,15 @@ fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
     let first_retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("first fold should preflight");
-    store.apply_prepared_batch_retirement(first_retirement);
+    store
+        .apply_prepared_batch_retirement(first_retirement)
+        .expect("fixture storage operation should succeed");
     let second_retirement = store
         .prepare_batch_retirement(&both, FoldWatermark::new(JournalSequence::new(2), 2))
         .expect("second fold should preflight");
-    store.apply_prepared_batch_retirement(second_retirement);
+    store
+        .apply_prepared_batch_retirement(second_retirement)
+        .expect("fixture storage operation should succeed");
     assert_entity_revision(&store, first_tag, 3);
     assert_entity_revision(&store, second_tag, 3);
 }
@@ -1387,7 +1392,8 @@ fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
 #[test]
 fn entity_revision_append_preflights_all_chunks_before_writing() {
     let backing = VectorMemory::default();
-    let mut store = JournalTailStore::init(test_memory_with_backing(232, backing.clone()));
+    let mut store = JournalTailStore::init(test_memory_with_backing(232, backing.clone()))
+        .expect("fixture storage should initialize");
     store.initialize_current_tail_control().unwrap();
     let tags = (1..=icydb_schema::MAX_SCHEMA_ASSIGNMENTS)
         .map(|n| EntityTag::new(u64::try_from(n).unwrap()))
@@ -1435,7 +1441,8 @@ fn entity_revision_append_preflights_all_chunks_before_writing() {
 
 #[test]
 fn completed_entity_revision_authority_fails_closed_on_missing_or_drifted_tags() {
-    let mut store = JournalTailStore::init(test_memory(231));
+    let mut store =
+        JournalTailStore::init(test_memory(231)).expect("fixture storage should initialize");
     store
         .initialize_current_tail_control()
         .expect("current tail control should initialize");
@@ -1464,7 +1471,8 @@ fn completed_entity_revision_authority_fails_closed_on_missing_or_drifted_tags()
 #[test]
 fn access_state_revision_is_durable_and_not_a_journal_batch() {
     let memory = crate::testing::test_memory_owner(253);
-    let mut store = JournalTailStore::init(memory.open());
+    let mut store =
+        JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
     assert_eq!(
         store
             .access_state_revision()
@@ -1480,7 +1488,8 @@ fn access_state_revision_is_durable_and_not_a_journal_batch() {
     assert_eq!(store.len(), 0);
 
     drop(store);
-    let reopened = JournalTailStore::init(memory.open());
+    let reopened =
+        JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
     assert_eq!(
         reopened
             .access_state_revision()
@@ -1706,15 +1715,22 @@ fn journal_batch_codec_rejects_oversized_row_payload() {
 fn journal_sequence_uses_big_endian_storable_order() {
     let low = JournalSequence::new(9);
     let high = JournalSequence::new(10);
-    let low_bytes = low.to_bytes().into_owned();
+    let low_bytes = low
+        .to_bytes()
+        .expect("storage operation should succeed")
+        .into_owned();
 
-    assert!(low.to_bytes() < high.to_bytes());
-    assert_eq!(JournalSequence::from_bytes(Cow::Owned(low_bytes)), low);
+    assert!(low.to_bytes().expect("fixture encoding") < high.to_bytes().expect("fixture encoding"));
+    assert_eq!(
+        JournalSequence::from_bytes(Cow::Owned(low_bytes)).expect("fixture decoding"),
+        low
+    );
 }
 
 #[test]
 fn journal_tail_store_visits_batches_in_sequence_order_after_watermark() {
-    let mut store = JournalTailStore::init(test_memory(210));
+    let mut store =
+        JournalTailStore::init(test_memory(210)).expect("fixture storage should initialize");
     store
         .append_batch(&batch(1))
         .expect("first batch should append");
@@ -1736,7 +1752,8 @@ fn journal_tail_store_visits_batches_in_sequence_order_after_watermark() {
 
 #[test]
 fn journal_tail_store_skips_batches_at_or_below_watermark() {
-    let mut store = JournalTailStore::init(test_memory(211));
+    let mut store =
+        JournalTailStore::init(test_memory(211)).expect("fixture storage should initialize");
     store.append_batch(&batch(1)).expect("batch should append");
     store.append_batch(&batch(2)).expect("batch should append");
 
@@ -1753,7 +1770,8 @@ fn journal_tail_store_skips_batches_at_or_below_watermark() {
 
 #[test]
 fn journal_tail_store_persists_fold_watermark_without_counting_it_as_tail_batch() {
-    let mut store = JournalTailStore::init(test_memory(216));
+    let mut store =
+        JournalTailStore::init(test_memory(216)).expect("fixture storage should initialize");
     store.append_batch(&batch(1)).expect("batch should append");
     store.append_batch(&batch(2)).expect("batch should append");
 
@@ -1771,7 +1789,8 @@ fn journal_tail_store_persists_fold_watermark_without_counting_it_as_tail_batch(
 
 #[test]
 fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
-    let mut store = JournalTailStore::init(test_memory(217));
+    let mut store =
+        JournalTailStore::init(test_memory(217)).expect("fixture storage should initialize");
     let first = batch(1);
     let second = batch(2);
     store.append_batch(&first).expect("batch should append");
@@ -1779,17 +1798,21 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
     let first_retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("first retirement should preflight");
-    store.apply_prepared_batch_retirement(first_retirement);
+    store
+        .apply_prepared_batch_retirement(first_retirement)
+        .expect("fixture storage operation should succeed");
     assert!(
-        store.has_stored_batch(),
+        (store.has_stored_batch()).expect("fixture storage read should succeed"),
         "retiring the first batch must retain the second batch",
     );
     let second_retirement = store
         .prepare_batch_retirement(&second, FoldWatermark::new(JournalSequence::new(2), 2))
         .expect("second retirement should preflight");
-    store.apply_prepared_batch_retirement(second_retirement);
+    store
+        .apply_prepared_batch_retirement(second_retirement)
+        .expect("fixture storage operation should succeed");
     assert!(
-        !store.has_stored_batch(),
+        !(store.has_stored_batch()).expect("fixture storage read should succeed"),
         "complete retirement must leave the physical tail empty",
     );
 
@@ -1820,7 +1843,8 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
 
 #[test]
 fn journal_tail_store_reserves_a_representable_post_commit_revision() {
-    let mut store = JournalTailStore::init(test_memory(224));
+    let mut store =
+        JournalTailStore::init(test_memory(224)).expect("fixture storage should initialize");
     store
         .initialize_current_tail_control()
         .expect("current tail control should initialize");
@@ -1870,7 +1894,8 @@ fn journal_batch_rejects_the_unverifiable_final_sequence() {
 
 #[test]
 fn journal_tail_store_treats_identical_duplicate_append_as_idempotent() {
-    let mut store = JournalTailStore::init(test_memory(212));
+    let mut store =
+        JournalTailStore::init(test_memory(212)).expect("fixture storage should initialize");
     let batch = batch(1);
     store.append_batch(&batch).expect("batch should append");
     store
@@ -1888,7 +1913,8 @@ fn journal_tail_store_rejects_incomplete_existing_batches_without_changing_bytes
 
     for prefix_len in [JOURNAL_TAIL_CHUNK_BYTES as usize, encoded.len() - 1] {
         let backing = VectorMemory::default();
-        let mut store = JournalTailStore::init(test_memory_with_backing(221, backing.clone()));
+        let mut store = JournalTailStore::init(test_memory_with_backing(221, backing.clone()))
+            .expect("fixture storage should initialize");
         store
             .insert_raw_batch_for_tests(JournalSequence::new(1), encoded[..prefix_len].to_vec())
             .expect("truncated raw bytes should insert as a corruption fixture");
@@ -1947,7 +1973,8 @@ fn marker_owned_append_rejects_fixed_header_identity_and_count_mismatches() {
 
     for (ordinal, mismatch) in mismatches.iter().enumerate() {
         let memory_id = u8::try_from(232 + ordinal).expect("test memory ID should fit");
-        let mut store = JournalTailStore::init(test_memory(memory_id));
+        let mut store = JournalTailStore::init(test_memory(memory_id.into()))
+            .expect("fixture storage should initialize");
         let error = store
             .append_marker_encoded_batch(mismatch, &encoded)
             .expect_err("marker-owned bytes must match every fixed batch identity field");
@@ -1959,7 +1986,8 @@ fn marker_owned_append_rejects_fixed_header_identity_and_count_mismatches() {
 
 #[test]
 fn journal_tail_store_rejects_batch_at_fold_watermark_control_sequence() {
-    let mut store = JournalTailStore::init(test_memory(218));
+    let mut store =
+        JournalTailStore::init(test_memory(218)).expect("fixture storage should initialize");
     let control_sequence_batch = JournalBatch::new(
         [0x01; 16],
         [0xAA; 16],
@@ -1978,7 +2006,8 @@ fn journal_tail_store_rejects_batch_at_fold_watermark_control_sequence() {
 
 #[test]
 fn journal_tail_store_rejects_sequence_gap_above_watermark() {
-    let mut store = JournalTailStore::init(test_memory(213));
+    let mut store =
+        JournalTailStore::init(test_memory(213)).expect("fixture storage should initialize");
     let gap_batch = batch(2);
     store
         .insert_raw_batch_for_tests(
@@ -1997,7 +2026,8 @@ fn journal_tail_store_rejects_sequence_gap_above_watermark() {
 
 #[test]
 fn journal_tail_store_rejects_corrupt_raw_batch_bytes_during_visit() {
-    let mut store = JournalTailStore::init(test_memory(219));
+    let mut store =
+        JournalTailStore::init(test_memory(219)).expect("fixture storage should initialize");
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded[0] = b'X';
     store
@@ -2014,7 +2044,8 @@ fn journal_tail_store_rejects_corrupt_raw_batch_bytes_during_visit() {
 
 #[test]
 fn journal_tail_store_rejects_header_declared_trailing_bytes_during_visit() {
-    let mut store = JournalTailStore::init(test_memory(230));
+    let mut store =
+        JournalTailStore::init(test_memory(230)).expect("fixture storage should initialize");
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     let declared_payload_len = u32::try_from(encoded.len() - 10)
         .expect("shortened payload length should fit the current header");
@@ -2033,7 +2064,8 @@ fn journal_tail_store_rejects_header_declared_trailing_bytes_during_visit() {
 
 #[test]
 fn journal_tail_store_rejects_header_sequence_mismatch_during_visit() {
-    let mut store = JournalTailStore::init(test_memory(231));
+    let mut store =
+        JournalTailStore::init(test_memory(231)).expect("fixture storage should initialize");
     let encoded = encode_journal_batch(&batch(2)).expect("journal batch should encode");
     store
         .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
@@ -2049,7 +2081,8 @@ fn journal_tail_store_rejects_header_sequence_mismatch_during_visit() {
 
 #[test]
 fn journal_tail_store_rejects_truncated_raw_batch_bytes_during_visit() {
-    let mut store = JournalTailStore::init(test_memory(220));
+    let mut store =
+        JournalTailStore::init(test_memory(220)).expect("fixture storage should initialize");
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded.truncate(encoded.len().saturating_sub(1));
     store
@@ -2066,7 +2099,8 @@ fn journal_tail_store_rejects_truncated_raw_batch_bytes_during_visit() {
 
 #[test]
 fn journal_tail_store_rejects_duplicate_batch_id_at_different_sequence() {
-    let mut store = JournalTailStore::init(test_memory(214));
+    let mut store =
+        JournalTailStore::init(test_memory(214)).expect("fixture storage should initialize");
     let first = batch(1);
     let duplicate_id = JournalBatch::new(
         first.batch_id(),
@@ -2092,7 +2126,8 @@ fn journal_tail_store_rejects_duplicate_batch_id_at_different_sequence() {
 
 #[test]
 fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set() {
-    let mut store = JournalTailStore::init(test_memory(225));
+    let mut store =
+        JournalTailStore::init(test_memory(225)).expect("fixture storage should initialize");
     for sequence in 1..=3 {
         store
             .append_batch(&batch(sequence))
@@ -2143,7 +2178,8 @@ fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set(
 
 #[test]
 fn journal_inspection_reports_a_nonadjacent_duplicate_batch_identity() {
-    let mut store = JournalTailStore::init(test_memory(226));
+    let mut store =
+        JournalTailStore::init(test_memory(226)).expect("fixture storage should initialize");
     let first = batch(1);
     let third = JournalBatch::new(
         first.batch_id(),
@@ -2190,7 +2226,8 @@ fn journal_inspection_reports_a_nonadjacent_duplicate_batch_identity() {
 
 #[test]
 fn journal_inspection_reports_a_sequence_gap_and_resumes_at_the_next_physical_batch() {
-    let mut store = JournalTailStore::init(test_memory(228));
+    let mut store =
+        JournalTailStore::init(test_memory(228)).expect("fixture storage should initialize");
     let gap_batch = batch(2);
     store
         .insert_raw_batch_for_tests(
@@ -2231,7 +2268,8 @@ fn journal_inspection_reports_a_sequence_gap_and_resumes_at_the_next_physical_ba
 
 #[test]
 fn journal_inspection_reports_a_malformed_batch_without_hiding_tail_exhaustion() {
-    let mut store = JournalTailStore::init(test_memory(229));
+    let mut store =
+        JournalTailStore::init(test_memory(229)).expect("fixture storage should initialize");
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded[0] = b'X';
     store
@@ -2261,7 +2299,8 @@ fn journal_inspection_reports_a_malformed_batch_without_hiding_tail_exhaustion()
 
 #[test]
 fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
-    let mut store = JournalTailStore::init(test_memory(227));
+    let mut store =
+        JournalTailStore::init(test_memory(227)).expect("fixture storage should initialize");
     store
         .initialize_current_tail_control()
         .expect("current tail control should initialize");
@@ -2281,7 +2320,9 @@ fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
     let retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("retirement should preflight");
-    store.apply_prepared_batch_retirement(retirement);
+    store
+        .apply_prepared_batch_retirement(retirement)
+        .expect("fixture storage operation should succeed");
     let folded = store
         .proof_identity()
         .expect("folded proof identity should capture");
@@ -2295,40 +2336,21 @@ fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
 
 #[test]
 fn journal_tail_store_is_empty_before_append() {
-    let store = JournalTailStore::init(test_memory(215));
+    let store =
+        JournalTailStore::init(test_memory(215)).expect("fixture storage should initialize");
 
     assert!(store.is_empty());
 }
 
 #[test]
-fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
-    let memory = VectorMemory::default();
-    let journal_memory = test_memory_with_backing(17, memory.clone());
-    // Attribute only the store's growth, excluding the bootstrapped ledger.
-    let bootstrap_pages = memory.size();
-    let mut store = JournalTailStore::init(journal_memory);
-
-    store
-        .append_batch(&batch(1))
-        .expect("tiny batch should append");
-
-    assert!(
-        memory.size() - bootstrap_pages <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
-        "tiny journal append should not allocate extra MemoryManager buckets; pages={}",
-        memory.size()
-    );
-}
-
-#[test]
-fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
-    fn revision_pages(entity_count: usize, memory_id: u8) -> (u64, u64) {
+fn entity_revision_inventory_round_trips_at_the_accepted_entity_limit() {
+    fn qualify_inventory(entity_count: usize, memory_id: u64) {
         let journal_memory = crate::testing::test_memory_owner(memory_id);
-        let observation = &journal_memory;
-        let mut store = JournalTailStore::init(journal_memory.open());
+        let mut store = JournalTailStore::init(journal_memory.open())
+            .expect("fixture storage should initialize");
         store
             .initialize_current_tail_control()
             .expect("current tail control should initialize");
-        let baseline_pages = observation.size();
         let tags = (1..=entity_count)
             .map(|value| {
                 EntityTag::new(u64::try_from(value).expect("accepted entity count should fit"))
@@ -2340,13 +2362,12 @@ fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
         store
             .validate_current_entity_mutation_revisions(tags.as_slice())
             .expect("published entity revisions should reenter exactly");
-        let published_pages = observation.size();
         let target = tags
             .last()
             .copied()
-            .expect("measurement uses at least one accepted entity");
+            .expect("fixture uses at least one accepted entity");
         let batch = JournalBatch::new(
-            [memory_id; 16],
+            [0x51; 16],
             [0x5A; 16],
             JournalSequence::new(1),
             vec![row_put_record_for(target, 1)],
@@ -2357,17 +2378,25 @@ fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
             .expect("last packed entity revision should advance");
         assert_entity_revision(&store, tags[0], 1);
         assert_entity_revision(&store, target, 2);
-        (baseline_pages, published_pages)
+        let oversized = (1..=icydb_schema::MAX_SCHEMA_ASSIGNMENTS + 1)
+            .map(|value| EntityTag::new(u64::try_from(value).unwrap()))
+            .collect::<Vec<_>>();
+        assert!(
+            store
+                .publish_accepted_entity_mutation_revisions(&oversized)
+                .is_err()
+        );
+        drop(store);
+        let reopened = JournalTailStore::init(journal_memory.open()).unwrap();
+        reopened
+            .validate_current_entity_mutation_revisions(&tags)
+            .unwrap();
+        assert_entity_revision(&reopened, tags[0], 1);
+        assert_entity_revision(&reopened, target, 2);
     }
 
-    let representative = revision_pages(3, 24);
-    let accepted_limit = revision_pages(icydb_schema::MAX_SCHEMA_ASSIGNMENTS, 25);
-    println!(
-        "entity revision stable pages: representative={representative:?} accepted_limit={accepted_limit:?}",
-    );
-
-    assert!(representative.1.saturating_sub(representative.0) <= 1);
-    assert!(accepted_limit.1.saturating_sub(accepted_limit.0) <= 1);
+    qualify_inventory(3, 24);
+    qualify_inventory(icydb_schema::MAX_SCHEMA_ASSIGNMENTS, 25);
 }
 
 #[test]

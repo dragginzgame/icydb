@@ -20,12 +20,12 @@ enum MergeStep {
 }
 
 /// Allocation-free iterator over the visible union of canonical and live entries.
-pub(in crate::db) struct OrderedOverlay<'a, C, L, K, CanonicalKey, LiveKey>
+pub(in crate::db) struct OrderedOverlay<'a, C, L, K, T, E, CanonicalKey, LiveKey>
 where
-    C: Iterator,
+    C: Iterator<Item = Result<T, E>>,
     L: Iterator,
     K: Ord,
-    CanonicalKey: for<'entry> Fn(&'entry C::Item) -> &'entry K,
+    CanonicalKey: for<'entry> Fn(&'entry T) -> &'entry K,
     LiveKey: for<'entry> Fn(&'entry L::Item) -> &'entry K,
 {
     canonical_iter: Peekable<C>,
@@ -34,22 +34,40 @@ where
     canonical_key: CanonicalKey,
     live_key: LiveKey,
     tombstones: &'a BTreeSet<K>,
+    failed: bool,
 }
 
-impl<C, L, K, CanonicalKey, LiveKey> Iterator for OrderedOverlay<'_, C, L, K, CanonicalKey, LiveKey>
+impl<C, L, K, T, E, CanonicalKey, LiveKey> Iterator
+    for OrderedOverlay<'_, C, L, K, T, E, CanonicalKey, LiveKey>
 where
-    C: Iterator,
+    C: Iterator<Item = Result<T, E>>,
     L: Iterator,
     K: Ord,
-    CanonicalKey: for<'entry> Fn(&'entry C::Item) -> &'entry K,
+    CanonicalKey: for<'entry> Fn(&'entry T) -> &'entry K,
     LiveKey: for<'entry> Fn(&'entry L::Item) -> &'entry K,
 {
-    type Item = OrderedOverlayEntry<C::Item, L::Item>;
+    type Item = Result<OrderedOverlayEntry<T, L::Item>, E>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.failed {
+            return None;
+        }
         loop {
+            // Storage traversal errors are terminal even when an overlay would
+            // hide the corresponding key; corruption must not look like absence.
+            if matches!(self.canonical_iter.peek(), Some(Err(_))) {
+                self.failed = true;
+                return self
+                    .canonical_iter
+                    .next()
+                    .map(|entry| entry.map(OrderedOverlayEntry::Canonical));
+            }
+
             let step = {
-                let canonical_entry = self.canonical_iter.peek();
+                let canonical_entry = self
+                    .canonical_iter
+                    .peek()
+                    .and_then(|entry| entry.as_ref().ok());
                 let live_entry = self.live_iter.peek();
                 match (canonical_entry, live_entry) {
                     (None, None) => MergeStep::Done,
@@ -71,22 +89,26 @@ where
 
             match step {
                 MergeStep::Canonical => {
-                    let entry = self.canonical_iter.next()?;
+                    let entry = match self.canonical_iter.next()? {
+                        Ok(entry) => entry,
+                        Err(error) => return Some(Err(error)),
+                    };
                     if !self.tombstones.contains((self.canonical_key)(&entry)) {
-                        return Some(OrderedOverlayEntry::Canonical(entry));
+                        return Some(Ok(OrderedOverlayEntry::Canonical(entry)));
                     }
                 }
                 MergeStep::Live => {
                     let entry = self.live_iter.next()?;
                     if !self.tombstones.contains((self.live_key)(&entry)) {
-                        return Some(OrderedOverlayEntry::Live(entry));
+                        return Some(Ok(OrderedOverlayEntry::Live(entry)));
                     }
                 }
                 MergeStep::Both => {
-                    self.canonical_iter.next()?;
+                    // The peek above already checked this exact canonical entry.
+                    let _ = self.canonical_iter.next()?;
                     let live_entry = self.live_iter.next()?;
                     if !self.tombstones.contains((self.live_key)(&live_entry)) {
-                        return Some(OrderedOverlayEntry::Live(live_entry));
+                        return Some(Ok(OrderedOverlayEntry::Live(live_entry)));
                     }
                 }
                 MergeStep::Done => return None,
@@ -101,19 +123,19 @@ where
 /// entry, matching journaled cached-stable projection semantics. Key projection
 /// stays statically dispatched, while visitor and error types remain outside
 /// the merge state machine.
-pub(in crate::db) fn ordered_overlay_entries<C, L, K, CanonicalKey, LiveKey>(
+pub(in crate::db) fn ordered_overlay_entries<C, L, K, T, E, CanonicalKey, LiveKey>(
     canonical_iter: C,
     live_iter: L,
     direction: Direction,
     canonical_key: CanonicalKey,
     live_key: LiveKey,
     tombstones: &BTreeSet<K>,
-) -> OrderedOverlay<'_, C, L, K, CanonicalKey, LiveKey>
+) -> OrderedOverlay<'_, C, L, K, T, E, CanonicalKey, LiveKey>
 where
-    C: Iterator,
+    C: Iterator<Item = Result<T, E>>,
     L: Iterator,
     K: Ord,
-    CanonicalKey: for<'entry> Fn(&'entry C::Item) -> &'entry K,
+    CanonicalKey: for<'entry> Fn(&'entry T) -> &'entry K,
     LiveKey: for<'entry> Fn(&'entry L::Item) -> &'entry K,
 {
     OrderedOverlay {
@@ -123,6 +145,7 @@ where
         canonical_key,
         live_key,
         tombstones,
+        failed: false,
     }
 }
 
@@ -132,12 +155,14 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     fn collect_overlay<'a>(
-        entries: impl Iterator<Item = OrderedOverlayEntry<(&'a u8, &'a u16), (&'a u8, &'a u16)>>,
+        entries: impl Iterator<
+            Item = Result<OrderedOverlayEntry<(&'a u8, &'a u16), (&'a u8, &'a u16)>, ()>,
+        >,
         stop_after: usize,
     ) -> Vec<(u8, u16)> {
         entries
             .take(stop_after)
-            .map(|entry| match entry {
+            .map(|entry| match entry.unwrap() {
                 OrderedOverlayEntry::Canonical((key, value))
                 | OrderedOverlayEntry::Live((key, value)) => (*key, *value),
             })
@@ -154,7 +179,7 @@ mod tests {
         match direction {
             Direction::Asc => collect_overlay(
                 ordered_overlay_entries(
-                    canonical.iter(),
+                    canonical.iter().map(Ok::<_, ()>),
                     live.iter(),
                     direction,
                     |entry| entry.0,
@@ -165,7 +190,7 @@ mod tests {
             ),
             Direction::Desc => collect_overlay(
                 ordered_overlay_entries(
-                    canonical.iter().rev(),
+                    canonical.iter().rev().map(Ok::<_, ()>),
                     live.iter().rev(),
                     direction,
                     |entry| entry.0,
@@ -264,5 +289,24 @@ mod tests {
             visit_overlay(&canonical, &live, &tombstones, Direction::Desc, usize::MAX),
             vec![(3, 30), (2, 20)]
         );
+    }
+    #[test]
+    fn canonical_failure_is_terminal_even_with_live_overrides_and_tombstones() {
+        for direction in [Direction::Asc, Direction::Desc] {
+            let canonical = [Err::<(u8, u8), _>(7), Ok((1, 10))];
+            let live = [(1, 20)];
+            let tombstones = BTreeSet::from([1]);
+            let mut merged = ordered_overlay_entries(
+                canonical.into_iter(),
+                live.into_iter(),
+                direction,
+                |entry| &entry.0,
+                |entry| &entry.0,
+                &tombstones,
+            );
+            assert!(matches!(merged.next(), Some(Err(7))));
+            assert!(merged.next().is_none());
+            assert!(merged.next().is_none());
+        }
     }
 }

@@ -28,15 +28,21 @@ same approach: mandatory local constraints first, task-specific references after
   sibling inspection needs no additional permission. Never edit another
   contributor's sibling working checkout in place.
 - Ordinary fixes authorize local implementation and focused checks. Leave staging,
-  commits, own release versions, tags and release execution to the user unless
-  delegated. A PR request includes its branch, scoped commits, branch push and PR.
+  commits, package release versions, tags and release execution to the user unless
+  delegated. Shared Tooling alone automatically prepares its local `VERSION`
+  with pending notes under the [next-version rules](rules/changelogs.md#automatic-next-version-selection).
+  A PR request includes its branch, scoped commits, branch push and PR.
   A release/ship/deploy request delegates the corresponding delivery workflow,
   including routine group/version/order choices under
   [delegated delivery](rules/contributions.md#delegated-delivery). Do not ask again
   for each necessary command; guidance and readiness questions do not execute it.
-- Relevant cross-repository contributions in `dragginzgame/*` have standing
-  isolated-PR authority. Follow the [contribution workflow](rules/contributions.md#cross-repository-pull-requests)
-  before external writes. `toko` and `toko-miner` remain excluded without explicit
+- Work and delivery stay with the requested repository. A dependency blocker
+  does not authorize another repository's release or deployment. Cross-repository
+  source contributions require explicit scope. Open PRs only when requested or
+  required by that repository's authorized delivery workflow; routine
+  version/snapshot adoption stays with the receiving owner. Follow the
+  [contribution workflow](rules/contributions.md#cross-repository-pull-requests).
+  `toko` and `toko-miner` remain excluded without explicit
   authorization; DFINITY contributions remain excluded. Merges, integration-branch
   pushes, history rewrites, releases, publication, deployment and paid effects
   require delivery or specific action authority and retain enforced protections.
@@ -151,6 +157,18 @@ for owned RPC; keep unavoidable Candid in dedicated external-protocol boundary
 types, not our domain, state or RPC models. Read the [encoding contract](rules/engineering-details.md#ic-application-encoding)
 and [RPC budgets](rules/rpc-budgets.md) for codecs, bindings or protocol changes.
 
+## Wasm optimization
+
+Shared Tooling owns optimization selection and evidence rules; IC Tooling's
+`ic-build` owns reusable build/optimizer mechanics, recommended recipes and their
+qualification evidence. Consumers select qualified recipes against their product
+budgets. Wasm size comparisons report both the complete uncompressed module and
+its code-section size. Gzip/compressed size is not a Wasm size metric and must not
+appear in those summaries unless transport/compression measurement is explicitly
+requested. Read the [Wasm optimization contract](rules/engineering-details.md#wasm-optimization)
+before comparing Wasm sizes or changing deployment profiles, optimizer settings
+or performance matrices.
+
 ## Gzip encoding
 
 IC Tooling's `ic-host-artifacts::artifact::encode_gzip` owns gzip encoding.
@@ -171,16 +189,24 @@ before interface or storage changes.
 `make release-patch`, `make release-minor` and `make release-major` share the
 [release contract](rules/engineering-details.md#release-commands). Read it and the
 local adapter before authorized release work. Normal releases start fresh;
-specific-attempt recovery uses `release-resume`. Preserve required full validation.
+specific-attempt recovery uses `release-resume`. Preserve complete qualification
+of the selected release. Independent groups may adopt an explicitly qualified
+[group validation plan](docs/release-group-validation.md); until adoption, keep
+the existing full gate. Repository-wide CI remains separate and unchanged.
 
 ## Changelogs and artifact preservation
 
 Use IcyDB-style emoji category sections in root release notes; read the
-[changelog rules](rules/changelogs.md) when updating them. Preserve build and
-recovery evidence on success, failure and retry; no implicit cleanup. See
+[changelog rules](rules/changelogs.md) when updating them. Preserve selected
+deliverables and required provenance/recovery evidence. Regenerable tool-build
+scratch and obsolete cache generations need bounded retention; they are not
+permanent evidence. Consumer release artifacts remain protected from implicit
+cleanup. See
 [artifact preservation](rules/engineering-details.md#changelogs-and-artifact-preservation).
 Keep plain `cargo clean` able to remove the owning workspace's entire `target/`
-directory. Artifact retention must not narrow explicit cleanup.
+directory. Put workspace build/test scratch and generated fixtures beneath
+`target/`; use `.tmp/` or other outside-target scratch only for a documented
+technical need. Artifact retention must not narrow explicit cleanup.
 
 ## IC stable-memory governance
 
@@ -208,11 +234,21 @@ is an index. Require explicit group selection for releases and publication.
 Show every member's version and path in root `Cargo.toml` dependency declarations.
 Group them once, with short titles and separate changelog comments, under the
 [workspace versioning rules](rules/rust-workspaces.md#coordinated-versions-and-workspace-boundaries).
-Use root-owned dependency selections, reviewed shared tooling, explicit setup
-and the product's declared compiler/host requirements. External
-IC dependencies go through `ic-platform`; its canonical `ic-platform-types`
-identity owner may additionally select only `ic_principal` for explicit registry
-conversions and unchanged self-authentication. npm SDK Core uses
+Dependency adoption must distinguish required compatibility/security changes from
+optional refreshes and check the destination graph before planning downstream
+releases. A newer external patch alone does not require republishing consumers.
+Follow the [adoption planning contract](docs/cargo-graph-checks.md#dependency-adoption-planning).
+Use root-owned dependency selections, reviewed shared tooling and explicit setup.
+Rust 1.99.1 is the approved minimum and pinned development/release compiler;
+follow the [compiler support policy](rules/cargo-dependencies.md#minimum-supported-rust-version-msrv)
+when adopting it and consolidating duplicate compiler checks. Preserve product
+host requirements. Select canonical identities
+from `ic-platform-types`, IC0/execution from `ic-platform-runtime`, and crypto or
+external IC adapters from `ic-platform`, following the
+[Platform ownership rules](rules/cargo-dependencies.md#platform-package-owners).
+External IC dependencies remain behind that reviewed boundary; Types alone may
+add `ic_principal` for explicit registry conversions. Self-authentication does
+not enable those conversions. npm SDK Core uses
 `@tokostudios/ic-platform`. Keep reusable cores independently upgradable;
 adapters own their matching integration stacks and must not impose consumer
 framework dependencies on core development. Follow the

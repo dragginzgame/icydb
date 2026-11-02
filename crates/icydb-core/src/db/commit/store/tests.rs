@@ -27,8 +27,8 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
-use ic_memory::Memory;
 use ic_platform::blake3;
+use ic_storage::Memory;
 use icydb_schema::{
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,
     TargetDatabaseIdentity, TargetStoreIdentity,
@@ -144,30 +144,32 @@ fn public_metrics_propagates_unavailable_and_corrupt_controls_instead_of_zero() 
 #[test]
 fn control_capacity_refusal_preserves_existing_frame_bytes() {
     use crate::testing::{GrowthLimitedMemory, test_memory_runtime};
-    use ic_memory::{MemoryManagerConfig, VectorMemory};
+    use ic_storage::{StorageConfig, VectorMemory};
 
     let backing = VectorMemory::default();
+    let maximum_pages = std::rc::Rc::new(std::cell::Cell::new(u64::MAX));
     let runtime = test_memory_runtime(
         GrowthLimitedMemory {
             backing: backing.clone(),
-            maximum_pages: 4,
+            maximum_pages: std::rc::Rc::clone(&maximum_pages),
         },
-        MemoryManagerConfig::new(std::num::NonZeroU16::new(1).unwrap()),
+        StorageConfig::default(),
     );
     let memory = runtime
-        .open_memory(&ic_memory::StableKey::parse("icydb.core_tests.slot_233.v1").unwrap())
+        .open_memory(&ic_storage::StableKey::parse("icydb.core_tests.slot_233.v1").unwrap())
         .unwrap();
     super::reserve_commit_control_capacity(&memory, 65_536).unwrap();
     memory.write(0, b"retained frame");
+    maximum_pages.set(ic_storage::Memory::size(&backing));
     let before = backing.borrow().clone();
-    let summary = runtime.memory_allocation_summary().unwrap();
+    let summary = runtime.memory_allocations().unwrap();
     // The bounded backing cannot reserve four application pages plus its
     // manager and ledger. A rejected reservation must not publish any frame.
     let error = super::reserve_commit_control_capacity(&memory, 4 * 65_536).unwrap_err();
     assert_eq!(error.class(), ErrorClass::Internal);
     assert_eq!(error.origin(), ErrorOrigin::Store);
     assert_eq!(*backing.borrow(), before);
-    assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
+    assert_eq!(runtime.memory_allocations().unwrap(), summary);
     assert_eq!(memory.size(), 1);
 }
 

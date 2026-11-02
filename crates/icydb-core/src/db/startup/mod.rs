@@ -230,7 +230,7 @@ mod tests {
         traits::Path,
         types::EntityTag,
     };
-    use ic_memory::Memory;
+    use ic_storage::Memory;
     use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
     use icydb_schema::{SchemaProposalDigest, SchemaSubmissionKey};
     use std::cell::RefCell;
@@ -242,15 +242,15 @@ mod tests {
     }
 
     impl CanisterKind for FreshCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(232)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_fresh.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(233)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_fresh.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(234)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_fresh.integrity.v1";
@@ -268,15 +268,15 @@ mod tests {
     }
 
     impl CanisterKind for CurrentCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(228)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_current.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(229)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_current.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(230)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -290,15 +290,15 @@ mod tests {
     }
 
     impl CanisterKind for CorruptCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(224)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(225)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(226)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -316,15 +316,15 @@ mod tests {
     }
 
     impl CanisterKind for DriverCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(248)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_driver.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(249)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_driver.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(250)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -344,15 +344,15 @@ mod tests {
     impl CanisterKind for CardinalityDriverCanister {
         // Keep this test-only control triplet distinct from the migration
         // fixtures that coexist in the all-feature libtest process.
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(217)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(218)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(219)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -361,13 +361,13 @@ mod tests {
 
     thread_local! {
         static CARDINALITY_DRIVER_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(210)));
+            RefCell::new(DataStore::init_journaled(test_memory(210)).expect("fixture storage should initialize"));
         static CARDINALITY_DRIVER_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(211)));
+            RefCell::new(IndexStore::init_journaled(test_memory(211)).expect("fixture storage should initialize"));
         static CARDINALITY_DRIVER_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(212)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(212)).expect("fixture storage should initialize"));
         static CARDINALITY_DRIVER_TAIL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(213)));
+            RefCell::new(JournalTailStore::init(test_memory(213)).expect("fixture storage should initialize"));
         static CARDINALITY_DRIVER_STORES: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(
@@ -395,17 +395,17 @@ mod tests {
     }
 
     impl CanisterKind for HeapRecoveryFailureCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(251)
         }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.recovery.failure.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(245)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.recovery.failure.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(246)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -423,17 +423,17 @@ mod tests {
     }
 
     impl CanisterKind for HeapCheckpointFailureCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(254)
         }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.checkpoint.failure.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(221)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.checkpoint.failure.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(222)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -470,17 +470,17 @@ mod tests {
     }
 
     impl CanisterKind for JournalRecoveryFailureCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(185)
         }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.startup.journal.recovery.failure.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(186)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.startup.journal.recovery.failure.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(187)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -489,13 +489,13 @@ mod tests {
 
     thread_local! {
         static JOURNAL_RECOVERY_FAILURE_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(181)));
+            RefCell::new(DataStore::init_journaled(test_memory(181)).expect("fixture storage should initialize"));
         static JOURNAL_RECOVERY_FAILURE_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(182)));
+            RefCell::new(IndexStore::init_journaled(test_memory(182)).expect("fixture storage should initialize"));
         static JOURNAL_RECOVERY_FAILURE_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(183)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(183)).expect("fixture storage should initialize"));
         static JOURNAL_RECOVERY_FAILURE_TAIL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(184)));
+            RefCell::new(JournalTailStore::init(test_memory(184)).expect("fixture storage should initialize"));
         static JOURNAL_RECOVERY_FAILURE_STORES: StoreRegistry = {
             let mut registry = StoreRegistry::new();
             registry.register_journaled_store(

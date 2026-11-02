@@ -19,7 +19,7 @@
         _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests _ci-adapter-workspace-clippy _ci-adapter-workspace-tests \
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
-        print-cargo-home print-cargo-target-dir check-dependency-pins \
+        print-cargo-home print-cargo-target-dir check-dependency-pins check-rust-compiler \
         _icydb-ic-tool-policy install-testkit testkit-check install-release-editor release-editor-check
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -33,12 +33,23 @@ IC_TOOLS ?= icp ic-wasm wasm-opt
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # Include derive sorting in the shared manifest/derive/Rustfmt flow.
 FORMAT_RUST_ARGS := --sort-derives
+# Reject ambiguous release/publication selections before included setup rules run.
+ifneq ($(filter release-% publish,$(MAKECMDGOALS)),)
+ifneq ($(filter-out release-clean release-editor-check,$(filter release-% publish,$(MAKECMDGOALS))),)
+ifneq ($(shell RELEASE_GROUP='$(subst ','"'"',$(RELEASE_GROUP))' bash "$(ROOT_DIR)/scripts/release/group.sh" && printf admitted),admitted)
+$(error Select an explicit valid RELEASE_GROUP)
+endif
+endif
+endif
+export RELEASE_GROUP
 include $(ROOT_DIR)/make/consumer.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
+# Recovery inputs and failed fixture evidence must survive Cargo output cleanup;
+# successful fixture owners remove their trees, while failures stay for collection.
 RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 ADAPTER_MANIFEST := $(ROOT_DIR)/testing/canic-adapter/Cargo.toml
 ADAPTER_MANIFEST_FLAG := --manifest-path "$(ADAPTER_MANIFEST)"
@@ -212,7 +223,7 @@ _icydb-ic-tool-policy:
 #
 
 version:
-	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
+	+@for group in database cli; do printf "%s " "$$group"; $(CARGO_WORK_ENV) RELEASE_GROUP="$$group" YQ="$(YQ)" bash scripts/release/version.sh || exit; done
 
 tags:
 	@git tag --sort=-version:refname | head -10
@@ -235,9 +246,14 @@ test:
 
 test-unit:
 	+$(VALIDATION_RUNNER) \
+		test-model-runtime-selection \
 		_test-icydb-no-default \
 		_test-core-no-default \
 		_test-workspace
+
+.PHONY: test-model-runtime-selection
+test-model-runtime-selection:
+	+$(CARGO_WORK_ENV) bash scripts/ci/test-model-runtime-selection.sh
 
 _test-icydb-no-default:
 	+$(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb --no-default-features
@@ -406,6 +422,7 @@ fmt-adapter-check:
 	+$(MAKE) --no-print-directory fmt-check 'FORMAT_RUST_ARGS=--sort-derives --extra-workspace "$(ROOT_DIR)/testing/canic-adapter"'
 
 validate-adapter:
+	$(MAKE) --no-print-directory check-rust-compiler
 	+$(ADAPTER_VALIDATION_RUNNER) --fail-fast fmt-adapter-check check-adapter-automation clippy-adapter
 	+$(ADAPTER_VALIDATION_RUNNER) test-adapter
 
@@ -415,6 +432,7 @@ fmt fmt-check format-tools-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET
 
 validate:
 	$(MAKE) --no-print-directory tools-check
+	$(MAKE) --no-print-directory check-rust-compiler
 	# Admit lint before invariant fixtures, product builds or executable tests.
 	+$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
@@ -433,6 +451,7 @@ validate:
 # feature-specific clippy lanes and executable tests remain in the full gate.
 validate-fast:
 	$(MAKE) --no-print-directory tools-check
+	$(MAKE) --no-print-directory check-rust-compiler
 	+$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
@@ -472,6 +491,9 @@ test-documentation:
 	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::control_store::tests::
 	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
+check-rust-compiler:
+	+$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-rust-compiler.sh
+
 check-dependency-pins:
 	+$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
 
@@ -480,17 +502,16 @@ check-dependency-pins:
 # Shared owns the generic runner matrix; these release fixtures qualify our
 # actual dispatch, source/receipt custody, rejection and recovery boundaries.
 check-portable-automation: shared-tooling-check
-	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-lock-selection.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
+	bash scripts/ci/test-rust-compiler-policy.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/release/test-standard-release.sh
-	bash scripts/release/test-receipt-callbacks.sh
+	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-release-groups.sh
 	bash scripts/ci/test-tooling-fixture-completion.sh
-	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-pin-exceptions.sh
 	bash scripts/ci/test-publish-workspace.sh
 	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
 	bash scripts/ci/test-pre-commit.sh
@@ -514,7 +535,6 @@ check-invariants:
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
-	+$(RELEASE_EDITOR_ENV) bash scripts/ci/test-release-candidate-receipt.sh
 	bash scripts/ci/check-persisted-format-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/test-read-admission-invariants.sh
@@ -548,7 +568,7 @@ shellcheck:
 
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job aggregates these lanes and native macOS host checks.
-# Product branch protection also requires dependency_msrv; adapter evidence is independent;
+# Isolated compiler consumers run in their existing workspace lanes; adapter evidence is independent;
 # their selection is documented in .github/BRANCH_PROTECTION.md.
 ci-static:
 	+$(VALIDATION_RUNNER) --fail-fast host-tools-check _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
@@ -584,6 +604,7 @@ _ci-core-sql-clippy:
 ci-workspace:
 	+$(VALIDATION_RUNNER) \
 		_ci-workspace-clippy \
+		test-model-runtime-selection \
 		_ci-workspace-tests
 
 ci-adapter:
@@ -667,10 +688,10 @@ release-verify release-prepare-version release-prepared-check release-commit-che
 
 .PHONY: release-verify
 release-version:
-	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
+	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/release/version.sh
 release-preflight:
 	@awk -v version="$(RELEASE_VERSION)" -v date="$(RELEASE_DATE)" \
-		-f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null
+		-f scripts/ci/finalize-release-changelog.awk "releases/$(RELEASE_GROUP)/CHANGELOG.md" >/dev/null
 	+@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 	@$(MAKE) --no-print-directory fetch
@@ -692,7 +713,7 @@ release-commit-check:
 release-committed-check:
 	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/release-candidate-receipt.sh verify-commit
 	+@$(RELEASE_EDITOR_ENV) RELEASE_COMMIT="$${RELEASE_COMMIT:-$$(git rev-parse --verify HEAD)}" \
-		YQ="$(YQ)" bash scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped
+		YQ="$(YQ)" bash scripts/ci/cargo-release-group.sh check "$(RELEASE_GROUP)"
 release-tagged-check:
 	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:

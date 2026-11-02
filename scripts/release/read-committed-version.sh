@@ -19,4 +19,4 @@ trap finish EXIT
 git -C "$ROOT" archive --format=tar "$2" > "$snapshot/source.tar" || exit 1
 mkdir "$snapshot/tree" || exit 1
 tar -xf "$snapshot/source.tar" -C "$snapshot/tree" || exit 1
-bash "$SCRIPT_DIR/../ci/read-cargo-workspace-version.sh" --stable "$snapshot/tree/Cargo.toml"
+env -u RELEASE_COMMIT ICYDB_RELEASE_ROOT="$snapshot/tree" bash "$SCRIPT_DIR/version.sh"

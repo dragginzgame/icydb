@@ -1,3 +1,4 @@
+mod cardinality_folds;
 mod commit_identity_tests;
 #[cfg(feature = "sql")]
 mod grouped_count_tests;
@@ -147,15 +148,15 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(45)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(49)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.startup.control.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(46)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -195,13 +196,13 @@ thread_local! {
         registry
     };
     static JOURNALED_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init_journaled(test_memory(186)));
+        RefCell::new(DataStore::init_journaled(test_memory(186)).expect("fixture storage should initialize"));
     static JOURNALED_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init_journaled(test_memory(187)));
+        RefCell::new(IndexStore::init_journaled(test_memory(187)).expect("fixture storage should initialize"));
     static JOURNALED_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(188)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(188)).expect("fixture storage should initialize"));
     static JOURNALED_TAIL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(189)));
+        RefCell::new(JournalTailStore::init(test_memory(189)).expect("fixture storage should initialize"));
     static JOURNALED_STORE_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry.register_journaled_store(
@@ -233,15 +234,15 @@ impl Path for JournaledTestCanister {
 }
 
 impl CanisterKind for JournaledTestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(190)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.identity_range_tests.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(192)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.identity_range_tests.startup.control.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(191)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -663,7 +664,11 @@ fn reset_journaled_cardinality_projections() -> u64 {
     JOURNALED_INDEX_STORE.with(|store| {
         store
             .borrow_mut()
-            .reset_journaled_live_projection(data_generation, fold_watermark)
+            .reset_journaled_live_projection(
+                data_generation,
+                fold_watermark,
+                &std::collections::BTreeSet::new(),
+            )
             .expect("index projection should reset without a count scan");
     });
     data_generation
@@ -879,7 +884,10 @@ fn secondary_ordered_covering_limit_fails_on_an_accessed_missing_row() {
         .store_handle(STORE_PATH)
         .expect("missing-row fixture store should resolve");
     assert!(
-        store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+        store
+            .with_data_mut(|data| data.remove(&raw_key))
+            .expect("storage operation should succeed")
+            .is_some(),
         "fixture must remove only the authoritative row",
     );
 
@@ -936,7 +944,10 @@ fn secondary_indexed_max_uses_one_descending_edge_across_ties() {
         .store_handle(STORE_PATH)
         .expect("missing-row fixture store should resolve");
     assert!(
-        store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+        store
+            .with_data_mut(|data| data.remove(&raw_key))
+            .expect("storage operation should succeed")
+            .is_some(),
         "fixture must remove only the descending edge row",
     );
 
@@ -967,7 +978,10 @@ fn secondary_indexed_max_upper_range_fails_on_an_accessed_missing_row() {
         .store_handle(STORE_PATH)
         .expect("missing-row fixture store should resolve");
     assert!(
-        store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+        store
+            .with_data_mut(|data| data.remove(&raw_key))
+            .expect("storage operation should succeed")
+            .is_some(),
         "fixture must remove only the upper-range edge row",
     );
 
@@ -1371,6 +1385,7 @@ fn identity_row_stored_bytes<C: CanisterKind>(
             data_store
                 .get(&raw_key)
                 .expect("inserted identity row should exist")
+                .expect("storage operation should succeed")
                 .len(),
         )
         .expect("bounded row length should fit u64")
@@ -1441,7 +1456,10 @@ fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>, fold: bool) {
                 break;
             }
         }
-        assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+        assert!(
+            !(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()))
+                .expect("fixture storage read should succeed")
+        );
     }
     let missing = u64::MAX;
     let binding = exact_key_binding(session);
@@ -4068,8 +4086,9 @@ fn journaled_identity_recovery_quiesces_every_publication_interruption_before_re
         "empty-tail recovery must not rebuild or remove authoritative rows",
     );
     assert_eq!(
-        JOURNALED_INDEX_STORE.with(|store| store.borrow().len()),
-        index_len,
+        (JOURNALED_INDEX_STORE.with(|store| store.borrow().len()))
+            .expect("storage operation should succeed"),
+        (index_len).expect("storage operation should succeed"),
         "empty-tail recovery must not clear or rebuild canonical secondary indexes",
     );
 
@@ -4092,10 +4111,15 @@ fn journaled_identity_recovery_quiesces_every_publication_interruption_before_re
 
     assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 3);
     assert!(
-        JOURNALED_INDEX_STORE.with(|store| !store.borrow().is_empty()),
+        JOURNALED_INDEX_STORE.with(
+            |store| !(store.borrow().is_empty()).expect("fixture storage read should succeed")
+        ),
         "derived index rebuild should restore witnesses without allocating identities",
     );
-    assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    assert!(
+        !(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()))
+            .expect("fixture storage read should succeed")
+    );
     JOURNALED_SCHEMA_STORE.with(|store| {
         let cursor = store
             .borrow()
@@ -4161,7 +4185,10 @@ fn journaled_online_convergence_drains_the_full_backlog_in_complete_batch_callba
         assert_eq!(complete, folded_batches == 64);
     }
 
-    assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    assert!(
+        !(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()))
+            .expect("fixture storage read should succeed")
+    );
     session
         .execute_accepted_structural_save_batch(
             &catalog,
@@ -4192,7 +4219,10 @@ fn journaled_online_convergence_drains_the_full_backlog_in_complete_batch_callba
     );
 
     assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 65);
-    assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    assert!(
+        !(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()))
+            .expect("fixture storage read should succeed")
+    );
     assert_dynamic_payload(&session, 1, 0);
     assert_dynamic_payload(&session, 65, 64);
     JOURNALED_SCHEMA_STORE.with(|store| {
@@ -4233,7 +4263,8 @@ fn journaled_online_convergence_reconstructs_same_key_batches_from_canonical_pre
 
     assert_dynamic_payload(&session, 1, 30);
     assert_eq!(
-        JOURNALED_INDEX_STORE.with(|store| store.borrow().len()),
+        (JOURNALED_INDEX_STORE.with(|store| store.borrow().len()))
+            .expect("storage operation should succeed"),
         1,
         "the newest live index effect should hide every predecessor",
     );
@@ -4247,11 +4278,15 @@ fn journaled_online_convergence_reconstructs_same_key_batches_from_canonical_pre
 
     assert_dynamic_payload(&session, 1, 30);
     assert_eq!(
-        JOURNALED_INDEX_STORE.with(|store| store.borrow().len()),
+        (JOURNALED_INDEX_STORE.with(|store| store.borrow().len()))
+            .expect("storage operation should succeed"),
         1,
         "canonical derived state must contain only the newest membership",
     );
-    assert!(!JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    assert!(
+        !(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()))
+            .expect("fixture storage read should succeed")
+    );
 }
 
 #[test]
@@ -4516,7 +4551,11 @@ fn journaled_convergence_uses_final_batch_rows_for_unique_release() {
 
     assert_dynamic_payload(&session, 2, 10);
     assert_dynamic_payload(&session, 3, 20);
-    assert_eq!(JOURNALED_INDEX_STORE.with(|store| store.borrow().len()), 2);
+    assert_eq!(
+        (JOURNALED_INDEX_STORE.with(|store| store.borrow().len()))
+            .expect("storage operation should succeed"),
+        2
+    );
     assert!(
         session
             .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(20)],)
@@ -4561,7 +4600,7 @@ fn journaled_startup_recovery_completes_one_large_batch_atomically() {
     assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 129);
     JOURNALED_TAIL_STORE.with(|tail| {
         let tail = tail.borrow();
-        assert!(!tail.has_stored_batch());
+        assert!(!(tail.has_stored_batch()).expect("fixture storage read should succeed"));
     });
     assert!(session.db.ensure_recovered_state().is_err());
     assert!(
@@ -4615,7 +4654,8 @@ fn complete_batch_validation_rejects_a_late_record_before_canonical_writes() {
         .expect("current corrupt batch shape should build");
         let encoded =
             encode_journal_batch(&corrupted).expect("current corrupt batch envelope should encode");
-        tail.clear_batches_through(original.journal_sequence());
+        tail.clear_batches_through(original.journal_sequence())
+            .expect("fixture storage operation should succeed");
         tail.insert_raw_batch_for_tests(original.journal_sequence(), encoded)
             .expect("corrupt persisted batch should replace the predecessor");
     });
@@ -4642,7 +4682,7 @@ fn complete_batch_validation_rejects_a_late_record_before_canonical_writes() {
                 .highest_folded_journal_sequence(),
             JournalSequence::new(0),
         );
-        assert!(tail.has_stored_batch());
+        assert!((tail.has_stored_batch()).expect("fixture storage read should succeed"));
     });
 }
 
@@ -4690,7 +4730,8 @@ fn prepared_batch_row_evidence_rejects_a_late_malformed_row_before_canonical_wri
         .expect("current corrupt batch shape should build");
         let encoded =
             encode_journal_batch(&corrupted).expect("current corrupt batch envelope should encode");
-        tail.clear_batches_through(original.journal_sequence());
+        tail.clear_batches_through(original.journal_sequence())
+            .expect("fixture storage operation should succeed");
         tail.insert_raw_batch_for_tests(original.journal_sequence(), encoded)
             .expect("corrupt persisted batch should replace the predecessor");
     });
@@ -4717,7 +4758,7 @@ fn prepared_batch_row_evidence_rejects_a_late_malformed_row_before_canonical_wri
                 .highest_folded_journal_sequence(),
             JournalSequence::new(0),
         );
-        assert!(tail.has_stored_batch());
+        assert!((tail.has_stored_batch()).expect("fixture storage read should succeed"));
     });
 }
 

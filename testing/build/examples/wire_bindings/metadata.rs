@@ -145,10 +145,6 @@ pub(super) fn registry() -> Result<SchemaRegistry> {
         "IntegrityVerifierFamily"
     );
     register!(icydb_core::db::MemoryAllocation, "MemoryAllocation");
-    register!(
-        icydb_core::db::MemoryAllocationBinding,
-        "MemoryAllocationBinding"
-    );
     register!(icydb_core::db::MemoryAllocations, "MemoryAllocations");
     register!(
         icydb_core::db::MemoryCatalogDescription,

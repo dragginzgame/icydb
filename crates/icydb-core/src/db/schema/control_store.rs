@@ -12,9 +12,9 @@ use crate::{
     error::InternalError,
 };
 #[cfg(test)]
-use ic_memory::Memory;
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::Memory;
 use ic_storage::adapter::{BTreeMapRegion, Storable, storable::Bound};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use std::{borrow::Cow, marker::PhantomData, rc::Rc};
 
 pub(super) type ControlMemory = Rc<RuntimeMemory<DefaultMemoryImpl>>;
@@ -37,14 +37,15 @@ pub(super) enum ControlRecordFamily {
 pub(super) struct SchemaControlBytes(pub(super) Vec<u8>);
 
 impl Storable for SchemaControlBytes {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(&self.0))
     }
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0)
     }
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
+        Ok(Self(bytes.into_owned()))
     }
     // Codec admission caps records; the storage maximum must not inflate pages.
     const BOUND: Bound = Bound::Unbounded;
@@ -69,12 +70,13 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
             memory,
             CONTROL_START_PAGE..CONTROL_END_PAGE,
         );
-        map.initialize();
+        map.initialize().map_err(InternalError::from)?;
         let mut header = Vec::with_capacity(HEADER_BYTES);
         header.extend_from_slice(HEADER_MAGIC);
         header.push(HEADER_VERSION);
         header.extend_from_slice(&crc32c(&header).to_le_bytes());
-        map.insert(HEADER_KEY, SchemaControlBytes(header));
+        map.insert(HEADER_KEY, SchemaControlBytes(header))
+            .map_err(InternalError::from)?;
         Ok(Self {
             map,
             family,
@@ -93,24 +95,16 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         if map.allocated_pages() == 0 {
             return Ok(None);
         }
-        // Reject malformed framing before the upstream infallible tree loader.
-        let mut header = [0; 4];
-        map.read(0, &mut header);
-        if header != *b"BTR\x02" {
-            return Err(InternalError::store_corruption());
-        }
-        map.read(52, &mut header);
-        if header != *b"BTA\x01" {
-            return Err(InternalError::store_corruption());
-        }
+        // Storage validates its own map frame before decoding application metadata.
         let header = map
             .get(&HEADER_KEY)
+            .map_err(InternalError::from)?
             .ok_or_else(InternalError::store_corruption)?;
         if header.0.len() != HEADER_BYTES
             || &header.0[..8] != HEADER_MAGIC
             || header.0[8] != HEADER_VERSION
             || header.0[9..] != crc32c(&header.0[..9]).to_le_bytes()
-            || map.len() > MAX_RECORDS
+            || map.len().map_err(InternalError::from)? > MAX_RECORDS
         {
             return Err(InternalError::store_corruption());
         }
@@ -121,8 +115,13 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         after_families[0] = 3;
         if map
             .keys_range(HEADER_KEY..first_family)
+            .map_err(InternalError::from)?
             .any(|key| key != HEADER_KEY)
-            || map.keys_range(after_families..).next().is_some()
+            || map
+                .keys_range(after_families..)
+                .map_err(InternalError::from)?
+                .next()
+                .is_some()
         {
             return Err(InternalError::store_corruption());
         }
@@ -148,31 +147,53 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         start..=end
     }
 
-    pub(super) fn get(&self, key: &K) -> Option<SchemaControlBytes> {
-        self.map.get(&self.storage_key(*key))
-    }
-    pub(super) fn insert(&mut self, key: K, value: SchemaControlBytes) {
-        self.map.insert(self.storage_key(key), value);
-    }
-    pub(super) fn remove(&mut self, key: &K) -> Option<SchemaControlBytes> {
-        self.map.remove(&self.storage_key(*key))
-    }
-    pub(super) fn len(&self) -> u64 {
+    pub(super) fn get(&self, key: &K) -> Result<Option<SchemaControlBytes>, InternalError> {
         self.map
-            .keys_range(self.range())
-            .fold(0, |count, _| count + 1)
+            .get(&self.storage_key(*key))
+            .map_err(InternalError::from)
     }
-    pub(super) fn keys(&self) -> impl Iterator<Item = K> {
-        self.map.keys_range(self.range()).map(|stored| {
-            let mut key = [0; 32];
-            key.copy_from_slice(&stored[1..]);
-            K::from(key)
-        })
+    pub(super) fn insert(
+        &mut self,
+        key: K,
+        value: SchemaControlBytes,
+    ) -> Result<(), InternalError> {
+        self.map
+            .insert(self.storage_key(key), value)
+            .map_err(InternalError::from)?;
+
+        Ok(())
+    }
+    pub(super) fn remove(&mut self, key: &K) -> Result<Option<SchemaControlBytes>, InternalError> {
+        self.map
+            .remove(&self.storage_key(*key))
+            .map_err(InternalError::from)
+    }
+    pub(super) fn len(&self) -> Result<u64, InternalError> {
+        Ok(self
+            .map
+            .keys_range(self.range())
+            .map_err(InternalError::from)?
+            .fold(0, |count, _| count + 1))
+    }
+    pub(super) fn keys(&self) -> Result<impl Iterator<Item = K>, InternalError> {
+        Ok(self
+            .map
+            .keys_range(self.range())
+            .map_err(InternalError::from)?
+            .map(|stored| {
+                let mut key = [0; 32];
+                key.copy_from_slice(&stored[1..]);
+                K::from(key)
+            }))
     }
 
     #[cfg(test)]
-    pub(super) fn corrupt_header_for_tests(&mut self) {
-        self.map.insert(HEADER_KEY, SchemaControlBytes(vec![0xff]));
+    pub(super) fn corrupt_header_for_tests(&mut self) -> Result<(), InternalError> {
+        self.map
+            .insert(HEADER_KEY, SchemaControlBytes(vec![0xff]))
+            .map_err(InternalError::from)?;
+
+        Ok(())
     }
 }
 
@@ -184,7 +205,8 @@ pub(super) fn control_memory() -> Result<ControlMemory, InternalError> {
 pub(in crate::db) fn corrupt_schema_control_header_for_tests() -> Result<(), InternalError> {
     let mut map =
         SchemaControlMap::<[u8; 32]>::open(control_memory()?, ControlRecordFamily::Checkpoint)?;
-    map.corrupt_header_for_tests();
+    map.corrupt_header_for_tests()
+        .expect("fixture storage operation should succeed");
     Ok(())
 }
 
@@ -207,19 +229,41 @@ mod tests {
                 .unwrap();
         // Interleave enough writes to split the root through both retained views.
         for key in 0..40_u8 {
-            application.insert([key; 32], SchemaControlBytes(vec![key; 40]));
-            checkpoint.insert([key; 32], SchemaControlBytes(vec![key + 1; 40]));
+            application
+                .insert([key; 32], SchemaControlBytes(vec![key; 40]))
+                .expect("fixture storage operation should succeed");
+            checkpoint
+                .insert([key; 32], SchemaControlBytes(vec![key + 1; 40]))
+                .expect("fixture storage operation should succeed");
         }
-        assert_eq!(application.len(), 40);
-        assert_eq!(checkpoint.len(), 40);
-        assert_eq!(application.keys().count(), 40);
+        assert_eq!(
+            (application.len()).expect("storage operation should succeed"),
+            40
+        );
+        assert_eq!(
+            (checkpoint.len()).expect("storage operation should succeed"),
+            40
+        );
+        assert_eq!(application.keys().expect("fixture keys").count(), 40);
         for key in 0..40_u8 {
-            assert_eq!(application.get(&[key; 32]).unwrap().0, vec![key; 40]);
-            assert_eq!(checkpoint.get(&[key; 32]).unwrap().0, vec![key + 1; 40]);
+            assert_eq!(
+                application.get(&[key; 32]).unwrap().unwrap().0,
+                vec![key; 40]
+            );
+            assert_eq!(
+                checkpoint.get(&[key; 32]).unwrap().unwrap().0,
+                vec![key + 1; 40]
+            );
             application.remove(&[key; 32]).unwrap();
         }
-        assert_eq!(application.len(), 0);
-        assert_eq!(checkpoint.len(), 40);
+        assert_eq!(
+            (application.len()).expect("storage operation should succeed"),
+            0
+        );
+        assert_eq!(
+            (checkpoint.len()).expect("storage operation should succeed"),
+            40
+        );
         assert!(memory.size() <= CONTROL_START_PAGE + 3);
         let mut frame = [0; 14];
         memory.read(0, &mut frame);
@@ -228,8 +272,11 @@ mod tests {
             SchemaControlMap::<[u8; 32]>::open_existing(memory, ControlRecordFamily::Checkpoint)
                 .unwrap()
                 .unwrap();
-        assert_eq!(reopened.len(), 40);
-        assert_eq!(reopened.get(&[3; 32]).unwrap().0, vec![4; 40]);
+        assert_eq!(
+            (reopened.len()).expect("storage operation should succeed"),
+            40
+        );
+        assert_eq!(reopened.get(&[3; 32]).unwrap().unwrap().0, vec![4; 40]);
         drop(application);
         drop(checkpoint);
         drop(reopened);
@@ -241,8 +288,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(reopened.len(), 40);
-        assert_eq!(reopened.get(&[3; 32]).unwrap().0, vec![4; 40]);
+        assert_eq!(
+            (reopened.len()).expect("storage operation should succeed"),
+            40
+        );
+        assert_eq!(reopened.get(&[3; 32]).unwrap().unwrap().0, vec![4; 40]);
     }
 
     #[test]
@@ -269,12 +319,35 @@ mod tests {
     }
 
     #[test]
+    fn previous_control_tree_framing_is_rejected_without_writing() {
+        let memory = Rc::new(test_memory(243));
+        SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
+            .unwrap();
+        memory.write(CONTROL_START_PAGE * 65_536, b"ICMAP001");
+        let pages = memory.size();
+        let mut before = vec![0; usize::try_from(pages * 65_536).unwrap()];
+        memory.read(0, &mut before);
+
+        assert!(
+            SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
+                .is_err()
+        );
+        assert_eq!(memory.size(), pages);
+        let mut after = vec![0; before.len()];
+        memory.read(0, &mut after);
+        assert_eq!(after, before);
+    }
+
+    #[test]
     fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing() {
-        for (offset, byte) in [(0, b'X'), (3, 0), (52, b'X'), (55, 0)] {
+        for offset in 0..8 {
             let memory = Rc::new(test_memory(243));
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
             let offset = CONTROL_START_PAGE * 65_536 + offset;
+            let mut original = [0];
+            memory.read(offset, &mut original);
+            let byte = original[0] ^ 0xFF;
             memory.write(offset, &[byte]);
             assert!(
                 SchemaControlMap::<[u8; 32]>::open(
@@ -297,7 +370,9 @@ mod tests {
             let mut key = [0; 33];
             key[0] = tag;
             key[32] = 1;
-            view.map.insert(key, SchemaControlBytes(vec![0]));
+            view.map
+                .insert(key, SchemaControlBytes(vec![0]))
+                .expect("fixture insert");
             assert!(
                 SchemaControlMap::<[u8; 32]>::open_existing(
                     memory,
@@ -310,7 +385,8 @@ mod tests {
         let mut view =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
-        view.corrupt_header_for_tests();
+        view.corrupt_header_for_tests()
+            .expect("fixture storage operation should succeed");
         assert!(
             SchemaControlMap::<[u8; 32]>::open_existing(memory, ControlRecordFamily::Application)
                 .is_err()

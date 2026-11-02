@@ -141,3 +141,134 @@ fn checkpoint_rejects_truncation_extra_input_wrong_key_and_noncanonical_inventor
     rewrite_checksum(&mut noncanonical);
     assert_corruption(&noncanonical, key, ErrorOrigin::Identity);
 }
+
+fn identity_ranges(
+    checkpoint: &LiveSchemaCheckpoint,
+) -> Vec<(super::IdentityRangeAdvance, IdentityAdvanceId)> {
+    checkpoint
+        .identity_states()
+        .values()
+        .take(2)
+        .enumerate()
+        .map(|(ordinal, state)| {
+            (
+                super::IdentityRangeAdvance::try_new(state.owner(), 0, 1, 1).unwrap(),
+                IdentityAdvanceId::try_new([3; 16], [4; 16], 1, u32::try_from(ordinal).unwrap())
+                    .unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn prepared_identity_checkpoint_combines_owners_and_matches_replay_bytes() {
+    use crate::{db::query::preparation::with_preparation_work, testing::test_memory};
+    use std::rc::Rc;
+    let memory = Rc::new(test_memory(243));
+    let mut store = super::LiveSchemaCheckpointStore::open(memory.clone()).unwrap();
+    let initial = checkpoint(false, IdentityStateLifecycle::Active);
+    let ranges = identity_ranges(&initial);
+    let key = LiveSchemaCheckpointKey::for_store(STORE_PATH).unwrap();
+    let before = encode_checkpoint(STORE_PATH, &initial).unwrap();
+    store
+        .map
+        .insert(key, super::SchemaControlBytes(before.clone()))
+        .expect("fixture storage operation should succeed");
+    let prepared =
+        with_preparation_work(|work| store.prepare_identity_ranges(STORE_PATH, &ranges, work))
+            .unwrap();
+    assert_eq!(store.map.get(&key).unwrap().unwrap().0, before);
+    // Ordinary recovery's independent per-range application is the byte oracle.
+    for (range, advance) in &ranges {
+        store
+            .apply_identity_range(STORE_PATH, *range, *advance)
+            .unwrap();
+    }
+    let replayed = store.map.get(&key).unwrap().unwrap().0;
+    assert_eq!(prepared.bytes, replayed);
+    store
+        .map
+        .insert(key, super::SchemaControlBytes(before))
+        .expect("fixture storage operation should succeed");
+    store
+        .apply_prepared_identity_checkpoint(prepared)
+        .expect("fixture storage operation should succeed");
+    drop(store);
+    let reopened = super::LiveSchemaCheckpointStore::open(memory).unwrap();
+    assert_eq!(reopened.map.get(&key).unwrap().unwrap().0, replayed);
+    let after = reopened.load(STORE_PATH).unwrap().unwrap();
+    assert_eq!(
+        after.candidate().encoded_bundle(),
+        initial.candidate().encoded_bundle()
+    );
+    for ((owner, old), (_, state)) in initial
+        .identity_states()
+        .iter()
+        .zip(after.identity_states())
+    {
+        if let Some((_, advance)) = ranges
+            .iter()
+            .find(|(range, _)| range.owner() == old.owner())
+        {
+            assert_eq!(state.materialized_high_water(), 1);
+            assert_eq!(state.last_applied_advance(), Some(*advance));
+        } else {
+            assert_eq!(after.identity_states().get(owner), Some(old));
+        }
+    }
+}
+
+#[test]
+fn prepared_identity_checkpoint_stale_and_budget_refusals_leave_bytes_unchanged() {
+    use crate::db::{query::preparation::PreparationWork, test_support::request_with_limit};
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+    };
+    let mut store =
+        super::LiveSchemaCheckpointStore::open(std::rc::Rc::new(crate::testing::test_memory(243)))
+            .unwrap();
+    let initial = checkpoint(false, IdentityStateLifecycle::Active);
+    let ranges = identity_ranges(&initial);
+    let key = LiveSchemaCheckpointKey::for_store(STORE_PATH).unwrap();
+    let before = encode_checkpoint(STORE_PATH, &initial).unwrap();
+    store
+        .map
+        .insert(key, super::SchemaControlBytes(before.clone()))
+        .expect("fixture storage operation should succeed");
+    let root = request_with_limit(Resource::TemporaryBytes, before.len() as u64 - 1);
+    let error = PreparationWork::run_internal(&root.scope(), Lane::Mutation, |work| {
+        store.prepare_identity_ranges(STORE_PATH, &ranges, work)
+    })
+    .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw()
+    )));
+    assert_eq!(store.map.get(&key).unwrap().unwrap().0, before);
+    let root = request_with_limit(Resource::TemporaryBytes, before.len() as u64);
+    let prepared = PreparationWork::run_internal(&root.scope(), Lane::Mutation, |work| {
+        store.prepare_identity_ranges(STORE_PATH, &ranges, work)
+    })
+    .unwrap();
+    assert_eq!(root.observed(Resource::TemporaryBytes), before.len() as u64);
+    assert!(
+        PreparationWork::run_internal(&root.scope(), Lane::Mutation, |work| {
+            store.prepare_identity_ranges(STORE_PATH, &ranges, work)
+        })
+        .is_err()
+    );
+    assert_eq!(store.map.get(&key).unwrap().unwrap().0, before);
+    // A later stale owner must not publish the already-valid earlier owner.
+    store
+        .apply_identity_range(STORE_PATH, ranges[1].0, ranges[1].1)
+        .unwrap();
+    let competing = store.map.get(&key).unwrap().unwrap().0;
+    let error = crate::db::query::preparation::with_preparation_work(|work| {
+        store.prepare_identity_ranges(STORE_PATH, &ranges, work)
+    })
+    .unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Conflict);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+    assert_eq!(store.map.get(&key).unwrap().unwrap().0, competing);
+    drop(prepared); // stale preparation is never applied outside its synchronous window.
+}

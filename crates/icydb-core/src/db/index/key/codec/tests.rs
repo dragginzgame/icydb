@@ -179,7 +179,8 @@ fn index_identity_generations_encode_as_disjoint_physical_namespaces() {
 }
 
 fn decode_must_fail_corrupted(bytes: Vec<u8>, label: &str) {
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+    let raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err(label);
 }
 
@@ -270,14 +271,16 @@ fn first_component_len_offset() -> usize {
 #[test]
 fn index_key_rejects_undersized_bytes() {
     let bytes = vec![0u8; IndexKey::MIN_STORED_SIZE_USIZE.saturating_sub(1)];
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes))
+        .expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("undersized key should fail");
 }
 
 #[test]
 fn index_key_rejects_oversized_bytes() {
     let bytes = vec![0u8; IndexKey::MAX_STORED_SIZE_USIZE + 1];
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes))
+        .expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("oversized key should fail");
 }
 
@@ -291,7 +294,8 @@ fn index_key_rejects_unknown_kind_tag() {
         .to_vec();
     bytes[0] = 0xFF;
 
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+    let raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("unknown kind tag should fail");
 }
 
@@ -312,7 +316,8 @@ fn index_key_rejects_len_over_max() {
         .to_vec();
     bytes[len_offset()] = (MAX_INDEX_FIELDS as u8) + 1;
 
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+    let raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("oversized length should fail");
 }
 
@@ -344,7 +349,8 @@ fn index_key_rejects_truncated_key() {
         .to_vec();
     bytes.pop();
 
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+    let raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("truncated payload should fail");
 }
 
@@ -368,7 +374,8 @@ fn index_key_rejects_overlong_key_segments() {
     let overlong = (IndexKey::MAX_COMPONENT_SIZE + 1) as u16;
     bytes[offset..offset + SEGMENT_LEN_SIZE].copy_from_slice(&overlong.to_be_bytes());
 
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+    let raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("overlong payload should fail");
 }
 
@@ -388,7 +395,8 @@ fn index_key_rejects_trailing_bytes() {
         .to_vec();
     bytes.push(42);
 
-    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
+    let raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes)).expect("fixture decoding");
     IndexKey::try_from_raw(&raw).expect_err("trailing bytes should fail");
 }
 
@@ -590,7 +598,8 @@ fn index_key_decode_fuzz_roundtrip_is_canonical() {
             *byte = (seed >> 24) as u8;
         }
 
-        let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
+        let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes))
+            .expect("fixture decoding");
         if let Ok(decoded) = IndexKey::try_from_raw(&raw) {
             let reencoded = decoded.to_raw().expect("test index key should encode");
             assert_eq!(raw.as_bytes(), reencoded.as_bytes());
@@ -1411,7 +1420,8 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
         // Persist and reopen the current stable index; the suffix must survive
         // canonical storage as well as the heap frame decoders.
         let memory = crate::testing::test_memory_owner(218);
-        let mut store = crate::db::index::IndexStore::init_journaled(memory.open());
+        let mut store = crate::db::index::IndexStore::init_journaled(memory.open())
+            .expect("fixture storage should initialize");
         store
             .apply_canonical_entry(
                 raw.clone(),
@@ -1419,9 +1429,10 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
             )
             .unwrap();
         drop(store);
-        let reopened = crate::db::index::IndexStore::init_journaled(memory.open());
+        let reopened = crate::db::index::IndexStore::init_journaled(memory.open())
+            .expect("fixture storage should initialize");
         assert_eq!(
-            reopened.get(&raw),
+            (reopened.get(&raw)).expect("storage operation should succeed"),
             Some(crate::db::index::IndexEntryValue::presence())
         );
     }

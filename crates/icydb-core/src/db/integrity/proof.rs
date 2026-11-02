@@ -272,7 +272,7 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
 #[cfg(test)]
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "the test backend has no default ic-memory runtime"
+    reason = "the test backend has no default ic-storage runtime"
 )]
 pub(super) const fn validate_integrity_allocation_registry() -> Result<(), InternalError> {
     Ok(())
@@ -283,7 +283,7 @@ pub(super) fn validate_integrity_allocation_registry() -> Result<(), InternalErr
     // Availability is IcyDB's boundary; rebuilding upstream uniqueness sets is not.
     memory_runtime()
         .ok_or_else(InternalError::store_internal)?
-        .committed_allocations()
+        .memory_allocations()
         .map(|_| ())
         .map_err(|_| InternalError::store_internal())
 }

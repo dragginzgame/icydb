@@ -51,14 +51,23 @@ fn seed_cardinality(
         }
     }
     for (key, bytes) in &entries {
-        store.insert_durable_raw_value(*key, bytes.clone());
+        store
+            .insert_durable_raw_value(*key, bytes.clone())
+            .expect("fixture storage operation should succeed");
     }
     entries
 }
 
 fn assert_cardinality_preserved(store: &SchemaStore, entries: &[(RawSchemaKey, Vec<u8>)]) {
     for (key, bytes) in entries {
-        assert_eq!(store.get_raw_value(key).unwrap().as_bytes(), bytes);
+        assert_eq!(
+            store
+                .get_raw_value(key)
+                .unwrap()
+                .expect("storage operation should succeed")
+                .as_bytes(),
+            bytes
+        );
     }
 }
 
@@ -75,7 +84,8 @@ fn control_projection_keeps_cursor_decode_out_of_lifecycle_reads() {
             .class(),
         ErrorClass::InvariantViolation
     );
-    let mut store = SchemaStore::init_journaled(test_memory(229));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(229)).expect("fixture storage should initialize");
     assert_eq!(
         store.cardinality_generation_lifecycle_control().unwrap(),
         (None, false)
@@ -92,7 +102,9 @@ fn control_projection_keeps_cursor_decode_out_of_lifecycle_reads() {
         (header, true)
     );
 
-    store.insert_durable_raw_value(RawSchemaKey::from_cardinality_build_cursor(), vec![0]);
+    store
+        .insert_durable_raw_value(RawSchemaKey::from_cardinality_build_cursor(), vec![0])
+        .expect("fixture storage operation should succeed");
     assert_eq!(
         store.cardinality_generation_lifecycle_control().unwrap(),
         (header, true)
@@ -102,7 +114,9 @@ fn control_projection_keeps_cursor_decode_out_of_lifecycle_reads() {
         ErrorClass::Corruption
     );
 
-    store.insert_durable_raw_value(RawSchemaKey::from_cardinality_generation_header(), vec![0]);
+    store
+        .insert_durable_raw_value(RawSchemaKey::from_cardinality_generation_header(), vec![0])
+        .expect("fixture storage operation should succeed");
     assert_eq!(
         store
             .cardinality_generation_lifecycle_control()
@@ -135,6 +149,7 @@ fn direct_catalog_publication_preserves_cardinality_records_and_replay() {
     for journaled in [false, true] {
         let mut store = if journaled {
             SchemaStore::init_journaled(test_memory(229))
+                .expect("fixture storage should initialize")
         } else {
             SchemaStore::init_heap()
         };
@@ -172,7 +187,8 @@ fn journaled_catalog_effects_do_not_grow_with_cardinality_records() {
         (4_097, CardinalityGenerationState::Ready),
     ] {
         let memory = crate::testing::test_memory_owner(229);
-        let mut store = SchemaStore::init_journaled(memory.open());
+        let mut store =
+            SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         store
             .publish_accepted_schema_candidate(
                 test_database_incarnation(),
@@ -246,7 +262,8 @@ fn journaled_catalog_effects_do_not_grow_with_cardinality_records() {
             assert!(!positions.is_positioned(key));
         }
         drop(store);
-        let reopened = SchemaStore::init_journaled(memory.open());
+        let reopened =
+            SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         assert_cardinality_preserved(&reopened, &entries);
         assert_eq!(
             reopened.canonical_len_for_tests(),
@@ -257,7 +274,8 @@ fn journaled_catalog_effects_do_not_grow_with_cardinality_records() {
 
 #[test]
 fn cardinality_reclamation_between_publication_and_fold_leaves_no_overlay() {
-    let mut store = SchemaStore::init_journaled(test_memory(229));
+    let mut store =
+        SchemaStore::init_journaled(test_memory(229)).expect("fixture storage should initialize");
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -355,4 +373,99 @@ fn cardinality_reclamation_between_publication_and_fold_leaves_no_overlay() {
     for (key, _) in entries {
         assert!(!positions.is_positioned(&key));
     }
+}
+
+#[test]
+fn building_fold_watermark_and_cursor_survive_reopen_together() {
+    use crate::db::journal::FoldWatermark;
+    let memory = crate::testing::test_memory_owner(229);
+    let source = cardinality_source_identity();
+    let next_source = CardinalitySourceIdentity::derive(
+        test_database_incarnation(),
+        StoreAllocationIdentities::new_journaled(
+            StoreAllocationIdentity::new(180, "test.cardinality.data.v1"),
+            StoreAllocationIdentity::new(181, "test.cardinality.index.v1"),
+            StoreAllocationIdentity::new(182, "test.cardinality.schema.v1"),
+            StoreAllocationIdentity::new(183, "test.cardinality.journal.v1"),
+        ),
+        None,
+        [],
+        FoldWatermark::new(JournalSequence::new(1), 1),
+    )
+    .unwrap();
+    let header = CardinalityGenerationHeader::new(
+        CardinalityGenerationId::INITIAL,
+        CardinalityGenerationState::Building,
+        CardinalityCountSlot::A,
+        source,
+    );
+    let totals = CardinalityBuildTotals::new(7, 70, 2, 1);
+    let cursor = CardinalityBuildCursor::new(
+        header.generation(),
+        header.slot(),
+        source,
+        CardinalityBuildPhase::Indexes,
+        None,
+        totals,
+    )
+    .unwrap();
+    let digest = CardinalityCountDigest::for_entity(EntityTag::new(42));
+    let mut store =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
+    store.write_cardinality_generation_header(header).unwrap();
+    store
+        .insert_canonical_raw_value(
+            RawSchemaKey::from_cardinality_build_cursor(),
+            cursor.encode().unwrap(),
+        )
+        .unwrap();
+    let count_key = RawSchemaKey::from_cardinality_count(header.slot(), digest);
+    store
+        .insert_canonical_raw_value(
+            count_key,
+            CardinalityCountRecord::new(header.generation(), digest, 2)
+                .unwrap()
+                .encode()
+                .to_vec(),
+        )
+        .unwrap();
+    // Underflow leaves every prepared control unchanged and does not authorize
+    // publishing a new watermark with unusable count evidence.
+    assert!(
+        store
+            .prepare_cardinality_maintenance(header, source, next_source, &[(digest, -3)])
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store.cardinality_generation_control().unwrap(),
+        (Some(header), Some(cursor))
+    );
+    let prepared = store
+        .prepare_cardinality_maintenance(header, source, next_source, &[(digest, 1)])
+        .unwrap()
+        .unwrap();
+    store
+        .apply_prepared_cardinality_maintenance(prepared)
+        .unwrap();
+    drop(store);
+    let reopened =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
+    let (after, cursor) = reopened.cardinality_generation_control().unwrap();
+    let after = after.unwrap();
+    let cursor = cursor.unwrap();
+    assert_eq!(after.state(), CardinalityGenerationState::Building);
+    assert_eq!(after.generation(), header.generation());
+    assert_eq!(after.slot(), header.slot());
+    assert_eq!(after.source(), next_source);
+    cursor.validate_header(after).unwrap();
+    assert_eq!(cursor.phase(), CardinalityBuildPhase::Indexes);
+    assert_eq!(cursor.checkpoint(), None);
+    assert_eq!(cursor.totals(), totals);
+    assert_eq!(
+        reopened
+            .cardinality_count(after.slot(), after.generation(), digest)
+            .unwrap(),
+        Some(3)
+    );
 }

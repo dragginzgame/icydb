@@ -23,7 +23,6 @@ use crate::{
     types::EntityTag,
 };
 use std::collections::BTreeMap;
-use std::convert::Infallible;
 
 #[cfg_attr(
     doc,
@@ -347,12 +346,12 @@ fn build_storage_report<C: CanisterKind>(
                     store_handle.with_schema(crate::db::schema::SchemaStore::allocation_metadata),
                 );
 
-            store_handle.with_data(|store| {
+            store_handle.with_data(|store| -> Result<(), InternalError> {
                 let mut by_entity = EntityStatsByMode::new(mode);
                 let mut entries = 0u64;
                 let mut memory_bytes = 0u64;
 
-                let _: Result<(), Infallible> = store.visit_entries(|raw_key, raw_row| {
+                store.visit_entries(|raw_key, raw_row| {
                     // Physical totals include corrupt keys, unlike entity rollups.
                     entries = entries.saturating_add(1);
                     let entry_bytes = raw_key.as_bytes().len() as u64 + raw_row.len() as u64;
@@ -363,8 +362,8 @@ fn build_storage_report<C: CanisterKind>(
                     };
 
                     by_entity.update(dk.entity_tag(), entry_bytes);
-                    Ok(StoreVisit::Continue)
-                });
+                    Ok::<_, InternalError>(StoreVisit::Continue)
+                })?;
 
                 data.push(DataStoreSnapshot::new(
                     path.to_string(),
@@ -376,15 +375,16 @@ fn build_storage_report<C: CanisterKind>(
                     memory_bytes,
                 ));
                 by_entity.push_snapshots(path, db, mode, &mut entity_storage);
-            });
+                Ok(())
+            })?;
 
-            store_handle.with_index(|store| {
+            store_handle.with_index(|store| -> Result<(), InternalError> {
                 let mut entries = 0u64;
                 let mut memory_bytes = 0u64;
                 let mut user_entries = 0u64;
                 let mut system_entries = 0u64;
 
-                let _: Result<(), Infallible> = store.visit_entries(|key, value| {
+                store.visit_entries(|key, value| {
                     entries = entries.saturating_add(1);
                     memory_bytes = memory_bytes
                         .saturating_add(key.as_bytes().len() as u64 + value.len() as u64);
@@ -402,8 +402,8 @@ fn build_storage_report<C: CanisterKind>(
                     if value.validate().is_err() {
                         corrupted_entries = corrupted_entries.saturating_add(1);
                     }
-                    Ok(IndexStoreVisit::Continue)
-                });
+                    Ok::<_, InternalError>(IndexStoreVisit::Continue)
+                })?;
 
                 index.push(IndexStoreSnapshot::new(
                     path.to_string(),
@@ -419,7 +419,8 @@ fn build_storage_report<C: CanisterKind>(
                         store.state(),
                     ),
                 ));
-            });
+                Ok(())
+            })?;
 
             store_handle.with_schema(|_| {
                 schema.push(SchemaStoreSnapshot::new(
@@ -432,7 +433,8 @@ fn build_storage_report<C: CanisterKind>(
                 ));
             });
         }
-    });
+        Ok::<_, InternalError>(())
+    })?;
 
     entity_storage
         .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));

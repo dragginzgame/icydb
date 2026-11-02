@@ -1,9 +1,9 @@
+use icydb::model::prelude::*;
 use icydb::{
     db::{DbSession, StructuralMutation, StructuralPatch, TypedOperationError, WriteCell},
     traits::CanisterKind,
     types::{Id, Principal},
 };
-use icydb_model::prelude::*;
 
 #[canister(memory_namespace = "typed_enrollment_example")]
 pub struct EnrollmentCanister {}

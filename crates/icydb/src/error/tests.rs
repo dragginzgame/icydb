@@ -9,7 +9,7 @@ mod typed_adapter;
 
 use super::*;
 
-use ic_memory::RuntimeBootstrapError;
+use ic_storage::RuntimeBootstrapError;
 #[cfg(feature = "sql")]
 use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
@@ -757,35 +757,32 @@ fn relation_contract_identity_survives_facade_and_wire() {
 
 #[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
-    let oversized = vec![0; ic_memory::MAX_LEDGER_RECORD_BYTES + 1];
-    let limit = ic_memory::testing::decode_stable_cell_commit_store(&oversized)
-        .expect_err("Memory must refuse an oversized ledger record");
     let cause: RuntimeBootstrapError<crate::db::MemoryBootstrapAdmissionError> =
-        RuntimeBootstrapError::StableCellLedgerEncode(limit);
+        RuntimeBootstrapError::Directory(ic_storage::DirectoryError::Budget);
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(matches!(
         &bootstrap,
         crate::db::DatabaseBootstrapError::Bootstrap(source)
-            if matches!(source.as_ref(), RuntimeBootstrapError::StableCellLedgerEncode(error) if *error == limit)
+            if matches!(source.as_ref(), RuntimeBootstrapError::Directory(ic_storage::DirectoryError::Budget))
     ));
 
     let facade = Error::from(bootstrap);
     assert_eq!(
         facade.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal
+        icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported
     );
     assert_eq!(facade.origin(), ErrorOrigin::Runtime);
 }
 
 #[test]
 fn database_adoption_preserves_typed_cause_until_public_projection() {
-    let cause = ic_memory::RuntimeAdoptionError::UnknownAuthority {
-        authority: "icydb.main".into(),
-    };
-    let bootstrap = crate::db::DatabaseBootstrapError::from(cause.clone());
+    let cause = ic_storage::RuntimeOpenError::NotAdmitted(
+        ic_storage::StableKey::parse("icydb.main.commit.control.v1").unwrap(),
+    );
+    let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(
         matches!(&bootstrap, crate::db::DatabaseBootstrapError::Adoption(source)
-        if source.as_ref() == &cause)
+        if matches!(source.as_ref(), ic_storage::RuntimeOpenError::NotAdmitted(key) if key.as_str() == "icydb.main.commit.control.v1"))
     );
     let facade = Error::from(bootstrap);
     assert_eq!(

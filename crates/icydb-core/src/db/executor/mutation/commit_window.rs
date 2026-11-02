@@ -23,13 +23,17 @@ use crate::{
         integrity::{MutationProgressRecordOp, apply_preflighted_mutation_progress_record_op},
         key_taxonomy::PrimaryKeyValue,
         positioned_overlay::JournalOverlayPosition,
+        query::preparation::PreparationWork,
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         relation::RelationCommitBudget,
-        resource::budget::finish_current_execution_instruction_watermark,
+        resource::{
+            budget::finish_current_execution_instruction_watermark,
+            construction::ConstructionBudget,
+        },
         schema::{
-            IdentityAdvanceId, IdentityRangeAdvance, PreparedSchemaPositionPublication,
-            SchemaStore, apply_live_identity_range_checkpoint,
-            preflight_live_identity_range_checkpoint,
+            IdentityAdvanceId, IdentityRangeAdvance, PreparedLiveIdentityCheckpoint,
+            PreparedSchemaPositionPublication, SchemaStore,
+            apply_prepared_live_identity_checkpoints, prepare_live_identity_ranges_checkpoint,
         },
     },
     error::InternalError,
@@ -125,6 +129,7 @@ struct PreparedCommitEffects {
     marker: CommitMarker,
     journal_appends: Vec<PreparedJournalAppend>,
     identity_range_applies: Vec<PreparedIdentityRangeApply>,
+    live_identity_checkpoints: Vec<PreparedLiveIdentityCheckpoint>,
 }
 
 #[derive(Clone, Copy)]
@@ -330,7 +335,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
         let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
         let store = self.db.recovered_store(runtime_entity.store_path())?;
 
-        Ok(store.with_data(|data_store| data_store.get(raw_key)))
+        store.with_data(|data_store| data_store.get(raw_key))
     }
 
     fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -342,7 +347,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
         let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
         let store = self.db.recovered_store(runtime_entity.store_path())?;
 
-        Ok(store.with_data(|data_store| data_store.contains(raw_key)))
+        store.with_data(|data_store| data_store.contains(raw_key))
     }
 
     fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -363,7 +368,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
             return Ok(override_entry.clone());
         }
 
-        Ok(index_store.with_borrow(|store| store.get(key)))
+        index_store.with_borrow(|store| store.get(key))
     }
 
     fn read_index_keys_in_raw_range(
@@ -581,7 +586,7 @@ fn open_commit_window_structural<C: CanisterKind>(
     )?;
     // Journal preparation and publication use owned prepared operations only.
     drop(overlay);
-    let effects = prepare_commit_effects_for_row_ops(
+    let mut effects = prepare_commit_effects_for_row_ops(
         db,
         row_ops,
         &prepared_row_ops,
@@ -589,7 +594,11 @@ fn open_commit_window_structural<C: CanisterKind>(
         mutation_progress,
         operation_timestamp,
     )?;
-    preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
+    effects.live_identity_checkpoints = PreparationWork::run_internal(
+        db.request_execution_scope(),
+        icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+        |work| preflight_identity_range_applies(effects.identity_range_applies.as_slice(), work),
+    )?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
     if positioned_rows.len() != prepared_row_ops.len() {
         return Err(InternalError::query_executor_invariant());
@@ -633,11 +642,11 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
         let multiple_rows = prepared_row_ops.len() > 1;
         #[cfg(test)]
         if let [row_op] = prepared_row_ops.as_slice() {
-            apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
+            apply_guard.record_single_row_rollback(row_op.snapshot_rollback()?);
         } else {
             let mut rollback = Vec::with_capacity(prepared_row_ops.len());
             for row_op in &prepared_row_ops {
-                rollback.push(row_op.snapshot_rollback());
+                rollback.push(row_op.snapshot_rollback()?);
             }
             apply_guard.record_rollback(move || rollback_prepared_row_ops_reverse(rollback));
         }
@@ -647,7 +656,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
         for (row_op, position) in prepared_row_ops.into_iter().zip(positioned_rows) {
             match position {
                 Some(position) => row_op.apply_positioned(position)?,
-                None => row_op.apply(),
+                None => row_op.apply()?,
             }
             #[cfg(test)]
             if multiple_rows
@@ -685,6 +694,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
 fn apply_prepared_state_effects<C: CanisterKind>(
     effects: PreparedCommitEffects,
 ) -> Result<(), InternalError> {
+    apply_prepared_live_identity_checkpoints(effects.live_identity_checkpoints)?;
     apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
     // This is the final use of prepared positions; transfer their keys directly.
     for append in effects.journal_appends {
@@ -902,6 +912,7 @@ fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
         marker,
         journal_appends,
         identity_range_applies,
+        live_identity_checkpoints: Vec::new(),
     })
 }
 
@@ -925,7 +936,9 @@ fn preflight_positioned_rows(
 
 fn preflight_identity_range_applies(
     identity_ranges: &[PreparedIdentityRangeApply],
-) -> Result<(), InternalError> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Vec<PreparedLiveIdentityCheckpoint>, InternalError> {
+    let mut live_ranges = BTreeMap::<_, Vec<_>>::new();
     for prepared in identity_ranges {
         prepared
             .handle
@@ -933,25 +946,22 @@ fn preflight_identity_range_applies(
         if prepared.handle.storage_capabilities().schema_metadata()
             == StoreSchemaMetadataCapability::LiveRebuiltMetadata
         {
-            preflight_live_identity_range_checkpoint(prepared.store_path, prepared.range)?;
+            live_ranges
+                .entry(prepared.store_path)
+                .or_default()
+                .push((prepared.range, prepared.advance_id));
         }
     }
-    Ok(())
+    live_ranges
+        .into_iter()
+        .map(|(path, ranges)| prepare_live_identity_ranges_checkpoint(path, &ranges, budget))
+        .collect()
 }
 
 fn apply_identity_range_applies(
     identity_ranges: &[PreparedIdentityRangeApply],
 ) -> Result<(), InternalError> {
     for prepared in identity_ranges {
-        if prepared.handle.storage_capabilities().schema_metadata()
-            == StoreSchemaMetadataCapability::LiveRebuiltMetadata
-        {
-            apply_live_identity_range_checkpoint(
-                prepared.store_path,
-                prepared.range,
-                prepared.advance_id,
-            )?;
-        }
         prepared.handle.with_schema_mut(|store| {
             store.apply_identity_range_advance(prepared.range, prepared.advance_id)
         })?;
@@ -980,7 +990,7 @@ fn journal_record_for_row_op(row_op: CanonicalRowCommitOp) -> Result<JournalReco
         Some(after) => JournalRecord::row_put(
             row_op.entity_path.as_ref(),
             row_op.key,
-            after.into_raw_row().into_bytes(),
+            after.into_raw_row().into_bytes()?,
             row_op.schema_fingerprint,
         ),
         None => JournalRecord::row_delete(
@@ -1078,15 +1088,15 @@ mod tests {
     }
 
     impl CanisterKind for SchedulerOverlayTestCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(1)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.scheduler_overlay.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(3)
         }
         const STARTUP_STABLE_KEY: &'static str = "icydb.scheduler_overlay.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(2)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -1096,21 +1106,21 @@ mod tests {
     thread_local! {
         static TEST_REGISTRY: StoreRegistry = StoreRegistry::new();
         static FIRST_IDENTITY_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(240)));
+            RefCell::new(DataStore::init_journaled(test_memory(240)).expect("fixture storage should initialize"));
         static FIRST_IDENTITY_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(241)));
+            RefCell::new(IndexStore::init_journaled(test_memory(241)).expect("fixture storage should initialize"));
         static FIRST_IDENTITY_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(242)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(242)).expect("fixture storage should initialize"));
         static FIRST_IDENTITY_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(243)));
+            RefCell::new(JournalTailStore::init(test_memory(243)).expect("fixture storage should initialize"));
         static SECOND_IDENTITY_DATA: RefCell<DataStore> =
-            RefCell::new(DataStore::init_journaled(test_memory(244)));
+            RefCell::new(DataStore::init_journaled(test_memory(244)).expect("fixture storage should initialize"));
         static SECOND_IDENTITY_INDEX: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init_journaled(test_memory(245)));
+            RefCell::new(IndexStore::init_journaled(test_memory(245)).expect("fixture storage should initialize"));
         static SECOND_IDENTITY_SCHEMA: RefCell<SchemaStore> =
-            RefCell::new(SchemaStore::init_journaled(test_memory(246)));
+            RefCell::new(SchemaStore::init_journaled(test_memory(246)).expect("fixture storage should initialize"));
         static SECOND_IDENTITY_JOURNAL: RefCell<JournalTailStore> =
-            RefCell::new(JournalTailStore::init(test_memory(247)));
+            RefCell::new(JournalTailStore::init(test_memory(247)).expect("fixture storage should initialize"));
     }
 
     const IDENTITY_INCARNATION: DatabaseIncarnationId = DatabaseIncarnationId::for_tests(0x71);
@@ -1133,7 +1143,11 @@ mod tests {
             ];
             changed_index.with_borrow_mut(|store| {
                 store
-                    .reset_journaled_live_projection(0, FoldWatermark::initial())
+                    .reset_journaled_live_projection(
+                        0,
+                        FoldWatermark::initial(),
+                        &std::collections::BTreeSet::new(),
+                    )
                     .unwrap();
             });
             let error =
@@ -1459,7 +1473,8 @@ mod tests {
                             242
                         } else {
                             246
-                        }));
+                        }))
+                        .expect("fixture storage should initialize");
                     store.publish_accepted_schema_candidate(
                         IDENTITY_INCARNATION,
                         AcceptedSchemaRevision::NONE,
@@ -1512,8 +1527,10 @@ mod tests {
             },
         ];
 
-        let error = preflight_identity_range_applies(prepared.as_slice())
-            .expect_err("one stale owner must reject the complete set before publication");
+        let error = crate::db::query::preparation::with_preparation_work(|work| {
+            preflight_identity_range_applies(prepared.as_slice(), work)
+        })
+        .expect_err("one stale owner must reject the complete set before publication");
         assert_eq!(error.class(), ErrorClass::Conflict);
         assert_eq!(error.origin(), ErrorOrigin::Identity);
         for (handle, entity_tag, expected_high_water) in

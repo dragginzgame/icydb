@@ -358,7 +358,7 @@ impl StoreRuntimeStorageCapabilities {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StoreAllocationIdentity {
-    memory_id: u8,
+    memory_id: u64,
     stable_key: &'static str,
 }
 
@@ -366,29 +366,25 @@ impl StoreAllocationIdentity {
     /// Resolve one logical allocation after host bootstrap has committed it.
     pub fn from_committed_key(
         stable_key: &'static str,
-    ) -> Result<Self, ic_memory::RuntimeOpenError> {
+    ) -> Result<Self, ic_storage::RuntimeOpenError> {
         Ok(Self::new(
-            memory_runtime()
-                .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
-                .memory_id(&ic_memory::StableKey::parse(stable_key).map_err(|_| {
-                    ic_memory::RuntimeOpenError::StableKeyNotCommitted(stable_key.into())
-                })?)?,
+            crate::db::memory_runtime::allocation_id(stable_key)?,
             stable_key,
         ))
     }
 
     /// Build one stable allocation identity descriptor.
     #[must_use]
-    pub const fn new(memory_id: u8, stable_key: &'static str) -> Self {
+    pub const fn new(memory_id: u64, stable_key: &'static str) -> Self {
         Self {
             memory_id,
             stable_key,
         }
     }
 
-    /// Stable-memory manager ID.
+    /// Opaque Storage allocation identity.
     #[must_use]
-    pub const fn memory_id(self) -> u8 {
+    pub const fn memory_id(self) -> u64 {
         self.memory_id
     }
 
@@ -404,14 +400,15 @@ impl StoreAllocationIdentity {
 /// checks retained application metadata without choosing or allocating an ID.
 pub(in crate::db) fn open_committed_memory(
     stable_key: &str,
-    memory_id: u8,
-) -> Result<ic_memory::RuntimeMemory<ic_memory::DefaultMemoryImpl>, InternalError> {
+    memory_id: u64,
+) -> Result<ic_storage::RuntimeMemory<ic_storage::DefaultMemoryImpl>, InternalError> {
     let runtime = memory_runtime().ok_or_else(InternalError::store_internal)?;
     let stable_key =
-        ic_memory::StableKey::parse(stable_key).map_err(|_| InternalError::store_internal())?;
+        ic_storage::StableKey::parse(stable_key).map_err(|_| InternalError::store_internal())?;
     let committed_id = runtime
-        .memory_id(&stable_key)
-        .map_err(|_| InternalError::store_internal())?;
+        .allocation_id(&stable_key)
+        .ok_or_else(InternalError::store_internal)?
+        .get();
     if committed_id != memory_id {
         return Err(InternalError::store_internal());
     }

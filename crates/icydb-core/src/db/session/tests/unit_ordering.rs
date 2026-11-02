@@ -412,15 +412,15 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(220)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.unit_ordering.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(222)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.test.unit_ordering.startup.control.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(221)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -796,6 +796,10 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one corruption scenario checks all accepted query surfaces against the same store"
+)]
 fn accepted_index_missing_row_is_typed_store_corruption() {
     let session = initialize();
     seed_singleton(&session);
@@ -817,7 +821,10 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         .store_handle(STORE_PATH)
         .expect("Unit ordering store should resolve");
     assert!(
-        store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
+        store
+            .with_data_mut(|data| data.remove(&raw_key))
+            .expect("storage operation should succeed")
+            .is_some(),
         "corruption fixture must remove the authoritative row only",
     );
 
@@ -870,7 +877,7 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
 
     let raw_index_key = store.with_index(|index| {
         let mut raw_index_key = None;
-        let result: Result<(), std::convert::Infallible> = index.visit_entries(|key, _value| {
+        let result: Result<(), crate::error::InternalError> = index.visit_entries(|key, _value| {
             raw_index_key = Some(key.clone());
             Ok(IndexStoreVisit::Stop)
         });
@@ -878,10 +885,13 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         raw_index_key.expect("corruption fixture should retain one accepted index key")
     });
     store.with_index_mut(|index| {
-        index.insert(
-            raw_index_key.clone(),
-            <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff])),
-        );
+        index
+            .insert(
+                raw_index_key.clone(),
+                <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff]))
+                    .expect("storage operation should succeed"),
+            )
+            .expect("fixture storage operation should succeed");
     });
     assert_group_seek_corruption(
         &session,
@@ -893,8 +903,18 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
     malformed_bytes.push(0xff);
     let malformed_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(malformed_bytes));
     store.with_index_mut(|index| {
-        assert!(index.remove(&raw_index_key).is_some());
-        index.insert(malformed_key, IndexEntryValue::presence());
+        assert!(
+            index
+                .remove(&raw_index_key)
+                .expect("storage operation should succeed")
+                .is_some()
+        );
+        index
+            .insert(
+                malformed_key.expect("storage operation should succeed"),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
     });
     assert_group_seek_corruption(
         &session,

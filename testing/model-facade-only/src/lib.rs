@@ -18,19 +18,17 @@ use runtime_api::{
     types::{Id, Ulid},
 };
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
     #[allow(unused_mut)]
     let mut grants = vec![icydb::db::MemoryAuthority::new(
-        "icydb.facade_only",
+        "icydb_facade_only",
         "icydb.facade_only.",
     )?];
-    #[allow(unused_mut)]
-    let mut exclusions = vec![];
     #[cfg(all(test, not(target_arch = "wasm32")))]
-    startup_admission::extend_pool(&mut grants, &mut exclusions);
-    icydb::db::MemoryAllocationPool::new(grants, exclusions)
+    startup_admission::adjust_grants(&mut grants);
+    icydb::db::AllocationGrants::new(grants)
 }
 
 canic_icydb::start!(icydb);

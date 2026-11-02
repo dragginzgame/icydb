@@ -70,7 +70,16 @@ pub use icydb_core::types::{ParseU256Error, U256};
 /// Runtime-enabled consumers should normally depend only on `icydb` and use
 /// `icydb::model::prelude`. Schema-only tooling may still depend directly on
 /// the independently published `icydb-model` package.
-pub use icydb_model as model;
+pub mod model {
+    pub use icydb_model::*;
+    pub use icydb_model_macros::{runtime_entity as entity, runtime_record as record};
+
+    /// Application declarations with runtime entity adapters and field references.
+    pub mod prelude {
+        pub use icydb_model::prelude::*;
+        pub use icydb_model_macros::{runtime_entity as entity, runtime_record as record};
+    }
+}
 pub use icydb_model_macros::{request_execution, test};
 
 /// Scalar values and entity-bound identities for application inputs and outputs.
@@ -176,8 +185,8 @@ pub use icydb_diagnostic_code::ErrorCode;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType, ensure_default_memory_manager,
-        execute_generated_storage_report,
+        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType,
+        ensure_default_storage_runtime, execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
     pub use crate::wire::method::RpcMethod;

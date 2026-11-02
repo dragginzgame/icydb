@@ -25,7 +25,8 @@ runtime_api = { workspace = true, default-features = true }
 runtime_api = { workspace = true, default-features = true }
 
 [dev-dependencies]
-ic-memory = { workspace = true }
+# The independent integration workspace owns this qualification dependency.
+ic-storage = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

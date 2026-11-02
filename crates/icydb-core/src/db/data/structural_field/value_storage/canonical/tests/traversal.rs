@@ -18,6 +18,79 @@ fn assert_readers_reject(bytes: &[u8]) {
 }
 
 #[test]
+fn sibling_selection_preserves_first_matches_missing_null_and_full_validation() {
+    let prefix = [b"profile".to_vec().into_boxed_slice()];
+    let members: &[&[u8]] = &[b"city", b"name", b"missing", b"city"];
+    for profile in [
+        CanonicalValue::Null,
+        CanonicalValue::Map(vec![]),
+        CanonicalValue::Map(vec![
+            (
+                CanonicalValue::Text("name".into()),
+                CanonicalValue::Text("Ada".into()),
+            ),
+            (CanonicalValue::Text("city".into()), CanonicalValue::Null),
+            (
+                CanonicalValue::Text("city".into()),
+                CanonicalValue::Nat64(9),
+            ),
+        ]),
+    ] {
+        let value = CanonicalValue::Map(vec![
+            (CanonicalValue::Text("profile".into()), profile),
+            (
+                CanonicalValue::Text("profile".into()),
+                CanonicalValue::Map(vec![]),
+            ),
+            (
+                CanonicalValue::Text("suffix".into()),
+                CanonicalValue::List(vec![CanonicalValue::Null]),
+            ),
+        ]);
+        let bytes = encode_canonical_value_storage_bytes(&value).unwrap();
+        let mut selected = [None; 4];
+        ValueStorageView::select_raw_map_members(&bytes, &prefix, members, &mut selected).unwrap();
+        for (member, result) in members.iter().zip(selected) {
+            let path = [prefix[0].clone(), member.to_vec().into_boxed_slice()];
+            let single = ValueStorageView::from_raw_map_text_path(&bytes, &path).unwrap();
+            assert_eq!(result, single.map(|value| value.as_bytes()));
+        }
+        for end in 0..bytes.len() {
+            assert!(
+                ValueStorageView::select_raw_map_members(
+                    &bytes[..end],
+                    &prefix,
+                    members,
+                    &mut selected
+                )
+                .is_err()
+            );
+        }
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(
+            ValueStorageView::select_raw_map_members(&trailing, &prefix, members, &mut selected)
+                .is_err()
+        );
+        let mut corrupt_suffix = bytes.clone();
+        *corrupt_suffix.last_mut().unwrap() = 0xff;
+        assert!(
+            ValueStorageView::select_raw_map_members(
+                &corrupt_suffix,
+                &prefix,
+                members,
+                &mut selected
+            )
+            .is_err()
+        );
+    }
+    let scalar = encode_canonical_value_storage_bytes(&CanonicalValue::Nat64(1)).unwrap();
+    assert!(
+        ValueStorageView::select_raw_map_members(&scalar, &[], members, &mut [None; 4]).is_err()
+    );
+}
+
+#[test]
 fn canonical_traversal_selects_scalars_and_enum_leaves_in_both_sibling_orders() {
     for state in [
         canonical_enum(None),

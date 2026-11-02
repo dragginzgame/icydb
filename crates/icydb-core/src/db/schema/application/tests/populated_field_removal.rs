@@ -126,7 +126,6 @@ fn advance_command(proposal: &SchemaProposal) -> SchemaMigrationCommand {
         expected_database: proposal.target_database(),
         expected_head: proposal.expected_head().clone(),
         expected_plan: proposal.migration().unwrap().digest(),
-        acknowledged_finding_page: None,
     }
 }
 
@@ -142,7 +141,13 @@ fn restart(db: &Db<MigrationExecutionCanister>) {
         .with_borrow(JournalTailStore::fold_watermark)
         .unwrap();
     store
-        .with_index_mut(|index| index.reset_journaled_live_projection(generation, watermark))
+        .with_index_mut(|index| {
+            index.reset_journaled_live_projection(
+                generation,
+                watermark,
+                &std::collections::BTreeSet::new(),
+            )
+        })
         .unwrap();
     store
         .with_schema_mut(SchemaStore::reset_journaled_live_projection)

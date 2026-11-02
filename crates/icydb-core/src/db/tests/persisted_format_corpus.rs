@@ -25,8 +25,8 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_memory::{Memory, VectorMemory};
 use ic_storage::adapter::Storable;
+use ic_storage::{Memory, VectorMemory};
 use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
 use std::borrow::Cow;
 
@@ -68,6 +68,7 @@ fn valid_raw_index_key() -> RawIndexStoreKey {
 
 fn unchecked_raw_index_key(bytes: Vec<u8>) -> RawIndexStoreKey {
     <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes))
+        .expect("storage operation should succeed")
 }
 
 fn value_storage_len_prefixed(tag: u8, declared_len: u32, payload: &[u8]) -> Vec<u8> {
@@ -447,7 +448,10 @@ fn persisted_index_envelope_malformed_corpus_fails_closed() {
     ];
     for (label, bytes) in entry_cases {
         let entry = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-        assert_err(label, entry.validate());
+        assert_err(
+            label,
+            entry.expect("storage operation should succeed").validate(),
+        );
     }
 }
 

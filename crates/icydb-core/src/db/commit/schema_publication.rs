@@ -864,9 +864,10 @@ fn publish_journaled_constraint_validation_job(
         if !entries.is_empty() {
             store.with_index_mut(|index_store| {
                 for key in entries {
-                    index_store.insert(key, IndexEntryValue::presence());
+                    index_store.insert(key, IndexEntryValue::presence())?;
                 }
-            });
+                Ok::<_, InternalError>(())
+            })?;
         }
         store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))?;
         publish_journaled_schema_positions(store, positions);
@@ -1087,7 +1088,7 @@ fn apply_user_index_domain_replacement(
     let (deletion_keys, insertion_entries) = replacement.into_apply_parts();
     store.with_index_mut(|index_store| {
         for key in deletion_keys {
-            index_store.remove(&key);
+            index_store.remove(&key)?;
             #[cfg(test)]
             interrupt_schema_publication_at(SchemaPublicationInterruption::IndexDeleted)?;
         }
@@ -1272,17 +1273,17 @@ mod tests {
     }
 
     impl CanisterKind for CompletionCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(240)
         }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.completion.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(244)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.completion.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(243)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -1296,16 +1297,16 @@ mod tests {
     }
 
     impl CanisterKind for RecoveryCanister {
-        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(241)
         }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema_publication.recovery.commit.v1";
-        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(244)
         }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.recovery.startup.control.v1";
-        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
             Ok(242)
         }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =

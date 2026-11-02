@@ -62,19 +62,17 @@ impl RequestExecutionRoot {
 /// type-erased so this poll state machine is shared across endpoint future
 /// types; that retains one allocation and adds one indirect child poll.
 ///
-/// # Panics
-///
-/// Polling panics if a started future is moved beneath a different active
-/// request root. Do not share pending request futures across independent
-/// requests; ambient scope restoration does not transfer budget ownership.
+/// A started future polled beneath a different active request root returns
+/// the existing typed root-mismatch error without polling its child. The error
+/// type must accept `crate::Error`; ordinary child results pass through unchanged.
 #[must_use = "futures do nothing unless awaited or polled"]
-pub struct RequestExecutionFuture<'a, T> {
+pub struct RequestExecutionFuture<'a, T, E = crate::Error> {
     root: Option<RequestExecutionRoot>,
-    future: Pin<Box<dyn Future<Output = T> + 'a>>,
+    future: Pin<Box<dyn Future<Output = Result<T, E>> + 'a>>,
 }
 
-impl<'a, T> RequestExecutionFuture<'a, T> {
-    fn new(future: impl Future<Output = T> + 'a) -> Self {
+impl<'a, T, E> RequestExecutionFuture<'a, T, E> {
+    fn new(future: impl Future<Output = Result<T, E>> + 'a) -> Self {
         Self {
             root: None,
             future: Box::pin(future),
@@ -82,7 +80,10 @@ impl<'a, T> RequestExecutionFuture<'a, T> {
     }
 
     #[cfg(test)]
-    fn with_root(root: RequestExecutionRoot, future: impl Future<Output = T> + 'a) -> Self {
+    fn with_root(
+        root: RequestExecutionRoot,
+        future: impl Future<Output = Result<T, E>> + 'a,
+    ) -> Self {
         Self {
             root: Some(root),
             future: Box::pin(future),
@@ -90,16 +91,15 @@ impl<'a, T> RequestExecutionFuture<'a, T> {
     }
 }
 
-impl<T> Future for RequestExecutionFuture<'_, T> {
-    type Output = T;
+impl<T, E: From<crate::Error>> Future for RequestExecutionFuture<'_, T, E> {
+    type Output = Result<T, E>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         let root = this.root.get_or_insert_with(RequestExecutionRoot::new);
-        assert!(
-            root.inner.__is_compatible_with_current(),
-            "IcyDB request future moved beneath a different active request root"
-        );
+        if let Err(error) = root.__ensure_compatible_with_current() {
+            return Poll::Ready(Err(error.into()));
+        }
         let future = &mut this.future;
         root.inner.__with_current_scope(|| future.as_mut().poll(cx))
     }
@@ -122,15 +122,14 @@ pub fn with_request_execution<T>(run: impl FnOnce() -> T) -> T {
 /// after `.await` without leaving request state ambient while the future is
 /// suspended. Nested wrappers reuse the already-active root.
 ///
-/// # Panics
-///
-/// Panics as an internal integration invariant if a future that has already
-/// started under one request is later polled beneath a different active
-/// request root. Ordinary endpoint executors do not move pending futures
-/// between request invocations.
-pub fn with_request_execution_async<'a, T>(
-    future: impl Future<Output = T> + 'a,
-) -> RequestExecutionFuture<'a, T> {
+/// The child must return `Result<T, E>` with `E: From<crate::Error>`. If a
+/// started future is polled beneath another active root, the boundary returns
+/// `RequestExecutionRootMismatch` through that error conversion before any
+/// child work. It neither transfers counters nor replaces the active root.
+/// Do not share pending request futures across independent request invocations.
+pub fn with_request_execution_async<'a, T, E: From<crate::Error>>(
+    future: impl Future<Output = Result<T, E>> + 'a,
+) -> RequestExecutionFuture<'a, T, E> {
     RequestExecutionFuture::new(future)
 }
 
@@ -213,6 +212,7 @@ mod tests {
             assert!(first_probe.__is_current());
             YieldOnce { yielded: false }.await;
             assert!(first_probe.__is_current());
+            Ok::<(), crate::Error>(())
         }));
 
         let second_root = RequestExecutionRoot::new();
@@ -222,6 +222,7 @@ mod tests {
             assert!(second_probe.__is_current());
             YieldOnce { yielded: false }.await;
             assert!(second_probe.__is_current());
+            Ok::<(), crate::Error>(())
         }));
         assert_eq!(poll_once(first.as_mut()), Poll::Pending);
         assert!(!first_expected.__is_current());
@@ -229,8 +230,8 @@ mod tests {
         assert_eq!(poll_once(second.as_mut()), Poll::Pending);
         assert!(!first_expected.__is_current());
         assert!(!second_expected.__is_current());
-        assert_eq!(poll_once(first.as_mut()), Poll::Ready(()));
-        assert_eq!(poll_once(second.as_mut()), Poll::Ready(()));
+        assert_eq!(poll_once(first.as_mut()), Poll::Ready(Ok(())));
+        assert_eq!(poll_once(second.as_mut()), Poll::Ready(Ok(())));
         assert!(!first_expected.__is_current());
         assert!(!second_expected.__is_current());
     }
@@ -243,13 +244,15 @@ mod tests {
         let nested_probe = Rc::clone(&probe);
         let nested = with_request_execution_async(async move {
             assert!(nested_probe.__is_current());
+            Ok::<(), crate::Error>(())
         });
         let mut future = Box::pin(RequestExecutionFuture::with_root(root, async move {
             assert!(probe.__is_current());
-            nested.await;
+            nested.await?;
             assert!(probe.__is_current());
+            Ok::<(), crate::Error>(())
         }));
-        assert_eq!(poll_once(future.as_mut()), Poll::Ready(()));
+        assert_eq!(poll_once(future.as_mut()), Poll::Ready(Ok(())));
         assert!(!expected.__is_current());
     }
 
@@ -261,6 +264,7 @@ mod tests {
         let mut future = Box::pin(RequestExecutionFuture::with_root(root, async move {
             assert!(probe.__is_current());
             YieldOnce { yielded: false }.await;
+            Ok::<(), crate::Error>(())
         }));
         assert_eq!(poll_once(future.as_mut()), Poll::Pending);
         assert!(!expected.__is_current());
@@ -271,9 +275,10 @@ mod tests {
     #[test]
     fn started_future_cannot_move_beneath_a_different_request_root() {
         #[crate::request_execution]
-        async fn suspended_request(resumed: Rc<std::cell::Cell<bool>>) {
+        async fn suspended_request(resumed: Rc<std::cell::Cell<bool>>) -> Result<(), crate::Error> {
             YieldOnce { yielded: false }.await;
             resumed.set(true);
+            Ok(())
         }
 
         let first_root = RequestExecutionRoot::new();
@@ -286,17 +291,18 @@ mod tests {
 
         let second = RequestExecutionRoot::new();
         let second_expected = Rc::clone(&second.inner);
-        let panic = second.inner.__with_current_scope(|| {
-            let result = catch_unwind(AssertUnwindSafe(|| poll_once(first.as_mut())));
+        let result = second.inner.__with_current_scope(|| {
+            let result = poll_once(first.as_mut());
             assert!(second_expected.__is_current());
             result
         });
-
-        assert!(panic.is_err());
+        let Poll::Ready(Err(error)) = result else {
+            panic!("cross-root polling must return a typed refusal");
+        };
+        assert_eq!(error, crate::db::__request_execution_root_mismatch());
         assert!(!first_expected.__is_current());
         assert!(!second_expected.__is_current());
-        // Rejection occurs before the child's post-await work can run under
-        // the wrong request. The panicked async function is not polled again.
+        // Rejection occurs before the child's post-await work can run.
         assert!(!resumed.get());
     }
 
@@ -305,14 +311,75 @@ mod tests {
         let root = RequestExecutionRoot::new();
         let expected = Rc::clone(&root.inner);
         let probe = Rc::clone(&expected);
-        let mut future = Box::pin(RequestExecutionFuture::with_root(root, async move {
-            assert!(probe.__is_current());
-            panic!("poll panic");
-        }));
+        let mut future = Box::pin(RequestExecutionFuture::<(), crate::Error>::with_root(
+            root,
+            async move {
+                assert!(probe.__is_current());
+                panic!("poll panic");
+            },
+        ));
         let panic = catch_unwind(AssertUnwindSafe(|| poll_once(future.as_mut())));
 
         assert!(panic.is_err());
         assert!(!expected.__is_current());
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    enum ApplicationError {
+        Application(u8),
+        Request(crate::Error),
+    }
+
+    impl From<crate::Error> for ApplicationError {
+        fn from(error: crate::Error) -> Self {
+            Self::Request(error)
+        }
+    }
+
+    #[test]
+    fn attributed_async_results_preserve_success_and_application_errors() {
+        #[crate::request_execution]
+        async fn entry(fail: bool) -> Result<u8, ApplicationError> {
+            YieldOnce { yielded: false }.await;
+            if fail {
+                Err(ApplicationError::Application(7))
+            } else {
+                Ok(11)
+            }
+        }
+        for (fail, expected) in [
+            (false, Ok(11)),
+            (true, Err(ApplicationError::Application(7))),
+        ] {
+            let mut future = Box::pin(entry(fail));
+            assert_eq!(poll_once(future.as_mut()), Poll::Pending);
+            assert_eq!(poll_once(future.as_mut()), Poll::Ready(expected));
+        }
+    }
+
+    #[test]
+    fn custom_error_converts_scope_refusal_before_polling_child() {
+        let first = RequestExecutionRoot::new();
+        let second = RequestExecutionRoot::new();
+        let polled = Rc::new(std::cell::Cell::new(false));
+        let probe = Rc::clone(&polled);
+        let mut future = Box::pin(RequestExecutionFuture::with_root(first, async move {
+            probe.set(true);
+            Ok::<(), ApplicationError>(())
+        }));
+        let result = second.inner.__with_current_scope(|| {
+            let result = poll_once(future.as_mut());
+            assert!(second.inner.__is_current());
+            result
+        });
+        assert_eq!(
+            result,
+            Poll::Ready(Err(ApplicationError::Request(
+                crate::db::__request_execution_root_mismatch()
+            )))
+        );
+        assert!(!polled.get());
+        assert!(!second.inner.__is_current());
     }
 
     #[test]

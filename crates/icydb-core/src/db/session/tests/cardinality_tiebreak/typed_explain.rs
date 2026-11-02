@@ -322,3 +322,112 @@ fn typed_explain_point_range_and_large_membership_preserve_reports_and_rows() {
         assert_eq!(cold.render_json_canonical().unwrap(), report);
     }
 }
+
+#[test]
+fn typed_explain_reports_secondary_order_decisions_on_cold_and_warm_calls() {
+    let setup = initialize();
+    for id in 0..10 {
+        insert_row(
+            &setup,
+            id,
+            "everyone",
+            if id == 0 {
+                "a"
+            } else if id == 9 {
+                "c"
+            } else {
+                "b"
+            },
+        );
+    }
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let reader = new_request_session(&root);
+    let binding = binding(&reader);
+    let base = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("common").eq("everyone"))
+        .select(["id"])
+        .limit(5);
+    let cases = [
+        (base.clone().order_by(asc("common")).order_by(asc("id")), 0),
+        (
+            base.clone()
+                .order_by(crate::db::desc("common"))
+                .order_by(crate::db::desc("id")),
+            0,
+        ),
+        (
+            DynamicQuery::new(ENTITY_NAME)
+                .filter(FieldRef::new("rare").eq("b"))
+                .order_by(asc("wide_branch"))
+                .limit(5),
+            1,
+        ),
+        (
+            DynamicQuery::new(ENTITY_NAME)
+                .filter(FieldRef::new("rare").gt("a"))
+                .order_by(asc("wide_branch"))
+                .limit(5),
+            2,
+        ),
+        (base.order_by(asc("id")), 3),
+        (
+            DynamicQuery::new(ENTITY_NAME)
+                .filter(FieldRef::new("common").eq("everyone"))
+                .select(["id"]),
+            3,
+        ),
+    ];
+    for (query, expected) in cases {
+        let visited = root.observed(Resource::RowsVisited);
+        let mut previous = None;
+        for _ in 0..2 {
+            let report = reader
+                .explain_query_for_typed_binding(&binding, &query)
+                .unwrap()
+                .unwrap();
+            assert_secondary_decision(&report, expected);
+            if let Some(previous) = &previous {
+                assert_eq!(&report, previous);
+            }
+            previous = Some(report);
+            assert_eq!(root.observed(Resource::RowsVisited), visited);
+        }
+        if expected == 3 {
+            continue;
+        }
+        let expected = setup.execute_trusted_live_page(&query, None).unwrap();
+        assert_eq!(
+            reader.execute_trusted_live_page(&query, None).unwrap().rows,
+            expected.rows
+        );
+    }
+}
+
+fn assert_secondary_decision(report: &ExplainPlan, expected: u8) {
+    use crate::db::query::explain::{ExplainOrderPushdown, SecondaryOrderPushdownRejection};
+    match expected {
+        0 => assert_eq!(
+            report.order_pushdown(),
+            &ExplainOrderPushdown::EligibleSecondaryIndex {
+                index: "a_common_idx".into(),
+                prefix_len: 1
+            }
+        ),
+        1 => assert!(matches!(
+            report.order_pushdown(),
+            ExplainOrderPushdown::Rejected(
+                SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex { .. }
+            )
+        )),
+        2 => assert!(matches!(
+            report.order_pushdown(),
+            ExplainOrderPushdown::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { .. }
+            )
+        )),
+        _ => assert_eq!(
+            report.order_pushdown(),
+            &ExplainOrderPushdown::NotApplicable
+        ),
+    }
+}

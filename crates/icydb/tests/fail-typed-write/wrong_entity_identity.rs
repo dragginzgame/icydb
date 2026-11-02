@@ -1,5 +1,5 @@
 use icydb::{db::WriteCell, types::Id};
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 #[canister(
     memory_namespace = "typed_identity_wrong_entity",

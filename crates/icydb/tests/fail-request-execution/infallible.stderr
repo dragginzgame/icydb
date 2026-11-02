@@ -1,0 +1,29 @@
+error[E0271]: expected `{async block@infallible.rs:1:1}` to be a future that resolves to `Result<_, _>`, but it resolves to `{integer}`
+ --> tests/fail-request-execution/infallible.rs:1:1
+  |
+1 | #[icydb::request_execution]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<_, _>`, found integer
+  |
+  = note: expected enum `Result<_, _>`
+             found type `{integer}`
+note: required by a bound in `with_request_execution_async`
+ --> src/db/session/request.rs
+  |
+  | pub fn with_request_execution_async<'a, T, E: From<crate::Error>>(
+  |        ---------------------------- required by a bound in this function
+  |     future: impl Future<Output = Result<T, E>> + 'a,
+  |                         ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `with_request_execution_async`
+  = note: this error originates in the attribute macro `icydb::request_execution` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+ --> tests/fail-request-execution/infallible.rs:1:1
+  |
+1 | #[icydb::request_execution]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `u8`, found `Result<_, _>`
+  |
+  = note: expected type `u8`
+             found enum `Result<_, _>`
+help: consider using `Result::expect` to unwrap the `Result<_, _>` value, panicking if the value is a `Result::Err`
+  |
+1 | #[icydb::request_execution].expect("REASON")
+  |                            +++++++++++++++++

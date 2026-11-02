@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export RELEASE_GROUP=database
 
 # Execute publication preflight, order and retries using command substitutes.
 # No Git mutations, credentials, registry requests or real publication occur.
@@ -30,6 +31,19 @@ for crate in "${crates[@]}"; do
     printf '[package]\nname = "%s"\nversion.workspace = true\n' "$crate" \
         > "$fixture/crates/$crate/Cargo.toml"
 done
+# Publication orchestration uses a substituted version observer; real Cargo
+# group/version admission is covered by test-release-groups.sh.
+mkdir -p "$fixture/scripts/release" "$fixture/ci"
+cp "$root/scripts/release/group.sh" "$fixture/scripts/release/"
+cp "$root/scripts/ci/cargo-release-groups.jq" "$fixture/scripts/ci/"
+cp "$root/ci/cargo-release-groups.json" "$fixture/ci/"
+cat > "$fixture/scripts/release/version.sh" <<'VERSION'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${FAIL_VERSION_READ:-0}" == 0 ]] || exit 7
+printf '%s\n' 0.265.0
+VERSION
+crates=(icydb-diagnostic-code icydb-schema icydb-model-macros icydb-model icydb-core icydb)
 export EVENTS="$fixture/events" FIXTURE_STATE="$fixture/state"
 export PUBLISH_TEST_ROOT="$root"
 export RELEASE_RECEIPT_DIR="$fixture/receipts"
@@ -49,8 +63,8 @@ case "$*" in
         [[ "${FAIL_HEAD:-0}" == 0 ]] || exit 9
         echo "$HEAD_COMMIT"
         ;;
-    'cat-file -t refs/tags/v0.265.0') echo tag ;;
-    'rev-parse --verify refs/tags/v0.265.0^{commit}') echo "$HEAD_COMMIT" ;;
+    'cat-file -t refs/tags/database-v0.265.0') echo tag ;;
+    'rev-parse --verify refs/tags/database-v0.265.0^{commit}') echo "$HEAD_COMMIT" ;;
     *) echo "Unexpected Git read: $*" >&2; exit 99 ;;
 esac
 GIT
@@ -130,16 +144,8 @@ for input in PUBLISH_FROM=missing PUBLISH_DRY_RUN=invalid PUBLISH_VERIFY=invalid
     [[ ! -s "$EVENTS" ]]
 done
 # Version observation failures stop before registry or publication effects.
-cp "$fixture/Cargo.toml" "$fixture/original.toml"
-printf "[workspace.package]\nversion = '0.265.0' # valid TOML\n" > "$fixture/Cargo.toml"
-run_subject 0 PUBLISH_VALIDATE_ONLY=1
-[[ ! -s "$EVENTS" ]]
 run_subject fail FAIL_VERSION_READ=1
 [[ ! -s "$EVENTS" ]]
-printf '[workspace.package]\nversion = "0.265.0"\nversion = "invalid"\n' > "$fixture/Cargo.toml"
-run_subject fail
-[[ ! -s "$EVENTS" ]]
-cp "$fixture/original.toml" "$fixture/Cargo.toml"
 run_subject 0 PUBLISH_VALIDATE_ONLY=1
 [[ ! -s "$EVENTS" ]]
 
@@ -155,11 +161,11 @@ done
 
 # Missing receipts retain verification; valid receipts reuse the tested commit.
 for receipt in missing valid stale; do
-    rm -f "$RELEASE_RECEIPT_DIR/v0.265.0.commit"
+    rm -f "$RELEASE_RECEIPT_DIR/database-v0.265.0.commit"
     extra=''
     case "$receipt" in
-        valid) printf '%s\n' "$HEAD_COMMIT" > "$RELEASE_RECEIPT_DIR/v0.265.0.commit"; extra=' --no-verify' ;;
-        stale) printf '%040d\n' 2 > "$RELEASE_RECEIPT_DIR/v0.265.0.commit" ;;
+        valid) printf '%s\n' "$HEAD_COMMIT" > "$RELEASE_RECEIPT_DIR/database-v0.265.0.commit"; extra=' --no-verify' ;;
+        stale) printf '%040d\n' 2 > "$RELEASE_RECEIPT_DIR/database-v0.265.0.commit" ;;
     esac
     run_subject 0 REGISTRY_MODE=absent PUBLISH_DRY_RUN=1
     for crate in "${crates[@]}"; do
@@ -167,11 +173,9 @@ for receipt in missing valid stale; do
     done > "$fixture/expected"
     cmp "$fixture/expected" "$EVENTS"
 done
-printf '%s\n' "$HEAD_COMMIT" > "$RELEASE_RECEIPT_DIR/v0.265.0.commit"
+printf '%s\n' "$HEAD_COMMIT" > "$RELEASE_RECEIPT_DIR/database-v0.265.0.commit"
 run_subject 0 REGISTRY_MODE=absent PUBLISH_DRY_RUN=1 PUBLISH_VERIFY=always PUBLISH_FROM=icydb
-for crate in icydb icydb-cli; do
-    printf 'lookup %s 0.265.0\ncargo publish -p %s --locked --registry crates-io --dry-run\n' "$crate" "$crate"
-done > "$fixture/expected"
+printf 'lookup %s 0.265.0\ncargo publish -p %s --locked --registry crates-io --dry-run\n' icydb icydb > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 
 # Publication waits for each prerequisite, and a retry skips completed versions.

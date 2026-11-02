@@ -214,6 +214,7 @@ impl GroupedRouteStage {
                 >::new()),
             },
             continuation,
+            resume_anchor: None,
         }
     }
 }

@@ -347,12 +347,8 @@ impl DatabaseIncarnationId {
     }
 
     fn generate() -> Result<Self, InternalError> {
-        #[allow(
-            deprecated,
-            reason = "Atomic try_update requires Rust 1.95; MSRV is 1.91."
-        )]
         let sequence = DATABASE_INCARNATION_SEQUENCE
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| InternalError::database_incarnation_generation_failed())?

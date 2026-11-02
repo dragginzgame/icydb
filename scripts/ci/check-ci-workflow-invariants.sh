@@ -197,6 +197,14 @@ if ! make_target_recipe test-canister-artifact-contract |
   fail "canister artifact contracts must execute their complete adapter-owned binary"
 fi
 
+# Local/release validation must admit the same compiler before its Cargo gates.
+for target in validate validate-fast validate-adapter; do
+  if ! make_target_recipe "$target" | rg -q --fixed-strings \
+    '$(MAKE) --no-print-directory check-rust-compiler'; then
+    fail "$target must admit the policy-selected compiler"
+  fi
+done
+
 # Product dispatch must not acquire composition inputs or invoke its leaves.
 for target in ci-core ci-workspace ci-sql-tier-a test test-unit _test-workspace \
   clippy validate validate-fast check-invariants check-portable-automation \
@@ -271,6 +279,7 @@ fi
 
 for owned_path in \
   '/.github/workflows/' \
+  '/.github/actions/' \
   '/.github/dependabot.yml' \
   '/scripts/ci/' \
   '/Makefile' \

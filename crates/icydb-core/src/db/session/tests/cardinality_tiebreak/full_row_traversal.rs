@@ -46,7 +46,7 @@ fn seeded_rows() -> Vec<(RawDataStoreKey, RawRow)> {
         store
             .visit_entries(|key, row| {
                 rows.push((key.clone(), row.clone()));
-                Ok::<_, std::convert::Infallible>(StoreVisit::Continue)
+                Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
             })
             .unwrap();
         rows
@@ -60,14 +60,17 @@ fn full_row_primary_ranges_preserve_backing_order_payloads_and_read_admission() 
     // identical rows through one traversal without per-row point reads.
     for backing in 0..4_u8 {
         if backing != 0 {
-            let mut store = DataStore::init_journaled(test_memory(190 + backing));
+            let mut store = DataStore::init_journaled(test_memory((190 + backing).into()))
+                .expect("fixture storage should initialize");
             for (position, (key, row)) in rows.iter().enumerate() {
                 if backing == 2 || (backing == 3 && position < 65) {
                     store
                         .fold_recovered_journal_put(key.clone(), row.clone())
                         .unwrap();
                 } else {
-                    store.insert_raw_for_test(key.clone(), row.clone());
+                    store
+                        .insert_raw_for_test(key.clone(), row.clone())
+                        .expect("fixture storage operation should succeed");
                 }
             }
             DATA_STORE.with(|target| *target.borrow_mut() = store);
@@ -169,7 +172,9 @@ fn assert_malformed_row_refused(backing: u8, original: &(RawDataStoreKey, RawRow
                     .fold_recovered_journal_put(original.0.clone(), row)
                     .unwrap();
             } else {
-                store.insert_raw_for_test(original.0.clone(), row);
+                store
+                    .insert_raw_for_test(original.0.clone(), row)
+                    .expect("fixture storage operation should succeed");
             }
         });
     };

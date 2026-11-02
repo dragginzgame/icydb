@@ -804,10 +804,8 @@ fn store_allocation_fingerprint(
     hasher.update(CARDINALITY_STORE_ALLOCATION_FINGERPRINT_DOMAIN);
     for (role, identity) in identities.into_iter().enumerate() {
         let identity = identity.ok_or_else(InternalError::store_invariant)?;
-        hasher.update([
-            u8::try_from(role).map_err(|_| InternalError::store_invariant())?,
-            identity.memory_id(),
-        ]);
+        hasher.update([u8::try_from(role).map_err(|_| InternalError::store_invariant())?]);
+        hasher.update(identity.memory_id().to_le_bytes());
         let stable_key = identity.stable_key().as_bytes();
         let stable_key_len =
             u32::try_from(stable_key.len()).map_err(|_| InternalError::store_unsupported())?;
@@ -934,10 +932,10 @@ mod tests {
 
     fn allocations(offset: u8) -> StoreAllocationIdentities {
         StoreAllocationIdentities::new_journaled(
-            StoreAllocationIdentity::new(100 + offset, "test.cardinality.data.v1"),
-            StoreAllocationIdentity::new(101 + offset, "test.cardinality.index.v1"),
-            StoreAllocationIdentity::new(102 + offset, "test.cardinality.schema.v1"),
-            StoreAllocationIdentity::new(103 + offset, "test.cardinality.journal.v1"),
+            StoreAllocationIdentity::new((100 + offset).into(), "test.cardinality.data.v1"),
+            StoreAllocationIdentity::new((101 + offset).into(), "test.cardinality.index.v1"),
+            StoreAllocationIdentity::new((102 + offset).into(), "test.cardinality.schema.v1"),
+            StoreAllocationIdentity::new((103 + offset).into(), "test.cardinality.journal.v1"),
         )
     }
 

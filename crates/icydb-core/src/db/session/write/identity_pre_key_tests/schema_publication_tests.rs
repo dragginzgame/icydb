@@ -143,7 +143,10 @@ fn rows(store: StoreHandle) -> Entries {
     let mut entries = Vec::new();
     store.with_data(|data| {
         data.visit_entries(|key, row| {
-            entries.push((key.to_bytes().into_owned(), row.as_bytes().to_vec()));
+            entries.push((
+                key.to_bytes().expect("fixture encoding").into_owned(),
+                row.as_bytes().to_vec(),
+            ));
             Ok::<_, InternalError>(StoreVisit::Continue)
         })
         .unwrap();
@@ -161,7 +164,10 @@ fn indexes(store: StoreHandle, unrelated_only: bool) -> Entries {
                     || decoded.key_kind() != IndexKeyKind::User
                     || decoded.index_id().entity_tag() != ENTITY_TAG
                 {
-                    entries.push((key.to_bytes().into_owned(), value.to_bytes().into_owned()));
+                    entries.push((
+                        key.to_bytes().expect("fixture encoding").into_owned(),
+                        value.to_bytes().expect("fixture encoding").into_owned(),
+                    ));
                 }
                 Ok::<_, InternalError>(IndexStoreVisit::Continue)
             })
@@ -196,7 +202,10 @@ fn recover_with_stage_loss(session: &DbSession<JournaledTestCanister>, effects: 
     assert!(!session.db.drive_startup_recovery_page().unwrap());
     assert_pending(session);
     let watermark = JOURNALED_TAIL_STORE.with_borrow(|tail| tail.fold_watermark().unwrap());
-    assert!(!JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch));
+    assert!(
+        !(JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch))
+            .expect("fixture storage read should succeed")
+    );
     forget_recovered_domain_for_tests(&session.db).unwrap();
     assert!(!session.db.drive_startup_recovery_page().unwrap());
     assert_pending(session);
@@ -292,7 +301,10 @@ fn publication_case(
             .unwrap()
             .is_none()
     );
-    assert!(!JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch));
+    assert!(
+        !(JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch))
+            .expect("fixture storage read should succeed")
+    );
     assert_eq!(rows(store), before_rows);
     assert_eq!(indexes(store, true), unrelated);
     let (schema_root, schema) = store

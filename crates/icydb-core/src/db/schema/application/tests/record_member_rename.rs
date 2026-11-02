@@ -263,7 +263,6 @@ fn advance(
             expected_database: proposal.target_database(),
             expected_head: proposal.expected_head().clone(),
             expected_plan: proposal.migration().unwrap().digest(),
-            acknowledged_finding_page: None,
         },
     )
     .unwrap()
@@ -376,7 +375,6 @@ fn run_rename(interrupted: bool) {
                     expected_database: proposal.target_database(),
                     expected_head: proposal.expected_head().clone(),
                     expected_plan: proposal.migration().unwrap().digest(),
-                    acknowledged_finding_page: None,
                 },
             );
             assert!(error.is_err());

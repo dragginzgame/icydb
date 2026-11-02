@@ -340,7 +340,7 @@ pub(in crate::db::schema) enum PersistedSchemaMigrationTransformReason {
     ValueContract,
 }
 
-/// One exact accepted-ID finding retained for acknowledgement.
+/// One exact accepted-ID finding retained in rejected migration status.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct PersistedSchemaMigrationFinding {
     kind: PersistedSchemaMigrationFindingKind,
@@ -593,11 +593,6 @@ impl PersistedSchemaMigrationProgress {
         self.index_cursor.as_ref()
     }
 
-    #[must_use]
-    #[cfg(feature = "migration")]
-    pub(in crate::db::schema) const fn finding_page(&self) -> Option<u64> {
-        self.finding_page
-    }
     #[must_use]
     #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn rows_validated(&self) -> u64 {

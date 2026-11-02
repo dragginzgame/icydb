@@ -440,7 +440,7 @@ fn inspect_index_witness(
         plan.identity().entity_tag(),
         primary_key_bytes,
     );
-    let Some(raw_row) = source_store.with_data(|store| store.get(&source_key)) else {
+    let Some(raw_row) = source_store.with_data(|store| store.get(&source_key))? else {
         return derived_finding(
             plan,
             raw_key,
@@ -637,7 +637,7 @@ fn inspect_reverse_witness(
         plan.identity().entity_tag(),
         primary_key_bytes,
     );
-    let Some(raw_row) = source_store.with_data(|store| store.get(&source_key)) else {
+    let Some(raw_row) = source_store.with_data(|store| store.get(&source_key))? else {
         return reverse_finding(
             plan,
             relation,

@@ -116,8 +116,8 @@ where
     I: Iterator<Item = E>,
     K: Ord,
     Admit: FnMut(usize) -> Result<(), InternalError>,
-    EntryKey: for<'a> Fn(&'a E) -> &'a RawIndexStoreKey,
-    EntryValue: for<'a> Fn(&'a E) -> MergedEntryValue<'a>,
+    EntryKey: for<'a> Fn(&'a E) -> Result<&'a RawIndexStoreKey, InternalError>,
+    EntryValue: for<'a> Fn(&'a E) -> Result<MergedEntryValue<'a>, InternalError>,
     Decode: FnMut(&RawIndexStoreKey) -> Result<K, InternalError>,
     Visit: FnMut(K, &RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
 {
@@ -147,7 +147,7 @@ where
         .map_err(|_| InternalError::executor_internal())?;
     for range in &mut retained_ranges {
         let head = if let Some(entry) = range.next() {
-            let order_key = decode_order_key(entry_key(&entry))?;
+            let order_key = decode_order_key(entry_key(&entry)?)?;
             Some(MergedRangeHead { order_key, entry })
         } else {
             None
@@ -182,8 +182,8 @@ where
             .get_mut(child)
             .and_then(Option::take)
             .ok_or_else(InternalError::executor_invariant)?;
-        let value = entry_value(&head.entry);
-        if visit(head.order_key, entry_key(&head.entry), value.as_value())? {
+        let value = entry_value(&head.entry)?;
+        if visit(head.order_key, entry_key(&head.entry)?, value.as_value())? {
             return Ok(());
         }
         let next_head = if let Some(entry) = retained_ranges
@@ -191,7 +191,7 @@ where
             .ok_or_else(InternalError::executor_invariant)?
             .next()
         {
-            let order_key = decode_order_key(entry_key(&entry))?;
+            let order_key = decode_order_key(entry_key(&entry)?)?;
             Some(MergedRangeHead { order_key, entry })
         } else {
             None
@@ -280,8 +280,8 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| entry.0,
-                    |entry| MergedEntryValue::Borrowed(entry.1),
+                    |entry| Ok(entry.0),
+                    |entry| Ok(MergedEntryValue::Borrowed(entry.1)),
                     decode_order_key,
                     visit,
                 )?;
@@ -293,8 +293,8 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| entry.0,
-                    |entry| MergedEntryValue::Borrowed(entry.1),
+                    |entry| Ok(entry.0),
+                    |entry| Ok(MergedEntryValue::Borrowed(entry.1)),
                     decode_order_key,
                     visit,
                 )?;
@@ -316,8 +316,8 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| entry.0,
-                    |entry| MergedEntryValue::Borrowed(entry.1),
+                    |entry| Ok(entry.0),
+                    |entry| Ok(MergedEntryValue::Borrowed(entry.1)),
                     decode_order_key,
                     visit,
                 )?;
@@ -340,8 +340,8 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| entry.0,
-                    |entry| MergedEntryValue::Borrowed(entry.1),
+                    |entry| Ok(entry.0),
+                    |entry| Ok(MergedEntryValue::Borrowed(entry.1)),
                     decode_order_key,
                     visit,
                 )?;
@@ -361,8 +361,20 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| entry.key(),
-                    |entry| MergedEntryValue::Owned(entry.value()),
+                    |entry| {
+                        Ok(entry
+                            .as_ref()
+                            .map_err(|error| InternalError::from(*error))?
+                            .key())
+                    },
+                    |entry| {
+                        Ok(MergedEntryValue::Owned(
+                            entry
+                                .as_ref()
+                                .map_err(|error| InternalError::from(*error))?
+                                .value()?,
+                        ))
+                    },
                     decode_order_key,
                     visit,
                 )?;
@@ -382,8 +394,20 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| entry.key(),
-                    |entry| MergedEntryValue::Owned(entry.value()),
+                    |entry| {
+                        Ok(entry
+                            .as_ref()
+                            .map_err(|error| InternalError::from(*error))?
+                            .key())
+                    },
+                    |entry| {
+                        Ok(MergedEntryValue::Owned(
+                            entry
+                                .as_ref()
+                                .map_err(|error| InternalError::from(*error))?
+                                .value()?,
+                        ))
+                    },
                     decode_order_key,
                     visit,
                 )?;
@@ -409,6 +433,7 @@ impl IndexStore {
     ) -> Result<(), E>
     where
         F: FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
+        E: From<InternalError>,
     {
         if envelope_is_empty(&bounds.0, &bounds.1) {
             return Ok(());
@@ -491,7 +516,8 @@ impl IndexStore {
             }
             IndexStoreBackend::Journaled { canonical, .. } => {
                 for entry in canonical.range((bounds.0.as_ref(), bounds.1.as_ref())) {
-                    if visit(entry.key(), &entry.value())? {
+                    let entry = entry?;
+                    if visit(entry.key(), &entry.value()?)? {
                         break;
                     }
                 }

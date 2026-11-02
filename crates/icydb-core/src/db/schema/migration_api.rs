@@ -24,6 +24,7 @@ pub enum SchemaMigrationCommand {
     },
     /// Prepare, resume, or complete one bounded migration step. A new plan may
     /// remain `Idle` while this step drains a prior terminal plan's journal.
+    /// A rejected plan replays its retained findings; it does not resume scanning.
     Advance {
         /// Exact target database identity observed by the caller.
         expected_database: TargetDatabaseIdentity,
@@ -31,8 +32,6 @@ pub enum SchemaMigrationCommand {
         expected_head: ExpectedAcceptedHead,
         /// Exact deployed coordinated migration plan.
         expected_plan: SchemaMigrationPlanDigest,
-        /// Exact finding page acknowledged before resuming, when required.
-        acknowledged_finding_page: Option<u64>,
     },
     /// Abort a migration before irreversible row rewriting begins.
     Abort {
@@ -298,6 +297,9 @@ impl SchemaMigrationReceipt {
 }
 
 /// One bounded page of deployed source-migration status.
+///
+/// Rejection retains the first finding batch (at most 64 findings). Additional
+/// finding pages are not available; advancing a rejected plan replays this batch.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaMigrationStatusPage {

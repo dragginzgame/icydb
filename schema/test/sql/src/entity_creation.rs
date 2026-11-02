@@ -1,7 +1,7 @@
 //! Added declarations share the populated rename fixture's accepted store.
 
 use crate::sql::SqlTestStore;
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 /// New enum authority published with Quest.
 

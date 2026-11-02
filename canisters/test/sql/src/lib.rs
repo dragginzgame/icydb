@@ -43,15 +43,14 @@ use icydb_testing_test_sql_fixtures::sql::{
     SqlTestEnrollmentUserPrincipalInsert,
 };
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(
         vec![icydb::db::MemoryAuthority::new(
-            "icydb.test_sql",
+            "icydb_test_sql",
             "icydb.test_sql.",
         )?],
-        vec![],
     )
 }
 

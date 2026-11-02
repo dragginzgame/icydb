@@ -84,17 +84,18 @@ impl RawRow {
 }
 
 impl Storable for RawRow {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(&self.0))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
         // Trusted store boundary: row-size admission happens before persistence.
-        Self(bytes.into_owned())
+        Ok(Self(bytes.into_owned()))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0)
     }
 
     const BOUND: Bound = Bound::Unbounded;

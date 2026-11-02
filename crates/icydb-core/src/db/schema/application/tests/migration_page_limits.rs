@@ -115,7 +115,6 @@ fn advance(
             expected_database: next.target_database(),
             expected_head: next.expected_head().clone(),
             expected_plan: next.migration().unwrap().digest(),
-            acknowledged_finding_page: None,
         },
     )
     .unwrap()

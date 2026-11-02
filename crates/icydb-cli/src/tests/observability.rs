@@ -55,8 +55,15 @@ fn decode_metrics_reset_response_accepts_generated_response_shape() {
 
 #[test]
 fn decode_snapshot_report_accepts_generated_response_shape() {
+    let mut report = serde_json::to_value(icydb::db::StorageReport::default()).unwrap();
+    report["memory_allocations"] = serde_json::json!({
+        "current_generation": 7,
+        "virtual_extent": { "wasm_pages": 2, "bytes": 131_072 },
+        "memories": [{ "allocation_id": u64::MAX, "stable_key": "icydb.example.store.rows.data.v1",
+            "virtual_extent": { "wasm_pages": 2, "bytes": 131_072 } }]
+    });
     let response: Result<icydb::db::StorageReport, icydb::Error> =
-        Ok(icydb::db::StorageReport::default());
+        Ok(serde_json::from_value(report).unwrap());
     let wire_bytes = icydb::__macro::RpcMethod::Snapshot
         .encode_response(&response, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .expect("snapshot response should encode");
@@ -72,6 +79,15 @@ fn decode_snapshot_report_accepts_generated_response_shape() {
 
     assert_eq!(decoded.storage_data().len(), 0);
     assert_eq!(decoded.storage_index().len(), 0);
+    assert_eq!(
+        decoded.memory_allocations().unwrap().memories[0].allocation_id,
+        u64::MAX
+    );
+    let text = render_snapshot_report(&decoded);
+    assert!(text.contains("18446744073709551615"));
+    assert!(text.contains("icydb.example.store.rows.data.v1"));
+    assert!(text.contains("virtual bytes: 131072"));
+    assert!(text.contains("physical usage: unavailable"));
 }
 
 #[test]
@@ -165,7 +181,7 @@ fn snapshot_report_rendering_uses_human_tables() {
     let text = render_snapshot_report(&icydb::db::StorageReport::default());
 
     assert!(text.contains("IcyDB storage snapshot"));
-    assert!(text.contains("unavailable: no default memory runtime"));
+    assert!(text.contains("unavailable: no bound Storage runtime"));
     assert!(text.contains("data stores\n  None"));
     assert!(text.contains("index stores\n  None"));
     assert!(text.contains("schema stores\n  None"));

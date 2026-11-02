@@ -1,5 +1,5 @@
 # Common release commands
-<!-- Shared companions: docs/cargo-publication.md -->
+<!-- Shared companions: docs/cargo-publication.md docs/release-validation-reuse.md docs/release-group-validation.md -->
 
 Every `dragginzgame` repository, including Shared Tooling and repositories without
 a publishable package, must provide these Make targets:
@@ -25,9 +25,12 @@ the default; [PR delivery](#pr-delivery) adds review and fresh merged-commit
 validation before tagging. A repository
 without package metadata may use a dedicated version file; otherwise it uses
 its latest finalized changelog version. Shared Tooling owns its current local
-version in root `VERSION`, displayed by `make version`. Its undated changelog
-heading names the next proposed release. Preparation updates both files and
-stages them together; neither a version file nor a changelog heading proves
+version in root `VERSION`, displayed by `make version`. Ordinary meaningful work
+runs `make prepare-work` to create or reuse an explicit `- Unreleased` entry and
+align `VERSION`. `WORK_VERSION_KIND=minor` or `major` promotes the pending batch;
+the default is patch. Add meaningful notes to that entry. CI's `check-version`
+rejects disagreement. Release preparation dates that same version and stages
+both files together; neither a version file nor a changelog heading proves
 that a tag was pushed. Pre-release versions require a separately selected release plan;
 these commands must reject ambiguous or unsupported version inputs.
 
@@ -37,7 +40,27 @@ directory, including after a partial replacement. Retry uses the existing releas
 reconciliation; it does not delete earlier evidence or automatically restore files.
 Successful attempts remove only their own scratch directory.
 
+Shared selects `RELEASE_VERSION_MODE=pending` and supplies `release-base-version`.
+That read-only hook returns the preceding ledger version when `VERSION` already
+matches an explicit pending heading, otherwise the current version for the legacy
+workflow. The runner computes the requested increment from that base and still
+requires the candidate to agree with the prepared metadata. Preparation must be
+idempotent because the pending version can already be present before finalization
+or recovery. A mismatched release kind fails before validation or delivery.
+The default `released` mode and Cargo release-group adapters retain their existing
+version selection; pending-file mode cannot be used with a Cargo release group.
+
 ## Required workflow
+
+Content-bound reuse across independent groups has an
+[opt-in exact-input stage interface](release-validation-reuse.md). Consumers must
+qualify their selected stages and fresh group admission before integrating it.
+Existing complete gates and retained receipts keep their current meaning.
+Independent groups may adopt [group-scoped qualification](release-group-validation.md)
+after qualifying their complete stage mapping. “Complete gate” below then means
+every obligation in that admitted plan, equally for patch, minor and major.
+The default remains the existing full workspace gate; group selection alone
+does not change it. Repository-wide CI and enforced protections remain intact.
 
 The default `RELEASE_DELIVERY=direct` workflow is:
 
@@ -93,7 +116,9 @@ top of the changelog until subsequent work needs a new numbered, undated pending
 entry under the [automatic next-version rules](../rules/changelogs.md).
 
 Agents maintain that proposed changelog version during ordinary development.
-The proposal does not bump package metadata or execute a release. Select the
+Shared Tooling alone also maintains its standalone `VERSION` file automatically;
+this is not a sibling adoption requirement. The proposal does not bump package
+metadata or execute a release. Select the
 matching release kind when invoking the explicitly authorized command; its computed
 candidate must agree with the pending heading and the complete batch's
 compatibility impact before finalization.
@@ -964,7 +989,9 @@ shared lockfile and source. Group journals record the group explicitly, and
 validation receipts bind the group and policy blob as well as source/destination.
 Resume requires the same group, version and delivery identity. The runner admits
 the adapter's version and exact release-file list against the declared group;
-selecting a group must never narrow its full workspace/release validation gate.
+selecting a group alone must never narrow its validation gate. An explicitly
+qualified [group validation plan](release-group-validation.md) may select the
+complete applicable obligations while preserving repository-wide CI.
 
 `cargo-release-metadata.sh prepare|check|check-graph PRIMARY` delegates group
 selection when `RELEASE_GROUP` is set and rejects a different primary. Both
@@ -1089,3 +1116,37 @@ Host's adoption retains its original validation receipt format and reconstructio
 of expected release bytes from the selected source. Testkit and Backup have
 additional metadata contracts; they must qualify their own callbacks and recovery
 fixtures before replacing their local preparation mechanics.
+
+### Read-only grouped bootstrap observation
+
+`bash scripts/ci/observe-cargo-release-bootstrap.sh policy` returns the complete
+source-only policy after common shape, path and unique-membership admission.
+It does not run Cargo or establish filesystem/graph ownership. Native consumers
+can project it instead of maintaining a parallel policy validator.
+
+The `observe` operation additionally uses locked, offline Cargo `metadata --no-deps` for
+workspace/member discovery and the prepared yq TOML parser for the root catalog
+and lock. It accepts a virtual workspace with literal package versions, including
+partially changed member manifests and coherent per-group local lock versions.
+It reports each group's member paths and declared/locked versions, target directory,
+a derived `coherent` flag and group-editor inputs for a scratch root catalog.
+The scratch requirements retain their existing operators. `inputs` maps every
+observed policy/manifest/lock path to its SHA-256 byte identity; changing only a
+comment still changes the observation. The derived coherence includes the catalog.
+Full local alias requirements are admitted as observations, not transitions. Missing, duplicate or foreign local lock identities,
+unsupported policy, parser failure and outside-root members refuse. Workspace
+inheritance mode is outside this bootstrap-only contract.
+
+Inputs are captured before parsing and compared again before output. Parser or
+Cargo failure, unsafe file routes, wrong catalog paths and byte drift publish no
+observation. Failed observation evidence is retained at the printed location.
+The exported script declares its complete helper closure.
+
+Consumers own exact input custody across their own helpers, tool/compiler selection,
+allowed previous/candidate projections and scratch preparation. Re-observe after
+helpers or effects; neither output is a cached proof. This helper does not fetch,
+render, repair source or authorize release effects.
+Normal group plans still require successful full locked metadata and unchanged
+version/catalog admission. Qualify a consumer's actual scratch recovery before
+retiring its existing bootstrap code. See
+[#333 — Review a shared read-only observation boundary for grouped Cargo bootstrap](https://github.com/dragginzgame/shared-tooling/issues/333).

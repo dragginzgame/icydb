@@ -178,14 +178,14 @@ impl StoreCatalogDescription {
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct MemoryCatalogDescription {
     tag: String,
-    memory_id: u8,
+    memory_id: u64,
     store_path: String,
 }
 
 impl MemoryCatalogDescription {
     /// Construct one memory catalog entry.
     #[must_use]
-    pub const fn new(tag: String, memory_id: u8, store_path: String) -> Self {
+    pub const fn new(tag: String, memory_id: u64, store_path: String) -> Self {
         Self {
             tag,
             memory_id,
@@ -201,7 +201,7 @@ impl MemoryCatalogDescription {
 
     /// Stable-memory manager ID.
     #[must_use]
-    pub const fn memory_id(&self) -> u8 {
+    pub const fn memory_id(&self) -> u64 {
         self.memory_id
     }
 

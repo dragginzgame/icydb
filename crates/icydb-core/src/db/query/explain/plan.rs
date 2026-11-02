@@ -133,6 +133,12 @@ impl ExplainPlan {
         &self.order_pushdown
     }
 
+    /// Attach the accepted-schema-bound executor's secondary-order decision.
+    pub(in crate::db) fn with_order_pushdown(mut self, status: ExplainOrderPushdown) -> Self {
+        self.order_pushdown = status;
+        self
+    }
+
     /// Borrow projected pagination status.
     #[must_use]
     pub const fn page(&self) -> &ExplainPagination {
@@ -313,8 +319,14 @@ pub struct ExplainGroupHaving {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainOrderPushdown {
+    /// Logical projection has no accepted execution authority.
     MissingModelContext,
-    EligibleSecondaryIndex { index: String, prefix_len: usize },
+    /// The selected route does not use secondary-index order pushdown.
+    NotApplicable,
+    EligibleSecondaryIndex {
+        index: String,
+        prefix_len: usize,
+    },
     Rejected(SecondaryOrderPushdownRejection),
 }
 

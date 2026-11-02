@@ -250,7 +250,6 @@ fn assert_staging_preserves_retained_writes(validate: bool, restart: bool) {
         expected_database: next.target_database(),
         expected_head: next.expected_head().clone(),
         expected_plan: next.migration().unwrap().digest(),
-        acknowledged_finding_page: None,
     };
     if validate {
         retain_writes(&session);
@@ -396,7 +395,6 @@ fn assert_checked_cast_target_nullability(target_nullable: bool) {
                 expected_database: next.target_database(),
                 expected_head: next.expected_head().clone(),
                 expected_plan: next.migration().unwrap().digest(),
-                acknowledged_finding_page: None,
             },
         )
         .unwrap_or_else(|error| panic!("migration step {step}: {error:?}"));
@@ -421,6 +419,21 @@ fn assert_checked_cast_target_nullability(target_nullable: bool) {
             terminal.findings()[0].kind(),
             SchemaMigrationFindingKind::Transform
         );
+        // A rejected plan retains its exact diagnostic batch. Advance cannot
+        // silently resume validation or publish after a finding has been seen.
+        for _ in 0..2 {
+            let replay = migrate_schema(
+                &db,
+                &next,
+                SchemaMigrationCommand::Advance {
+                    expected_database: next.target_database(),
+                    expected_head: next.expected_head().clone(),
+                    expected_plan: next.migration().unwrap().digest(),
+                },
+            )
+            .unwrap();
+            assert_eq!(replay, terminal);
+        }
         let aborted = migrate_schema(
             &db,
             &next,

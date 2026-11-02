@@ -150,16 +150,17 @@ impl IndexEntryValue {
 }
 
 impl Storable for IndexEntryValue {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.as_bytes())
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self::from_persisted_bytes(bytes.into_owned())
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
+        Ok(Self::from_persisted_bytes(bytes.into_owned()))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.into_bytes()
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.into_bytes())
     }
 
     const BOUND: Bound = Bound::Bounded {

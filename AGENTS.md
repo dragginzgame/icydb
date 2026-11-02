@@ -1,5 +1,13 @@
 # IcyDB Agent Rules
 
+For scope, delegated delivery, validation, compiler support and reporting, use
+[Shared policy at 8c7fae6](https://github.com/dragginzgame/shared-tooling/blob/8c7fae6605c69a930e3b1f14e1ff5c4c9dafbcb7/DRAGGINZGAME.md)
+and its revision-bound references over older snapshot or local-guide wording.
+This includes Rust 1.99.1 as minimum and pinned development/release compiler;
+check local declarations and qualification before claiming adoption is complete.
+Product-specific safeguards and scoped permissions below remain binding.
+This policy reference does not refresh executable snapshots.
+
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot). This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
@@ -19,7 +27,9 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
 - Use GitHub issues exclusively for upstream feedback and follow-up tracking.
   Check issue bodies and comments; local notes may summarize linked evidence
   but must not become a separate feedback queue.
-- Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; the shared release workflow owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
+- Ordinary implementation does not change package versions. Explicit delivery
+  delegates version preparation to the shared release workflow; preserve unrelated
+  version edits and report conflicting in-progress release work.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - IC Testkit is the sole PocketIC infrastructure owner: server selection,
   provisioning, admission and lifecycle. IcyDB consumes Testkit; do not add
@@ -41,7 +51,8 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
   [host qualification matrix](docs/governance/shared-tooling.md#host-qualification)
   for declared hosts and evidence gaps; Linux checks do not qualify macOS.
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
-- For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.
+- Wasm size reports include total uncompressed module bytes and code-section bytes.
+  Exclude gzip/compressed sizes unless transport measurement is explicitly requested.
 - Performance metrics are Wasm size, IC cycles, and instruction counts only.
   Never use wall-clock/native timing as a performance metric, proxy, or release
   gate; do not run timing benchmarks or investigate timing regressions.
@@ -74,16 +85,7 @@ rather than prohibiting retired names.
 
 ## Cost / Scope Control
 
-- Avoid scope creep and incidental complexity; prioritise simplicity and
-  maintainability. Prefer deleting, reusing, narrowing, or changing an existing
-  authority over adding modes, abstractions, configuration, persisted states,
-  or compatibility paths.
-- Before adding an independent behavior axis such as a mode, configuration
-  option, persisted state, execution route, cursor format, or widely consumed
-  enum variant, record the demonstrated need, simplest alternative, canonical
-  owner, and state-space delta.
-- Prefer one semantic authority and one converged execution flow. Tests protect
-  maintained behavior and boundaries, not incidental implementation shape.
+- Apply the shared simplicity and ownership rules; avoid incidental refactoring.
 - For saved-review repairs, qualify affected boundary families and prevent facts
   drifting between owners; follow the repair discipline in `docs/code-review/status.md`.
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
@@ -98,28 +100,18 @@ rather than prohibiting retired names.
   its direct tests, diagnostics, docs, fixtures, and mechanical propagation.
   Do not create micro-slices for fallout from the same change, and do not
   combine independent planned outcomes into a multi-hour mega-slice.
-- A landing slice is a reviewable outcome, not a compulsory agent-turn limit.
-  Complete the accepted coherent in-repository batch through its implementation,
-  focused checks, direct propagation, cleanup and current changelog draft.
-- Ordinary continuation resumes that accepted scope in the current release line.
-  Stop at new independent scope or a release boundary; continuation never
-  authorizes starting another minor or publishing work.
-- Split independently reviewable outcomes rather than compiler fallout or each
-  proof of one change. Do not invent a release version for each landing slice.
-- Treat file and delivery-domain counts as reporting signals, not execution
-  limits. Include direct tests, documentation, fixtures, exhaustive matches,
-  and mechanical propagation required by the current planned outcome. If work
-  reveals another independently reviewable outcome, stop and split or update
-  the tracker instead of folding it into the active landing slice.
+- Complete each accepted slice end-to-end, including direct propagation, tests,
+  docs and changelog. Continuation stays in the accepted line; new independent
+  scope or a release boundary needs its own instruction. File counts are reporting
+  signals, not a reason to split compiler fallout into separate releases.
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
-- Run focused checks after edits; run broader checks only when the slice is otherwise ready.
+- Run focused checks after coherent edits; broad gates require an explicit release or check request.
 - When focused validation reports a Clippy warning, stop later validation, fix
   every warning in that selected gate, and rerun it before handoff. Do not
   expand to workspace-wide `make clippy` without explicit authorization.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
-- Report measured cycle/instruction and wasm-size deltas alongside a complexity delta: files touched,
-  approximate line delta, and whether the implementation shape got simpler,
-  stayed neutral, or became more complex.
+- Report relevant measured cycle/instruction and Wasm-size changes, or state that
+  they are unmeasured. Detailed line metrics and symbol inventories are opt-in.
 
 ## Lookup Docs
 
@@ -144,19 +136,23 @@ rather than prohibiting retired names.
 ## Changelog / Release Notes
 
 - Before any changelog edit, follow `docs/governance/changelog.md`.
-- Keep meaningful completed behavior/tooling notes in the latest current root
+- Keep meaningful completed behavior/tooling notes in the selected release-group ledger
   and minor-line draft before handoff. Governance-only edits need no note unless
   requested. Never create an `Unreleased` section or a separate notes queue.
-- Keep one numbered, undated pending entry under `rules/changelogs.md`.
+- Keep one numbered, undated pending entry per release group under `rules/changelogs.md`.
   Derive its version from the latest finalized release and the whole pending
   batch; move only pending detail notes when its minor line changes. Numbering
   does not authorize Cargo version changes or release execution.
-- Preserve published notes and tags. An explicitly supplied target needs root
+- Preserve published notes and tags. An explicitly supplied target needs group
   and detailed release notes; report SemVer conflicts rather than renumbering it.
 - Changelog position, draft labels or a missing chosen version must not block
   deployment. Report and repair missing notes when practical.
 
 ## Push / Commit Boundaries
+
+- Select `RELEASE_GROUP=database` or `RELEASE_GROUP=cli` explicitly for release,
+  resume and publication. Root `CHANGELOG.md` indexes the independent ledgers;
+  package versions remain unchanged outside authorized release preparation.
 
 - Follow the shared [contribution rules](rules/contributions.md). Ordinary work
   leaves staging, commits and pushes to the user. An explicitly requested PR

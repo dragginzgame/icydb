@@ -29,10 +29,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `scripts/`: release/version helpers.
 - `Makefile`: common tasks.
 - `Cargo.toml`: workspace manifest; edition 2024 and workspace package
-  rust-version 1.96.0. `rust-toolchain.toml` selects the latest stable channel
-  for maintainer and CI tooling. The public `icydb` dependency path and its
-  library dependencies advertise and are checked on MSRV 1.91.0; other workspace-only packages use
-  the workspace floor.
+  rust-version 1.99.1. All packages inherit this floor, including the independent
+  Canic workspace. `rust-toolchain.toml` pins the same exact compiler for
+  development, lint, CI and release qualification.
 
 ## Workflow
 
@@ -61,14 +60,16 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   request or their configured CI pipeline. Do not run them on ordinary continuation.
 - `make check-versioning` verifies that release helper tools are available; it
   is not a release-readiness verdict. Human-owned release publication uses
-  `make release-patch`, `make release-minor` or `make release-major`; the shared
+  `make release-patch RELEASE_GROUP=database`, `make release-minor RELEASE_GROUP=database` or `make release-major RELEASE_GROUP=database`; the shared
   runner owns preparation, staging, commit, tag and atomic branch/tag push.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`. `make install-hooks` installs the hook explicitly;
   `make install-dev` and `make update-dev` also ensure it is installed.
-- CI uses the latest stable Rust channel, `rustfmt`, `clippy -D warnings`, `cargo test`, and
-  release builds. It also checks the public `icydb` dependency path on Rust
-  `1.91.0`.
+- CI projects the workspace compiler policy through its shared bootstrap reader,
+  prepares Rust 1.99.1 and checks actual Cargo/rustc identities. Isolated public
+  feature/native/Wasm and external adapter consumers run in their workspace lanes;
+  native macOS, browser, installed-runtime and artifact obligations stay distinct.
+  Local validation and release gates also admit the actual selected compiler.
 
 ## Concurrent Editing
 
@@ -183,21 +184,24 @@ struct TypeName;
 
 ## Changelog And Release
 
+Use `RELEASE_GROUP=cli` for CLI delivery. Database-family packages remain
+coordinated under `database`; root `CHANGELOG.md` indexes both ledgers.
+
 - Follow `docs/governance/changelog.md`.
-- Keep meaningful completed behavior/tooling in the current root and minor-line
+- Keep meaningful completed behavior/tooling in the selected group ledger and minor-line
   pending entry. Automatically select its numbered, undated heading under
   `rules/changelogs.md`; do not create an `Unreleased` section or a version per
   landing slice. Missing
   notes and draft presentation must not become deployment gates.
 - Governance-only edits do not need release notes unless explicitly requested.
-- In `docs/changelog/0.*.md`, separate every `## 0.x.y` entry with `---`.
-- Root changelog summaries should be plain-language, user-impact first, and concise.
-- Root minor-line summaries use exactly one bullet per patch version.
-- Put implementation detail in `docs/changelog/0.*.md`.
-- Releases use the shared `make release-patch`, `make release-minor` or
-  `make release-major` workflow. Validation precedes version preparation; commits,
+- In `releases/<group>/0.*.md`, separate every `## 0.x.y` entry with `---`.
+- Group changelog summaries should be plain-language, user-impact first, and concise.
+- Group minor-line summaries use exactly one bullet per patch version.
+- Put implementation detail in `releases/<group>/0.*.md`.
+- Releases use the shared `make release-patch RELEASE_GROUP=database`, `make release-minor RELEASE_GROUP=database` or
+  `make release-major RELEASE_GROUP=database` workflow. Validation precedes version preparation; commits,
   tags and pushes remain user-owned in agent sessions. Never hand-edit tags.
-- Before invoking the selected release command, prepare the target root and detailed
+- Before invoking the selected release command, prepare the target group and detailed
   changelog entries, but do not pre-bump package versions or `Cargo.lock`.
   Missing changelog notes should be reported and reconstructed when practical;
   their absence alone is not a mechanical release blocker.

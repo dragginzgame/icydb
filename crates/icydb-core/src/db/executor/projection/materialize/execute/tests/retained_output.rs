@@ -4,6 +4,84 @@ use super::*;
 use crate::db::executor::terminal::{RetainedSlotLayout, RetainedSlotValueMode, RowDecoder};
 
 #[test]
+fn retained_sibling_paths_preserve_values_and_error_ownership() {
+    let layout = RetainedSlotLayout::compile(2, vec![1]);
+    let expressions: Vec<_> = ["city", "name", "city", "missing"]
+        .into_iter()
+        .map(|name| CompiledExpr::FieldPath {
+            root_slot: 1,
+            segments: vec!["profile".into(), name.into()].into_boxed_slice(),
+            segment_bytes: vec![
+                b"profile".to_vec().into_boxed_slice(),
+                name.as_bytes().to_vec().into_boxed_slice(),
+            ]
+            .into_boxed_slice(),
+        })
+        .collect();
+    let profile = Value::Map(vec![
+        (Value::Text("name".into()), Value::Text("Ada".into())),
+        (Value::Text("city".into()), Value::Null),
+        (
+            Value::Text("city".into()),
+            Value::Text("second match".into()),
+        ),
+    ]);
+    for (root, expected) in [
+        (
+            Value::Map(vec![(Value::Text("profile".into()), profile)]),
+            vec![
+                Value::Null,
+                Value::Text("Ada".into()),
+                Value::Null,
+                Value::Null,
+            ],
+        ),
+        (Value::Null, vec![Value::Null; 4]),
+        (Value::Map(vec![]), vec![Value::Null; 4]),
+        (
+            Value::Map(vec![(Value::Text("profile".into()), Value::Null)]),
+            vec![Value::Null; 4],
+        ),
+    ] {
+        let row = RetainedSlotRow::from_indexed_values(&layout, vec![Some(root.clone())]);
+        let mut shaped = Vec::new();
+        assert!(project_retained_sibling_paths(&expressions, &row, &mut shaped).unwrap());
+        assert_eq!(shaped, expected);
+        let general: Vec<_> = expressions
+            .iter()
+            .map(|expr| {
+                eval_compiled_expr_with_value_ref_reader(expr, &mut |slot| row.slot_ref(slot))
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(shaped, general);
+        assert_eq!(row.slot_ref(1), Some(&root));
+    }
+    for root in [
+        None,
+        Some(Value::Nat64(9)),
+        Some(Value::Map(vec![(
+            Value::Text("profile".into()),
+            Value::Nat64(9),
+        )])),
+    ] {
+        let row = RetainedSlotRow::from_indexed_values(&layout, vec![root]);
+        let mut shaped = Vec::new();
+        let error = project_retained_sibling_paths(&expressions, &row, &mut shaped).unwrap_err();
+        let general = eval_compiled_expr_with_value_ref_reader(&expressions[0], &mut |slot| {
+            row.slot_ref(slot)
+        })
+        .unwrap_err()
+        .into_internal_error();
+        assert_eq!(error.class(), general.class());
+        assert_eq!(error.origin(), general.origin());
+        assert_eq!(error.diagnostic(), general.diagnostic());
+        assert_eq!(error.diagnostic_facts(), general.diagnostic_facts());
+        assert!(shaped.is_empty());
+    }
+}
+
+#[test]
 fn retained_output_moves_nested_cache_and_preserves_slot_order() {
     let contract = projection_contract(
         nested_kind(1024),

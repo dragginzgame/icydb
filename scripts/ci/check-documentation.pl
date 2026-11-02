@@ -9,6 +9,7 @@ use StableVersion qw(stable version_cmp);
 # compiled example and codec tests linked from the maintained contracts.
 chdir "$FindBin::Bin/../.." or die "cannot enter repository: $!\n";
 my @documents = @ARGV ? @ARGV : (
+    'CHANGELOG.md', 'releases/history.md', glob('releases/*/*.md'),
     'README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
     glob('docs/*.md'), glob('docs/contracts/*.md'),
     glob('docs/guides/*.md'), glob('docs/operations/*.md'),
@@ -61,12 +62,12 @@ for my $document (@documents) {
 # Both dependency examples must agree on a canonical tag no newer than the
 # workspace; preparing a new release does not rewrite ordinary source prose.
 unless (@ARGV) {
-    my $manifest = read_file('Cargo.toml');
-    $manifest =~ /\[workspace\.package\]([^\[]+)/s or die "missing workspace package\n";
+    my $manifest = read_file('crates/icydb/Cargo.toml');
+    $manifest =~ /\[package\]([^\[]+)/s or die "missing database package\n";
     my $package = $1;
-    $package =~ /^version\s*=\s*"([^"]+)"/m or die "missing workspace version\n";
+    $package =~ /^version\s*=\s*"([^"]+)"/m or die "missing database version\n";
     my $version = $1;
-    stable($version) or die "invalid workspace version\n";
+    stable($version) or die "invalid database version\n";
     my $readme = read_file('README.md');
     my @tags = ($readme =~ /^icydb\s*=\s*\{[^}\n]*\btag\s*=\s*"([^"]*)"/mg);
     if (@tags != 2) {
@@ -74,7 +75,7 @@ unless (@ARGV) {
         ++$failures;
     }
     for my $tag (@tags) {
-        if ($tag !~ /^v(.+)$/ || !stable($1)) {
+        if ($tag !~ /^(?:database-)?v(.+)$/ || !stable($1)) {
             warn "README.md: invalid release tag $tag\n";
             ++$failures;
         } elsif (version_cmp($1, $version) > 0) {

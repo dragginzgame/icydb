@@ -44,17 +44,12 @@ mod generated {
     ::std::include!(::std::concat!(::std::env!("OUT_DIR"), "/actor.rs"));
 }
 
-pub(super) fn icydb_memory_pool() -> std::result::Result<
-    runtime_api::db::MemoryAllocationPool,
-    runtime_api::db::MemoryAllocationPoolError,
-> {
-    runtime_api::db::MemoryAllocationPool::new(
-        vec![runtime_api::db::MemoryAuthority::new(
-            "icydb.actor_hygiene",
-            "icydb.actor_hygiene.",
-        )?],
-        vec![],
-    )
+pub(super) fn icydb_storage_grants()
+-> std::result::Result<runtime_api::db::AllocationGrants, runtime_api::db::AdmissionError> {
+    runtime_api::db::AllocationGrants::new(vec![runtime_api::db::MemoryAuthority::new(
+        "icydb_actor_hygiene",
+        "icydb.actor_hygiene.",
+    )?])
 }
 
 #[test]
@@ -68,5 +63,5 @@ fn actor_requests_keep_the_declared_memory_authority() {
                 .as_str()
                 .starts_with("icydb.actor_hygiene.")
     }));
-    let _ = icydb_memory_pool().expect("fixture authority should validate");
+    let _ = icydb_storage_grants().expect("fixture authority should validate");
 }

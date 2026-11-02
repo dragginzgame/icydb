@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/verify-file-checksum.sh scripts/ci/validation-input-checkpoint.pl
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/verify-file-checksum.sh scripts/ci/validation-input-checkpoint.pl scripts/ci/release-validation-plan.pl
 set -euo pipefail
 
 usage() {
-    echo "usage: run-validation-targets.sh [--fail-fast] [--input FILE]... <make-target>..." >&2
+    echo "usage: run-validation-targets.sh [--fail-fast] [--input FILE]... <make-target>... | --plan FILE" >&2
 }
 
 RUNNER_SOURCE="${BASH_SOURCE[0]}"
@@ -41,6 +41,7 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     cp "$(dirname "$RUNNER_SOURCE")/check-make-execution.sh" "$RUNNER_SNAPSHOT_DIR/"
     cp "$(dirname "$RUNNER_SOURCE")/verify-file-checksum.sh" "$RUNNER_SNAPSHOT_DIR/"
     cp "$(dirname "$RUNNER_SOURCE")/validation-input-checkpoint.pl" "$RUNNER_SNAPSHOT_DIR/"
+    cp "$(dirname "$RUNNER_SOURCE")/release-validation-plan.pl" "$RUNNER_SNAPSHOT_DIR/"
     bash -n "$RUNNER_SNAPSHOT"
     snapshot_status=0
     VALIDATION_REPOSITORY_ROOT="$REPOSITORY_ROOT" \
@@ -56,10 +57,14 @@ fi
 unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
 
 FAIL_FAST=false
+plan_path=''
 input_paths=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --fail-fast) FAIL_FAST=true; shift ;;
+        --plan)
+            [[ $# -ge 2 && -n "$2" && -z "$plan_path" ]] || { usage; exit 2; }
+            plan_path="$2"; shift 2 ;;
         --input)
             [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
             input_paths+=("$2"); shift 2 ;;
@@ -67,9 +72,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ $# -eq 0 ]]; then
+if [[ $# -eq 0 && -z "$plan_path" ]]; then
     usage
     exit 2
+fi
+if [[ -n "$plan_path" ]]; then
+    [[ $# == 0 && -n "${VALIDATION_LOG_DIR:-}" ]] || {
+        echo 'a validation plan requires retained VALIDATION_LOG_DIR and no positional goals' >&2; exit 2;
+    }
+    FAIL_FAST=true
+    input_paths+=("$plan_path")
 fi
 
 # Admit the complete goal list before creating logs or running any target.
@@ -155,8 +167,38 @@ if [[ -n "$input_baseline" || ${#input_paths[@]} -gt 0 ]]; then
     input_baseline="$LOG_DIR/inputs.json"
     export VALIDATION_INPUT_ROOT="$REPOSITORY_ROOT" VALIDATION_INPUT_BASELINE="$input_baseline"
 fi
+if [[ -n "$plan_path" ]]; then
+    # Checkpoint before parsing, then checkpoint the expanded inventory. A plan
+    # or policy changed during selection cannot become the new baseline.
+    perl "${RUNNER_SOURCE%/*}/release-validation-plan.pl" "$REPOSITORY_ROOT" "$plan_path" \
+        "${RELEASE_SOURCE:-}" "${RELEASE_GROUP:-}" "$input_baseline" "$LOG_DIR/parsed-inputs.json" \
+        > "$LOG_DIR/plan-selection.tsv"
+    input_baseline="$LOG_DIR/parsed-inputs.json"
+    set --
+    printf 'target\tstate\treason\n' > "$LOG_DIR/plan-events.tsv"
+    while IFS=$'\t' read -r decision value reason; do
+        case "$decision" in
+            input) input_paths+=("$value") ;;
+            required)
+                set -- "$@" "$value"
+                printf '%s\tblocked\t%s\n' "$value" "$reason" >> "$LOG_DIR/plan-events.tsv" ;;
+            not-applicable)
+                printf '%s\tnot-applicable\t%s\n' "$value" "$reason" >> "$LOG_DIR/plan-events.tsv" ;;
+        esac
+    done < "$LOG_DIR/plan-selection.tsv"
+    input_checkpoint "$LOG_DIR/plan-inputs.json"
+    input_baseline="$LOG_DIR/plan-inputs.json"
+    export VALIDATION_INPUT_BASELINE="$input_baseline"
+fi
 input_drift=false
 check_inputs() {
+    if [[ -n "$plan_path" ]]; then
+        local current_source
+        current_source="$(git -C "$REPOSITORY_ROOT" rev-parse --verify HEAD)" || return 1
+        [[ "$current_source" == "$RELEASE_SOURCE" ]] || {
+            echo 'release validation source moved; prepare a fresh plan' >&2; return 1;
+        }
+    fi
     [[ -n "$input_baseline" ]] || return 0
     input_checkpoint "$LOG_DIR/$1-inputs.json"
 }
@@ -450,6 +492,9 @@ for target in "$@"; do
     retained_logs+=("$retained_log")
     if [[ "$retain_all_logs" == true ]]; then
         printf '%s\t%s\t%s\t%s\n' "$target" "$result" "$elapsed" "$log" >> "$LOG_DIR/timings.tsv"
+    fi
+    if [[ -n "$plan_path" ]]; then
+        printf '%s\t%s\t%s\n' "$target" "$result" "$log" >> "$LOG_DIR/plan-events.tsv"
     fi
     if [[ "${GITHUB_ACTIONS:-}" == "true" && "$RUNNER_DEPTH" == "0" ]]; then
         printf '::endgroup::\n'

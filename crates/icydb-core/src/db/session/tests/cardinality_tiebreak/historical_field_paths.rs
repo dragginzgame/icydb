@@ -42,9 +42,13 @@ fn historical_profiles(fill: Option<Value>) -> DbSession<TestCanister> {
             .unwrap();
         let row = DATA_STORE.with(|store| store.borrow().get(&key).unwrap());
         assert_eq!(
-            decode_row_payload_bytes(row.as_bytes())
-                .unwrap()
-                .layout_version(),
+            decode_row_payload_bytes(
+                row.as_ref()
+                    .expect("storage operation should succeed")
+                    .as_bytes()
+            )
+            .unwrap()
+            .layout_version(),
             RowLayoutVersion::INITIAL
         );
         (key, row)
@@ -192,6 +196,18 @@ fn historical_field_paths_scalar_projection(fill: Option<Value>) {
         _ => OutputValue::null(),
     };
     let session = historical_profiles(fill);
+    assert_admitted_rows(
+        &session,
+        "SELECT profile.rank, profile.rank FROM PlannerRow",
+        FieldRef::new("id").in_list([1, 2, 3, 4, 5].map(InputValue::nat64)),
+        vec![
+            vec![historical_rank.clone(); 2],
+            vec![historical_rank.clone(); 2],
+            vec![OutputValue::null(); 2],
+            vec![OutputValue::nat64(7); 2],
+            vec![OutputValue::null(); 2],
+        ],
+    );
     for _ in 0..2 {
         assert_eq!(
             projection_rows(&session, "SELECT profile.rank FROM PlannerRow ORDER BY id"),
@@ -438,9 +454,13 @@ fn historical_field_paths_reject_current_slot_absence_and_truncated_payloads() {
     for truncate in [false, true] {
         DATA_STORE.with(|store| {
             let mut store = store.borrow_mut();
-            let payload = decode_row_payload_bytes(old.as_bytes())
-                .unwrap()
-                .into_payload();
+            let payload = decode_row_payload_bytes(
+                old.as_ref()
+                    .expect("storage operation should succeed")
+                    .as_bytes(),
+            )
+            .unwrap()
+            .into_payload();
             // Keep a valid current-format envelope. A current-layout row may
             // not borrow a historical fill to excuse its missing physical slot.
             let payload = if truncate {
@@ -461,7 +481,9 @@ fn historical_field_paths_reject_current_slot_absence_and_truncated_payloads() {
                 },
             )
             .unwrap();
-            store.insert_raw_for_test(key.clone(), RawRow::try_new(bytes).unwrap());
+            store
+                .insert_raw_for_test(key.clone(), RawRow::try_new(bytes).unwrap())
+                .expect("fixture storage operation should succeed");
         });
         for sql in [
             "SELECT profile.rank FROM PlannerRow WHERE id = 1",

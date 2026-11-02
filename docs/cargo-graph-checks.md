@@ -17,6 +17,13 @@ perl scripts/ci/check-cargo-graph.pl --consumer . --package example \
   --target wasm32-unknown-unknown --forbid candid --json --explain
 ```
 
+Package violations also include `identity_paths`: one observed introducing path
+for each distinct rendered identity of that package. This makes both sides of a
+singleton conflict visible, including their versions and source qualifiers. The
+existing `path` remains the first package path; feature violations retain their
+feature path. These paths describe the same successful observation as the policy
+failure, without another diagnostic command or different feature selection.
+
 Shared Tooling owns the observation/checking mechanics. Consumers own the roots,
 targets, features, forbidden packages and required identity counts. This helper
 complements direct declaration checks; it does not replace them or infer policy
@@ -52,7 +59,14 @@ of every enabled/root feature. Package identities still come only from package
 labels, and normal/build edges continue to exclude development dependencies. Roots, target and features stay explicit. Invalid/conflicting
 policy and CR/LF directories fail before Cargo, including resolved path aliases.
 
-The helper runs locked, offline Cargo tree with normal/build edges and flat
+Use `--edges normal` for a runtime/public-type policy that deliberately excludes
+build dependencies. The default `--edges normal,build` preserves combined
+normal/build checking; no dev or whole-lock duplicate policy is inferred. JSON
+records the selected `edges`. Feature-edge policy composes with either selection.
+Select the edges according to the actual contract: a runtime-only pass says
+nothing about a separately selected host tool graph.
+
+The helper runs locked, offline Cargo tree with the selected edges and flat
 `{p}` labels. It admits output only after successful completion; a failed or
 signalled child cannot supply a successful observation. Empty/malformed output
 or missing selected roots fails. Names are Cargo's canonical package names,
@@ -76,6 +90,45 @@ build evidence, source/lock identities, actual target/features and final artifac
 digest to any deployment. Native hosts and installed IC behavior retain separate
 qualification.
 
+## Platform owner graphs
+
+Apply the [owner declaration policy](../rules/cargo-dependencies.md#platform-package-owners)
+first. Then select each actual package's runtime graph separately. For the
+example policy's package names and the published Types/Runtime generation:
+
+```sh
+perl scripts/ci/check-cargo-graph.pl --consumer . --package identity-model \
+  --target wasm32-unknown-unknown --edges normal --no-default-features \
+  --require ic-platform-types=1 --forbid ic-platform --forbid ic-platform-runtime \
+  --forbid candid --forbid ic-platform-runtime-guard
+
+perl scripts/ci/check-cargo-graph.pl --consumer . --package ic0-adapter \
+  --target wasm32-unknown-unknown --edges normal --no-default-features \
+  --require ic-platform-runtime=1 --forbid ic-platform-types --forbid ic-platform \
+  --forbid candid --forbid ic-cdk --forbid ic-cdk-executor --forbid ic0 \
+  --forbid ic-platform-macros --forbid ic-platform-runtime-guard \
+  --observations --json
+```
+
+The member manifest selects Runtime's `ic0` feature; the second command records
+enabled features so the caller can check that only `ic0` is selected. Owned CDK
+is a Runtime feature, not a separately named registry package: an absence check
+for `ic-cdk` alone cannot prove CDK is disabled. For the IC0-only graph, the
+recorded package closure should contain only the selected root and Runtime.
+Types also needs its ordinary encoding, Serde and error dependencies; those are
+not an execution dependency or a reason to reject the identity-only graph.
+
+For actual executor users require one `ic-platform-runtime` and one
+`ic-platform-runtime-guard`; require Types only when the selected API needs it.
+For crypto/external-adapter packages admit the facade and its deliberately selected
+capabilities instead of applying the IC0-only exclusions. Check shared Types at
+the combined application boundary, including facade re-exports. Compile the
+actual public-value exchange before claiming interoperability. Independent
+host/dev graphs may have different legitimate selections and need their own
+policies; neither a whole-lock duplicate count nor these examples constitutes
+fleet-wide version lockstep. Preserve the qualified MSRV and installed/native
+acceptance separately from source-only graph admission.
+
 ## Coordinated release adoption
 
 A coordinated workspace version simplifies selection; it does not prove that
@@ -96,6 +149,42 @@ a permanent design defect. Add or tighten a consumer guard with the completed
 adoption when justified; do not create a blanket duplicate-dependency ban or
 restructure workspaces merely to make a lockfile uniform. Existing ownership,
 focused validation and release authority still apply.
+
+## Dependency adoption planning
+
+Before planning downstream version bumps or publication order, identify the
+destination application's selected roots, targets/features and independent
+manifests/locks. In the existing issue or change notes, distinguish the requested
+upgrade and required runtime/public-type/security/minimum-capability alignments
+from optional refreshes. Explain required extra selections with their introducing
+dependency path or contract; do not make every package track the latest release.
+
+Admit the proposed combined graph cheaply in disposable preparation before
+expensive artifact work. Reuse the focused checks below and existing source/archive
+qualification for unpublished suppliers. Candidate source evidence is not registry
+availability: verify publication separately before registry-dependent delivery.
+A successful resolution alone does not prove public-type compatibility; compile
+the affected consumer boundary before claiming compatibility. Keep failures tied
+to their actual graph and distinguish independent host/dev selections.
+
+Use the resulting dependency constraints to choose supplier-first delivery order.
+That order is advice, not authority to release other repositories. Each receiving
+owner performs its own adoption; do not open unsolicited version, lock or snapshot
+PRs or start sibling deployment procedures. Follow the
+[repository-scoped contribution rules](../rules/contributions.md#cross-repository-pull-requests).
+Do not weaken singleton checks, rewrite retained locks in a read-only check, or
+publish intermediate consumers merely to discover whether the final graph works.
+Optional refreshes may be batched when explicitly in scope; they must not obscure
+the minimum required migration. An unrelated pending adapter must not block
+independent core qualification under the
+[core/integration rule](../rules/rust-workspaces.md#core-and-integration-graph-boundary).
+
+Enforce the declared graph constraints through existing consumer metadata/graph
+checks and their failure propagation. Reviewers must reject an unexplained
+downstream bump or a compatibility claim without the corresponding evidence.
+Shared does not infer semantic compatibility or automatically decide affected
+packages; no new mandatory report file or universal fleet version set is required.
+The focused checks and complete release gates retain their separate scope.
 
 ## Focused dependency-adoption contract
 
@@ -139,8 +228,9 @@ Run these phases sequentially, stopping at the first failure:
    policy, then the graph checker above where its normal/build scope matches.
    Cargo owns renamed packages, target-specific edges and selected optional
    features. A runtime-only singleton rule needs a separate Cargo observation
-   with `--edges normal`; the shared checker includes build dependencies and
-   must not be presented as runtime-only evidence. On a conflict, report the
+   with `--edges normal`; the shared checker defaults to including build
+   dependencies, so select that option explicitly for runtime-only evidence.
+   On a conflict, report the
    manifest, selected root/target/features, identities and their dependency paths
    from the same selection. A failed diagnostic command remains failed evidence.
 3. **Lint every affected selection.** Run the consumer's explicit affected-package

@@ -25,25 +25,25 @@ const STORE_PATH: &str = "store_registry_tests::Store";
 const ALIAS_STORE_PATH: &str = "store_registry_tests::StoreAlias";
 
 thread_local! {
-    static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(151)));
+    static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(151)).expect("fixture storage should initialize"));
     static TEST_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init_journaled(test_memory(152)));
+        RefCell::new(IndexStore::init_journaled(test_memory(152)).expect("fixture storage should initialize"));
     static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(153)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(153)).expect("fixture storage should initialize"));
     static TEST_JOURNAL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(154)));
+        RefCell::new(JournalTailStore::init(test_memory(154)).expect("fixture storage should initialize"));
     static TEST_HEAP_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
     static TEST_HEAP_INDEX_STORE: RefCell<IndexStore> =
         const { RefCell::new(IndexStore::init_heap()) };
     static TEST_HEAP_SCHEMA_STORE: RefCell<SchemaStore> =
         const { RefCell::new(SchemaStore::init_heap()) };
-    static OTHER_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(155)));
+    static OTHER_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(155)).expect("fixture storage should initialize"));
     static OTHER_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init_journaled(test_memory(156)));
+        RefCell::new(IndexStore::init_journaled(test_memory(156)).expect("fixture storage should initialize"));
     static OTHER_SCHEMA_STORE: RefCell<SchemaStore> =
-        RefCell::new(SchemaStore::init_journaled(test_memory(157)));
+        RefCell::new(SchemaStore::init_journaled(test_memory(157)).expect("fixture storage should initialize"));
     static OTHER_JOURNAL_STORE: RefCell<JournalTailStore> =
-        RefCell::new(JournalTailStore::init(test_memory(158)));
+        RefCell::new(JournalTailStore::init(test_memory(158)).expect("fixture storage should initialize"));
     static OTHER_HEAP_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
     static OTHER_HEAP_INDEX_STORE: RefCell<IndexStore> =
         const { RefCell::new(IndexStore::init_heap()) };
@@ -89,7 +89,11 @@ fn register_store_with_absent_allocation_identities_binds_store_handles() {
     let data_rows = handle.with_data(DataStore::len);
     let index_rows = handle.with_index(IndexStore::len);
     assert_eq!(data_rows, 0, "fresh test data store should be empty");
-    assert_eq!(index_rows, 0, "fresh test index store should be empty");
+    assert_eq!(
+        (index_rows).expect("storage operation should succeed"),
+        0,
+        "fresh test index store should be empty"
+    );
     assert!(
         handle.data_allocation().is_none(),
         "registration without allocation identities should keep data allocation absent"
@@ -523,43 +527,41 @@ fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
 
 #[test]
 fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
-    use ic_memory::Memory;
-
     // One default runtime on an isolated thread; ordinary store fixtures use
     // their own explicit snapshots without changing this default runtime.
     std::thread::spawn(|| {
-        const OWNER: &str = "icydb.core_identity";
+        const OWNER: &str = "icydb_core_identity";
         const KEY: &str = "icydb.core_identity.control.v1";
-        let requests = ic_memory::SealedDeclarationSnapshot::new(vec![
-            ic_memory::MemoryRequest::new(OWNER, KEY).unwrap(),
+        let requests = ic_storage::SealedDeclarationSnapshot::new(vec![
+            ic_storage::MemoryRequest::new(OWNER, KEY).unwrap(),
         ])
         .unwrap();
-        let pool = ic_memory::MemoryAllocationPool::new(
-            vec![ic_memory::MemoryAuthority::new(OWNER, "icydb.core_identity.").unwrap()],
-            vec![],
-        )
+        let pool = ic_storage::AllocationGrants::new(vec![
+            ic_storage::MemoryAuthority::new(OWNER, "icydb.core_identity.").unwrap(),
+        ])
         .unwrap();
         let mut runtime =
-            ic_memory::MemoryRuntime::new(ic_memory::DefaultMemoryImpl::default()).unwrap();
+            ic_storage::MemoryRuntime::new(ic_storage::DefaultMemoryImpl::default()).unwrap();
         runtime
-            .bootstrap(&requests, &pool, &ic_memory::GenericAllocationPolicy)
+            .bootstrap(&requests, &pool, &ic_storage::GenericAllocationPolicy)
             .unwrap();
         let runtime = std::rc::Rc::new(runtime);
         crate::db::bind_memory_runtime(std::rc::Rc::clone(&runtime)).unwrap();
         let id = runtime
-            .memory_id(&ic_memory::StableKey::parse(KEY).unwrap())
-            .unwrap();
+            .allocation_id(&ic_storage::StableKey::parse(KEY).unwrap())
+            .unwrap()
+            .get();
         let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
         memory.grow(1).unwrap();
         memory.write(0, b"retained");
-        let commitment = runtime.committed_allocations().unwrap();
+        let commitment = runtime.memory_allocations().unwrap();
         let before = runtime.memory_allocations().unwrap();
         assert!(crate::db::registry::open_committed_memory(KEY, id + 1).is_err());
         assert!(
             crate::db::registry::open_committed_memory("icydb.core_identity.absent.v1", id)
                 .is_err()
         );
-        assert_eq!(runtime.committed_allocations().unwrap(), commitment);
+        assert_eq!(runtime.memory_allocations().unwrap(), commitment);
         assert_eq!(runtime.memory_allocations().unwrap(), before);
         // Reopening the committed key requires releasing its exclusive handle.
         drop(memory);

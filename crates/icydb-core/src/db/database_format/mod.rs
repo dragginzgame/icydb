@@ -17,9 +17,9 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError, RecoveryFormatMarkerError},
 };
-use ic_memory::Memory;
+use ic_storage::Memory;
 #[cfg(test)]
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use std::cell::RefCell;
 
 #[cfg(all(test, feature = "sql", not(target_arch = "wasm32")))]
@@ -502,21 +502,14 @@ pub(super) fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u6
 #[cfg(not(test))]
 pub(super) fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u64, InternalError> {
     let runtime = crate::db::memory_runtime().ok_or_else(InternalError::store_internal)?;
-    let id = runtime
-        .memory_id(
-            &ic_memory::StableKey::parse(allocation.stable_key())
-                .map_err(|_| InternalError::store_internal())?,
-        )
+    let key = ic_storage::StableKey::parse(allocation.stable_key())
         .map_err(|_| InternalError::store_internal())?;
-    if id != allocation.memory_id() {
-        return Err(InternalError::store_invariant());
-    }
     runtime
         .memory_allocations()
         .map_err(|_| InternalError::store_internal())?
-        .memories
-        .get(usize::from(id))
-        .map(|memory| memory.virtual_extent.wasm_pages)
+        .into_iter()
+        .find(|entry| entry.id.get() == allocation.memory_id() && entry.stable_key == key)
+        .map(|entry| entry.pages)
         .ok_or_else(InternalError::store_invariant)
 }
 

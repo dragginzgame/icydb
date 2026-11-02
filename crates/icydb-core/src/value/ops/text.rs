@@ -7,6 +7,15 @@
 use crate::value::{TextMode, Value};
 use std::borrow::Cow;
 
+// These standard-library tables determine persisted expression-index keys,
+// predicate bounds and TRIM whitespace. Pin consumers as well as this checkout:
+// a new Unicode release needs an explicit retained-index compatibility decision,
+// not a compiler upgrade silently changing lookups or uniqueness enforcement.
+const _: () = assert!(
+    matches!(char::UNICODE_VERSION, (17, 0, 0)),
+    "IcyDB persists Unicode 17.0.0 text transforms; changing Unicode data requires a retained-index compatibility review",
+);
+
 /// Apply the canonical case-insensitive text fold.
 ///
 /// Casefolding remains a distinct semantic contract from SQL `LOWER`, even
@@ -24,7 +33,7 @@ pub(crate) fn lower_text(input: &str) -> String {
 }
 
 /// Conservative construction allowance for `lower_text` on the pinned Rust
-/// 1.98.1 implementation: cumulative requested backing and byte-work units.
+/// 1.99.1 implementation: cumulative requested backing and byte-work units.
 /// This is not allocator telemetry or an IC instruction estimate.
 #[must_use]
 pub(crate) fn lower_text_construction_allowance(input_len: usize) -> (u64, u64) {
@@ -174,6 +183,57 @@ mod tests {
         casefold_text, lower_text, lower_text_construction_allowance, upper_text,
         upper_text_construction_allowance,
     };
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn unicode_scalar_mappings_and_properties_match_the_persisted_contract() {
+        let mut hash = Sha256::new();
+        hash.update(b"icydb.unicode-text-contract.v1");
+        // Pin all scalar mappings and text properties, independently of the
+        // compiler's version label. Contextual str casing has separate vectors.
+        for scalar in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            hash.update(u32::from(scalar).to_le_bytes());
+            let lower = scalar.to_lowercase();
+            hash.update([u8::try_from(lower.clone().count()).unwrap()]);
+            for mapped in lower {
+                hash.update(u32::from(mapped).to_le_bytes());
+            }
+            let upper = scalar.to_uppercase();
+            hash.update([u8::try_from(upper.clone().count()).unwrap()]);
+            for mapped in upper {
+                hash.update(u32::from(mapped).to_le_bytes());
+            }
+            hash.update([
+                u8::from(scalar.is_whitespace()),
+                u8::from(scalar.is_lowercase()),
+                u8::from(scalar.is_uppercase()),
+                u8::from(scalar.is_alphabetic()),
+            ]);
+        }
+        assert_eq!(
+            format!("{:x}", hash.finalize()),
+            "e0a71973d533bb6f1004c0e3a0a5e8402879e7dbf0491fd3182be9856e9082f8",
+        );
+    }
+
+    #[test]
+    fn unicode_text_transform_goldens_cover_new_pairs_and_contextual_sigma() {
+        for (input, lower, upper) in [
+            ("ɤƛ", "ɤƛ", "\u{a7cb}\u{a7dc}"),
+            ("\u{a7cb}\u{a7dc}", "ɤƛ", "\u{a7cb}\u{a7dc}"),
+            ("\u{1c89}", "\u{1c8a}", "\u{1c89}"),
+            ("İßﬃ", "i\u{307}ßﬃ", "İSSFFI"),
+            ("ΟΣ", "ος", "ΟΣ"),
+            ("ΟΣ\u{301}", "ος\u{301}", "ΟΣ\u{301}"),
+            ("ΟΣ\u{301}Α", "οσ\u{301}α", "ΟΣ\u{301}Α"),
+            ("ΣΑ", "σα", "ΣΑ"),
+            ("Σ", "σ", "Σ"),
+        ] {
+            assert_eq!(lower_text(input), lower);
+            assert_eq!(casefold_text(input), lower);
+            assert_eq!(upper_text(input), upper);
+        }
+    }
 
     #[test]
     fn uppercase_allowance_covers_unicode_expansion_and_cumulative_growth() {

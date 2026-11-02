@@ -28,29 +28,31 @@ explicitly retire or recreate affected installations before loading this build.
 Discard old continuations and regenerate serialized artifacts. There is no
 compatibility reader or automatic reset. Fixed-width integer domains remain.
 
-## Memory 0.56 allocation ledger cut
+## Storage 0.65 fresh-installation cut
 
-The application retains one bootstrapped `ic_memory::MemoryRuntime`; composed
-hosts bind it through `icydb::db::bind_memory_runtime` before database startup.
-Standalone generated startup constructs and binds its runtime. Store opens,
-integrity generations and allocation reports use that same committed instance.
-The binding is process-local and grants no authority before Memory bootstrap.
+`ic-storage` now owns the runtime, directory, allocation grants and fallible
+collections; the maintained graph no longer includes `ic-memory`. The application
+retains one `ic_storage::MemoryRuntime`. A composed host binds its bootstrapped
+runtime before startup, while generated standalone startup creates it. Retained
+directory identities do not grant access without current bootstrap admission.
 
-The allocation ledger introduced in Memory 0.56 remains unchanged in 0.58.1: bounded IC Wire records
-inside an `ICML` Cell value, with an `ICMWIRE1` checksummed protected snapshot.
-Earlier CBOR ledger/Cell images reject. The maintainer approved this hard cut;
-installations need fresh/reset memory or a separately reviewed transition before
-installation. Never clear only the ledger while retaining collection bytes.
-Retain required backups and old-binary recovery/export access until each
-installation's disposition is qualified. There is no compatibility decoder,
-converter or automatic reset. See Memory's
-[retained-installation contract](https://github.com/dragginzgame/ic-persistence/blob/956b2b92728f82f75dd51d4d10ed52f325529e91/docs/current-ledger.md#hard-cut-and-retained-installations).
+The maintainer selected fresh installations only. Earlier Memory/Storage backing
+images are rejected unchanged, with no converter, compatibility reader or reset.
+Preserve old binaries, backups and required recovery/export access until the
+installation's obligations have an explicit disposition. This adoption performs
+no deletion, migration or deployment.
 
-Numeric slots, checked custody and the manager/Cell substrate layout remain
-unchanged. This integration changes no IcyDB row, index, schema, journal,
-checkpoint or cursor bytes and performs no database reset. Same-contract
-interruption recovery remains owned by Memory and IcyDB's existing recovery
-mechanisms.
+Allocation identities are now opaque `u64` values. The current IcyDB commit-control
+and startup-receipt codecs and identity hashes encode the full width; their sole
+current version-1 representation replaces the earlier shape. Storage owns the
+new directory and collection framing, bounded fallible decoding and leases.
+IcyDB propagates collection errors rather than treating failed reads as absence.
+Storage 0.65 replaces the predecessor map engine with the `ICMAP002` B-tree
+frame for maps, sets and schema-control regions. Prior collection framing is
+rejected without reinitialization or retained-byte mutation. Wire 0.15 aligns
+public codec errors with Types 0.17; it does not convert stored maps.
+Same-contract restart and recovery remain required within this installation
+contract. Allocation diagnostics expose logical extents, not physical bucket use.
 
 ## 0.291 authoring and Deep-job codec cut
 
@@ -75,7 +77,7 @@ header, physical keys, quotas, CRC framing and `ICYRJOB1`/`ICYMJOB1` families ar
 unchanged. Never clear the shared progress tree to remove only Deep records.
 
 The selected release disposition is fresh/reset installations, consistent with
-the Memory 0.56 cut above. Existing installations require a separately reviewed
+the Storage 0.65 cut above. Existing installations require a separately reviewed
 transition before loading this release; merely updating the allocation ledger
 does not qualify old lineage, migration or Deep-job authority. Preserve old
 binaries, backups and required recovery/export access until all obligations have
@@ -137,6 +139,22 @@ frame, and journal record discriminator 3, are retired; never reuse them.
 Current accepted bundle/root and operational records retain their frozen
 identities, encodings and same-contract interruption recovery. No deployment
 or database reset is performed by the source change.
+
+## Frozen Unicode text transforms
+
+Current `LOWER`, `UPPER`, `TRIM` and `LOWER(TRIM(...))` expression-index keys and
+predicate bounds use Unicode 17.0.0. The shared value owner rejects compilation
+when the standard library reports different Unicode data. Scalar mapping/property
+goldens and contextual-casing vectors qualify the selected tables. A future
+Unicode change requires explicit retained-index classification and disposition;
+updating the compiler or this guard alone is insufficient.
+
+No current row, index, schema, journal or cursor bytes change. This is a build-time
+admission guard, with no new format, persisted marker or runtime branch. It does
+not establish compatibility for existing keys built with older/unknown Unicode
+data, nor repair keys already divergent from rows. Retain their original binaries
+and evidence until their repair/retirement obligation is resolved. No reset,
+reindexing or compatibility decoder is performed by this change.
 
 ## Review Rule
 

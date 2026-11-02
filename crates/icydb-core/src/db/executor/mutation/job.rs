@@ -1602,7 +1602,7 @@ fn mutation_job_operation_id(job_id: MutationJobId) -> Ulid {
 }
 
 fn hash_store_allocation_identity(hasher: &mut sha2::Sha256, identity: StoreAllocationIdentity) {
-    hasher.update([identity.memory_id()]);
+    hasher.update(identity.memory_id().to_le_bytes());
     write_hash_str_u32(hasher, identity.stable_key());
 }
 

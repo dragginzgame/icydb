@@ -72,7 +72,10 @@ fn journaled_unique_handoff_folds_its_predecessor_before_replay_and_restart() {
         }])
         .expect("the logical predecessor should commit without requiring an immediate fold");
     assert_dynamic_payload(&session, 1, 20);
-    assert!(JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()));
+    assert!(
+        (JOURNALED_TAIL_STORE.with(|tail| tail.borrow().has_stored_batch()))
+            .expect("fixture storage read should succeed")
+    );
 
     // Canonical storage still precedes this commit's logical predecessor.
     // Restart after Replay and both folds; their durable watermarks must keep

@@ -8,7 +8,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 pub(crate) fn derive_inner(input: TokenStream) -> TokenStream {
-    let paths = &match crate::crate_path::CratePathOverrides::default().resolve() {
+    let paths = &match crate::crate_path::CratePathOverrides::default().resolve(false) {
         Ok(paths) => paths,
         Err(error) => return error.write_errors(),
     };

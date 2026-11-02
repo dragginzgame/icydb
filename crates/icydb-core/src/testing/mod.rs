@@ -5,15 +5,13 @@
 
 mod entity_tags;
 
-use ic_memory::{
-    DefaultMemoryImpl, Memory, MemoryAllocationPool, MemoryAuthority, MemoryManagerConfig,
-    MemoryRequest, MemoryRuntime, RuntimeMemory, SealedDeclarationSnapshot, VectorMemory,
+use ic_storage::{
+    AllocationGrants, DefaultMemoryImpl, Memory, MemoryAuthority, MemoryRequest, MemoryRuntime,
+    RuntimeMemory, SealedDeclarationSnapshot, StorageConfig, VectorMemory,
 };
 use std::sync::OnceLock;
 
 pub(crate) use entity_tags::*;
-
-pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
 
 /// Test backing that refuses growth above a fixed physical extent.
 ///
@@ -21,7 +19,7 @@ pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
 /// allocation and collection behavior still belongs to Memory and Storage.
 pub(crate) struct GrowthLimitedMemory {
     pub(crate) backing: VectorMemory,
-    pub(crate) maximum_pages: u64,
+    pub(crate) maximum_pages: std::rc::Rc<std::cell::Cell<u64>>,
 }
 
 impl Memory for GrowthLimitedMemory {
@@ -29,7 +27,7 @@ impl Memory for GrowthLimitedMemory {
         if self
             .size()
             .checked_add(pages)
-            .is_none_or(|total| total > self.maximum_pages)
+            .is_none_or(|total| total > self.maximum_pages.get())
         {
             return -1;
         }
@@ -50,29 +48,16 @@ impl Memory for GrowthLimitedMemory {
     }
 }
 
-impl ic_memory::MemoryBacking for GrowthLimitedMemory {
-    fn backing_identity(&self) -> ic_memory::BackingIdentity {
-        ic_memory::MemoryBacking::backing_identity(&self.backing)
+impl ic_storage::MemoryBacking for GrowthLimitedMemory {
+    fn backing_identity(&self) -> ic_storage::BackingIdentity {
+        ic_storage::MemoryBacking::backing_identity(&self.backing)
     }
-}
-
-/// Return a validated test memory id.
-///
-/// Memory id `255` is reserved by stable-structures internals and must never
-/// be used by application or test memory allocations.
-#[must_use]
-pub(crate) const fn test_memory_id(id: u8) -> u8 {
-    assert!(
-        id != RESERVED_INTERNAL_MEMORY_ID,
-        "memory id 255 is reserved for stable-structures internals",
-    );
-    id
 }
 
 /// One fixture runtime that can reopen an allocation after its lease is dropped.
 pub(crate) struct TestMemoryOwner {
     runtime: MemoryRuntime<DefaultMemoryImpl>,
-    key: ic_memory::StableKey,
+    key: ic_storage::StableKey,
 }
 
 impl TestMemoryOwner {
@@ -85,49 +70,41 @@ impl TestMemoryOwner {
 
     /// Observe virtual pages through runtime diagnostics without aliasing a tree.
     pub(crate) fn size(&self) -> u64 {
-        let id = self
-            .runtime
-            .memory_id(&self.key)
-            .expect("fixture key is committed");
         self.runtime
             .memory_allocations()
-            .expect("fixture diagnostics should succeed")
-            .memories[usize::from(id)]
-        .virtual_extent
-        .wasm_pages
+            .expect("fixture directory should validate")
+            .into_iter()
+            .find(|entry| entry.stable_key == self.key)
+            .expect("fixture key is committed")
+            .pages
     }
 }
 
 /// Retain the runtime owner when a fixture needs reopen or live page observations.
-pub(crate) fn test_memory_owner(id: u8) -> TestMemoryOwner {
+pub(crate) fn test_memory_owner(id: u64) -> TestMemoryOwner {
     TestMemoryOwner {
-        runtime: test_memory_runtime(DefaultMemoryImpl::default(), MemoryManagerConfig::default()),
-        key: ic_memory::StableKey::parse(format!(
-            "icydb.core_tests.slot_{:03}.v1",
-            test_memory_id(id)
-        ))
-        .unwrap(),
+        runtime: test_memory_runtime(DefaultMemoryImpl::default(), StorageConfig::default()),
+        key: ic_storage::StableKey::parse(format!("icydb.core_tests.slot_{id:03}.v1")).unwrap(),
     }
 }
 
 /// Check each store's real constructor preserves all bytes on invalid headers.
 pub(crate) fn assert_retained_store_header_preserved<T>(
-    open: impl Fn(RuntimeMemory<DefaultMemoryImpl>) -> T,
+    open: impl Fn(RuntimeMemory<DefaultMemoryImpl>) -> Result<T, crate::error::InternalError>,
 ) {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
-
-    for header in [b"BAD".as_slice(), &[0, 0, 0], b"BTR\xff"] {
+    // The predecessor map framing must fail without resetting retained bytes.
+    for header in [b"BAD".as_slice(), &[0, 0, 0], b"BTR\xff", b"ICMAP001"] {
         let owner = test_memory_owner(177);
-        drop(open(owner.open()));
+        drop(open(owner.open()).unwrap());
         // Valid retained storage must still reopen through the same constructor.
-        drop(open(owner.open()));
+        drop(open(owner.open()).unwrap());
         let memory = owner.open();
         memory.write(0, header);
         let pages = memory.size();
         let mut before = vec![0; usize::try_from(pages * 65_536).unwrap()];
         memory.read(0, &mut before);
         drop(memory);
-        assert!(catch_unwind(AssertUnwindSafe(|| open(owner.open()))).is_err());
+        assert!(open(owner.open()).is_err());
         let memory = owner.open();
         let mut after = vec![0; before.len()];
         memory.read(0, &mut after);
@@ -137,35 +114,34 @@ pub(crate) fn assert_retained_store_header_preserved<T>(
 }
 
 /// Shared test-only stable memory allocation for in-memory stores.
-pub(crate) fn test_memory(id: u8) -> RuntimeMemory<DefaultMemoryImpl> {
+pub(crate) fn test_memory(id: u64) -> RuntimeMemory<DefaultMemoryImpl> {
     test_memory_with_backing(id, DefaultMemoryImpl::default())
 }
 
 /// Open an isolated fixture through committed runtime authority, retaining the
 /// caller's backing handle when a test needs to inspect physical growth.
 pub(crate) fn test_memory_with_backing(
-    id: u8,
+    id: u64,
     backing: DefaultMemoryImpl,
 ) -> RuntimeMemory<DefaultMemoryImpl> {
-    let id = test_memory_id(id);
-    test_memory_runtime(backing, MemoryManagerConfig::default())
+    test_memory_runtime(backing, StorageConfig::default())
         .open_memory(
-            &ic_memory::StableKey::parse(format!("icydb.core_tests.slot_{id:03}.v1")).unwrap(),
+            &ic_storage::StableKey::parse(format!("icydb.core_tests.slot_{id:03}.v1")).unwrap(),
         )
         .expect("test memory should open")
 }
 
-/// Bootstrap an isolated fixture runtime with an explicit bucket size.
-pub(crate) fn test_memory_runtime<M: ic_memory::MemoryBacking>(
+/// Bootstrap an isolated fixture runtime with an explicit storage limits.
+pub(crate) fn test_memory_runtime<M: ic_storage::MemoryBacking>(
     backing: M,
-    config: MemoryManagerConfig,
+    config: StorageConfig,
 ) -> MemoryRuntime<M> {
     static DECLARATIONS: OnceLock<SealedDeclarationSnapshot> = OnceLock::new();
     let declarations = DECLARATIONS.get_or_init(|| {
-        let requests: Vec<_> = (10..=254)
+        let requests: Vec<_> = (1..=254)
             .map(|id| {
                 MemoryRequest::new(
-                    "icydb.core-tests",
+                    "icydb_core_tests",
                     &format!("icydb.core_tests.slot_{id:03}.v1"),
                 )
                 .expect("test request should validate")
@@ -173,15 +149,14 @@ pub(crate) fn test_memory_runtime<M: ic_memory::MemoryBacking>(
             .collect();
         SealedDeclarationSnapshot::new(requests).expect("test requests should seal")
     });
-    let pool = MemoryAllocationPool::new(
-        vec![MemoryAuthority::new("icydb.core-tests", "icydb.core_tests.").unwrap()],
-        vec![],
-    )
+    let pool = AllocationGrants::new(vec![
+        MemoryAuthority::new("icydb_core_tests", "icydb.core_tests.").unwrap(),
+    ])
     .unwrap();
     let mut runtime =
         MemoryRuntime::new_with_config(backing, config).expect("test runtime should initialize");
     runtime
-        .bootstrap(declarations, &pool, &ic_memory::GenericAllocationPolicy)
+        .bootstrap(declarations, &pool, &ic_storage::GenericAllocationPolicy)
         .expect("test runtime should bootstrap");
     runtime
 }
@@ -232,5 +207,18 @@ mod isolation_tests {
         })
         .unwrap_err();
         assert_eq!(failure.downcast_ref::<u32>(), Some(&17));
+    }
+}
+
+/// Distinguishes deliberate visitor cancellation from storage failures in fixtures.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum VisitorTestError {
+    Callback(u8),
+    Storage,
+}
+
+impl From<crate::error::InternalError> for VisitorTestError {
+    fn from(_: crate::error::InternalError) -> Self {
+        Self::Storage
     }
 }

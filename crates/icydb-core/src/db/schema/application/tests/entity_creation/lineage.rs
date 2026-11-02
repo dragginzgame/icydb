@@ -467,7 +467,6 @@ fn ordinary_default_change_does_not_block_a_later_unrelated_migration() {
                 expected_database: proposal.target_database(),
                 expected_head: proposal.expected_head().clone(),
                 expected_plan: digest,
-                acknowledged_finding_page: None,
             },
         )
         .unwrap();

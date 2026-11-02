@@ -1,7 +1,7 @@
 # IcyDB Changelog Governance
 
 This document defines the authoritative rules for maintaining
-`CHANGELOG.md` and minor-line changelog archives.
+group ledgers and minor-line changelog archives.
 
 These rules are intended to be followed by automated agents.
 
@@ -9,7 +9,9 @@ These rules are intended to be followed by automated agents.
 
 # 1. Purpose
 
-The root `CHANGELOG.md` file is the canonical release ledger for IcyDB.
+Each `releases/<group>/CHANGELOG.md` is the canonical ledger for its release group.
+Root `CHANGELOG.md` indexes the `database` and `cli` ledgers and the unchanged
+coordinated history in `releases/history.md`.
 
 It records high-level architectural and behavioral changes per release.
 
@@ -17,7 +19,7 @@ It must remain concise and structured.
 
 Detailed change breakdowns belong in:
 
-`docs/changelog/<major>.<minor>.md`
+`releases/<group>/<major>.<minor>.md`
 
 For example: [docs/changelog/0.33.md](../changelog/0.33.md)
 
@@ -27,7 +29,7 @@ For example: [docs/changelog/0.33.md](../changelog/0.33.md)
 
 ## 2.1 Canonical Ledger
 
-- Root: `CHANGELOG.md`
+- Ledger: `releases/<group>/CHANGELOG.md`
 - Must contain:
   - Version headers
   - Date
@@ -37,7 +39,7 @@ For example: [docs/changelog/0.33.md](../changelog/0.33.md)
 
 ## 2.2 Detailed Minor Notes
 
-- Location: `docs/changelog/<major>.<minor>.md`
+- Location: `releases/<group>/<major>.<minor>.md`
 - Contains:
   - Deep architectural explanation
   - Internal module movements
@@ -111,10 +113,10 @@ Rules:
 9. Do not include test names.
 10. Do not include internal refactor noise.
 11. Do not exceed ~15 bullets total in the root entry.
-12. If a section exceeds ~4 lines of explanation, move detail to `docs/changelog/<major>.<minor>.md`.
+12. If a section exceeds ~4 lines of explanation, move detail to `releases/<group>/<major>.<minor>.md`.
 13. For a root minor-line entry (`<major>.<minor>.x`), use exactly one bullet per patch version listed in that minor line.
 14. Each root minor-line patch bullet must be a high-level summary sentence, not an exhaustive implementation list.
-15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `docs/changelog/<major>.<minor>.md`.
+15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `releases/<group>/<major>.<minor>.md`.
 16. Do not add a new root patch bullet for every code slice. Update the one
     active patch bullet until that version is reported published; then open the
     numbered pending entry after publication under the shared selection rules.
@@ -176,12 +178,12 @@ When preparing a release:
    - Formatting-only changes
    - Test-only changes (unless behaviorally significant)
    - Internal renames without surface impact
-5. Generate a concise summary entry in root CHANGELOG.md.
+5. Generate a concise summary entry in the selected group ledger.
 6. Generate or update docs/changelog/<major>.<minor>.md with full detail.
 7. Insert clickable Markdown link from root file to detailed file.
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
-10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `docs/changelog/<major>.<minor>.md`.
+10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `releases/<group>/<major>.<minor>.md`.
 11. Reconcile the complete candidate into the already active root and detailed
     entries. Reconstruct missing notes when practical, but do not make their
     absence alone a mechanical release blocker.
@@ -271,13 +273,13 @@ Bullet and detail rules:
 - Bullets do not need to be single-line if additional sentence context is needed.
 - In root minor-line summaries, prefer one short sentence per patch bullet; avoid long multi-clause bullets that enumerate every internal change.
 - Avoid deep implementation detail (module paths, helper names, routing internals) unless required for migration/debugging.
-- In root `CHANGELOG.md`, avoid code examples/LoC dumps unless strictly necessary.
-- Prefer placing code examples, LoC snapshots, and fenced blocks in `docs/changelog/<major>.<minor>.md`.
+- In selected group ledger, avoid code examples/LoC dumps unless strictly necessary.
+- Prefer placing code examples, LoC snapshots, and fenced blocks in `releases/<group>/<major>.<minor>.md`.
 - Inline fenced examples are optional, not mandatory.
-- In root `CHANGELOG.md`, include at most one inline fenced example per minor version (`0.x.x` line), and only when it materially improves clarity.
-- In `docs/changelog/<major>.<minor>.md`, include at most one inline fenced example per patch entry (`## 0.x.y`), and only when it materially improves clarity.
+- In selected group ledger, include at most one inline fenced example per minor version (`0.x.x` line), and only when it materially improves clarity.
+- In `releases/<group>/<major>.<minor>.md`, include at most one inline fenced example per patch entry (`## 0.x.y`), and only when it materially improves clarity.
 - Use inline fenced examples only for meaningful code, config, or flow snapshots that explain behavior better than prose; if no good example exists, skip it.
-- If a minor-version patch makes a new user-visible SQL query family executable, include one representative SQL example for that patch in `docs/changelog/<major>.<minor>.md`.
+- If a minor-version patch makes a new user-visible SQL query family executable, include one representative SQL example for that patch in `releases/<group>/<major>.<minor>.md`.
 - That example should show a real newly-admitted query shape, not just a nearby query that was already possible before the patch.
 - Prefer the smallest query that demonstrates the newly-shipped surface clearly.
 - Root `CHANGELOG.md` may still omit the example when the one-line summary is clear enough, but the detailed minor-line notes should carry it for query-surface widenings.
@@ -297,13 +299,13 @@ For each release:
    pending entries. Select the release kind matching the whole batch's compatibility.
 2. The maintainer reviews and commits the source and notes; start from a clean
    tree on the configured release branch.
-3. Invoke `make release-patch`, `make release-minor` or `make release-major`.
+3. Invoke `make release-patch RELEASE_GROUP=database`, `make release-minor RELEASE_GROUP=database` or `make release-major RELEASE_GROUP=database`.
    The shared runner checks release identities, validates the committed source,
    saves preparation intent, prepares and formats exact metadata, then stages,
    commits, tags and atomically pushes the branch and selected tag. Consumer
    receipts bind the prepared transition to the tested source and dependency graph.
 4. After a failure, inspect the retained plan and lock owner. Resume a saved
-   candidate with `make release-resume VERSION=X.Y.Z`; a preflight or validation
+   candidate with `make release-resume RELEASE_GROUP=database VERSION=X.Y.Z`; a preflight or validation
    failure before preparation permits a fresh attempt. Never reset conflicting
    source, index or remote identities to force a retry.
 5. Invoke package publication or deployment separately when authorized. Retain
@@ -324,3 +326,14 @@ Changelog governance is architectural, not cosmetic.
 It documents system evolution and must reflect real semantic shifts.
 
 It is part of IcyDB's correctness discipline.
+
+## Independent group ownership
+
+Use `RELEASE_GROUP=cli` for developer CLI releases and `RELEASE_GROUP=database`
+for the coordinated engine, schema, model, macros and root qualification packages.
+Each group derives its pending version from its own last release. Moving an
+unpublished draft to a new minor also updates that group’s `metadata_files` entry
+in `ci/cargo-release-groups.json`. Preserve all finalized details in place.
+A database dependency update may change the root catalog without releasing the
+CLI package; publish the CLI separately when its adopted contract needs delivery.
+The isolated Canic workspace retains its own qualification lock and versions.

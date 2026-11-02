@@ -44,17 +44,36 @@ for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-except
   ci/cargo-dependency-boundaries.json; do
   cp "$ROOT/$path" "$fixture/repo/$path"
 done
+cp -R "$ROOT/releases" "$fixture/repo/"
+cp "$ROOT/ci/cargo-release-groups.json" "$fixture/repo/ci/"
+cp "$ROOT/scripts/release/"{group.sh,version.sh} "$fixture/repo/scripts/release/"
+# Graph admission must execute the current helper, not its archived HEAD copy.
 bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/repo" \
-  scripts/ci/check-dependency-pins.sh
+  scripts/ci/check-dependency-pins.sh scripts/ci/check-cargo-graph.pl
 cd "$fixture/repo"
 git init --quiet
 git add -- .
 check() {
-  make --no-print-directory check-dependency-pins "YQ=$YQ" > "$fixture/check.log" 2>&1
+  make --no-print-directory check-dependency-pins "YQ=$YQ" \
+    "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb" > "$fixture/check.log" 2>&1
 }
 check || { cat "$fixture/check.log" >&2; exit 1; }
 bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph.log" 2>&1
-version="$(make --no-print-directory -s version "YQ=$YQ")"
+cp Cargo.lock "$fixture/qualified.lock"
+# Coexisting hash families do not admit another line or duplicate versions
+# within a family, and do not relax other sensitive dependency checks.
+for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0'; do
+  cp "$fixture/qualified.lock" Cargo.lock
+  read -r package unexpected_version <<< "$addition"
+  printf '\n[[package]]\nname = "%s"\nversion = "%s"\n' "$package" "$unexpected_version" >> Cargo.lock
+  if bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph-negative.log" 2>&1; then
+    echo "unexpected dependency admitted: $addition" >&2
+    exit 1
+  fi
+done
+cp "$fixture/qualified.lock" Cargo.lock
+version="$(RELEASE_GROUP=database make --no-print-directory -s release-version "YQ=$YQ" \
+  "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb")"
 cp crates/icydb-diagnostic-code/Cargo.toml "$fixture/member.toml"
 # Renamed dependencies inherit their identity from the root catalog.
 requirement="$("$YQ" -p toml -o json '.workspace.dependencies.remain' Cargo.toml |
@@ -71,9 +90,9 @@ done
 cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
 printf '\n[build-dependencies.missing_alias]\nworkspace = true\n' >> crates/icydb-diagnostic-code/Cargo.toml
 if check; then echo 'missing root dependency alias admitted' >&2; exit 1; fi
-sed "s/version = { workspace = true }/version = \"$version\"/" "$fixture/member.toml" \
+sed "s/^version = \"$version\"/version = \"0.0.0\"/" "$fixture/member.toml" \
   > crates/icydb-diagnostic-code/Cargo.toml
-if check; then echo 'independent member version admitted' >&2; exit 1; fi
+if check; then echo 'mismatched group member version admitted' >&2; exit 1; fi
 cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
 check || { cat "$fixture/check.log" >&2; exit 1; }
 # Exercise the actual consumer allowlist before injecting a forbidden canonical

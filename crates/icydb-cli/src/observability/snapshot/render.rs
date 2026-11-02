@@ -4,8 +4,7 @@
 //! Boundary: receives decoded storage reports and returns user-facing text.
 
 use icydb::db::{
-    DataStoreSnapshot, IndexStoreSnapshot, MemoryAllocationBinding, MemoryAllocations,
-    SchemaStoreSnapshot, StorageReport,
+    DataStoreSnapshot, IndexStoreSnapshot, MemoryAllocations, SchemaStoreSnapshot, StorageReport,
 };
 use std::fmt::Write as _;
 
@@ -51,7 +50,7 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     match report.memory_allocations() {
         Some(allocations) => append_memory_allocations(&mut output, allocations),
         None => output.push_str(
-            "physical allocations (canister-wide)\n  unavailable: no default memory runtime\n",
+            "named allocations (canister-wide retained directory)\n  unavailable: no bound Storage runtime\n",
         ),
     }
     output.push('\n');
@@ -67,69 +66,29 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
 }
 
 fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
-    output.push_str("physical allocations (canister-wide; includes ledger)\n");
-    // Formatting integers into a String is infallible and needs no temporary buffer.
+    output.push_str("named allocations (canister-wide retained directory)\n");
     let _ = writeln!(
         output,
-        "  physical bytes: {}\n  virtual bytes: {}\n  manager metadata bytes: {}\n  allocated bucket bytes: {}\n  bucket slack bytes: {}\n  known binding bytes: {}\n  unknown binding bytes: {}\n  unmanaged bytes: {}\n  bucket pages: {}\n  buckets remaining: {} / {}\n  payload occupancy: unavailable",
-        report.physical_extent.bytes,
-        report.virtual_extent.bytes,
-        report.manager_metadata_bytes,
-        report.allocated_bucket_bytes,
-        report.bucket_slack_bytes,
-        report.known_binding_bytes,
-        report.unknown_binding_bytes,
-        report.unmanaged_bytes,
-        report.bucket_size_pages,
-        report.remaining_buckets,
-        report.bucket_capacity,
+        "  directory generation: {}\n  virtual bytes: {}\n  physical usage: unavailable\n  payload occupancy: unavailable",
+        report.current_generation, report.virtual_extent.bytes,
     );
     let rows = report
         .memories
         .iter()
         .map(|memory| {
-            let (binding, owner, key) = match &memory.binding {
-                MemoryAllocationBinding::Current { stable_key, owner } => {
-                    ("current", owner.as_str(), stable_key.as_str())
-                }
-                MemoryAllocationBinding::Ledger { stable_key, owner } => {
-                    ("ledger", owner.as_str(), stable_key.as_str())
-                }
-                MemoryAllocationBinding::Unknown => ("unknown", "-", "-"),
-            };
             [
-                memory.memory_manager_id.to_string(),
-                binding.to_string(),
-                owner.to_string(),
-                key.to_string(),
-                memory.allocated_bytes.to_string(),
+                memory.allocation_id.to_string(),
+                memory.stable_key.clone(),
                 memory.virtual_extent.bytes.to_string(),
-                memory.bucket_slack_bytes.to_string(),
             ]
         })
         .collect::<Vec<_>>();
     append_report_section(
         output,
         "  ",
-        &[
-            "id",
-            "binding",
-            "owner",
-            "stable key",
-            "allocated bytes",
-            "virtual bytes",
-            "bucket slack",
-        ],
+        &["allocation id", "stable key", "virtual bytes"],
         &rows,
-        &[
-            ColumnAlign::Right,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-        ],
+        &[ColumnAlign::Right, ColumnAlign::Left, ColumnAlign::Right],
     );
 }
 
@@ -142,7 +101,7 @@ fn data_store_row(row: &DataStoreSnapshot) -> [String; 13] {
         row.commit().as_str().to_string(),
         row.recovery().as_str().to_string(),
         row.schema_metadata().as_str().to_string(),
-        format_optional_u8(row.memory_id()),
+        format_optional_u64(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
         format_optional_u32(row.schema_version()),
         row.schema_fingerprint().unwrap_or("-").to_string(),
@@ -160,7 +119,7 @@ fn index_store_row(row: &IndexStoreSnapshot) -> [String; 16] {
         row.commit().as_str().to_string(),
         row.recovery().as_str().to_string(),
         row.schema_metadata().as_str().to_string(),
-        format_optional_u8(row.memory_id()),
+        format_optional_u64(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
         format_optional_u32(row.schema_version()),
         row.schema_fingerprint().unwrap_or("-").to_string(),
@@ -181,7 +140,7 @@ fn schema_store_row(row: &SchemaStoreSnapshot) -> [String; 12] {
         row.commit().as_str().to_string(),
         row.recovery().as_str().to_string(),
         row.schema_metadata().as_str().to_string(),
-        format_optional_u8(row.memory_id()),
+        format_optional_u64(row.memory_id()),
         row.stable_key().unwrap_or("-").to_string(),
         row.schema_version()
             .map_or_else(|| "-".to_string(), |version| version.to_string()),
@@ -194,7 +153,7 @@ fn format_optional_u32(value: Option<u32>) -> String {
     value.map_or_else(|| "-".to_string(), |value| value.to_string())
 }
 
-fn format_optional_u8(value: Option<u8>) -> String {
+fn format_optional_u64(value: Option<u64>) -> String {
     value.map_or_else(|| "-".to_string(), |value| value.to_string())
 }
 

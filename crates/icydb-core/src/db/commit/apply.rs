@@ -23,15 +23,16 @@ impl PreparedIndexMutation {
             .with_borrow(|store| store.preflight_positioned_journal_entry(&self.key, position))
     }
 
-    /// Apply one precomputed index mutation infallibly.
-    pub(crate) fn apply(self) {
+    /// Apply one precomputed index mutation, preserving storage read failures.
+    pub(crate) fn apply(self) -> Result<(), InternalError> {
         self.index_store.with_borrow_mut(|store| {
             if let Some(value) = self.value {
-                store.insert(self.key, value);
+                store.insert(self.key, value)?;
             } else {
-                store.remove(&self.key);
+                store.remove(&self.key)?;
             }
-        });
+            Ok(())
+        })
     }
 
     /// Fold one already-prepared recovered mutation into canonical stable index storage.
@@ -117,26 +118,27 @@ impl PreparedRowCommitOp {
         Ok(())
     }
 
-    /// Apply the prepared row operation infallibly.
-    pub(crate) fn apply(self) {
+    /// Apply the prepared row operation, preserving storage read failures.
+    pub(crate) fn apply(self) -> Result<(), InternalError> {
         // Phase 1: apply all index mutations first so rollback snapshots can
         // mirror this order exactly in reverse.
         for index_op in self.index_ops {
-            index_op.apply();
+            index_op.apply()?;
         }
 
         // Phase 2: apply the authoritative row-store mutation.
         let data_generation = self.data_store.with_borrow_mut(|store| {
             if let Some(value) = self.data_value {
-                store.insert(self.data_key, value);
+                store.insert(self.data_key, value)?;
             } else {
-                store.remove(&self.data_key);
+                store.remove(&self.data_key)?;
             }
-            store.generation()
-        });
+            Ok::<_, InternalError>(store.generation())
+        })?;
 
         self.data_index_store.with_borrow_mut(|store| {
             store.mark_prefix_cardinality_data_generation(data_generation);
         });
+        Ok(())
     }
 }

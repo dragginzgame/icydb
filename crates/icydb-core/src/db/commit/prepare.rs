@@ -744,7 +744,12 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
             )
         })
         .ok_or_else(InternalError::store_corruption)?;
-    let projection = UniqueConstraintProjection::new(entity_tag, candidate, row_contract)?;
+    // Accepted commit preparation also serves retained replay. Preserve its
+    // canonical normalization without introducing a new maintenance ceiling.
+    let projection =
+        UniqueConstraintProjection::new(entity_tag, candidate, row_contract, |predicate| {
+            Ok(crate::db::predicate::normalize(predicate))
+        })?;
     let index_store = db
         .with_store_registry(|registry| registry.try_get_store(candidate.store()))?
         .index_store();

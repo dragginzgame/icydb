@@ -43,7 +43,7 @@ members = [
 ]
 
 [workspace.package]
-rust-version = "1.96.0"
+rust-version = "1.99.1"
 edition = "2024"
 version = "0.291.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
@@ -56,9 +56,9 @@ repository = "https://github.com/dragginzgame/icydb"
 # Production dependencies
 # Schema registration runs before main and does not request ordered constructors.
 ic-host-artifacts = { version = "0.73.1", default-features = false }
-ic-memory = "0.60.0"
+ic-storage = "0.64.0"
 ic-platform = { version = "0.8.3", default-features = false }
-ic-wire = "0.13.0"
+ic-wire = "0.14.2"
 icydb = { path = "../../crates/icydb", default-features = false }
 icydb-model = { path = "../../crates/icydb-model" }
 icydb-testing-canic-adapter = { path = "." }

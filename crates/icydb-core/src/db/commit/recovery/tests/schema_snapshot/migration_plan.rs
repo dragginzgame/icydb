@@ -37,9 +37,18 @@ fn migration_fixture(
     );
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     initialize_current_database_control_for_tests(&memory);
-    DATA.with_borrow_mut(|store| *store = DataStore::init_journaled(test_memory(151)));
-    INDEX.with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(152)));
-    JOURNAL.with_borrow_mut(|store| *store = JournalTailStore::init(test_memory(154)));
+    DATA.with_borrow_mut(|store| {
+        *store =
+            DataStore::init_journaled(test_memory(151)).expect("fixture storage should initialize");
+    });
+    INDEX.with_borrow_mut(|store| {
+        *store = IndexStore::init_journaled(test_memory(152))
+            .expect("fixture storage should initialize");
+    });
+    JOURNAL.with_borrow_mut(|store| {
+        *store =
+            JournalTailStore::init(test_memory(154)).expect("fixture storage should initialize");
+    });
     for operation in physical_migration_record_ops_for_tests(TAG, entities)
         .unwrap()
         .into_iter()
@@ -156,7 +165,10 @@ fn maximum_physical_batch_replays_folds_and_verifies_with_bounded_plan_loads() {
         assert!(prepared.iter().all(Option::is_none));
     }
     assert_eq!(handle.with_data(DataStore::len), 256);
-    assert_eq!(handle.with_index(IndexStore::len), 256 * 63);
+    assert_eq!(
+        (handle.with_index(IndexStore::len)).expect("storage operation should succeed"),
+        256 * 63
+    );
     for record in batch.records() {
         match record {
             JournalRecord::SchemaMigrationRowPut {
@@ -165,13 +177,19 @@ fn maximum_physical_batch_replays_folds_and_verifies_with_bounded_plan_loads() {
                 ..
             } => {
                 assert_eq!(
-                    handle.with_data(|store| store.get(primary_key).unwrap().as_bytes().to_vec()),
+                    handle.with_data(|store| store
+                        .get(primary_key)
+                        .unwrap()
+                        .expect("storage operation should succeed")
+                        .as_bytes()
+                        .to_vec()),
                     *row_bytes
                 );
             }
             JournalRecord::SchemaMigrationIndexPut { key, .. } => {
                 assert_eq!(
-                    handle.with_index(|store| store.get(key)),
+                    (handle.with_index(|store| store.get(key)))
+                        .expect("storage operation should succeed"),
                     Some(IndexEntryValue::presence())
                 );
             }
@@ -218,7 +236,10 @@ fn physical_batches_refuse_missing_early_or_different_plan_before_effects() {
             assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
             assert!(prepared.iter().all(Option::is_none));
             assert_eq!(handle.with_data(DataStore::len), 0);
-            assert_eq!(handle.with_index(IndexStore::len), 0);
+            assert_eq!(
+                (handle.with_index(IndexStore::len)).expect("storage operation should succeed"),
+                0
+            );
         }
         apply_schema_migration_record_op(&operation).unwrap();
     }
@@ -253,5 +274,8 @@ fn physical_batches_refuse_missing_early_or_different_plan_before_effects() {
         JournalRecordApplyMode::Replay,
     );
     assert_eq!(handle.with_data(DataStore::len), 1);
-    assert_eq!(handle.with_index(IndexStore::len), 3);
+    assert_eq!(
+        (handle.with_index(IndexStore::len)).expect("storage operation should succeed"),
+        3
+    );
 }

@@ -252,7 +252,7 @@ fn project_distinct_rows(
             // Decode under the store borrow: heap/live rows need no owned copy,
             // while stable rows remain owned by the one physical read.
             store.with_data(|data| {
-                let row = data.read(raw_key);
+                let row = data.read(raw_key)?;
                 row.as_row()
                     .map(|row| {
                         charge_stored_row(row, &mut stored_bytes, budget)?;

@@ -7,7 +7,7 @@ use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE},
     value_storage::{
-        canonical::select_canonical_map_path,
+        canonical::{select_canonical_map_members, select_canonical_map_path},
         decode::{
             ValueStorageSlice,
             scalar::{
@@ -31,6 +31,24 @@ pub(in crate::db) struct ValueStorageView<'a> {
 }
 
 impl<'a> ValueStorageView<'a> {
+    /// Select sibling members while validating the complete root once.
+    /// The caller owns and admits output backing; errors invalidate all results.
+    pub(in crate::db) fn select_raw_map_members(
+        raw: &'a [u8],
+        prefix: &[Box<[u8]>],
+        members: &[&[u8]],
+        selected: &mut [Option<&'a [u8]>],
+    ) -> Result<(), FieldDecodeError> {
+        if members.len() != selected.len() {
+            return Err(FieldDecodeError::new());
+        }
+        selected.fill(None);
+        if select_canonical_map_members(raw, 0, 0, prefix, members, selected)? != raw.len() {
+            return Err(FieldDecodeError::new());
+        }
+        Ok(())
+    }
+
     /// Validate raw bytes as one value-storage envelope and expose a view.
     pub(in crate::db) fn from_raw_validated(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
         let slice = ValueStorageSlice::from_raw(raw)?;

@@ -61,7 +61,9 @@ fn covering_components_preserve_identity_selection_order_resume_and_limits() {
             .collect::<Vec<_>>();
         EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
             for key in &raw {
-                store.insert(key.clone(), IndexEntryValue::presence());
+                store
+                    .insert(key.clone(), IndexEntryValue::presence())
+                    .expect("fixture storage operation should succeed");
             }
         });
         for direction in [Direction::Asc, Direction::Desc] {
@@ -243,7 +245,9 @@ fn covering_component_chunks_preserve_bounded_directional_progress() {
             .collect::<Vec<_>>();
         EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
             for key in &raw {
-                store.insert(key.clone(), IndexEntryValue::presence());
+                store
+                    .insert(key.clone(), IndexEntryValue::presence())
+                    .expect("fixture storage operation should succeed");
             }
         });
         let lower = Bound::Included(raw[0].clone());
@@ -326,7 +330,9 @@ fn zero_limit_scans_return_before_entry_charging_or_decoding() {
     reset_exact_intersection_stores();
     let raw = covering_keys(false)[0].to_raw().unwrap();
     EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
-        store.insert(raw, IndexEntryValue::from_persisted_bytes(vec![2]));
+        store
+            .insert(raw, IndexEntryValue::from_persisted_bytes(vec![2]))
+            .expect("fixture storage operation should succeed");
     });
     for direction in [Direction::Asc, Direction::Desc] {
         let (budget, context) = exact_intersection_budget();

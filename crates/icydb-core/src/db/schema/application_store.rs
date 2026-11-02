@@ -175,12 +175,9 @@ fn valid_record_transition(
 ) -> bool {
     match (before.receipt().outcome(), after.receipt().outcome()) {
         (
-            crate::db::schema::SchemaChangeOutcome::Pending { candidate_head, .. },
-            crate::db::schema::SchemaChangeOutcome::Applied { accepted_head },
-        ) => candidate_head == accepted_head,
-        (
-            crate::db::schema::SchemaChangeOutcome::Pending { .. },
-            crate::db::schema::SchemaChangeOutcome::Aborted { accepted_head },
+            SchemaChangeOutcome::Pending { .. },
+            SchemaChangeOutcome::Applied { accepted_head }
+            | SchemaChangeOutcome::Aborted { accepted_head },
         ) => accepted_head != before.receipt().prior_head(),
         _ => false,
     }
@@ -203,7 +200,7 @@ impl SchemaApplicationStore {
         let store = Self {
             map: SchemaControlMap::open(memory, ControlRecordFamily::Application)?,
         };
-        if store.record_count() > MAX_SCHEMA_APPLICATION_RECORDS {
+        if store.record_count()? > MAX_SCHEMA_APPLICATION_RECORDS {
             return Err(InternalError::store_corruption());
         }
         Ok(store)
@@ -215,7 +212,7 @@ impl SchemaApplicationStore {
             return Ok(None);
         };
         let store = Self { map };
-        if store.record_count() > MAX_SCHEMA_APPLICATION_RECORDS {
+        if store.record_count()? > MAX_SCHEMA_APPLICATION_RECORDS {
             return Err(InternalError::store_corruption());
         }
         Ok(Some(store))
@@ -235,7 +232,7 @@ impl SchemaApplicationStore {
         key: ApplicationRecordKey,
     ) -> Result<Option<SchemaApplicationRecord>, InternalError> {
         self.map
-            .get(&key)
+            .get(&key)?
             .map(|raw| decode_application_record(&raw.0, key))
             .transpose()
     }
@@ -245,10 +242,10 @@ impl SchemaApplicationStore {
         job_id: SchemaChangeJobId,
     ) -> Result<Option<SchemaApplicationRecord>, InternalError> {
         let mut found = None;
-        for key in self.map.keys() {
+        for key in self.map.keys()? {
             let raw = self
                 .map
-                .get(&key)
+                .get(&key)?
                 .ok_or_else(InternalError::store_corruption)?;
             let record = decode_application_record(&raw.0, key)?;
             let matches_job =
@@ -277,7 +274,7 @@ impl SchemaApplicationStore {
             SchemaApplicationRecordPreflight::AlreadyApplied => return Ok(()),
             SchemaApplicationRecordPreflight::Ready { retired_terminal } => {
                 if let Some(key) = retired_terminal
-                    && self.map.remove(&key).is_none()
+                    && self.map.remove(&key)?.is_none()
                 {
                     return Err(InternalError::store_corruption());
                 }
@@ -287,7 +284,7 @@ impl SchemaApplicationStore {
         self.map.insert(
             operation.key(),
             SchemaControlBytes(operation.after_bytes().to_vec()),
-        );
+        )?;
         Ok(())
     }
 
@@ -296,7 +293,7 @@ impl SchemaApplicationStore {
         operation: &SchemaApplicationRecordOp,
     ) -> Result<SchemaApplicationRecordPreflight, InternalError> {
         operation.validate()?;
-        let current = self.map.get(&operation.key());
+        let current = self.map.get(&operation.key())?;
         if current
             .as_ref()
             .is_some_and(|raw| raw.0 == operation.after_bytes())
@@ -307,7 +304,7 @@ impl SchemaApplicationStore {
             return Err(InternalError::store_corruption());
         }
         let retired_terminal =
-            if current.is_none() && self.record_count() >= MAX_SCHEMA_APPLICATION_RECORDS {
+            if current.is_none() && self.record_count()? >= MAX_SCHEMA_APPLICATION_RECORDS {
                 Some(
                     self.terminal_retention_candidate()?
                         .ok_or_else(InternalError::schema_application_conflict)?,
@@ -323,24 +320,24 @@ impl SchemaApplicationStore {
         key: ApplicationRecordKey,
         expected: &[u8],
     ) -> Result<bool, InternalError> {
-        let Some(raw) = self.map.get(&key) else {
+        let Some(raw) = self.map.get(&key)? else {
             return Ok(false);
         };
         let record = decode_application_record(&raw.0, key)?;
         Ok(ApplicationRecordKey::from_receipt(record.receipt())? == key && raw.0 == expected)
     }
 
-    fn record_count(&self) -> u64 {
+    fn record_count(&self) -> Result<u64, InternalError> {
         self.map.len()
     }
 
     fn terminal_retention_candidate(&self) -> Result<Option<ApplicationRecordKey>, InternalError> {
         let protected = crate::db::commit::current_schema_application_readiness_key()?
             .map(ApplicationRecordKey::from_bytes);
-        for key in self.map.keys() {
+        for key in self.map.keys()? {
             let raw = self
                 .map
-                .get(&key)
+                .get(&key)?
                 .ok_or_else(InternalError::store_corruption)?;
             let record = decode_application_record(&raw.0, key)?;
             if Some(key) != protected
@@ -719,7 +716,7 @@ mod tests {
         .expect("aborted record should admit")
     }
 
-    fn empty_store(memory_id: u8) -> SchemaApplicationStore {
+    fn empty_store(memory_id: u64) -> SchemaApplicationStore {
         SchemaApplicationStore::open(std::rc::Rc::new(test_memory(memory_id)))
             .expect("application store should initialize")
     }
@@ -952,12 +949,15 @@ mod tests {
         assert!(store.apply(&wrong_replace).is_err());
 
         let key = ApplicationRecordKey::from_receipt(first.receipt()).expect("key should derive");
-        store.map.insert(key, SchemaControlBytes(vec![0xFF; 32]));
+        store
+            .map
+            .insert(key, SchemaControlBytes(vec![0xFF; 32]))
+            .expect("fixture insert");
         assert!(store.load_key(key).is_err());
     }
 
     #[test]
-    fn application_record_replacement_rejects_terminal_rewrite_and_wrong_accepted_head() {
+    fn application_record_replacement_preserves_submission_and_terminal_identity() {
         let pending = pending_record("transition");
         let applied = applied_record(&pending);
         let aborted = aborted_record(&pending);
@@ -973,7 +973,7 @@ mod tests {
         );
 
         let receipt = pending.receipt();
-        let wrong_head = SchemaApplicationRecord::new(
+        let current_head = SchemaApplicationRecord::new(
             SchemaChangeReceipt::new(
                 receipt.database_identity(),
                 receipt.submission_key().clone(),
@@ -990,10 +990,42 @@ mod tests {
             Vec::new(),
         )
         .expect("terminal record should admit");
-        assert!(
-            SchemaApplicationRecordOp::replace(&pending, &wrong_head).is_err(),
-            "promotion must publish the candidate head reserved by the pending receipt",
-        );
+        let operation = SchemaApplicationRecordOp::replace(&pending, &current_head)
+            .expect("a proven promotion may include unrelated accepted publications");
+        SchemaApplicationRecordOp::from_encoded(
+            operation.key(),
+            operation.before_bytes().map(<[u8]>::to_vec),
+            operation.after_bytes().to_vec(),
+        )
+        .expect("the same transition must survive marker decoding");
+        for (digest, prior_head) in [
+            (
+                SchemaProposalDigest::from_bytes([0x99; 32]),
+                receipt.prior_head().clone(),
+            ),
+            (
+                receipt.proposal_digest(),
+                ExpectedAcceptedHead::Exact {
+                    revision: 1,
+                    fingerprint: ExpectedSchemaFingerprint::from_bytes([0x88; 32]),
+                },
+            ),
+        ] {
+            let altered_submission = SchemaApplicationRecord::new(
+                SchemaChangeReceipt::new(
+                    receipt.database_identity(),
+                    receipt.submission_key().clone(),
+                    digest,
+                    prior_head,
+                    current_head.receipt().outcome().clone(),
+                )
+                .unwrap(),
+                Vec::new(),
+            )
+            .unwrap();
+            assert!(SchemaApplicationRecordOp::replace(&pending, &altered_submission).is_err());
+        }
+        assert!(SchemaApplicationRecordOp::replace(&pending, &pending).is_err());
     }
 
     #[test]
@@ -1038,7 +1070,10 @@ mod tests {
             SchemaApplicationRecordOp::insert(&overflow).expect("overflow should prepare");
 
         assert!(store.preflight(&operation).is_err());
-        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS,);
+        assert_eq!(
+            (store.record_count()).expect("storage operation should succeed"),
+            MAX_SCHEMA_APPLICATION_RECORDS,
+        );
     }
 
     #[test]
@@ -1070,7 +1105,10 @@ mod tests {
             .apply(&operation)
             .expect("one terminal receipt should make bounded room");
 
-        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS,);
+        assert_eq!(
+            (store.record_count()).expect("storage operation should succeed"),
+            MAX_SCHEMA_APPLICATION_RECORDS,
+        );
         assert!(
             store
                 .load_key(retired)
@@ -1133,7 +1171,10 @@ mod tests {
             store.apply(&insert).unwrap_err().class,
             crate::error::ErrorClass::Conflict
         );
-        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS);
+        assert_eq!(
+            (store.record_count()).expect("storage operation should succeed"),
+            MAX_SCHEMA_APPLICATION_RECORDS
+        );
 
         // Only the explicitly completed pending record becomes eligible.
         let pending = pending_record("retained-1");
@@ -1151,7 +1192,10 @@ mod tests {
         );
         store.apply(&insert).unwrap();
         store.apply(&insert).unwrap();
-        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS);
+        assert_eq!(
+            (store.record_count()).expect("storage operation should succeed"),
+            MAX_SCHEMA_APPLICATION_RECORDS
+        );
         assert_eq!(
             store
                 .load_key(ApplicationRecordKey::from_receipt(protected.receipt()).unwrap())

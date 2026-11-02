@@ -1,0 +1,45 @@
+# IcyDB database changelog
+
+Last coordinated release: [0.294.0](../history.md). Independent database releases
+begin with the pending 0.295.0 entry below.
+
+## [0.295.0]
+
+- Keep the database family coordinated while releasing the developer CLI independently.
+
+- Batch sibling field-path lookups in raw and retained scalar projections, preserving
+  complete value validation ([#400](https://github.com/dragginzgame/icydb/issues/400), partial).
+- Remove the ineffective migration finding acknowledgement from `Advance`;
+  document retained rejection findings and retry limits
+  ([#96](https://github.com/dragginzgame/icydb/issues/96), partial).
+- Adapt isolated Canic fixtures and Wire diagnostics for Storage; published
+  executor dependencies still block current Canic qualification
+  ([#373](https://github.com/dragginzgame/icydb/issues/373), partial).
+- Make async request boundaries fallible and return typed cross-root refusal
+  instead of trapping ([#161](https://github.com/dragginzgame/icydb/issues/161)).
+- Prepare heap Identity checkpoints once per store before commit, preserving
+  existing stored bytes and marker recovery ([#102](https://github.com/dragginzgame/icydb/issues/102), partial).
+- Report secondary-order eligibility and rejection reasons in accepted typed
+  and SQL logical EXPLAIN ([#275](https://github.com/dragginzgame/icydb/issues/275), partial).
+- Adopt Storage 0.65.0 with fresh-installation-only admission, Metrics 0.27.0,
+  Platform 0.18.0, Wire 0.15.0
+  and Shared Tooling 0.27.28;
+  require and pin Rust 1.99.1 while retaining isolated compiler coverage ([#600](https://github.com/dragginzgame/icydb/issues/600)),
+  and carry the predicate-budget correction
+  ([#76](https://github.com/dragginzgame/icydb/issues/76), partial).
+- Let validated schema applications finish after unrelated schema publications
+  ([#90](https://github.com/dragginzgame/icydb/issues/90), partial).
+- Reject unreviewed compiler Unicode-data changes affecting persisted text
+  indexes ([#111](https://github.com/dragginzgame/icydb/issues/111)).
+- Resume ordered grouped pages beyond completed groups, preserving page work
+  limits without reprocessing earlier pages ([#50](https://github.com/dragginzgame/icydb/issues/50)).
+- Preserve heap-row references to journaled targets during online recovery,
+  keeping delete restrictions enforced ([#170](https://github.com/dragginzgame/icydb/issues/170)).
+- Select runtime entity/record generation through `icydb::model`; direct model
+  macros stay schema-only regardless of incidental runtime dependencies
+  ([#179](https://github.com/dragginzgame/icydb/issues/179)). Runtime consumers
+  importing those macros directly from `icydb-model` must update their imports.
+- Preserve cardinality-build progress across ordinary journal folds, maintaining
+  counts behind the scan checkpoint ([#81](https://github.com/dragginzgame/icydb/issues/81)).
+
+[Detailed changes](0.295.md).

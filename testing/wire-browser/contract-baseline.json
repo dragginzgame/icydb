@@ -432,35 +432,35 @@
           "name": "memory_id",
           "value": {
             "k": "ref",
-            "name": "WireType32"
+            "name": "WireType24"
           }
         },
         {
           "name": "stable_key",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "schema_version",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "schema_fingerprint_method_version",
           "value": {
             "k": "ref",
-            "name": "WireType32"
+            "name": "WireType34"
           }
         },
         {
           "name": "schema_fingerprint",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
@@ -680,21 +680,21 @@
           "name": "field_id",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "index_id",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "relation_id",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
@@ -708,35 +708,35 @@
           "name": "index",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "predicate_sql",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "relation",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "target_entity",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "action",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
@@ -750,7 +750,7 @@
           "name": "check_sql",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         }
       ],
@@ -811,56 +811,56 @@
           "name": "insert_omission",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "insert_default",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "insert_default_bytes",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "insert_default_hash",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "introduced_in_layout",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "historical_fill",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "historical_fill_bytes",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "historical_fill_hash",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         }
       ],
@@ -1334,35 +1334,35 @@
           "name": "memory_id",
           "value": {
             "k": "ref",
-            "name": "WireType32"
+            "name": "WireType24"
           }
         },
         {
           "name": "stable_key",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "schema_version",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "schema_fingerprint_method_version",
           "value": {
             "k": "ref",
-            "name": "WireType32"
+            "name": "WireType34"
           }
         },
         {
           "name": "schema_fingerprint",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
@@ -1550,60 +1550,28 @@
     "MemoryAllocation": {
       "fields": [
         {
-          "name": "memory_manager_id",
+          "name": "allocation_id",
           "value": {
             "k": "ref",
-            "name": "WireType6"
+            "name": "WireType7"
           }
         },
         {
-          "name": "binding",
+          "name": "stable_key",
           "value": {
             "k": "ref",
-            "name": "WireType93"
-          }
-        },
-        {
-          "name": "pool_eligible",
-          "value": {
-            "k": "ref",
-            "name": "WireType94"
+            "name": "WireType17"
           }
         },
         {
           "name": "virtual_extent",
           "value": {
             "k": "ref",
-            "name": "WireType95"
-          }
-        },
-        {
-          "name": "allocated_buckets",
-          "value": {
-            "k": "ref",
-            "name": "WireType15"
-          }
-        },
-        {
-          "name": "allocated_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "bucket_slack_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
+            "name": "WireType93"
           }
         }
       ],
       "k": "record"
-    },
-    "MemoryAllocationBinding": {
-      "k": "ref",
-      "name": "WireType93"
     },
     "MemoryAllocations": {
       "fields": [
@@ -1611,147 +1579,21 @@
           "name": "current_generation",
           "value": {
             "k": "ref",
-            "name": "WireType24"
-          }
-        },
-        {
-          "name": "manager_layout_version",
-          "value": {
-            "k": "ref",
-            "name": "WireType6"
-          }
-        },
-        {
-          "name": "bucket_size_pages",
-          "value": {
-            "k": "ref",
-            "name": "WireType15"
-          }
-        },
-        {
-          "name": "bucket_size_bytes",
-          "value": {
-            "k": "ref",
             "name": "WireType7"
-          }
-        },
-        {
-          "name": "bucket_capacity",
-          "value": {
-            "k": "ref",
-            "name": "WireType8"
-          }
-        },
-        {
-          "name": "allocated_buckets",
-          "value": {
-            "k": "ref",
-            "name": "WireType15"
-          }
-        },
-        {
-          "name": "remaining_buckets",
-          "value": {
-            "k": "ref",
-            "name": "WireType8"
-          }
-        },
-        {
-          "name": "maximum_bucket_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "physical_extent",
-          "value": {
-            "k": "ref",
-            "name": "WireType95"
           }
         },
         {
           "name": "virtual_extent",
           "value": {
             "k": "ref",
-            "name": "WireType95"
-          }
-        },
-        {
-          "name": "manager_metadata_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "manager_header_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "manager_bucket_table_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "manager_padding_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "allocated_bucket_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "bucket_slack_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "known_binding_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "unknown_binding_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "unmanaged_bytes",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
-          }
-        },
-        {
-          "name": "metadata_bytes_read",
-          "value": {
-            "k": "ref",
-            "name": "WireType7"
+            "name": "WireType93"
           }
         },
         {
           "name": "memories",
           "value": {
             "k": "ref",
-            "name": "WireType97"
+            "name": "WireType95"
           }
         }
       ],
@@ -1770,7 +1612,7 @@
           "name": "memory_id",
           "value": {
             "k": "ref",
-            "name": "WireType6"
+            "name": "WireType7"
           }
         },
         {
@@ -1785,7 +1627,7 @@
     },
     "MemoryExtent": {
       "k": "ref",
-      "name": "WireType95"
+      "name": "WireType93"
     },
     "MetricsReport": {
       "fields": [
@@ -1821,14 +1663,14 @@
           "name": "entities",
           "value": {
             "k": "ref",
-            "name": "WireType100"
+            "name": "WireType98"
           }
         },
         {
           "name": "schema_lifecycle",
           "value": {
             "k": "ref",
-            "name": "WireType101"
+            "name": "WireType99"
           }
         },
         {
@@ -1861,14 +1703,14 @@
           "name": "path",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "payload",
           "value": {
             "k": "ref",
-            "name": "WireType103"
+            "name": "WireType101"
           }
         }
       ],
@@ -1876,7 +1718,7 @@
     },
     "PublicValue": {
       "k": "ref",
-      "name": "WireType105"
+      "name": "WireType103"
     },
     "QueryFieldDiagnostic": {
       "k": "ref",
@@ -1910,7 +1752,7 @@
           "name": "rows",
           "value": {
             "k": "ref",
-            "name": "WireType120"
+            "name": "WireType118"
           }
         },
         {
@@ -1925,7 +1767,7 @@
     },
     "SchemaLifecycleMetrics": {
       "k": "ref",
-      "name": "WireType101"
+      "name": "WireType99"
     },
     "SchemaMigrationCommand": {
       "k": "enum",
@@ -1939,7 +1781,7 @@
                 "name": "expected_database",
                 "value": {
                   "k": "ref",
-                  "name": "WireType124"
+                  "name": "WireType122"
                 }
               },
               {
@@ -1962,7 +1804,7 @@
                 "name": "expected_database",
                 "value": {
                   "k": "ref",
-                  "name": "WireType124"
+                  "name": "WireType122"
                 }
               },
               {
@@ -1976,14 +1818,7 @@
                 "name": "expected_plan",
                 "value": {
                   "k": "ref",
-                  "name": "WireType125"
-                }
-              },
-              {
-                "name": "acknowledged_finding_page",
-                "value": {
-                  "k": "ref",
-                  "name": "WireType24"
+                  "name": "WireType123"
                 }
               }
             ],
@@ -1999,7 +1834,7 @@
                 "name": "expected_database",
                 "value": {
                   "k": "ref",
-                  "name": "WireType124"
+                  "name": "WireType122"
                 }
               },
               {
@@ -2013,7 +1848,7 @@
                 "name": "expected_plan",
                 "value": {
                   "k": "ref",
-                  "name": "WireType125"
+                  "name": "WireType123"
                 }
               }
             ],
@@ -2028,14 +1863,14 @@
           "name": "entity",
           "value": {
             "k": "ref",
-            "name": "WireType127"
+            "name": "WireType125"
           }
         },
         {
           "name": "from_version",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
@@ -2054,7 +1889,7 @@
           "name": "kind",
           "value": {
             "k": "ref",
-            "name": "WireType129"
+            "name": "WireType127"
           }
         },
         {
@@ -2075,21 +1910,21 @@
           "name": "source_field",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "target_field",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "transform_reason",
           "value": {
             "k": "ref",
-            "name": "WireType130"
+            "name": "WireType128"
           }
         }
       ],
@@ -2097,7 +1932,7 @@
     },
     "SchemaMigrationFindingKind": {
       "k": "ref",
-      "name": "WireType129"
+      "name": "WireType127"
     },
     "SchemaMigrationPhase": {
       "k": "enum",
@@ -2201,14 +2036,14 @@
           "name": "database_identity",
           "value": {
             "k": "ref",
-            "name": "WireType124"
+            "name": "WireType122"
           }
         },
         {
           "name": "plan_digest",
           "value": {
             "k": "ref",
-            "name": "WireType134"
+            "name": "WireType132"
           }
         },
         {
@@ -2234,7 +2069,7 @@
           "name": "database_identity",
           "value": {
             "k": "ref",
-            "name": "WireType124"
+            "name": "WireType122"
           }
         },
         {
@@ -2248,7 +2083,7 @@
           "name": "plan_digest",
           "value": {
             "k": "ref",
-            "name": "WireType134"
+            "name": "WireType132"
           }
         },
         {
@@ -2262,7 +2097,7 @@
           "name": "transitions",
           "value": {
             "k": "ref",
-            "name": "WireType136"
+            "name": "WireType134"
           }
         },
         {
@@ -2290,7 +2125,7 @@
           "name": "findings",
           "value": {
             "k": "ref",
-            "name": "WireType137"
+            "name": "WireType135"
           }
         },
         {
@@ -2304,7 +2139,7 @@
           "name": "terminal_receipt",
           "value": {
             "k": "ref",
-            "name": "WireType138"
+            "name": "WireType136"
           }
         }
       ],
@@ -2324,7 +2159,7 @@
     },
     "SchemaMigrationTransformReason": {
       "k": "ref",
-      "name": "WireType131"
+      "name": "WireType129"
     },
     "SchemaStoreSnapshot": {
       "fields": [
@@ -2381,35 +2216,35 @@
           "name": "memory_id",
           "value": {
             "k": "ref",
-            "name": "WireType32"
+            "name": "WireType24"
           }
         },
         {
           "name": "stable_key",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "schema_version",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "schema_fingerprint_method_version",
           "value": {
             "k": "ref",
-            "name": "WireType32"
+            "name": "WireType34"
           }
         },
         {
           "name": "schema_fingerprint",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
@@ -2571,7 +2406,7 @@
           "name": "extra",
           "value": {
             "k": "ref",
-            "name": "WireType145"
+            "name": "WireType143"
           }
         }
       ],
@@ -2625,7 +2460,7 @@
           "name": "findings",
           "value": {
             "k": "ref",
-            "name": "WireType147"
+            "name": "WireType145"
           }
         },
         {
@@ -2657,7 +2492,7 @@
                 "name": "columns",
                 "value": {
                   "k": "ref",
-                  "name": "WireType149"
+                  "name": "WireType147"
                 }
               }
             ],
@@ -2702,7 +2537,7 @@
           "name": "rows",
           "value": {
             "k": "ref",
-            "name": "WireType151"
+            "name": "WireType149"
           }
         },
         {
@@ -2716,7 +2551,7 @@
           "name": "next_cursor",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         }
       ],
@@ -2867,7 +2702,7 @@
           "name": "ShowColumns",
           "value": {
             "k": "ref",
-            "name": "WireType154"
+            "name": "WireType152"
           }
         },
         {
@@ -2875,7 +2710,7 @@
           "name": "ShowRelations",
           "value": {
             "k": "ref",
-            "name": "WireType155"
+            "name": "WireType153"
           }
         },
         {
@@ -2887,7 +2722,7 @@
                 "name": "entities",
                 "value": {
                   "k": "ref",
-                  "name": "WireType156"
+                  "name": "WireType154"
                 }
               },
               {
@@ -2910,7 +2745,7 @@
                 "name": "stores",
                 "value": {
                   "k": "ref",
-                  "name": "WireType157"
+                  "name": "WireType155"
                 }
               },
               {
@@ -2933,7 +2768,7 @@
                 "name": "memory",
                 "value": {
                   "k": "ref",
-                  "name": "WireType159"
+                  "name": "WireType157"
                 }
               }
             ],
@@ -3005,7 +2840,7 @@
                 "name": "constraint_validation",
                 "value": {
                   "k": "ref",
-                  "name": "WireType160"
+                  "name": "WireType158"
                 }
               }
             ],
@@ -3016,11 +2851,11 @@
     },
     "SqlShowColumnsOutput": {
       "k": "ref",
-      "name": "WireType154"
+      "name": "WireType152"
     },
     "SqlShowRelationsOutput": {
       "k": "ref",
-      "name": "WireType155"
+      "name": "WireType153"
     },
     "StorageReport": {
       "fields": [
@@ -3028,35 +2863,35 @@
           "name": "memory_allocations",
           "value": {
             "k": "ref",
-            "name": "WireType162"
+            "name": "WireType160"
           }
         },
         {
           "name": "storage_data",
           "value": {
             "k": "ref",
-            "name": "WireType163"
+            "name": "WireType161"
           }
         },
         {
           "name": "storage_index",
           "value": {
             "k": "ref",
-            "name": "WireType164"
+            "name": "WireType162"
           }
         },
         {
           "name": "schema_storage",
           "value": {
             "k": "ref",
-            "name": "WireType165"
+            "name": "WireType163"
           }
         },
         {
           "name": "entity_storage",
           "value": {
             "k": "ref",
-            "name": "WireType166"
+            "name": "WireType164"
           }
         },
         {
@@ -3082,7 +2917,7 @@
     },
     "StoreCatalogDescription": {
       "k": "ref",
-      "name": "WireType158"
+      "name": "WireType156"
     },
     "StoreCommitParticipation": {
       "k": "ref",
@@ -3115,65 +2950,18 @@
       },
       "k": "list"
     },
-    "WireType100": {
-      "item": {
-        "k": "ref",
-        "name": "EntityMetrics"
-      },
-      "k": "list"
-    },
     "WireType101": {
-      "fields": [
-        {
-          "name": "lowering",
-          "value": {
-            "k": "ref",
-            "name": "WireType21"
-          }
-        },
-        {
-          "name": "publication",
-          "value": {
-            "k": "ref",
-            "name": "WireType21"
-          }
-        },
-        {
-          "name": "runtime_compilation",
-          "value": {
-            "k": "ref",
-            "name": "WireType21"
-          }
-        },
-        {
-          "name": "cardinality",
-          "value": {
-            "k": "ref",
-            "name": "WireType21"
-          }
-        },
-        {
-          "name": "startup_recovery",
-          "value": {
-            "k": "ref",
-            "name": "WireType21"
-          }
-        }
-      ],
-      "k": "record"
-    },
-    "WireType103": {
       "item": {
         "k": "ref",
-        "name": "WireType104"
+        "name": "WireType102"
       },
       "k": "option"
     },
-    "WireType104": {
+    "WireType102": {
       "k": "ref",
-      "name": "WireType105"
+      "name": "WireType103"
     },
-    "WireType105": {
+    "WireType103": {
       "k": "enum",
       "variants": [
         {
@@ -3205,7 +2993,7 @@
           "name": "Date",
           "value": {
             "k": "ref",
-            "name": "WireType106"
+            "name": "WireType104"
           }
         },
         {
@@ -3213,7 +3001,7 @@
           "name": "Decimal",
           "value": {
             "k": "ref",
-            "name": "WireType107"
+            "name": "WireType105"
           }
         },
         {
@@ -3221,7 +3009,7 @@
           "name": "Duration",
           "value": {
             "k": "ref",
-            "name": "WireType108"
+            "name": "WireType106"
           }
         },
         {
@@ -3237,7 +3025,7 @@
           "name": "Float32",
           "value": {
             "k": "ref",
-            "name": "WireType109"
+            "name": "WireType107"
           }
         },
         {
@@ -3245,7 +3033,7 @@
           "name": "Float64",
           "value": {
             "k": "ref",
-            "name": "WireType110"
+            "name": "WireType108"
           }
         },
         {
@@ -3253,7 +3041,7 @@
           "name": "Int",
           "value": {
             "k": "ref",
-            "name": "WireType111"
+            "name": "WireType109"
           }
         },
         {
@@ -3261,7 +3049,7 @@
           "name": "Int128",
           "value": {
             "k": "ref",
-            "name": "WireType112"
+            "name": "WireType110"
           }
         },
         {
@@ -3269,7 +3057,7 @@
           "name": "List",
           "value": {
             "k": "ref",
-            "name": "WireType113"
+            "name": "WireType111"
           }
         },
         {
@@ -3277,7 +3065,7 @@
           "name": "Map",
           "value": {
             "k": "ref",
-            "name": "WireType114"
+            "name": "WireType112"
           }
         },
         {
@@ -3316,7 +3104,7 @@
           "name": "Timestamp",
           "value": {
             "k": "ref",
-            "name": "WireType116"
+            "name": "WireType114"
           }
         },
         {
@@ -3340,7 +3128,7 @@
           "name": "Ulid",
           "value": {
             "k": "ref",
-            "name": "WireType117"
+            "name": "WireType115"
           }
         },
         {
@@ -3355,28 +3143,36 @@
           "name": "U256",
           "value": {
             "k": "ref",
-            "name": "WireType118"
+            "name": "WireType116"
           }
         }
       ]
     },
-    "WireType106": {
+    "WireType104": {
       "bits": 32,
       "k": "i",
       "max": 2932896,
       "min": -719528
     },
-    "WireType107": {
+    "WireType105": {
       "check": "decimal",
       "k": "text"
     },
-    "WireType108": {
+    "WireType106": {
       "bits": 64,
       "k": "u"
     },
-    "WireType109": {
+    "WireType107": {
       "bits": 32,
       "k": "float"
+    },
+    "WireType108": {
+      "bits": 64,
+      "k": "float"
+    },
+    "WireType109": {
+      "bits": 64,
+      "k": "i"
     },
     "WireType11": {
       "item": {
@@ -3386,57 +3182,63 @@
       "k": "option"
     },
     "WireType110": {
-      "bits": 64,
-      "k": "float"
-    },
-    "WireType111": {
-      "bits": 64,
-      "k": "i"
-    },
-    "WireType112": {
       "bits": 128,
       "k": "i"
     },
+    "WireType111": {
+      "item": {
+        "k": "ref",
+        "name": "WireType103"
+      },
+      "k": "list"
+    },
+    "WireType112": {
+      "item": {
+        "k": "ref",
+        "name": "WireType113"
+      },
+      "k": "list"
+    },
     "WireType113": {
-      "item": {
-        "k": "ref",
-        "name": "WireType105"
-      },
-      "k": "list"
-    },
-    "WireType114": {
-      "item": {
-        "k": "ref",
-        "name": "WireType115"
-      },
-      "k": "list"
-    },
-    "WireType115": {
       "items": [
         {
           "k": "ref",
-          "name": "WireType105"
+          "name": "WireType103"
         },
         {
           "k": "ref",
-          "name": "WireType105"
+          "name": "WireType103"
         }
       ],
       "k": "tuple"
     },
-    "WireType116": {
+    "WireType114": {
       "bits": 64,
       "k": "i"
     },
-    "WireType117": {
+    "WireType115": {
       "k": "bytes",
       "max": 16,
       "min": 16
     },
-    "WireType118": {
+    "WireType116": {
       "k": "bytes",
       "max": 32,
       "min": 32
+    },
+    "WireType118": {
+      "item": {
+        "k": "ref",
+        "name": "WireType119"
+      },
+      "k": "list"
+    },
+    "WireType119": {
+      "item": {
+        "k": "ref",
+        "name": "WireType120"
+      },
+      "k": "list"
     },
     "WireType12": {
       "fields": [
@@ -3451,35 +3253,21 @@
       "k": "record"
     },
     "WireType120": {
-      "item": {
-        "k": "ref",
-        "name": "WireType121"
-      },
-      "k": "list"
-    },
-    "WireType121": {
-      "item": {
-        "k": "ref",
-        "name": "WireType122"
-      },
-      "k": "list"
+      "k": "ref",
+      "name": "WireType103"
     },
     "WireType122": {
       "k": "ref",
-      "name": "WireType105"
+      "name": "WireType38"
     },
-    "WireType124": {
+    "WireType123": {
       "k": "ref",
       "name": "WireType38"
     },
     "WireType125": {
-      "k": "ref",
-      "name": "WireType38"
-    },
-    "WireType127": {
       "k": "text"
     },
-    "WireType129": {
+    "WireType127": {
       "k": "enum",
       "variants": [
         {
@@ -3519,21 +3307,14 @@
         }
       ]
     },
-    "WireType13": {
+    "WireType128": {
       "item": {
         "k": "ref",
-        "name": "WireType14"
-      },
-      "k": "list"
-    },
-    "WireType130": {
-      "item": {
-        "k": "ref",
-        "name": "WireType131"
+        "name": "WireType129"
       },
       "k": "option"
     },
-    "WireType131": {
+    "WireType129": {
       "k": "enum",
       "variants": [
         {
@@ -3573,28 +3354,35 @@
         }
       ]
     },
-    "WireType134": {
+    "WireType13": {
       "item": {
         "k": "ref",
-        "name": "WireType125"
+        "name": "WireType14"
+      },
+      "k": "list"
+    },
+    "WireType132": {
+      "item": {
+        "k": "ref",
+        "name": "WireType123"
       },
       "k": "option"
     },
-    "WireType136": {
+    "WireType134": {
       "item": {
         "k": "ref",
         "name": "SchemaMigrationEntityTransition"
       },
       "k": "list"
     },
-    "WireType137": {
+    "WireType135": {
       "item": {
         "k": "ref",
         "name": "SchemaMigrationFinding"
       },
       "k": "list"
     },
-    "WireType138": {
+    "WireType136": {
       "item": {
         "k": "ref",
         "name": "SchemaMigrationReceipt"
@@ -3771,24 +3559,31 @@
         }
       ]
     },
-    "WireType145": {
+    "WireType143": {
       "item": {
         "k": "ref",
         "name": "SqlColumnExtra"
       },
       "k": "list"
     },
-    "WireType147": {
+    "WireType145": {
       "item": {
         "k": "ref",
         "name": "ConstraintValidationFindingOutput"
       },
       "k": "list"
     },
-    "WireType149": {
+    "WireType147": {
       "item": {
         "k": "ref",
         "name": "SqlColumnSummary"
+      },
+      "k": "list"
+    },
+    "WireType149": {
+      "item": {
+        "k": "ref",
+        "name": "WireType53"
       },
       "k": "list"
     },
@@ -3796,14 +3591,7 @@
       "bits": 16,
       "k": "u"
     },
-    "WireType151": {
-      "item": {
-        "k": "ref",
-        "name": "WireType53"
-      },
-      "k": "list"
-    },
-    "WireType154": {
+    "WireType152": {
       "k": "enum",
       "variants": [
         {
@@ -3822,7 +3610,7 @@
                 "name": "columns",
                 "value": {
                   "k": "ref",
-                  "name": "WireType149"
+                  "name": "WireType147"
                 }
               }
             ],
@@ -3854,7 +3642,7 @@
         }
       ]
     },
-    "WireType155": {
+    "WireType153": {
       "fields": [
         {
           "name": "entity",
@@ -3873,21 +3661,21 @@
       ],
       "k": "record"
     },
-    "WireType156": {
+    "WireType154": {
       "item": {
         "k": "ref",
         "name": "EntityCatalogDescription"
       },
       "k": "list"
     },
-    "WireType157": {
+    "WireType155": {
       "item": {
         "k": "ref",
-        "name": "WireType158"
+        "name": "WireType156"
       },
       "k": "list"
     },
-    "WireType158": {
+    "WireType156": {
       "fields": [
         {
           "name": "store_path",
@@ -3906,49 +3694,49 @@
       ],
       "k": "record"
     },
-    "WireType159": {
+    "WireType157": {
       "item": {
         "k": "ref",
         "name": "MemoryCatalogDescription"
       },
       "k": "list"
     },
-    "WireType160": {
+    "WireType158": {
       "item": {
         "k": "ref",
         "name": "SqlConstraintValidationOutput"
       },
       "k": "option"
     },
-    "WireType162": {
+    "WireType160": {
       "item": {
         "k": "ref",
         "name": "MemoryAllocations"
       },
       "k": "option"
     },
-    "WireType163": {
+    "WireType161": {
       "item": {
         "k": "ref",
         "name": "DataStoreSnapshot"
       },
       "k": "list"
     },
-    "WireType164": {
+    "WireType162": {
       "item": {
         "k": "ref",
         "name": "IndexStoreSnapshot"
       },
       "k": "list"
     },
-    "WireType165": {
+    "WireType163": {
       "item": {
         "k": "ref",
         "name": "SchemaStoreSnapshot"
       },
       "k": "list"
     },
-    "WireType166": {
+    "WireType164": {
       "item": {
         "k": "ref",
         "name": "EntitySnapshot"
@@ -3958,7 +3746,7 @@
     "WireType17": {
       "k": "text"
     },
-    "WireType174": {
+    "WireType172": {
       "item": {
         "k": "ref",
         "name": "EntitySchemaDescription"
@@ -4178,21 +3966,21 @@
     "WireType32": {
       "item": {
         "k": "ref",
-        "name": "WireType6"
+        "name": "WireType17"
       },
       "k": "option"
     },
     "WireType33": {
       "item": {
         "k": "ref",
-        "name": "WireType17"
+        "name": "WireType8"
       },
       "k": "option"
     },
     "WireType34": {
       "item": {
         "k": "ref",
-        "name": "WireType8"
+        "name": "WireType6"
       },
       "k": "option"
     },
@@ -4502,42 +4290,42 @@
           "name": "constraint_id",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "constraint_name",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "schema_index_id",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "relation_id",
           "value": {
             "k": "ref",
-            "name": "WireType34"
+            "name": "WireType33"
           }
         },
         {
           "name": "expected",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         },
         {
           "name": "observed",
           "value": {
             "k": "ref",
-            "name": "WireType33"
+            "name": "WireType32"
           }
         }
       ],
@@ -5296,71 +5084,6 @@
       ]
     },
     "WireType93": {
-      "k": "enum",
-      "variants": [
-        {
-          "id": 0,
-          "name": "Current",
-          "value": {
-            "fields": [
-              {
-                "name": "stable_key",
-                "value": {
-                  "k": "ref",
-                  "name": "WireType17"
-                }
-              },
-              {
-                "name": "owner",
-                "value": {
-                  "k": "ref",
-                  "name": "WireType17"
-                }
-              }
-            ],
-            "k": "record"
-          }
-        },
-        {
-          "id": 1,
-          "name": "Ledger",
-          "value": {
-            "fields": [
-              {
-                "name": "stable_key",
-                "value": {
-                  "k": "ref",
-                  "name": "WireType17"
-                }
-              },
-              {
-                "name": "owner",
-                "value": {
-                  "k": "ref",
-                  "name": "WireType17"
-                }
-              }
-            ],
-            "k": "record"
-          }
-        },
-        {
-          "id": 2,
-          "name": "Unknown",
-          "value": {
-            "k": "unit"
-          }
-        }
-      ]
-    },
-    "WireType94": {
-      "item": {
-        "k": "ref",
-        "name": "WireType20"
-      },
-      "k": "option"
-    },
-    "WireType95": {
       "fields": [
         {
           "name": "wasm_pages",
@@ -5379,12 +5102,59 @@
       ],
       "k": "record"
     },
-    "WireType97": {
+    "WireType95": {
       "item": {
         "k": "ref",
         "name": "MemoryAllocation"
       },
       "k": "list"
+    },
+    "WireType98": {
+      "item": {
+        "k": "ref",
+        "name": "EntityMetrics"
+      },
+      "k": "list"
+    },
+    "WireType99": {
+      "fields": [
+        {
+          "name": "lowering",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "publication",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "runtime_compilation",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "cardinality",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        },
+        {
+          "name": "startup_recovery",
+          "value": {
+            "k": "ref",
+            "name": "WireType21"
+          }
+        }
+      ],
+      "k": "record"
     },
     "icydb_ddl_Request": {
       "k": "ref",
@@ -5481,7 +5251,7 @@
       "k": "result",
       "ok": {
         "k": "ref",
-        "name": "WireType174"
+        "name": "WireType172"
       }
     },
     "icydb_schema_migrate_Request": {

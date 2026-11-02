@@ -10,8 +10,9 @@ execution, or recovery authority.
 Schema-only consumers depend on this package without depending on the IcyDB
 database runtime. Runtime-enabled consumers normally use the same surface
 through `icydb::model`, so their manifest names only the public `icydb` facade.
-Generated typed adapters remain available whenever that facade is a direct
-dependency.
+Generated typed adapters are selected by the facade's entity/record macros.
+Direct model macros remain schema-only even when a runtime dependency is present;
+runtime consumers must import those macros from `icydb::model`.
 
 Runtime-enabled entity fields and record members also receive schema-authored
 `FieldRef` constants, and entities implement `EntitySource`. The collision-safe

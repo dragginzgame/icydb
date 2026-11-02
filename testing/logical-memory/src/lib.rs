@@ -3,23 +3,22 @@
 
 mod schema;
 
-use ic_memory::RuntimeMemory;
+use ic_storage::RuntimeMemory;
 
-use ic_memory::{DefaultMemoryImpl, Memory};
+use ic_storage::{DefaultMemoryImpl, Memory};
 use icydb::{
     db::{DatabaseStartupState, StartupFailure, TypedWriteAdapter as _, WriteCell},
     types::Id,
 };
 
-// The final host owns grants and exclusions; components request permanent keys.
-fn icydb_memory_pool()
--> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
+// The final host grants namespaces; components request permanent keys.
+fn icydb_storage_grants()
+-> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(
         vec![icydb::db::MemoryAuthority::new(
-            "icydb.logical_fixture",
+            "icydb_logical_fixture",
             "icydb.logical_fixture.",
         )?],
-        vec![],
     )
 }
 canic_icydb::start! {
@@ -47,13 +46,13 @@ fn state() -> Result<DatabaseStartupState, StartupFailure> {
 }
 icydb_testing_canic_adapter::export_wire!(query, "state", State, state, (), Result<DatabaseStartupState, StartupFailure>);
 
-fn allocations() -> Vec<(String, u8)> {
+fn allocations() -> Vec<(String, u64)> {
     icydb::db::memory_runtime()
         .unwrap()
-        .committed_allocations()
+        .memory_allocations()
         .unwrap()
         .iter()
-        .map(|allocation| (allocation.stable_key().to_string(), allocation.slot().id()))
+        .map(|allocation| (allocation.stable_key.to_string(), allocation.id.get()))
         .collect()
 }
 icydb_testing_canic_adapter::export_wire!(
@@ -62,7 +61,7 @@ icydb_testing_canic_adapter::export_wire!(
     Allocations,
     allocations,
     (),
-    Vec<(String, u8)>
+    Vec<(String, u64)>
 );
 
 fn keep_row_exists() -> Result<bool, String> {

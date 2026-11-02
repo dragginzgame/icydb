@@ -25,6 +25,14 @@ Generated Rust adapters never choose admission or execution semantics.
 | Trusted SQL read | `execute_trusted_sql_query(sql)` |
 | Query diagnostics | Typed `db.query::<E>()?.explain()` without SQL, or SQL `EXPLAIN` through a trusted/admin surface |
 
+Typed and SQL logical EXPLAIN report secondary-index order eligibility from the
+accepted prepared plan, including the index/prefix or typed rejection reason.
+`NotApplicable` means the route does not use secondary-order pushdown; it does
+not mean that ordering requires a sort (primary-key ordering can already be
+satisfied). `MissingModelContext` is reserved for context-free logical plan
+projection. These diagnostics do not predict PublicRead admission; authorization
+and public-page admission remain separate execution checks.
+
 Public scalar typed and dynamic reads return bounded live pages. A non-null
 continuation means traversal is not yet proven exhausted; it does not promise
 that another matching row exists. Grouped reads retain their separate opaque

@@ -5,7 +5,7 @@ mod actor_hygiene;
 mod schema;
 
 #[cfg(test)]
-use actor_hygiene::icydb_memory_pool;
+use actor_hygiene::icydb_storage_grants;
 
 #[cfg(test)]
 mod tests {

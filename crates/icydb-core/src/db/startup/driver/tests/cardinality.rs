@@ -21,14 +21,14 @@ use crate::{
 use std::{cell::RefCell, thread::LocalKey};
 
 thread_local! {
-    static A_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(180)));
-    static A_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(181)));
-    static A_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(182)));
-    static A_TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(183)));
-    static Z_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(184)));
-    static Z_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(185)));
-    static Z_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(186)));
-    static Z_TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(187)));
+    static A_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(180)).expect("fixture storage should initialize"));
+    static A_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(181)).expect("fixture storage should initialize"));
+    static A_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(182)).expect("fixture storage should initialize"));
+    static A_TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(183)).expect("fixture storage should initialize"));
+    static Z_DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(184)).expect("fixture storage should initialize"));
+    static Z_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(185)).expect("fixture storage should initialize"));
+    static Z_SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(186)).expect("fixture storage should initialize"));
+    static Z_TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(187)).expect("fixture storage should initialize"));
     static STORES: StoreRegistry = registry();
     static OTHER_STORES: StoreRegistry = registry();
 }
@@ -51,10 +51,10 @@ fn allocations(first: u8, name: &str) -> StoreAllocationIdentities {
         _ => panic!("unknown fixture store"),
     };
     StoreAllocationIdentities::new_journaled(
-        StoreAllocationIdentity::new(first, keys[0]),
-        StoreAllocationIdentity::new(first + 1, keys[1]),
-        StoreAllocationIdentity::new(first + 2, keys[2]),
-        StoreAllocationIdentity::new(first + 3, keys[3]),
+        StoreAllocationIdentity::new(first.into(), keys[0]),
+        StoreAllocationIdentity::new((first + 1).into(), keys[1]),
+        StoreAllocationIdentity::new((first + 2).into(), keys[2]),
+        StoreAllocationIdentity::new((first + 3).into(), keys[3]),
     )
 }
 

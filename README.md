@@ -22,8 +22,7 @@
 </p>
 <!-- helper-navigation:end -->
 
-![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.91.0-blue.svg)
-![Development Toolchain](https://img.shields.io/badge/development%20rustc-stable-4c1.svg)
+![Rust](https://img.shields.io/badge/Rust-1.99.1-blue.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: Toko Studios 1.1](https://img.shields.io/badge/license-Toko%20Studios%201.1-blue)](LICENSE)
 
@@ -137,8 +136,8 @@ Runtime-enabled crates use `icydb` alone and author schemas through
 alone, including its schema scalar re-exports; scalar/proposal-only tooling
 may use `icydb-schema` alone. See the [dependency choices](INSTALLING.md)
 for these supported narrower routes. The public dependency
-path supports Rust `1.91.0`; workspace development uses the latest stable Rust
-channel, with a `1.96.0` declared floor for other workspace packages.
+path requires Rust `1.99.1` or newer. Repository development, CI and release
+qualification use the exact `1.99.1` compiler pinned in `rust-toolchain.toml`.
 
 See [installation](INSTALLING.md) for feature and endpoint setup, local tools,
 validation, and troubleshooting.
@@ -255,8 +254,9 @@ heap counters. Storage snapshots and schema inspection have separate APIs.
 
 Start with [INSTALLING.md](INSTALLING.md) and [local command safety](SECURITY.md).
 Use focused tests while iterating; the complete validation workflow belongs to
-release preparation. Raw non-gzipped Wasm bytes, IC cycles, and instruction counts
-are the performance measures.
+release preparation. Wasm size comparisons report both the complete uncompressed
+module and its code-section bytes; gzip size is only relevant to explicitly
+requested transport measurements. IC cycles and instruction counts measure execution.
 
 The public facade is in `crates/icydb`; runtime internals are in
 `crates/icydb-core`. Model authoring lives in `icydb-model` and
@@ -304,3 +304,10 @@ original MIT notice. Third-party material retains its own license terms.
 Contributors must have authority to grant the relevant rights and expressly
 offer covered contributions under these terms, including the permanent Toko
 Studios organization exception and patent grants in sections 7 and 11.
+
+### Release groups
+
+The developer CLI releases independently from the coordinated database family.
+Maintainer release, resume and publication commands require `RELEASE_GROUP=cli`
+or `RELEASE_GROUP=database`. See the [group changelogs](CHANGELOG.md) and
+[release workflow](docs/governance/changelog.md#9-release-flow).

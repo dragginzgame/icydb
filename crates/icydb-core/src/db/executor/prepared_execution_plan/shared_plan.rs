@@ -15,8 +15,11 @@ use crate::{
                 PreparedExecutionPlanCore,
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
+            route::{RoutePlanRequest, build_execution_route_plan},
         },
-        query::{explain::ExplainPlan, preparation::PreparationWork},
+        query::{
+            explain::ExplainPlan, plan::grouped_executor_handoff, preparation::PreparationWork,
+        },
         resource::construction::ConstructionBudget,
         schema::{enum_catalog::ValueAdmissionBudget, literal_matches_type},
     },
@@ -41,14 +44,33 @@ pub(in crate::db) struct SharedPreparedExecutionPlan {
 }
 
 impl SharedPreparedExecutionPlan {
-    /// Project a finalized shared plan without rebuilding its execution facts.
+    /// Project a finalized shared plan with its accepted secondary-order route.
     /// The session must establish current authority and cache validity before
     /// calling; this operation owns diagnostic construction only.
     pub(in crate::db) fn explain(
         &self,
         work: &PreparationWork<'_>,
     ) -> Result<ExplainPlan, QueryError> {
-        self.logical_plan().project_explain(work)
+        let explain = self.logical_plan().project_explain(work)?;
+        let route = if self.logical_plan().grouped_plan().is_some() {
+            let grouped =
+                grouped_executor_handoff(self.logical_plan()).map_err(QueryError::execute)?;
+            build_execution_route_plan(
+                grouped.base(),
+                RoutePlanRequest::Grouped {
+                    grouped_plan_strategy: grouped.grouped_plan_strategy(),
+                },
+            )
+        } else {
+            self.core
+                .get_or_init_initial_scalar_route_plan(&self.authority)
+        }
+        .map_err(QueryError::execute)?;
+        Ok(explain.with_order_pushdown(
+            route
+                .secondary_pushdown_applicability
+                .project_explain(work)?,
+        ))
     }
 
     #[cfg(test)]

@@ -2,7 +2,7 @@
 
 use icydb::model::prelude::*;
 
-#[canister(memory_namespace = "logical_fixture", memory_profile = "compact")]
+#[canister(memory_namespace = "logical_fixture")]
 pub struct MemoryCanister;
 
 #[store(canister = "MemoryCanister", storage(journaled(key = "keep")))]

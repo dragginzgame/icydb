@@ -94,27 +94,23 @@ impl JournalSequence {
 }
 
 impl Storable for JournalSequence {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Owned(self.0.to_be_bytes().to_vec())
+    fn to_bytes(&self) -> Result<Cow<'_, [u8]>, ic_storage::storable::CodecError> {
+        Ok(Cow::Owned(self.0.to_be_bytes().to_vec()))
     }
 
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        debug_assert_eq!(
-            bytes.len(),
-            size_of::<u64>(),
-            "JournalSequence::from_bytes received unexpected byte length",
-        );
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, ic_storage::storable::CodecError> {
+        Self::check_bounds(bytes.as_ref())?;
 
         let mut out = [0u8; size_of::<u64>()];
         if bytes.len() == size_of::<u64>() {
             out.copy_from_slice(bytes.as_ref());
         }
 
-        Self(u64::from_be_bytes(out))
+        Ok(Self(u64::from_be_bytes(out)))
     }
 
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_be_bytes().to_vec()
+    fn into_bytes(self) -> Result<Vec<u8>, ic_storage::storable::CodecError> {
+        Ok(self.0.to_be_bytes().to_vec())
     }
 
     const BOUND: Bound = Bound::Bounded {
@@ -1131,7 +1127,7 @@ fn read_journal_record(
             if key_bytes.len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE {
                 return Err(journal_batch_corruption());
             }
-            let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes));
+            let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes))?;
             JournalRecord::ConstraintValidationIndexPut {
                 store_path,
                 entity_tag,
@@ -1191,7 +1187,7 @@ fn read_journal_record(
             if key_bytes.len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE {
                 return Err(journal_batch_corruption());
             }
-            let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes));
+            let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes))?;
             let plan_digest = SchemaMigrationPlanDigest::from_bytes(
                 reader.read_array::<32>().map_err(primitive_decode_error)?,
             );
@@ -1237,7 +1233,7 @@ fn read_accepted_schema_index_chunk(
         }
         keys.push(<RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(
             key_bytes,
-        )));
+        ))?);
     }
     Ok((store_path, entity_tag, accepted_after_fingerprint, keys))
 }
@@ -1252,7 +1248,7 @@ fn read_primary_key(reader: &mut ByteReader<'_>) -> Result<RawDataStoreKey, Inte
 
     Ok(<RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(
         primary_key,
-    )))
+    ))?)
 }
 
 fn journal_batch_payload_len(batch: &JournalBatch) -> usize {

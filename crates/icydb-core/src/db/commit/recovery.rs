@@ -44,7 +44,8 @@ use crate::{
             JournalOverlayPosition, classify_derived_index_overlay, classify_journal_overlay,
         },
         registry::{
-            StoreHandle, StoreRecoveryCapability, StoreRegistry, StoreSchemaMetadataCapability,
+            StoreHandle, StoreRecoveryCapability, StoreRegistry, StoreRelationSourceCapability,
+            StoreSchemaMetadataCapability,
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
@@ -55,7 +56,10 @@ use crate::{
             apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
             apply_schema_application_record_op,
             cardinality_build::CardinalityBuildAuthority,
-            cardinality_generation::{CardinalityCountDigest, CardinalityGenerationState},
+            cardinality_generation::{
+                CardinalityBuildCheckpoint, CardinalityBuildCursor, CardinalityBuildPhase,
+                CardinalityCountDigest, CardinalityGenerationState,
+            },
             decode_constraint_validation_job, load_live_schema_checkpoint,
             verify_live_identity_range_checkpoint, verify_live_schema_checkpoint,
             verify_schema_application_record_op,
@@ -428,9 +432,9 @@ fn replay_recovery_marker<C: CanisterKind>(
         }
     }
 
-    // Disposable overlays may contain effects from the predecessor Wasm or a
-    // same-process interruption test. Reset once before this recovery's folds;
-    // ordinary writes remain barred until verification completes.
+    // Reset journal-owned projections once before folding, while preserving
+    // references owned by heap rows that survived an online interruption.
+    // Ordinary writes remain barred until verification completes.
     reset_journaled_live_projections(db)?;
     Ok(())
 }
@@ -679,6 +683,30 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
 fn reset_journaled_live_projections<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<(), StartupRecoveryFailure> {
+    // Accepted catalogs, rather than generated models or target-store mode,
+    // identify the source owners whose rows are not reconstructed by replay.
+    let live_source_entities = db
+        .with_store_registry(|registry| {
+            let mut tags = BTreeSet::new();
+            for (path, handle) in registry.iter() {
+                if handle.storage_capabilities().relation_source()
+                    != StoreRelationSourceCapability::LiveSource
+                {
+                    continue;
+                }
+                handle.with_schema(|schema| {
+                    if let Some((_, bundle)) = schema.current_accepted_schema_authority_ref()? {
+                        if bundle.store_path() != path {
+                            return Err(InternalError::store_corruption());
+                        }
+                        tags.extend(bundle.entity_snapshots().keys().copied());
+                    }
+                    Ok(())
+                })?;
+            }
+            Ok(tags)
+        })
+        .map_err(StartupRecoveryFailure::database_control)?;
     restore_journaled_index_state(db, IndexState::Building)
         .map_err(StartupRecoveryFailure::database_control)?;
     for (store_path, handle) in sorted_journaled_store_handles(db) {
@@ -696,7 +724,11 @@ fn reset_journaled_live_projections<C: CanisterKind>(
             .map_err(journal_failure)?;
         handle
             .with_index_mut(|store| {
-                store.reset_journaled_live_projection(data_generation, fold_watermark)
+                store.reset_journaled_live_projection(
+                    data_generation,
+                    fold_watermark,
+                    &live_source_entities,
+                )
             })
             .map_err(journal_failure)?;
         handle
@@ -730,7 +762,7 @@ enum JournalFoldProjection {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct JournalHeadOrder {
     database_commit_sequence: DatabaseCommitSequence,
-    journal_allocation: u8,
+    journal_allocation: u64,
     journal_sequence: JournalSequence,
 }
 
@@ -796,8 +828,10 @@ fn prepare_recovered_row_transitions<C: CanisterKind>(
         };
         // Canonical reads already own their payload. Transfer that buffer into
         // the transition instead of retaining a second copy during acquisition.
-        let before =
-            handle.with_data(|store| store.get_canonical(primary_key).map(Storable::into_bytes));
+        let before = handle
+            .with_data(|store| store.get_canonical(primary_key))?
+            .map(Storable::into_bytes)
+            .transpose()?;
         row_ops.push(CommitRowOp::try_new_bytes(
             entity_path.as_str(),
             primary_key.as_bytes(),
@@ -1029,9 +1063,9 @@ fn fold_selected_journal_head<C: CanisterKind>(
     if let Some(retirement) = overlay_retirement {
         apply_online_batch_retirement(retirement);
     }
-    journal_store.with_borrow_mut(|store| {
-        store.apply_prepared_batch_retirement(tail_retirement);
-    });
+    journal_store
+        .with_borrow_mut(|store| store.apply_prepared_batch_retirement(tail_retirement))
+        .map_err(journal_failure)?;
     handle.with_index_mut(|store| {
         store.apply_prefix_cardinality_delta_watermark(watermark, next_watermark);
     });
@@ -1087,11 +1121,42 @@ fn prepare_folded_cardinality_maintenance(
     let Some(header) = handle.with_schema(SchemaStore::cardinality_generation_header)? else {
         return Ok(None);
     };
-    if header.state() != CardinalityGenerationState::Ready
-        || header.validate_source(authority.source()).is_err()
-    {
+    if header.validate_source(authority.source()).is_err() {
         return Ok(None);
     }
+    let cursor = if header.state() == CardinalityGenerationState::Building {
+        let observed = handle.with_schema(|schema| {
+            let cursor = schema.cardinality_build_cursor()?;
+            if let Some(cursor) = &cursor {
+                cursor.validate_header(header)?;
+                // Checkpoint bytes become count-coverage authority here, before
+                // the next builder page has an opportunity to validate them.
+                match cursor.checkpoint() {
+                    Some(CardinalityBuildCheckpoint::Row(key)) => {
+                        DecodedDataStoreKey::try_from_raw(key)
+                            .map_err(|_| InternalError::store_corruption())?;
+                    }
+                    Some(CardinalityBuildCheckpoint::Index(key)) => {
+                        IndexKey::try_from_raw(key)
+                            .map_err(|_| InternalError::store_corruption())?;
+                    }
+                    None => {}
+                }
+            }
+            Ok::<_, InternalError>(cursor)
+        });
+        match observed {
+            Ok(cursor) => cursor,
+            // Optional evidence must not obstruct the authoritative fold. Its
+            // unchanged source becomes stale, just as with invalid count bytes.
+            Err(error) if error.class() == crate::error::ErrorClass::Corruption => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
     let next_authority = handle.with_schema(|schema| {
         CardinalityBuildAuthority::derive(
             schema,
@@ -1100,7 +1165,13 @@ fn prepare_folded_cardinality_maintenance(
             next_watermark,
         )
     })?;
-    let changes = collect_folded_cardinality_changes(handle, prepared_ops, &authority)?;
+    // No cursor means the Building slot is still being cleared. No part of
+    // that slot represents current rows yet, but its watermark can advance.
+    let changes = if header.state() == CardinalityGenerationState::Building && cursor.is_none() {
+        Vec::new()
+    } else {
+        collect_folded_cardinality_changes(handle, prepared_ops, &authority, cursor.as_ref())?
+    };
     handle.with_schema(|schema| {
         schema.prepare_cardinality_maintenance(
             header,
@@ -1132,6 +1203,7 @@ fn collect_folded_cardinality_changes(
     handle: StoreHandle,
     prepared_ops: &[Option<PreparedJournalOp>],
     authority: &CardinalityBuildAuthority,
+    cursor: Option<&CardinalityBuildCursor>,
 ) -> Result<Vec<(CardinalityCountDigest, i64)>, InternalError> {
     let mut final_rows = BTreeMap::new();
     let mut final_indexes = BTreeMap::new();
@@ -1153,12 +1225,21 @@ fn collect_folded_cardinality_changes(
 
     let mut changes = BTreeMap::new();
     for (key, next_present) in final_rows {
+        // The exclusive next scan observes all changes ahead of its checkpoint.
+        // Once index scanning begins, the complete row domain is maintained.
+        if cursor.is_some_and(|cursor| {
+            cursor.phase() == CardinalityBuildPhase::Rows
+                && !matches!(cursor.checkpoint(), Some(CardinalityBuildCheckpoint::Row(last)) if &key <= last)
+        }) {
+            continue;
+        }
         let decoded = DecodedDataStoreKey::try_from_raw(&key)
             .map_err(|_| InternalError::store_corruption())?;
         if !authority.accepts_entity(decoded.entity_tag()) {
             return Err(InternalError::store_corruption());
         }
-        let previous_present = handle.with_data(|store| store.get_canonical(&key).is_some());
+        let previous_present =
+            handle.with_data(|store| store.get_canonical(&key).map(|row| row.is_some()))?;
         let delta = match (previous_present, next_present) {
             (false, true) => 1,
             (true, false) => -1,
@@ -1170,7 +1251,12 @@ fn collect_folded_cardinality_changes(
         }
     }
     for (key, next) in final_indexes {
-        let previous = handle.with_index(|store| store.get_canonical(&key));
+        if cursor.is_some_and(|cursor| {
+            !matches!(cursor.checkpoint(), Some(CardinalityBuildCheckpoint::Index(last)) if &key <= last)
+        }) {
+            continue;
+        }
+        let previous = handle.with_index(|store| store.get_canonical(&key))?;
         for digest in accepted_prefix_digests(&key, previous.as_ref(), authority)? {
             add_cardinality_change(&mut changes, digest, -1)?;
         }
@@ -1454,8 +1540,7 @@ fn apply_prepared_journal_batch(
                 JournalRecordApplyMode::Replay => {
                     // Both appliers publish prepared indexes before rows;
                     // direct replay uses the ordinary storage-aware applier.
-                    row.apply();
-                    Ok(())
+                    row.apply()
                 }
                 JournalRecordApplyMode::Fold => row.fold_recovered(),
             },
@@ -1575,7 +1660,7 @@ fn apply_journal_record(
         JournalRecord::ConstraintValidationIndexPut { key, .. } => {
             expected_handle.with_index_mut(|store| match mode {
                 JournalRecordApplyMode::Replay => {
-                    store.insert(key.clone(), IndexEntryValue::presence());
+                    store.insert(key.clone(), IndexEntryValue::presence())?;
                     Ok(())
                 }
                 JournalRecordApplyMode::Fold => {
@@ -1634,9 +1719,9 @@ fn apply_journal_record(
                 return Err(InternalError::store_corruption());
             }
             expected_handle.with_index_mut(|store| match mode {
-                JournalRecordApplyMode::Replay => match store.get(key) {
+                JournalRecordApplyMode::Replay => match store.get(key)? {
                     None => {
-                        store.insert(key.clone(), IndexEntryValue::presence());
+                        store.insert(key.clone(), IndexEntryValue::presence())?;
                         Ok(())
                     }
                     Some(value) if value == IndexEntryValue::presence() => Ok(()),
@@ -2508,7 +2593,7 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
             .journal_tail_store()
             .ok_or_else(InternalError::recovery_effect_verification_failed)?;
         let has_stored_batch = journal_store.with_borrow(JournalTailStore::has_stored_batch);
-        if has_stored_batch {
+        if has_stored_batch? {
             return Err(InternalError::recovery_effect_verification_failed());
         }
     }
@@ -2639,7 +2724,7 @@ fn verify_recovered_record<C: CanisterKind>(
             if verified.insert(identity) {
                 let (_, handle) = registry_store_handle_for_path(db, store_path)?;
                 let matches = handle
-                    .with_data(|store| store.get(primary_key))
+                    .with_data(|store| store.get(primary_key))?
                     .is_some_and(|row| row.as_bytes() == row_bytes);
                 if !matches {
                     return Err(InternalError::recovery_effect_verification_failed());
@@ -2673,7 +2758,7 @@ fn verify_recovered_index_delete<C: CanisterKind>(
     };
     if verified.insert(identity) {
         let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
-        if handle.with_index(|store| store.get(key)).is_some() {
+        if handle.with_index(|store| store.get(key))?.is_some() {
             return Err(InternalError::recovery_effect_verification_failed());
         }
     }
@@ -2692,7 +2777,7 @@ fn verify_recovered_index_put<C: CanisterKind>(
     };
     if verified.insert(identity) {
         let (_, handle) = registry_store_handle_for_path(db, store_path)?;
-        if handle.with_index(|store| store.get(key)) != Some(IndexEntryValue::presence()) {
+        if handle.with_index(|store| store.get(key))? != Some(IndexEntryValue::presence()) {
             return Err(InternalError::recovery_effect_verification_failed());
         }
     }
@@ -2719,7 +2804,7 @@ fn verify_recovered_row_put<C: CanisterKind>(
     let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
     let row_matches = handle
-        .with_data(|store| store.get(primary_key))
+        .with_data(|store| store.get(primary_key))?
         .is_some_and(|row| row.as_bytes() == row_bytes);
     if !row_matches {
         return Err(InternalError::recovery_effect_verification_failed());
@@ -2745,7 +2830,7 @@ fn verify_recovered_row_put<C: CanisterKind>(
     for index_op in prepared.index_ops {
         let actual = index_op
             .index_store
-            .with_borrow(|store| store.get(&index_op.key));
+            .with_borrow(|store| store.get(&index_op.key))?;
         if actual != index_op.value {
             return Err(InternalError::recovery_effect_verification_failed());
         }
@@ -2770,7 +2855,7 @@ fn verify_recovered_row_delete<C: CanisterKind>(
 
     let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
-    if handle.with_data(|store| store.contains(primary_key)) {
+    if handle.with_data(|store| store.contains(primary_key))? {
         return Err(InternalError::recovery_effect_verification_failed());
     }
 
@@ -2901,8 +2986,8 @@ mod tests {
             const PATH: &'static str = "recovery::UnbootstrappedCanister";
         }
         impl CanisterKind for UnbootstrappedCanister {
-            fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-                Err(ic_memory::RuntimeOpenError::NotBootstrapped)
+            fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+                Err(ic_storage::RuntimeOpenError::NotBootstrapped)
             }
             const COMMIT_STABLE_KEY: &'static str = "icydb.missing.commit.control.v1";
             const STARTUP_STABLE_KEY: &'static str = "icydb.missing.startup.control.v1";

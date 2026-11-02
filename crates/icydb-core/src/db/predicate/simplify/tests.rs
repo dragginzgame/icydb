@@ -520,7 +520,7 @@ fn replacements_preserve_large_settled_prefixes() {
 // Semantic fixtures use the same fallible traversal without a request ceiling.
 fn simplify_and_compare_constraints(predicates: Vec<Predicate>) -> Option<Vec<Predicate>> {
     super::simplify_and_compare_constraints(predicates, &mut || {
-        Ok::<_, std::convert::Infallible>(())
+        Ok::<_, crate::error::InternalError>(())
     })
     .unwrap()
 }

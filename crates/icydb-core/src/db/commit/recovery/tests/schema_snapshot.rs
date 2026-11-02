@@ -48,25 +48,25 @@ impl Path for TestCanister {
     const PATH: &'static str = "recovery::schema_snapshot::Canister";
 }
 impl CanisterKind for TestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(155)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.schema_replay.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(3)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.schema_replay.startup.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(2)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.schema_replay.integrity.v1";
 }
 
 thread_local! {
-    static DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(151)));
-    static INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(152)));
-    static SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(153)));
-    static JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(154)));
+    static DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(151)).expect("fixture storage should initialize"));
+    static INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(152)).expect("fixture storage should initialize"));
+    static SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(153)).expect("fixture storage should initialize"));
+    static JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(154)).expect("fixture storage should initialize"));
     static REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry.register_journaled_store(
@@ -107,7 +107,8 @@ fn fixture() -> (Db<TestCanister>, PersistedSchemaSnapshot) {
         BTreeMap::from([(TAG, snapshot.clone())]),
     );
     SCHEMA.with_borrow_mut(|store| {
-        *store = SchemaStore::init_journaled(test_memory(153));
+        *store = SchemaStore::init_journaled(test_memory(153))
+            .expect("fixture storage should initialize");
         store
             .publish_accepted_schema_candidate(
                 DatabaseIncarnationId::for_tests(0x62),
@@ -255,7 +256,10 @@ fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
     }
     // Verification must read storage independently, even after successful
     // preparation/application. Losing the stored root cannot be hidden by it.
-    SCHEMA.with_borrow_mut(|store| *store = SchemaStore::init_journaled(test_memory(153)));
+    SCHEMA.with_borrow_mut(|store| {
+        *store = SchemaStore::init_journaled(test_memory(153))
+            .expect("fixture storage should initialize");
+    });
     assert!(
         verify_recovered_accepted_schema(
             &db,

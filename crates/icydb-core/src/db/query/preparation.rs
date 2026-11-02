@@ -79,6 +79,24 @@ impl PreparationWork<'_> {
         lane: DiagnosticExecutionLane,
         run: impl FnOnce(&PreparationWork<'_>) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
+        Self::run_with_error(scope, lane, run, QueryError::execute)
+    }
+
+    /// Account internal commit preparation against the same request counters.
+    pub(in crate::db) fn run_internal<T>(
+        scope: &RequestExecutionScope,
+        lane: DiagnosticExecutionLane,
+        run: impl FnOnce(&PreparationWork<'_>) -> Result<T, InternalError>,
+    ) -> Result<T, InternalError> {
+        Self::run_with_error(scope, lane, run, |error| error)
+    }
+
+    fn run_with_error<T, E>(
+        scope: &RequestExecutionScope,
+        lane: DiagnosticExecutionLane,
+        run: impl FnOnce(&PreparationWork<'_>) -> Result<T, E>,
+        map_error: fn(InternalError) -> E,
+    ) -> Result<T, E> {
         let work = PreparationWork {
             scope,
             // No canonical identity exists yet; attribution contains no input.
@@ -87,8 +105,7 @@ impl PreparationWork<'_> {
             charges_since_watermark: Cell::new(0),
         };
         let result = run(&work);
-        work.check_instruction_watermark()
-            .map_err(QueryError::execute)?;
+        work.check_instruction_watermark().map_err(map_error)?;
 
         result
     }

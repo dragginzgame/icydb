@@ -58,7 +58,8 @@ fn initial_schema_application_rejects_visible_rows_without_publishing_a_head() {
                     .unwrap();
                 data.reset_journaled_live_projection().unwrap();
             } else {
-                data.insert_raw_for_test(key.clone(), row.clone());
+                data.insert_raw_for_test(key.clone(), row.clone())
+                    .expect("fixture storage operation should succeed");
             }
         });
         let error = apply_schema(&db, &proposal).unwrap_err();
@@ -77,9 +78,16 @@ fn initial_schema_application_rejects_visible_rows_without_publishing_a_head() {
                 schema.current_accepted_schema_bundle().unwrap().is_none()
             })
         );
-        assert_eq!(store.with_data(|data| data.get(&key)), Some(row.clone()));
-        store.with_data_mut(|data| data.remove(&key));
-        assert!(store.with_data(DataStore::is_empty));
+        assert_eq!(
+            (store.with_data(|data| data.get(&key))).expect("storage operation should succeed"),
+            Some(row.clone())
+        );
+        store
+            .with_data_mut(|data| data.remove(&key))
+            .expect("fixture storage operation should succeed");
+        assert!(
+            (store.with_data(DataStore::is_empty)).expect("fixture storage read should succeed")
+        );
     }
     // A hidden canonical predecessor is effectively empty, as before.
     apply_schema(&db, &proposal).unwrap();
@@ -458,12 +466,15 @@ fn row_presence_handles_heap_and_maximum_entity_prefix_without_payload_reads() {
         .unwrap()
     };
     assert!(!super::super::entity_has_rows(&data, tag).unwrap());
-    data.insert_raw_for_test(key(previous), RawRow::try_new(vec![0xff]).unwrap());
+    data.insert_raw_for_test(key(previous), RawRow::try_new(vec![0xff]).unwrap())
+        .expect("fixture storage operation should succeed");
     assert!(!super::super::entity_has_rows(&data, tag).unwrap());
     let key = key(tag);
-    data.insert_raw_for_test(key.clone(), RawRow::try_new(vec![0xff]).unwrap());
+    data.insert_raw_for_test(key.clone(), RawRow::try_new(vec![0xff]).unwrap())
+        .expect("fixture storage operation should succeed");
     assert!(super::super::entity_has_rows(&data, tag).unwrap());
-    data.remove(&key);
+    data.remove(&key)
+        .expect("fixture storage operation should succeed");
     assert!(!super::super::entity_has_rows(&data, tag).unwrap());
 }
 
@@ -497,7 +508,8 @@ fn empty_removal_probe_qualifies_live_rows_tombstones_and_entity_bounds() {
     let error: InternalError = super::super::require_exact_empty_entity(store, tag).unwrap_err();
     assert_eq!(error.class(), ErrorClass::Unsupported);
     store.with_data_mut(|data| {
-        data.remove(&key);
+        data.remove(&key)
+            .expect("fixture storage operation should succeed");
     });
     assert!(super::super::require_exact_empty_entity(store, tag).is_ok());
     store
@@ -515,7 +527,8 @@ fn empty_removal_probe_qualifies_live_rows_tombstones_and_entity_bounds() {
     let error = super::super::require_exact_empty_entity(store, tag).unwrap_err();
     assert_eq!(error.class(), ErrorClass::Unsupported);
     store.with_data_mut(|data| {
-        data.remove(&key);
+        data.remove(&key)
+            .expect("fixture storage operation should succeed");
     });
     assert!(super::super::require_exact_empty_entity(store, tag).is_ok());
 }
@@ -593,7 +606,9 @@ fn physical_removals_preserve_distinct_row_and_index_domain_proofs() {
     .unwrap()
     .to_raw()
     .unwrap();
-    store.with_index_mut(|index| index.insert(index_key, IndexEntryValue::presence()));
+    store
+        .with_index_mut(|index| index.insert(index_key, IndexEntryValue::presence()))
+        .expect("fixture storage operation should succeed");
     require_empty_physical_field_removals(&authorities, &current_bundles, &fields).unwrap();
     let error = require_empty_physical_index_removals(&authorities, &current_bundles, &indexes)
         .unwrap_err();
@@ -606,7 +621,9 @@ fn physical_removals_preserve_distinct_row_and_index_domain_proofs() {
     let key = DecodedDataStoreKey::new(tag, &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)))
         .to_raw()
         .unwrap();
-    store.with_data_mut(|data| data.insert_raw_for_test(key, RawRow::try_new(vec![0xff]).unwrap()));
+    store
+        .with_data_mut(|data| data.insert_raw_for_test(key, RawRow::try_new(vec![0xff]).unwrap()))
+        .expect("fixture storage operation should succeed");
     for error in [
         require_empty_physical_field_removals(&authorities, &current_bundles, &fields).unwrap_err(),
         require_empty_physical_index_removals(&authorities, &current_bundles, &indexes)
@@ -648,7 +665,9 @@ fn physical_removal_pairing_preserves_authority_refusals_and_new_entity_skip() {
     let key = DecodedDataStoreKey::new(tag, &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)))
         .to_raw()
         .unwrap();
-    store.with_data_mut(|data| data.insert_raw_for_test(key, RawRow::try_new(vec![0xff]).unwrap()));
+    store
+        .with_data_mut(|data| data.insert_raw_for_test(key, RawRow::try_new(vec![0xff]).unwrap()))
+        .expect("fixture storage operation should succeed");
     let empty = AcceptedSchemaRevisionBundle::new(
         current.revision(),
         current.store_path(),

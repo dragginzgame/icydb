@@ -186,7 +186,6 @@ fn complete_mixed(
         expected_database: pending.database_identity(),
         expected_head: pending.accepted_head().clone(),
         expected_plan: pending.plan_digest().unwrap(),
-        acknowledged_finding_page: None,
     };
     // Restart while metadata is Idle or physical work is Prepared. Startup
     // must preserve the explicit controller's ownership of progress.

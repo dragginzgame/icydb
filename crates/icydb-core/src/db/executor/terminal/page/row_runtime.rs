@@ -52,7 +52,7 @@ impl ScalarRowRuntimeState {
         let raw_key_result = key.raw_key();
         let raw_key = raw_key_result?;
 
-        let row = self.store.with_data(|store| store.get(raw_key));
+        let row = self.store.with_data(|store| store.get(raw_key))?;
 
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         if let Some(row) = row.as_ref() {
@@ -78,7 +78,7 @@ impl ScalarRowRuntimeState {
         let raw_key = raw_key_result?;
 
         let result = self.store.with_data(|store| {
-            let row = store.read(raw_key);
+            let row = store.read(raw_key)?;
 
             let Some(row) = row.as_row() else {
                 charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;

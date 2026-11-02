@@ -135,8 +135,9 @@ fn index_entry_value_roundtrip_via_bytes() {
 
     let raw = IndexEntryValue::presence();
     let encoded = Storable::to_bytes(&raw);
-    let raw = IndexEntryValue::from_bytes(encoded);
+    let raw = IndexEntryValue::from_bytes(encoded.expect("storage operation should succeed"));
     let decoded = raw
+        .expect("storage operation should succeed")
         .decode_row_witness(&raw_key)
         .expect("decode index entry")
         .primary_key_value()
@@ -152,7 +153,9 @@ fn index_entry_value_rejects_empty() {
     let bytes = vec![];
     let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
     std::assert_matches!(
-        raw.decode_row_witness(&raw_key),
+        raw.as_ref()
+            .expect("storage operation should succeed")
+            .decode_row_witness(&raw_key),
         Err(IndexEntryCorruption::EmptyEntry)
     );
 }
@@ -162,9 +165,16 @@ fn index_entry_value_rejects_invalid_witness() {
     let raw_key = raw_key_for(PrimaryKeyComponent::Int64(1));
     for byte in 1..=u8::MAX {
         let raw = IndexEntryValue::from_bytes(Cow::Owned(vec![byte]));
-        std::assert_matches!(raw.validate(), Err(IndexEntryCorruption::InvalidWitness));
         std::assert_matches!(
-            raw.decode_row_witness(&raw_key),
+            raw.as_ref()
+                .expect("storage operation should succeed")
+                .validate(),
+            Err(IndexEntryCorruption::InvalidWitness)
+        );
+        std::assert_matches!(
+            raw.as_ref()
+                .expect("storage operation should succeed")
+                .decode_row_witness(&raw_key),
             Err(IndexEntryCorruption::InvalidWitness)
         );
     }
@@ -176,7 +186,9 @@ fn index_entry_value_rejects_oversized_payload() {
     let bytes = vec![0u8; MAX_INDEX_ENTRY_BYTES as usize + 1];
     let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
     std::assert_matches!(
-        raw.decode_row_witness(&raw_key),
+        raw.as_ref()
+            .expect("storage operation should succeed")
+            .decode_row_witness(&raw_key),
         Err(IndexEntryCorruption::TooLarge)
     );
 }
@@ -232,6 +244,8 @@ fn index_entry_value_decode_fuzz_does_not_panic() {
         }
 
         let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-        let _ = raw.decode_row_witness(&raw_key_for(PrimaryKeyComponent::Int64(1)));
+        let _ = raw
+            .expect("storage operation should succeed")
+            .decode_row_witness(&raw_key_for(PrimaryKeyComponent::Int64(1)));
     }
 }

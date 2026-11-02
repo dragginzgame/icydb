@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export RELEASE_GROUP=database
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
 # Surface inner Make diagnostics before removing disposable fixture inputs.
@@ -21,7 +22,7 @@ trap finish EXIT
 fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
 export TMPDIR="${fixture%/*}"
-release_inputs=(scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
+release_inputs=(scripts/release/group.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
 bash "$root/scripts/ci/check-release-commands.sh" "$root" "${release_inputs[@]}"
 # Exercise this consumer's actual Make adapters after the checker changes cwd.
 mkdir "$fixture/relative-temp"
@@ -37,7 +38,7 @@ export RELEASE_FIXTURE_BASH="$real_bash"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/bash"
 cat >> "$fixture/bin/bash" <<'STUB'
 set -euo pipefail
-if [[ "$1" == */scripts/ci/check-make-execution.sh ]]; then
+if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
 fi
 if [[ "$1" == scripts/ci/release-candidate-receipt.sh ]]; then
@@ -81,7 +82,7 @@ mkdir "$fixture/roster-bin"
 printf '#!%s\n' "$real_bash" > "$fixture/roster-bin/bash"
 cat >> "$fixture/roster-bin/bash" <<'ROSTER'
 set -euo pipefail
-if [[ "$1" == */scripts/ci/check-make-execution.sh ]]; then
+if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
 fi
 script="${1#"$ROSTER_ROOT/"}"
@@ -91,22 +92,21 @@ printf '%s\n' "$script" >> "$EVENTS"
 ROSTER
 cp "$fixture/roster-bin/bash" "$fixture/roster-bin/perl"
 chmod +x "$fixture/roster-bin/"{bash,perl}
-for failure in none scripts/release/test-receipt-callbacks.sh; do
+for failure in none scripts/release/test-release-groups.sh; do
     : > "$EVENTS"
     status=0
     PATH="$fixture/roster-bin:$PATH" ROSTER_ROOT="$root" ROSTER_FAILURE="$failure" \
         "$real_make" --no-print-directory -f "$root/Makefile" check-portable-automation \
         RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
     [[ "$(head -n 1 "$EVENTS")" == scripts/ci/verify-shared-tooling-snapshot.sh ]]
-    for proof in scripts/release/test-lock-selection.sh \
-        scripts/ci/test-shared-tooling-adapters.sh scripts/release/test-standard-release.sh \
-        scripts/release/test-receipt-callbacks.sh; do
+    for proof in scripts/ci/test-shared-tooling-adapters.sh scripts/release/test-standard-release.sh \
+        scripts/release/test-release-groups.sh; do
         [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
     done
     if [[ "$failure" == none ]]; then
         [[ "$status" == 0 ]]
         for proof in scripts/ci/test-tooling-fixture-completion.sh \
-            scripts/release/test-pin-exceptions.sh scripts/ci/test-publish-workspace.sh; do
+            scripts/ci/test-publish-workspace.sh; do
             [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
         done
     else
@@ -163,7 +163,8 @@ done
 # Simulate a cold cache without registry requests or dependency changes.
 mkdir -p scripts/ci
 cp "$root/scripts/ci/finalize-release-changelog.awk" scripts/ci/
-printf '# Changelog\n\n## [0.1.1]\n\nFixture notes.\n' > CHANGELOG.md
+mkdir -p releases/database
+printf '# Changelog\n\n## [0.1.1]\n\nFixture notes.\n' > releases/database/CHANGELOG.md
 export CACHE_READY="$fixture/cache-ready"
 export FETCH_EVENTS="$fixture/fetch-events"
 export SELECTED_READY="$fixture/selected-ready"

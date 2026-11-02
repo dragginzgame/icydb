@@ -628,7 +628,7 @@ impl SchemaInfo {
         use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
         let len = self.field_count() as u64;
-        let levels = u64::from(u64::BITS - len.leading_zeros());
+        let levels = u64::from(len.bit_width());
         let scratch_per_field = size_of::<(usize, &str)>()
             + size_of::<&str>()
             + if len > 1 { 2 * size_of::<usize>() } else { 0 };

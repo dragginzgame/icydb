@@ -42,11 +42,11 @@ use syn::{ItemStruct, Visibility, parse_macro_input};
 /// through a singleflight or shared-future cache. Share completed application
 /// data instead, leaving each request responsible for its own database work.
 ///
-/// # Panics
-///
-/// An async function panics when its started future is polled beneath a
-/// different active request root. This refuses to charge one request's work
-/// to another request's counters. See `icydb::db::with_request_execution_async`.
+/// Async functions must return `Result<T, E>` with `E: From<icydb::Error>`.
+/// A started future polled beneath a different active request root returns the
+/// existing `RequestExecutionRootMismatch` error before polling its child.
+/// Child success/application errors are preserved, and synchronous return types
+/// are unchanged. See `icydb::db::with_request_execution_async`.
 #[proc_macro_attribute]
 pub fn request_execution(
     args: proc_macro::TokenStream,
@@ -124,7 +124,11 @@ mod prelude {
 ///
 
 macro_rules! macro_node {
-    ($fn_name:ident, $node_type:ty $(, $configure:expr)?) => {
+    ($fn_name:ident, $node_type:ty) => {
+        macro_node!($fn_name, $node_type, false, |_node: &mut $node_type| {});
+    };
+    ($fn_name:ident, $node_type:ty, $runtime:expr, $configure:expr) => {
+        /// Expand an application declaration for its selected authoring surface.
         #[proc_macro_attribute]
         pub fn $fn_name(
             args: proc_macro::TokenStream,
@@ -147,7 +151,8 @@ macro_rules! macro_node {
 
                     // Hook macros preserve the authored struct, including its fields and generics.
                     if !matches!(stringify!($fn_name), "validator" | "normalizer")
-                        && let Err(error) = Def::validate_declaration(&item) {
+                        && let Err(error) = Def::validate_declaration(&item)
+                    {
                         return error.write_errors().into();
                     }
 
@@ -157,12 +162,12 @@ macro_rules! macro_node {
                         Ok(node) => node,
                         Err(err) => return proc_macro::TokenStream::from(err.write_errors()),
                     };
-                    let paths = match crate_paths.resolve() {
+                    let paths = match crate_paths.resolve($runtime) {
                         Ok(paths) => paths,
                         Err(err) => return err.write_errors().into(),
                     };
                     node.def = Def::new(item, paths);
-                    $(($configure)(&mut node, CratePathOverrides::has_icydb_runtime());)?
+                    ($configure)(&mut node);
                     if let Err(err) = node.validate() {
                         return proc_macro::TokenStream::from(err.write_errors());
                     }
@@ -195,19 +200,23 @@ macro_rules! macro_node {
 }
 
 macro_node!(canister, node::Canister);
+macro_node!(entity, node::Entity);
 macro_node!(
-    entity,
+    runtime_entity,
     node::Entity,
-    |entity: &mut node::Entity, has_runtime| entity.emit_runtime_adapters = has_runtime
+    true,
+    |entity: &mut node::Entity| entity.emit_runtime_adapters = true
 );
 macro_node!(enum_, node::Enum);
 macro_node!(list, node::List);
 macro_node!(map, node::Map);
 macro_node!(newtype, node::Newtype);
+macro_node!(record, node::Record);
 macro_node!(
-    record,
+    runtime_record,
     node::Record,
-    |record: &mut node::Record, has_runtime| record.emit_runtime_references = has_runtime
+    true,
+    |record: &mut node::Record| record.emit_runtime_references = true
 );
 macro_node!(normalizer, node::Normalizer);
 macro_node!(set, node::Set);

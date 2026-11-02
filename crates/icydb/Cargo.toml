@@ -2,8 +2,8 @@
 name = "icydb"
 autotests = false
 edition = { workspace = true }
-rust-version = "1.91.0"
-version = { workspace = true }
+rust-version = { workspace = true }
+version = "0.294.0"
 license-file = { workspace = true }
 description = { workspace = true }
 repository = { workspace = true }
@@ -16,9 +16,9 @@ metrics = ["icydb-core/metrics"]
 migration = ["icydb-core/migration"]
 
 [dependencies]
-ic-memory = { workspace = true }
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
 ic-platform-types = { workspace = true }
+ic-storage = { workspace = true }
 ic-wire = { workspace = true }
 icydb-core = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
@@ -31,17 +31,21 @@ serde = { workspace = true }
 ic-wire = { workspace = true, features = ["typescript"] }
 
 [dev-dependencies]
-ic-memory = { workspace = true, features = ["test-support"] }
 ic-platform-types = { workspace = true, features = ["principal-external", "principal-self-authenticating"] }
+ic-storage = { workspace = true, features = ["test-support"] }
 trybuild = { workspace = true }
 
 [[test]]
-name = "default_memory_manager"
-path = "tests/default_memory_manager.rs"
+name = "storage_bootstrap"
+path = "tests/storage_bootstrap.rs"
 
 [[test]]
 name = "memory_admission"
 path = "tests/memory_admission.rs"
+
+[[test]]
+name = "compile"
+path = "tests/compile.rs"
 
 [[test]]
 name = "compile_pass_structural_write_surface"

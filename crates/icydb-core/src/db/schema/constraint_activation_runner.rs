@@ -620,8 +620,20 @@ fn resume_journaled_unique_validation(
     }
     let contract = AcceptedStructuralRowAuthority::from_catalog_selection(entity_path, selection)?
         .into_row_contract();
-    let projection = UniqueConstraintProjection::new(entity_tag, candidate, &contract)?;
-    let dependency_fields = unique_index_key_fields(accepted.persisted_snapshot(), candidate)?;
+    // Projection preparation and the page share the existing construction
+    // authority. Its final checks must complete before any publication below.
+    let construction = crate::db::resource::budget::MaintenanceConstructionBudget::new();
+    let (projection, dependency_fields) = construction.run(
+        |work| {
+            Ok((
+                UniqueConstraintProjection::new(entity_tag, candidate, &contract, |predicate| {
+                    crate::db::predicate::normalize_with_budget(predicate, work)
+                })?,
+                unique_index_key_fields(accepted.persisted_snapshot(), candidate)?,
+            ))
+        },
+        std::convert::identity,
+    )?;
 
     match job.phase() {
         ConstraintValidationPhase::Forward => {
@@ -633,6 +645,7 @@ fn resume_journaled_unique_validation(
                 &projection,
                 dependency_fields.as_slice(),
                 UniqueValidationMode::Forward,
+                &construction,
             )?;
             scan.page.record_forward(store, store_path, &mut job)?;
             publish_constraint_validation_job_with_candidate_index_entries(
@@ -658,6 +671,7 @@ fn resume_journaled_unique_validation(
                 &projection,
                 dependency_fields.as_slice(),
                 UniqueValidationMode::Verify,
+                &construction,
             )?;
             if let Some(progress) = scan
                 .page
@@ -1396,6 +1410,10 @@ struct UniqueValidationPageScan {
     staged_entries: Vec<RawIndexStoreKey>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the existing page budget is shared with accepted projection preparation"
+)]
 fn scan_unique_validation_page(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -1404,11 +1422,12 @@ fn scan_unique_validation_page(
     projection: &UniqueConstraintProjection,
     dependency_fields: &[crate::db::schema::FieldId],
     mode: UniqueValidationMode,
+    construction: &crate::db::resource::budget::MaintenanceConstructionBudget,
 ) -> Result<UniqueValidationPageScan, InternalError> {
     use crate::db::resource::construction::ConstructionBudget;
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
-    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
+    construction.run(
         |work| {
             let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
             let lower = checkpoint.cloned().map_or_else(
@@ -1468,8 +1487,8 @@ fn scan_unique_validation_page(
                         )?;
                         let missing = mode == UniqueValidationMode::Verify
                             && store.with_index(|index_store| {
-                                index_store.get(&candidate_key).is_none()
-                            });
+                                index_store.get(&candidate_key).map(|value| value.is_none())
+                            })?;
                         if conflict || missing {
                             let error = InternalError::index_conflict();
                             findings.push(ConstraintValidationFinding::new(

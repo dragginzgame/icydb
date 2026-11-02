@@ -32,7 +32,7 @@ fn replacement_wakeup() {
 }
 
 fn initialize_wakeup_test() -> StartupRecoveryWakeupRestore {
-    select_commit_memory_allocation(MEMORY_ID, STABLE_KEY);
+    select_commit_memory_allocation(MEMORY_ID.into(), STABLE_KEY);
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     initialize_current_database_control_for_tests(&memory);
     CAPTURED_WAKEUPS.with(|count| count.set(0));
@@ -153,7 +153,7 @@ fn failed_clear_retains_marker_and_requests_one_wakeup() {
     // an unopened allocation exercises that typed failure without corrupting IO.
     select_commit_memory_allocation(244, "icydb.test.commit_guard_uninitialized_clear.v1");
     let error = finish_commit(guard, |_| Ok(())).unwrap_err();
-    select_commit_memory_allocation(MEMORY_ID, STABLE_KEY);
+    select_commit_memory_allocation(MEMORY_ID.into(), STABLE_KEY);
 
     let expected = InternalError::commit_store_uninitialized();
     assert_eq!(error.diagnostic_code(), expected.diagnostic_code());

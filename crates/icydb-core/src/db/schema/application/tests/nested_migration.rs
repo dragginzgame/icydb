@@ -254,7 +254,6 @@ fn advance(
             expected_database: proposal.target_database(),
             expected_head: proposal.expected_head().clone(),
             expected_plan: proposal.migration().expect("plan should exist").digest(),
-            acknowledged_finding_page: None,
         },
     )
 }
@@ -574,7 +573,7 @@ fn nested_relation_copy_abort_preserves_the_accepted_generation() {
         .store_handle(MIGRATION_EXECUTION_STORE_PATH)
         .expect("store should resolve");
     assert_eq!(
-        store.with_index(IndexStore::len),
+        (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
         9,
         "only candidate edges are staged beside accepted edges"
     );
@@ -589,7 +588,10 @@ fn nested_relation_copy_abort_preserves_the_accepted_generation() {
     )
     .expect("pre-rewrite abort should complete");
     assert_eq!(aborted.phase(), SchemaMigrationPhase::Aborted);
-    assert_eq!(store.with_index(IndexStore::len), 6);
+    assert_eq!(
+        (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
+        6
+    );
     assert_eq!(row_bytes(&db), rows);
     assert_eq!(accepted_relations(&db), before);
     assert_edges(&db, &before, 1);
@@ -642,6 +644,7 @@ fn nested_relation_copy_final_validation_requires_the_candidate_reverse_edge() {
     assert!(
         store
             .with_index_mut(|index| index.remove(&candidate_key))
+            .expect("storage operation should succeed")
             .is_some()
     );
     let error =

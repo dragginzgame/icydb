@@ -1,4 +1,4 @@
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
 #[cfg(all(

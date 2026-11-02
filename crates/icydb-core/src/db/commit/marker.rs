@@ -275,12 +275,8 @@ const COMMIT_MARKER_MUTATION_DIGEST_BYTES: usize = 32;
 pub(in crate::db) fn generate_commit_id(
     timestamp_millis: u64,
 ) -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
-    #[allow(
-        deprecated,
-        reason = "Atomic try_update requires Rust 1.95; MSRV is 1.91."
-    )]
     let sequence = COMMIT_ID_SEQUENCE
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             current.checked_add(1)
         })
         .map_err(|_| InternalError::commit_id_generation_failed())?;
@@ -640,7 +636,7 @@ pub(in crate::db) fn decode_data_key(
         return Err(InternalError::commit_component_length_invalid(len, max));
     }
 
-    let raw = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(bytes));
+    let raw = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(bytes))?;
     let data_key = DecodedDataStoreKey::try_from_raw(&raw)
         .map_err(|_| InternalError::commit_component_corruption())?;
 

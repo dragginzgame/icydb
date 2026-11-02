@@ -1,12 +1,10 @@
-//! Exact public classifications for nested upstream causes and internal controls.
-
+//! Exact public classifications for current Storage causes.
 use crate::{
     Error, ErrorOrigin,
     db::{DatabaseBootstrapError, MemoryBootstrapAdmissionError},
 };
-use ic_memory::{
-    AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
-    MemoryDeclarationError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeConstructionError,
+use ic_storage::{
+    AdmissionError, DirectoryError, RuntimeBootstrapError, RuntimeConstructionError,
     RuntimeOpenError, StableKey,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
@@ -15,56 +13,11 @@ fn public(cause: RuntimeBootstrapError<MemoryBootstrapAdmissionError>) -> Error 
     Error::from(DatabaseBootstrapError::from(cause))
 }
 
-fn grant() -> MemoryAllocationPoolError {
-    MemoryAllocationPoolError::ExcludedSlot { id: 42 }
-}
-
-fn historical() -> BootstrapAdmissionError {
-    BootstrapAdmissionError::Pool(grant())
-}
-
 #[test]
-fn memory_bootstrap_grant_wrappers_preserve_bounded_slot_evidence() {
-    for cause in [
-        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::Pool(grant())),
-        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::UnmanagedAllocation {
-            id: 42,
-        }),
-    ] {
-        let error = public(cause);
-        assert_eq!(
-            error.code(),
-            ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_RESOLUTION_FAILED
-        );
-        assert_eq!(
-            error.core_facts().unwrap(),
-            [(DiagnosticFactTag::ActualMemoryId, 42)]
-        );
-        assert_eq!(error.origin(), ErrorOrigin::Runtime);
-    }
-    for cause in [
-        RuntimeBootstrapError::Admission(historical()),
-        RuntimeBootstrapError::AdmissionPolicy(MemoryBootstrapAdmissionError::HistoricalJournal(
-            historical(),
-        )),
-    ] {
-        let error = public(cause);
-        assert_eq!(
-            error.code(),
-            ErrorCode::RUNTIME_BOUNDARY_MEMORY_HISTORICAL_JOURNAL_UNAVAILABLE
-        );
-        assert_eq!(
-            error.core_facts().unwrap(),
-            [(DiagnosticFactTag::ActualMemoryId, 42)]
-        );
-    }
-}
-
-#[test]
-fn memory_bootstrap_roles_and_invalid_declarations_keep_their_identity() {
+fn admission_roles_and_namespace_failures_preserve_identity() {
     for store in [None, Some("main".to_string())] {
         let count = if store.is_some() { 4 } else { 3 };
-        let error = public(RuntimeBootstrapError::AdmissionPolicy(
+        let error = public(RuntimeBootstrapError::Policy(
             MemoryBootstrapAdmissionError::IncompleteRoles {
                 namespace: "main".into(),
                 store,
@@ -79,108 +32,50 @@ fn memory_bootstrap_roles_and_invalid_declarations_keep_their_identity() {
             [(DiagnosticFactTag::ExpectedCount, count)]
         );
     }
-    for cause in [
-        RuntimeBootstrapError::AdmissionPolicy(MemoryBootstrapAdmissionError::UnsupportedKey(
-            "icydb.main.invalid.v1".into(),
-        )),
-        RuntimeBootstrapError::Validation(AllocationValidationError::Policy(
-            MemoryBootstrapAdmissionError::InvalidDeclaration(
-                "icydb.main.commit.control.v1".into(),
-            ),
-        )),
-        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::Declarations(
-            MemoryDeclarationError::DuplicateRequest {
-                stable_key: StableKey::parse("icydb.main.commit.control.v1").unwrap(),
-            },
-        )),
+    for (cause, code) in [
+        (
+            RuntimeBootstrapError::Admission(AdmissionError::Unauthorized),
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID,
+        ),
+        (
+            RuntimeBootstrapError::Policy(MemoryBootstrapAdmissionError::HistoricalJournal(
+                AdmissionError::Unauthorized,
+            )),
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_HISTORICAL_JOURNAL_UNAVAILABLE,
+        ),
+        (
+            RuntimeBootstrapError::Policy(MemoryBootstrapAdmissionError::NamespaceRemoved(
+                "main".into(),
+            )),
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_NAMESPACE_REMOVED,
+        ),
+        (
+            RuntimeBootstrapError::BindingMismatch,
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH,
+        ),
     ] {
         let error = public(cause);
-        assert_eq!(
-            error.code(),
-            ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID
-        );
-        assert!(error.facts().is_empty());
-    }
-}
-
-#[test]
-fn memory_adoption_requirement_drift_is_a_public_conflict() {
-    for cause in [
-        RuntimeAdoptionError::UnknownAuthority {
-            authority: "icydb.main".into(),
-        },
-        RuntimeAdoptionError::AuthorityMismatch {
-            stable_key: "icydb.main.commit.control.v1".into(),
-            committed_authority: "host.other".into(),
-            requested_authority: "icydb.main".into(),
-        },
-        RuntimeAdoptionError::Open(RuntimeOpenError::StableKeyNotCommitted(
-            "icydb.main.commit.control.v1".into(),
-        )),
-    ] {
-        let error = Error::from(DatabaseBootstrapError::from(cause));
-        assert_eq!(
-            error.code(),
-            ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH
-        );
-        assert_eq!(error.class(), icydb_diagnostic_code::ErrorClass::Conflict);
-        assert!(error.facts().is_empty());
-    }
-}
-
-#[test]
-fn memory_bootstrap_internal_failures_retain_internal_classification() {
-    // Obtain codec errors from Memory's own producer. Its codec dependency is
-    // intentionally independent of the application's Wire metadata generation.
-    let oversized = vec![0; ic_memory::MAX_LEDGER_RECORD_BYTES + 1];
-    let limit = ic_memory::testing::decode_stable_cell_commit_store(&oversized)
-        .expect_err("Memory must refuse an oversized ledger record");
-    let malformed = ic_memory::testing::decode_stable_cell_commit_store(&[])
-        .expect_err("Memory must refuse a record without its marker");
-    assert_ne!(limit, malformed);
-    for cause in [
-        RuntimeBootstrapError::StableCellLedgerEncode(limit),
-        RuntimeBootstrapError::StableCellLedgerEncode(malformed),
-        RuntimeBootstrapError::LedgerGrowth(ic_memory::RuntimeGrowError::ReentrantAccess),
-    ] {
-        let error = public(cause);
-        assert_eq!(error.code(), ErrorCode::RUNTIME_INTERNAL);
-        assert_eq!(error.class(), icydb_diagnostic_code::ErrorClass::Internal);
+        assert_eq!(error.code(), code);
         assert_eq!(error.origin(), ErrorOrigin::Runtime);
         assert!(error.facts().is_empty());
     }
-    let error = Error::from(DatabaseBootstrapError::from(RuntimeAdoptionError::Open(
-        RuntimeOpenError::NotBootstrapped,
-    )));
-    assert_eq!(error.code(), ErrorCode::RUNTIME_INTERNAL);
 }
 
 #[test]
-fn memory_construction_and_binding_failures_keep_typed_public_classification() {
-    let error = Error::from(DatabaseBootstrapError::from(
-        RuntimeConstructionError::BucketSizeMismatch {
-            persisted: 128,
-            requested: 16,
-        },
+fn directory_and_adoption_failures_have_stable_public_classifications() {
+    let corruption = Error::from(DatabaseBootstrapError::from(
+        RuntimeConstructionError::Directory(DirectoryError::Invalid("fixture")),
     ));
+    assert_eq!(corruption.code(), ErrorCode::RUNTIME_CORRUPTION);
+    let unsupported = Error::from(DatabaseBootstrapError::from(
+        RuntimeConstructionError::Directory(DirectoryError::Budget),
+    ));
+    assert_eq!(unsupported.code(), ErrorCode::RUNTIME_UNSUPPORTED);
+    let error = Error::from(DatabaseBootstrapError::from(RuntimeOpenError::NotAdmitted(
+        StableKey::parse("icydb.main.commit.control.v1").unwrap(),
+    )));
     assert_eq!(
         error.code(),
-        ErrorCode::RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH
+        ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH
     );
-    assert_eq!(
-        error.core_facts().unwrap(),
-        [
-            (DiagnosticFactTag::Expected, 16),
-            (DiagnosticFactTag::Actual, 128),
-        ]
-    );
-    for cause in [
-        crate::db::MemoryRuntimeBindingError::NotBootstrapped,
-        crate::db::MemoryRuntimeBindingError::AlreadyBound,
-    ] {
-        assert_eq!(
-            Error::from(DatabaseBootstrapError::from(cause)).code(),
-            ErrorCode::RUNTIME_INTERNAL
-        );
-    }
 }

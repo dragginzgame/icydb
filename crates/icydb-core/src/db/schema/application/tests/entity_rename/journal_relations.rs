@@ -75,7 +75,13 @@ fn cold_restart(db: &Db<MigrationExecutionCanister>) {
         .with_borrow(JournalTailStore::fold_watermark)
         .unwrap();
     handle
-        .with_index_mut(|index| index.reset_journaled_live_projection(generation, watermark))
+        .with_index_mut(|index| {
+            index.reset_journaled_live_projection(
+                generation,
+                watermark,
+                &std::collections::BTreeSet::new(),
+            )
+        })
         .unwrap();
     handle
         .with_schema_mut(SchemaStore::reset_journaled_live_projection)

@@ -11,9 +11,10 @@ use JSON::PP;
 Getopt::Long::Configure(qw(no_auto_abbrev no_ignore_case));
 my ($consumer, $target, $features, $all_features, $no_defaults, $depth);
 my ($json, $explain, $observations);
+my $edges = 'normal,build';
 my (@packages, @forbidden, @required, @patterns, @maximums, @forbidden_features);
 GetOptions(
-    'consumer=s' => \$consumer, 'target=s' => \$target,
+    'consumer=s' => \$consumer, 'target=s' => \$target, 'edges=s' => \$edges,
     'package=s@' => \@packages, 'features=s' => \$features,
     'all-features' => \$all_features, 'no-default-features' => \$no_defaults,
     'forbid=s@' => \@forbidden, 'require=s@' => \@required,
@@ -22,8 +23,10 @@ GetOptions(
     'json' => \$json, 'explain' => \$explain, 'observations' => \$observations,
 ) && !@ARGV && defined($consumer) && defined($target) && @packages
     && (@forbidden || @required || @patterns || @maximums || @forbidden_features)
-    or die "usage: check-cargo-graph.pl --consumer ROOT --package NAME [--package NAME] --target TARGET [--features LIST|--all-features] [--no-default-features] [--forbid-feature PACKAGE/FEATURE] [--depth COUNT] [--forbid NAME] [--forbid-pattern REGEX] [--require NAME=COUNT] [--max-count NAME=COUNT] [--json] [--explain] [--observations]\n";
+    or die "usage: check-cargo-graph.pl --consumer ROOT --package NAME [--package NAME] --target TARGET [--edges normal|normal,build] [--features LIST|--all-features] [--no-default-features] [--forbid-feature PACKAGE/FEATURE] [--depth COUNT] [--forbid NAME] [--forbid-pattern REGEX] [--require NAME=COUNT] [--max-count NAME=COUNT] [--json] [--explain] [--observations]\n";
 $observations && !$json and die "--observations requires --json\n";
+$edges eq 'normal' || $edges eq 'normal,build'
+    or die "--edges must be normal or normal,build\n";
 defined($features) && $all_features and die "select features or all-features, not both\n";
 $consumer !~ /[\r\n]/ or die "consumer directory contains CR/LF\n";
 my $root = abs_path($consumer);
@@ -73,7 +76,7 @@ for my $requirement (@maximums) {
     $caps{$name} = $count;
 }
 my @command = ('cargo', 'tree', '--locked', '--offline', '--color', 'never',
-    '--target', $target, '--edges', @forbidden_features ? 'normal,build,features' : 'normal,build',
+    '--target', $target, '--edges', $edges . (@forbidden_features ? ',features' : ''),
     '--prefix', $explain ? 'indent' : 'none', '--format', $observations ? "{p}\t{f}" : '{p}');
 push @command, ('--charset', 'ascii') if $explain;
 push @command, ('--package', $_) for @packages;
@@ -92,7 +95,7 @@ unless (close $cargo) {
     print STDERR "Cargo graph observation failed; no graph was admitted\n";
     exit(($status & 127) ? 128 + ($status & 127) : ($status >> 8) || 1);
 }
-my (%identities, %observed_features, %effective_features, %paths, @stack);
+my (%identities, %observed_features, %effective_features, %paths, %identity_paths, @stack);
 for my $line (split /\n/, $graph) {
     next if $line eq ''; # Cargo separates multiple selected roots with a blank.
     $line =~ s/ \(\*\)\z//;
@@ -125,6 +128,7 @@ for my $line (split /\n/, $graph) {
     $line =~ /\A([A-Za-z0-9_-]+) v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?(?: \([^\r\n]+\))?\z/
         or die "invalid flat Cargo package observation: $line\n";
     $identities{$1}{$line} = 1;
+    $identity_paths{$1}{$line} //= [@stack] if $explain;
     $effective_features{$line}{$_} = 1 for defined($feature_list) ? split(/,/, $feature_list) : ();
     $paths{$1} //= [@stack] if $explain;
 }
@@ -157,10 +161,12 @@ for my $name (sort keys %counts) {
 }
 for my $violation (@violations) {
     $violation->{path} = $paths{$violation->{feature} // $violation->{package}} // [] if $explain;
+    $violation->{identity_paths} = [map { +{ identity => $_, path => $identity_paths{$violation->{package}}{$_} } }
+        sort keys %{$identity_paths{$violation->{package}} // {}}] if $explain && !exists($violation->{feature});
 }
 if ($json) {
     print JSON::PP->new->canonical->pretty->encode({
-        consumer => $root, command => \@command, target => $target,
+        consumer => $root, command => \@command, target => $target, edges => $edges,
         packages => \@packages, violations => \@violations,
         ($observations ? (observations => [map {
             my $name = $_;
@@ -177,7 +183,10 @@ if (@violations) {
     for my $violation (@violations) {
         print STDERR "Dependency path: ", join(' -> ', @{$violation->{path}}), "\n"
             if $explain && @{$violation->{path}};
+        for my $identity (@{$violation->{identity_paths} // []}) {
+            print STDERR "Identity path: ", join(' -> ', @{$identity->{path}}), "\n";
+        }
     }
     die "Cargo graph policy failed:\n" . join("\n", map { $_->{message} } @violations) . "\n";
 }
-print "Cargo graph passed: ", join(', ', @packages), " on $target (normal/build edges).\n";
+print "Cargo graph passed: ", join(', ', @packages), " on $target (", ($edges eq 'normal' ? 'normal' : 'normal/build'), " edges).\n";

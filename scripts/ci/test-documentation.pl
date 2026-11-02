@@ -44,6 +44,7 @@ fixture('selected document.md', '[Selected](missing.md)');
 isnt($status, 0, 'shared failure stops the consumer adapter');
 
 for my $document (
+    'CHANGELOG.md', 'releases/history.md',
     'README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
     'docs/governance/shared-tooling.md', 'docs/audits/README.md',
     'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
@@ -52,7 +53,7 @@ for my $document (
     'docs/audits/targeted/modules/module-cleanup-runner.md',
     'docs/audits/archive/shared-adoption/README.md',
 ) { fixture($document, "# Fixture\n"); }
-fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.1\"\n");
+fixture('crates/icydb/Cargo.toml', "[package]\nversion = \"0.1.1\"\n");
 fixture('README.md', "icydb = { tag = \"v0.1.1\" }\nicydb = { tag = \"v0.1.1\" }\n");
 fixture('crates/owner.rs', "// Source owner\n");
 fixture('docs/contracts/PERSISTED_FORMAT_INVENTORY.md', '`crates/owner.rs`');
@@ -67,10 +68,10 @@ fixture('shared-guide.md', "# Guide\n");
 fixture('README.md', "icydb = { tag = \"v0.1.0\" }\nicydb = { tag = \"v0.1.0\" }\n");
 ($status) = check_document();
 is($status, 0, 'matching supported-release examples may precede the workspace version');
-fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.2\"\n");
+fixture('crates/icydb/Cargo.toml', "[package]\nversion = \"0.1.2\"\n");
 ($status) = check_document();
 is($status, 0, 'release metadata advancement preserves the selected README examples');
-fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.1\"\n");
+fixture('crates/icydb/Cargo.toml', "[package]\nversion = \"0.1.1\"\n");
 fixture('README.md', "icydb = { tag = \"v0.1.0\" }\nicydb = { tag = \"v0.1.1\" }\n");
 ($status) = check_document();
 isnt($status, 0, 'runtime and build examples must select the same release');

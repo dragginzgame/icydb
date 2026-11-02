@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source scripts/release/group.sh
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-metadata.XXXXXX")" || exit 1
 # Admit the entire inventory before taking originals or editing metadata. A
 # process substitution would hide failure after a partial or complete path list.
@@ -35,9 +36,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 awk -v version="${RELEASE_VERSION:?}" -v date="${RELEASE_DATE:?}" \
-    -f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null
-bash scripts/ci/bump-version.sh "${RELEASE_KIND:?}"
-make --no-print-directory fmt
+    -f scripts/ci/finalize-release-changelog.awk "$RELEASE_CHANGELOG" >/dev/null
+bash scripts/ci/cargo-release-group.sh prepare "$RELEASE_GROUP"
+bash scripts/release/prepare-extra.sh
 bash scripts/release/finalize-notes.sh
 bash scripts/release/check-metadata.sh
 bash scripts/ci/release-candidate-receipt.sh record "$RELEASE_KIND" "${RELEASE_SOURCE:?}"

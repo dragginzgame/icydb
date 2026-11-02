@@ -49,13 +49,13 @@ impl CanisterKind for TestCanister {
     const STARTUP_STABLE_KEY: &'static str = "icydb.derived_integrity.startup.v1";
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.derived_integrity.progress.v1";
 
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(140)
     }
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(141)
     }
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(142)
     }
 }
@@ -65,10 +65,10 @@ impl Path for TestCanister {
 }
 
 thread_local! {
-    static DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(143)));
-    static INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(144)));
-    static SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(145)));
-    static JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(146)));
+    static DATA: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(143)).expect("fixture storage should initialize"));
+    static INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init_journaled(test_memory(144)).expect("fixture storage should initialize"));
+    static SCHEMA: RefCell<SchemaStore> = RefCell::new(SchemaStore::init_journaled(test_memory(145)).expect("fixture storage should initialize"));
+    static JOURNAL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(146)).expect("fixture storage should initialize"));
     static REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry.register_journaled_store(STORE, &DATA, &INDEX, &SCHEMA, &JOURNAL,
@@ -185,9 +185,15 @@ fn fixture(corrupt_id: u64, row_len: usize) -> (DbSession<TestCanister>, Accepte
         )
         .to_raw()
         .unwrap();
-        store.with_data_mut(|data| {
-            data.insert_raw_for_test(key, RawRow::from_bytes(Cow::Owned(vec![0; row_len])))
-        });
+        store
+            .with_data_mut(|data| {
+                data.insert_raw_for_test(
+                    key,
+                    RawRow::from_bytes(Cow::Owned(vec![0; row_len]))
+                        .expect("storage operation should succeed"),
+                )
+            })
+            .expect("fixture storage operation should succeed");
     }
     let selection = store
         .with_schema(|schema| schema.current_accepted_catalog_selection(TAG, ENTITY, STORE))
@@ -265,6 +271,10 @@ fn oversized_source_advances_reverse_domain_and_keeps_clean_neighbors() {
 }
 
 // Exercise the physical page boundary with the same corruptions in both domains.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one witness matrix covers malformed key and value families in both directions"
+)]
 fn assert_witness_findings(reverse: bool) {
     let (session, plan) = fixture(0, 0);
     let store = session.db.store_handle(STORE).unwrap();
@@ -285,7 +295,7 @@ fn assert_witness_findings(reverse: bool) {
                 Direction::Asc,
                 |key, value| {
                     original = Some((key.clone(), value.clone()));
-                    Ok::<_, std::convert::Infallible>(true)
+                    Ok::<_, crate::error::InternalError>(true)
                 },
             )
             .unwrap();
@@ -321,7 +331,9 @@ fn assert_witness_findings(reverse: bool) {
             IntegrityFindingKind::DivergentIndexEntry,
         )
     };
-    store.with_index_mut(|index| index.remove(&original_key));
+    store
+        .with_index_mut(|index| index.remove(&original_key))
+        .expect("fixture storage operation should succeed");
     for (key, value, expected) in [
         (
             RawIndexStoreKey::from_persisted_bytes(trailing),
@@ -335,13 +347,16 @@ fn assert_witness_findings(reverse: bool) {
         ),
         (
             original_key.clone(),
-            IndexEntryValue::from_bytes(Cow::Owned(vec![0xff])),
+            IndexEntryValue::from_bytes(Cow::Owned(vec![0xff]))
+                .expect("storage operation should succeed"),
             malformed,
         ),
         (with_primary(999), original_value.clone(), orphan),
         (with_primary(2), original_value.clone(), divergent),
     ] {
-        store.with_index_mut(|index| index.insert(key.clone(), value));
+        store
+            .with_index_mut(|index| index.insert(key.clone(), value))
+            .expect("fixture storage operation should succeed");
         let (_, exhausted, findings) = page(
             &session,
             &plan,
@@ -361,9 +376,13 @@ fn assert_witness_findings(reverse: bool) {
                     .map(|(_, bytes)| bytes)
             }),
         );
-        store.with_index_mut(|index| index.remove(&key));
+        store
+            .with_index_mut(|index| index.remove(&key))
+            .expect("fixture storage operation should succeed");
     }
-    store.with_index_mut(|index| index.insert(original_key, original_value));
+    store
+        .with_index_mut(|index| index.insert(original_key, original_value))
+        .expect("fixture storage operation should succeed");
 }
 
 #[test]
@@ -622,7 +641,7 @@ fn assert_missing_within_key_is_corruption(reverse: bool) {
                 Direction::Asc,
                 |key, value| {
                     entries.push((key.clone(), value.clone()));
-                    Ok::<_, std::convert::Infallible>(false)
+                    Ok::<_, crate::error::InternalError>(false)
                 },
             )
             .unwrap();
@@ -663,7 +682,9 @@ fn assert_missing_within_key_is_corruption(reverse: bool) {
         );
         assert!(exhausted);
         assert!(findings.is_empty());
-        store.with_index_mut(|index| index.insert(key, value));
+        store
+            .with_index_mut(|index| index.insert(key, value))
+            .expect("fixture storage operation should succeed");
     }
 }
 

@@ -3,7 +3,7 @@
 //! Responsibility: generated-database memory-manager initialization and typed failure.
 //! Does not own: memory allocation policy or generated store initialization.
 //! Boundary: ensures that the bound host runtime exists and contains this
-//! database's declarations, then preserves any `ic-memory` cause until an
+//! database's declarations, then preserves any `ic-storage` cause until an
 //! interface chooses a compact public error projection.
 
 use crate::db::{
@@ -12,14 +12,13 @@ use crate::db::{
 };
 use std::{fmt, rc::Rc, sync::Arc};
 
-use ic_memory::{
-    BootstrapAdmission, MemoryAllocationPool, MemoryAllocationPoolError, MemoryDeclarationError,
-    MemoryManagerConfig, MemoryManagerSlot, MemoryResolutionError, MemoryRuntime, PolicyIdentity,
-    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError,
-    SealedDeclarationSnapshot, StableKey,
+use ic_storage::{
+    AdmissionError, AllocationGrants, BootstrapAdmission, MemoryRuntime, PolicyIdentity,
+    RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError, RuntimeOpenError,
+    SealedDeclarationSnapshot, StableKey, StorageConfig,
 };
 
-use ic_memory::DefaultMemoryImpl;
+use ic_storage::DefaultMemoryImpl;
 
 /// Ensure that the bound host memory runtime contains one database authority.
 ///
@@ -27,33 +26,32 @@ use ic_memory::DefaultMemoryImpl;
 /// allocations without reasserting a bootstrap policy. Adoption succeeds only
 /// when every explicit requirement of this generated database authority
 /// appears exactly in the committed allocation capability.
-/// The supplied bucket size governs only IcyDB-owned bootstrap; an existing
-/// committed host runtime owns its policy and bucket size. Unbootstrapped
-/// persisted memory must match the requested size, without resizing or fallback.
-/// Cold bootstrap obtains the explicit final host pool from `pool`; adoption
-/// never invokes that provider or reasserts its grants and exclusions.
+/// Storage accepts only its current owned directory format. Earlier Memory or
+/// Storage images are rejected without resetting their backing. Same-contract
+/// restarts retain named allocations and require current namespace admission.
+/// Cold bootstrap obtains host grants from `grants`; an already-bound runtime
+/// retains its host configuration and grants.
 ///
 /// # Panics
-/// Panics if the caller's pool provider panics during cold bootstrap.
+/// Panics if the caller's grants provider panics during cold bootstrap.
 #[doc(hidden)]
-pub fn ensure_default_memory_manager(
+pub fn ensure_default_storage_runtime(
     authority: &str,
     requirements: &SealedDeclarationSnapshot,
-    bucket_size_pages: std::num::NonZeroU16,
-    pool: impl FnOnce() -> Result<MemoryAllocationPool, MemoryAllocationPoolError>,
+    config: StorageConfig,
+    grants: impl FnOnce() -> Result<AllocationGrants, AdmissionError>,
 ) -> Result<(), DatabaseBootstrapError> {
     let runtime = if let Some(runtime) = memory_runtime() {
         runtime
     } else {
-        let config = MemoryManagerConfig::new(bucket_size_pages);
-        let pool = pool()?;
+        let grants = grants()?;
         // The host callback may bind its own runtime. Observe that authority
         // before constructing another manager for the same backing memory.
         if let Some(runtime) = memory_runtime() {
             runtime
         } else {
             let mut runtime = MemoryRuntime::new_with_config(DefaultMemoryImpl::default(), config)?;
-            runtime.bootstrap(requirements, &pool, &DatabaseMemoryPolicy)?;
+            runtime.bootstrap(requirements, &grants, &DatabaseMemoryPolicy(requirements))?;
             let runtime = Rc::new(runtime);
             bind_memory_runtime(Rc::clone(&runtime))?;
             runtime
@@ -64,15 +62,15 @@ pub fn ensure_default_memory_manager(
 }
 
 /// Standalone policy uses the same admission function required of composed hosts.
-struct DatabaseMemoryPolicy;
+struct DatabaseMemoryPolicy<'a>(&'a SealedDeclarationSnapshot);
 
-impl RuntimeBootstrapPolicy for DatabaseMemoryPolicy {
+impl RuntimeBootstrapPolicy for DatabaseMemoryPolicy<'_> {
     type Error = MemoryBootstrapAdmissionError;
-    fn validate_allocation(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
+    fn validate_allocation(&self, _: &StableKey) -> Result<(), Self::Error> {
         Ok(())
     }
     fn prepare_bootstrap(&self, admission: &mut BootstrapAdmission<'_>) -> Result<(), Self::Error> {
-        prepare_memory_bootstrap(admission)
+        prepare_memory_bootstrap(self.0, admission)
     }
     fn runtime_bootstrap_identity(&self) -> PolicyIdentity {
         PolicyIdentity::new([
@@ -84,18 +82,18 @@ impl RuntimeBootstrapPolicy for DatabaseMemoryPolicy {
 
 /// Failure to initialize the generated database's stable-memory authority.
 ///
-/// Cloning this error is cheap and preserves the original typed `ic-memory`
+/// Cloning this error is cheap and preserves the original typed `ic-storage`
 /// bootstrap or adoption cause cached by generated database wiring.
 #[derive(Clone, Debug)]
 pub enum DatabaseBootstrapError {
-    /// The backing memory could not be opened under the requested bucket geometry.
+    /// The backing memory could not be opened under the requested storage limits.
     Construction(Arc<RuntimeConstructionError>),
     /// The host runtime could not be bound to IcyDB.
     Binding(MemoryRuntimeBindingError),
     /// Cold bootstrap failed before allocation authority could be published.
     Bootstrap(Arc<RuntimeBootstrapError<MemoryBootstrapAdmissionError>>),
     /// Current host allocations do not satisfy this database's declared authority.
-    Adoption(Arc<RuntimeAdoptionError>),
+    Adoption(Arc<RuntimeOpenError>),
 }
 
 impl From<MemoryRuntimeBindingError> for DatabaseBootstrapError {
@@ -110,21 +108,15 @@ impl From<RuntimeConstructionError> for DatabaseBootstrapError {
     }
 }
 
-impl From<RuntimeAdoptionError> for DatabaseBootstrapError {
-    fn from(source: RuntimeAdoptionError) -> Self {
+impl From<RuntimeOpenError> for DatabaseBootstrapError {
+    fn from(source: RuntimeOpenError) -> Self {
         Self::Adoption(Arc::new(source))
     }
 }
 
-impl From<MemoryDeclarationError> for DatabaseBootstrapError {
-    fn from(source: MemoryDeclarationError) -> Self {
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::Declarations(source)).into()
-    }
-}
-
-impl From<MemoryAllocationPoolError> for DatabaseBootstrapError {
-    fn from(source: MemoryAllocationPoolError) -> Self {
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::Pool(source)).into()
+impl From<AdmissionError> for DatabaseBootstrapError {
+    fn from(source: AdmissionError) -> Self {
+        RuntimeBootstrapError::Admission(source).into()
     }
 }
 
@@ -156,272 +148,68 @@ impl std::error::Error for DatabaseBootstrapError {
     }
 }
 
-///
-/// TESTS
-///
-
 #[cfg(test)]
 mod tests {
     mod public_failures;
     use super::*;
-    use ic_memory::VectorMemory;
-    use ic_memory::{MemoryRequest, RuntimeOpenError};
+    use ic_storage::{GenericAllocationPolicy, MemoryAuthority, MemoryRequest, VectorMemory};
 
-    const TEST_AUTHORITY: &str = "icydb.bootstrap_adoption_test";
-    fn pool() -> Result<MemoryAllocationPool, MemoryAllocationPoolError> {
-        MemoryAllocationPool::new(
-            vec![ic_memory::MemoryAuthority::new(
-                TEST_AUTHORITY,
-                "icydb.bootstrap_adoption_test.",
-            )?],
-            vec![],
-        )
-    }
-
-    struct ExistingRuntimePolicy {
-        preparation_calls: std::cell::Cell<usize>,
-    }
-
-    impl RuntimeBootstrapPolicy for ExistingRuntimePolicy {
-        type Error = MemoryBootstrapAdmissionError;
-
-        fn validate_allocation(
-            &self,
-            _: &StableKey,
-            _: &MemoryManagerSlot,
-        ) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn prepare_bootstrap(
-            &self,
-            admission: &mut BootstrapAdmission<'_>,
-        ) -> Result<(), Self::Error> {
-            self.preparation_calls.set(self.preparation_calls.get() + 1);
-            prepare_memory_bootstrap(admission)
-        }
-
-        fn runtime_bootstrap_identity(&self) -> PolicyIdentity {
-            PolicyIdentity::new([7; 32])
-        }
-    }
+    const OWNER: &str = "icydb_bootstrap_test";
+    const PREFIX: &str = "icydb.bootstrap_test.";
 
     fn requirements() -> SealedDeclarationSnapshot {
         SealedDeclarationSnapshot::new(
             ["commit.control", "startup.control", "integrity.progress"]
                 .into_iter()
-                .map(|role| {
-                    MemoryRequest::new(TEST_AUTHORITY, &format!("{TEST_AUTHORITY}.{role}.v1"))
-                        .unwrap()
-                })
+                .map(|role| MemoryRequest::new(OWNER, &format!("{PREFIX}{role}.v1")).unwrap())
                 .collect(),
         )
         .unwrap()
     }
 
-    #[test]
-    fn configured_bootstrap_selects_fresh_buckets_and_is_idempotent() {
-        for pages in [4, 16, 128] {
-            std::thread::spawn(move || {
-                assert!(memory_runtime().is_none());
-                assert!(matches!(
-                    icydb_core::db::open_memory("icydb.bootstrap_adoption_test.commit.control.v1"),
-                    Err(RuntimeOpenError::NotBootstrapped)
-                ));
-                ensure_default_memory_manager(
-                    TEST_AUTHORITY,
-                    &requirements(),
-                    std::num::NonZeroU16::new(pages).unwrap(),
-                    pool,
-                )
-                .unwrap();
-                let runtime = memory_runtime().unwrap();
-                let committed = runtime.committed_allocations().unwrap().to_vec();
-                let before = runtime.memory_allocation_summary().unwrap();
-                assert_eq!(before.bucket_size_pages, pages);
-                ensure_default_memory_manager(
-                    TEST_AUTHORITY,
-                    &requirements(),
-                    std::num::NonZeroU16::new(pages).unwrap(),
-                    pool,
-                )
-                .unwrap();
-                assert_eq!(runtime.committed_allocations().unwrap(), &committed);
-                assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
-            })
-            .join()
-            .unwrap();
-        }
+    fn grants() -> Result<AllocationGrants, AdmissionError> {
+        AllocationGrants::new(vec![MemoryAuthority::new(OWNER, PREFIX)?])
     }
 
     #[test]
-    fn adopts_runtime_bound_during_pool_callback_before_constructing_memory() {
-        ensure_default_memory_manager(
-            TEST_AUTHORITY,
-            &requirements(),
-            std::num::NonZeroU16::new(4).unwrap(),
-            || {
-                ensure_default_memory_manager(
-                    TEST_AUTHORITY,
-                    &requirements(),
-                    std::num::NonZeroU16::new(16).unwrap(),
-                    pool,
-                )
-                .unwrap();
-                pool()
-            },
-        )
-        .unwrap();
-        let runtime = memory_runtime().unwrap();
-        assert_eq!(
-            runtime
-                .memory_allocation_summary()
-                .unwrap()
-                .bucket_size_pages,
-            16
-        );
-        assert_eq!(runtime.committed_generation().unwrap(), 1);
-    }
-
-    #[test]
-    fn conflicting_persisted_layout_rejects_without_changing_allocation() {
-        let backing = VectorMemory::default();
-        let mut runtime = MemoryRuntime::new_with_config(
-            backing.clone(),
-            MemoryManagerConfig::new(std::num::NonZeroU16::new(128).unwrap()),
-        )
-        .unwrap();
-        runtime
-            .bootstrap(&requirements(), &pool().unwrap(), &DatabaseMemoryPolicy)
-            .unwrap();
-        drop(runtime);
-        let before = backing.borrow().clone();
-        let error = MemoryRuntime::new_with_config(
-            backing.clone(),
-            MemoryManagerConfig::new(std::num::NonZeroU16::new(16).unwrap()),
-        )
-        .err()
-        .unwrap();
-        assert!(matches!(
-            error,
-            RuntimeConstructionError::BucketSizeMismatch {
-                persisted: 128,
-                requested: 16
-            }
-        ));
-        let public = crate::db::startup::__startup_bootstrap_failure(error.into());
-        assert_eq!(
-            public.error().code(),
-            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH
-        );
-        assert_eq!(
-            public.error().core_facts().unwrap(),
-            vec![
-                (icydb_diagnostic_code::DiagnosticFactTag::Expected, 16),
-                (icydb_diagnostic_code::DiagnosticFactTag::Actual, 128),
-            ]
-        );
-        assert_eq!(*backing.borrow(), before);
-        assert!(
-            MemoryRuntime::new_with_config(
-                backing,
-                MemoryManagerConfig::new(std::num::NonZeroU16::new(128).unwrap())
+    fn adopts_runtime_bound_during_grants_callback() {
+        std::thread::spawn(|| {
+            ensure_default_storage_runtime(
+                OWNER,
+                &requirements(),
+                StorageConfig::default(),
+                || {
+                    ensure_default_storage_runtime(
+                        OWNER,
+                        &requirements(),
+                        StorageConfig::default(),
+                        grants,
+                    )
+                    .unwrap();
+                    grants()
+                },
             )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn unknown_host_authority_rejects_without_changing_committed_allocations() {
-        ensure_default_memory_manager(
-            TEST_AUTHORITY,
-            &requirements(),
-            std::num::NonZeroU16::new(16).unwrap(),
-            pool,
-        )
-        .unwrap();
-        let runtime = memory_runtime().unwrap();
-        let committed = runtime.committed_allocations().unwrap().to_vec();
-        let before = runtime.memory_allocation_summary().unwrap();
-        let error = ensure_default_memory_manager(
-            "icydb.unknown",
-            &requirements(),
-            std::num::NonZeroU16::new(4).unwrap(),
-            pool,
-        )
-        .unwrap_err();
-        let public = crate::Error::from(error.clone());
-        assert_eq!(
-            public.code(),
-            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH
-        );
-        assert!(public.facts().is_empty());
-        assert_eq!(
-            crate::db::__startup_bootstrap_failure(error.clone()).error(),
-            &public
-        );
-        assert!(matches!(error, DatabaseBootstrapError::Adoption(cause)
-            if matches!(cause.as_ref(), RuntimeAdoptionError::UnknownAuthority { authority }
-                if authority == "icydb.unknown")));
-        assert_eq!(runtime.committed_allocations().unwrap(), &committed);
-        assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
-        ensure_default_memory_manager(
-            TEST_AUTHORITY,
-            &requirements(),
-            std::num::NonZeroU16::new(4).unwrap(),
-            pool,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn adopts_runtime_bootstrapped_by_a_different_policy_and_bucket_size() {
-        let policy = ExistingRuntimePolicy {
-            preparation_calls: std::cell::Cell::new(0),
-        };
-        let mut runtime = MemoryRuntime::new_with_config(
-            DefaultMemoryImpl::default(),
-            MemoryManagerConfig::new(std::num::NonZeroU16::new(16).unwrap()),
-        )
-        .unwrap();
-        let declarations = requirements();
-        let host_pool = pool().unwrap();
-        let generation = runtime
-            .bootstrap(&declarations, &host_pool, &policy)
             .unwrap();
-        assert_eq!(policy.preparation_calls.get(), 1);
-        assert_eq!(
-            runtime
-                .bootstrap(&declarations, &host_pool, &policy)
-                .unwrap(),
-            generation
-        );
-        assert_eq!(policy.preparation_calls.get(), 1);
-        let runtime = Rc::new(runtime);
-        bind_memory_runtime(Rc::clone(&runtime)).unwrap();
-        ensure_default_memory_manager(
-            TEST_AUTHORITY,
-            &requirements(),
-            std::num::NonZeroU16::new(4).unwrap(),
-            || panic!("adoption must not invoke pool provider"),
-        )
+            assert_eq!(memory_runtime().unwrap().committed_generation().unwrap(), 1);
+        })
+        .join()
         .unwrap();
-        ensure_default_memory_manager(
-            TEST_AUTHORITY,
-            &requirements(),
-            std::num::NonZeroU16::new(4).unwrap(),
-            pool,
-        )
-        .unwrap();
-        assert_eq!(policy.preparation_calls.get(), 1);
-        assert_eq!(runtime.committed_generation().unwrap(), generation);
-        assert_eq!(
-            runtime
-                .memory_allocation_summary()
-                .unwrap()
-                .bucket_size_pages,
-            16
-        );
-        assert!(Rc::ptr_eq(&memory_runtime().unwrap(), &runtime));
+    }
+
+    #[test]
+    fn adopts_host_policy_without_rebootstrap_or_regrant() {
+        std::thread::spawn(|| {
+            let mut runtime = MemoryRuntime::new(VectorMemory::default()).unwrap();
+            runtime.bootstrap(&requirements(), &grants().unwrap(), &GenericAllocationPolicy).unwrap();
+            let before = runtime.memory_allocations().unwrap();
+            let runtime = Rc::new(runtime);
+            bind_memory_runtime(runtime.clone()).unwrap();
+            ensure_default_storage_runtime(OWNER, &requirements(), StorageConfig::default(), || panic!("warm adoption must not call provider")).unwrap();
+            assert!(Rc::ptr_eq(&memory_runtime().unwrap(), &runtime));
+            assert_eq!(runtime.memory_allocations().unwrap(), before);
+            let error = ensure_default_storage_runtime("unknown", &requirements(), StorageConfig::default(), grants).unwrap_err();
+            assert!(matches!(error, DatabaseBootstrapError::Adoption(cause) if matches!(cause.as_ref(), RuntimeOpenError::NotAdmitted(_))));
+            assert_eq!(runtime.memory_allocations().unwrap(), before);
+        }).join().unwrap();
     }
 }

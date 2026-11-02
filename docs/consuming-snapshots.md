@@ -144,7 +144,10 @@ Before adoption, compare existing host/Cargo versions and IC versions/digests
 against the selected source commit. Qualify differences or retain an explicitly
 selected consumer exception; do not silently replace a product requirement.
 Review direct script calls, CI cache inputs, formatter adapters and evidence
-action inputs as well as Make. Product/compiler/PocketIC selections stay local.
+action inputs as well as Make. Product and PocketIC selections stay local.
+Compiler selectors are consumer-owned files implementing the
+[shared support policy](../rules/cargo-dependencies.md#minimum-supported-rust-version-msrv);
+snapshot export does not update them automatically.
 
 For root-layout snapshots, existing consumer-owned `ci/tool-versions.env` or
 `ci/ic-tools.tsv` may occupy the new payload paths. Move any still-needed local

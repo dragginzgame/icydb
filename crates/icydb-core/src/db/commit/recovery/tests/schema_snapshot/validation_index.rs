@@ -22,7 +22,10 @@ fn validation_fixture() -> (Db<TestCanister>, ConstraintValidationJob) {
     );
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     initialize_current_database_control_for_tests(&memory);
-    INDEX.with_borrow_mut(|store| *store = IndexStore::init_journaled(test_memory(152)));
+    INDEX.with_borrow_mut(|store| {
+        *store = IndexStore::init_journaled(test_memory(152))
+            .expect("fixture storage should initialize");
+    });
     let index = PersistedIndexSnapshot::new_sql_ddl(
         SchemaIndexId::new(1).unwrap(),
         1,
@@ -145,10 +148,12 @@ fn candidate_pages_preserve_replay_fold_and_corruption_refusal() {
             validate_journal_batch_records(&db, STORE, handle, &batch, mode, &mut prepared)
                 .unwrap();
             apply_prepared_journal_batch(STORE, handle, &batch, &mut prepared, mode);
-            assert!(
-                keys.iter()
-                    .all(|key| handle.with_index(|store| store.get(key)).is_some())
-            );
+            assert!(keys.iter().all(|key| {
+                handle
+                    .with_index(|store| store.get(key))
+                    .expect("storage operation should succeed")
+                    .is_some()
+            }));
             SCHEMA.with_borrow(|store| {
                 assert_eq!(
                     store
@@ -159,7 +164,7 @@ fn candidate_pages_preserve_replay_fold_and_corruption_refusal() {
             });
         }
     }
-    let before = handle.with_index(IndexStore::len);
+    let before = handle.with_index(IndexStore::len).expect("fixture length");
     for bad_key in [candidate_key(2, 7, 300), candidate_key(1, 8, 300)] {
         let batch = validation_batch(&job, vec![candidate_key(1, 7, 299), bad_key]);
         for mode in [JournalRecordApplyMode::Replay, JournalRecordApplyMode::Fold] {
@@ -169,7 +174,10 @@ fn candidate_pages_preserve_replay_fold_and_corruption_refusal() {
                     .unwrap_err();
             assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
             assert!(prepared.iter().all(Option::is_none));
-            assert_eq!(handle.with_index(IndexStore::len), before);
+            assert_eq!(
+                (handle.with_index(IndexStore::len)).expect("storage operation should succeed"),
+                before
+            );
         }
     }
 }

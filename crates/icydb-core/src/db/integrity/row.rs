@@ -659,7 +659,7 @@ fn inspect_row_atom<C: CanisterKind>(
                 return Ok(RowAtomOutcome::Clean);
             };
             let index_store = db.store_handle(witness.store_path())?;
-            let actual = index_store.with_index(|store| store.get(witness.raw_key()));
+            let actual = index_store.with_index(|store| store.get(witness.raw_key()))?;
             match actual {
                 None => Ok(RowAtomOutcome::Finding(index_finding(
                     plan,
@@ -706,7 +706,7 @@ fn inspect_row_atom<C: CanisterKind>(
             for entry in projected.entries() {
                 let actual = entry
                     .target_store()
-                    .with_index(|store| store.get(entry.key()));
+                    .with_index(|store| store.get(entry.key()))?;
                 match actual {
                     None => {
                         return Ok(RowAtomOutcome::Finding(relation_finding(

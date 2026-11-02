@@ -1,4 +1,5 @@
 # Cargo dependency ownership
+<!-- Shared companions: ci/examples/platform-owner-boundaries.json -->
 
 These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md).
 The repository's root `Cargo.toml` is the authoritative catalog of direct
@@ -18,9 +19,11 @@ through `bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD"
 --external-ic`. This checks canonical dependency names, including aliases,
 optional, build, development and target-specific declarations, using locked
 offline Cargo metadata. The sole allowed direct package owner for the listed
-external IC dependencies is `ic-platform`. Its canonical `ic-platform-types`
+external IC dependencies is `ic-platform`, subject to the narrow identity and
+native implementation exceptions below. Its canonical `ic-platform-types`
 identity supplier additionally owns only the optional `ic_principal` dependency
-needed for registry conversions and unchanged upstream self-authentication.
+needed for explicitly selected registry conversions. Self-authentication uses
+upstream SHA-224 separately and does not activate that conversion dependency.
 
 This option composes with `ci/cargo-dependency-boundaries.json`: local rules may
 tighten the common boundary but cannot relax it. The local file may be absent
@@ -32,6 +35,58 @@ The inventory is a reviewed list of known packages, not proof that every externa
 IC package has been discovered. Review new dependencies against the broader
 [external IC boundary](#external-ic-dependency-boundary); add missing names here.
 Do not infer ownership from an `ic-` prefix or prohibit our owned packages.
+
+## Platform package owners
+
+Select the owner of the needed capability directly, with default features
+disabled. These are three independently versioned groups in one repository:
+
+| Package | Consumer responsibility |
+| --- | --- |
+| `ic-platform-types` | Canonical Principal, Account and related identity/error types. Use directly in identity-only models and schemas. |
+| `ic-platform-runtime` | IC0, the executor, raw calls and CDK adapters. Select only the needed `ic0`, `executor`, `runtime` or `cdk` feature. |
+| `ic-platform` | Explicit crypto, certification, storage-substrate and external-protocol/native-client capabilities. Retain it where those capabilities are actually used. |
+
+For example, the published Types 0.16 and Runtime 0.17.1 generation supports
+these root catalog entries; members inherit only what they use:
+
+```toml
+[workspace.dependencies]
+ic-platform-types = { version = "0.16.0", default-features = false }
+ic-platform-runtime = { version = "0.17.1", default-features = false }
+ic-platform = { version = "0.17.0", default-features = false }
+```
+
+An identity-only member inherits Types. An IC0-only member inherits Runtime with
+`features = ["ic0"]`; this graph needs neither Types, Candid, CDK, executor guard
+nor crypto. A crypto consumer may separately inherit Platform with, for example,
+`features = ["blake3"]`. Runtime's higher-level features have different closures:
+the executor needs its guard; raw calls need Types; CDK adds entrypoint generation.
+Do not apply the IC0-only exclusions to a consumer that actually needs those APIs.
+
+Types' `principal-self-authenticating` selects the retained SHA-224 derivation.
+It does not imply `principal-external`; select the latter explicitly for registry
+Principal conversions. Conversion impls remain with the canonical owned type.
+This narrow exception does not admit Candid or raw SDK dependencies in Types or
+application packages. Runtime uses its owned implementations; consuming Runtime
+does not authorize direct `ic0`, `ic-cdk` or executor-package dependencies.
+
+The [example declaration policy](../ci/examples/platform-owner-boundaries.json)
+permits Types in `identity-model` and `crypto-adapter`, Runtime in `ic0-adapter`,
+and the facade only in `crypto-adapter`. Replace these example package names with
+actual local owners and run the existing boundary checker with `--external-ic`.
+Canonical aliases, optional declarations and build/dev/target tables remain
+subject to the same owner policy. This is a consumer policy, not a blanket ban
+on facade use or a new common external-package exception.
+
+Declaration admission alone does not establish the enabled transitive graph.
+Use [selected owner graph checks](../docs/cargo-graph-checks.md#platform-owner-graphs)
+for actual roots, targets and features. Types crossing public boundaries must
+resolve to one compatible identity; runtime/executor consumers need one selected
+execution owner and guard where applicable. A facade-only release must not
+mechanically advance Types or Runtime. Preserve consumer MSRV, published supplier
+availability and independent adapter qualification; a registry graph or native
+compile does not prove installed IC or macOS behavior.
 
 ## Required inheritance
 
@@ -73,9 +128,16 @@ Do not infer ownership from an `ic-` prefix or prohibit our owned packages.
 
 ## External IC dependency boundary
 
+The Platform-owned `ic-platform-pocket-ic` implementation package may select
+`candid`, `ic-certification` and `ic-management-canister-types` only as normal
+dependencies under `cfg(not(target_family = "wasm"))`. This narrow maintenance
+exception preserves the existing facade and native-only graph; it grants no
+server ownership, other IC dependencies, portable/Wasm declarations or build/dev
+exception. Consumer dependency policies can restrict it further.
+
 All IC-specific dependencies maintained outside `dragginzgame`, including DFINITY
 packages, must be consumed through explicit `ic-platform` features and interfaces.
-The sole additional owner is `ic-platform-types` for `ic_principal`: conversion
+The canonical identity owner is `ic-platform-types` for `ic_principal`: conversion
 impls must live with the canonical owned type to satisfy Rust coherence. That
 exception admits no Candid, runtime, storage or other external IC dependency.
 The IC Platform repository is the sole direct dependency owner for these upstream
@@ -194,6 +256,14 @@ availability is separate evidence; a cached offline build or a `version` beside
   Use `cargo update --package NAME --precise VERSION` when an exact version was
   selected. Review its lockfile changes, including required transitive changes.
   Network access does not authorize unrelated upgrades or a broad `cargo update`.
+- Before planning a downstream release cascade, apply the
+  [adoption planning contract](../docs/cargo-graph-checks.md#dependency-adoption-planning).
+  Every additional dependency upgrade must have a required contract/security
+  reason or be explicitly selected as an optional refresh. Compatible external
+  patch availability alone does not justify raising a minimum or republishing
+  unchanged consumers. Raise minimums when the delivered contract actually needs
+  the newer fix/capability, and qualify that requirement. This does not relax the
+  exact current-version catalog rule for local workspace members.
 - Release/deployment preparation for an already selected graph uses
   `cargo fetch --locked` before dependent builds or checks. That preparation is
   included in the authorized release/deployment workflow. A plain deployment
@@ -306,52 +376,47 @@ release transaction or duplicate check in every repository.
 
 ## Minimum supported Rust version (MSRV)
 
-- Keep each package's MSRV as low as its supported code, edition and dependency
-  graph permit. Declare the verified minimum in `package.rust-version`; inherit
-  a common floor from `[workspace.package]` where applicable. A development
-  toolchain pin is a separate choice: installing newer Rust for rustfmt, Clippy
-  or internal tests does not justify copying that version into the MSRV.
-- Document intentional package groups with different floors and their CI
-  coverage. Public libraries may support older Rust than application binaries,
-  internal tools or test harnesses. This is permitted within one workspace;
-  do not raise every member to the highest internal requirement merely to make
-  metadata uniform. A public package's supported normal/build dependencies,
-  including local packages and proc macros, must work on its advertised floor.
-- Before raising a floor, identify the concrete language feature, standard
-  library API, manifest/edition requirement or selected dependency that needs it.
-  Prefer a simple equivalent supported on the existing floor. Explain any
-  retained higher requirement and the cost or security/support reason for
-  rejecting the lower alternative; convenience or matching a sibling's current
-  development compiler alone is insufficient. Do not downgrade necessary
-  dependency fixes or add compatibility machinery simply to retain an older
-  compiler.
-- Qualify a proposed lower floor with that actual compiler before changing the
-  support claim. Record the packages, supported feature combinations, targets
-  and selected dependency graph checked, and the blocker if a lower candidate
-  fails. Edition minima and dependency manifests narrow the candidates but do
-  not prove a complete build works. Do not treat a manifest edit, Clippy's MSRV
-  lint or `--ignore-rust-version` as qualification.
-- CI must check the advertised minimum explicitly with `cargo +<MSRV>` or a
-  scoped `RUSTUP_TOOLCHAIN=<MSRV>`, and record the Cargo/rustc versions used by
-  that check. Merely installing a toolchain or setting rustup's default can
-  leave `rust-toolchain.toml` selecting the newer development compiler. Keep
-  formatting and lint checks on their separately selected development toolchain.
-- The minimum lane checks the supported package dependency path with the
-  selected lockfile, covering supported features and relevant native/Wasm
-  targets. For libraries, check the consumer path without relying on workspace
-  feature unification; retain a focused consumer fixture where workspace-only
-  checks cannot establish this. Document any higher test-harness floor rather
-  than silently dropping minimum coverage or forcing it onto consumers.
-  Dependency and lockfile changes must retain this CI coverage. Rust-version-aware
-  resolution can help choose compatible dependencies; it does not replace the
-  old-compiler check or authorize resolver changes, unlocked retries or automatic
-  dependency downgrades.
+- Use **Rust 1.99.1** as both the minimum supported compiler and the pinned
+  development, lint and release compiler for the Dragginzgame Rust stack. The
+  maintainer retired older-compiler support because it has no required consumers;
+  reducing duplicate qualification and compatibility maintenance is the reason
+  for this change. Do not retain an older floor merely because code still builds
+  with it. This decision supersedes the previous lowest-possible-MSRV policy.
+- Declare `rust-version = "1.99.1"` in `[workspace.package]` and inherit it in
+  members. Pin `rust-toolchain.toml` to `channel = "1.99.1"`; do not use moving
+  `stable`. Reconcile explicit package overrides, independent fixture workspaces,
+  compiler selectors in CI/release scripts and current support documentation.
+  Release groups retain independent package versions and changelogs.
+- Qualify each affected supported package/feature graph with the selected locked
+  dependencies on 1.99.1 before claiming adoption. Include native and applicable
+  Wasm consumer paths, local packages and proc macros. A manifest edit, successful
+  metadata resolution, Clippy's MSRV lint or `--ignore-rust-version` is not build
+  qualification. Preserve isolated consumer fixtures where workspace feature
+  unification would hide a missing dependency or feature.
+- Record and enforce actual Cargo/rustc 1.99.1 identities in validation. Merely
+  installing a compiler or setting rustup's default does not override a selected
+  repository toolchain. Read the admitted local manifest/toolchain policy instead
+  of retaining independent hardcoded old-version selectors.
+- Consolidate a separate MSRV job only when the retained 1.99.1 checks cover its
+  package, feature, target and consumer obligations. Reuse that evidence instead
+  of compiling the same graph twice under different job names. Keep distinct
+  native hosts, Wasm, installed-runtime, feature-isolation and archive-consumer
+  checks; update required-check wiring with any job removal. Do not infer a
+  performance improvement or an amount of disk savings from a manifest bump.
+- Remove obsolete compatibility branches and suppressions when their replacements
+  preserve behavior. Do not refresh unrelated dependencies or synchronize sibling
+  releases as part of compiler adoption. Retain old artifacts/evidence until an
+  authorized cleanup; dropping support does not authorize deleting caches.
+- Future compiler changes and any older-compiler exception require an explicit
+  maintainer decision, a concrete support reason and applicable qualification.
+  A newer Rust release does not automatically advance this pinned policy.
 
 These rules follow Cargo's [Rust version contract](https://doc.rust-lang.org/cargo/reference/rust-version.html)
 and rustup's [toolchain selection order](https://rust-lang.github.io/rustup/overrides.html).
-Repositories own their tested floors and focused commands; Shared Tooling does
-not prescribe one global Rust version. Tool/cache preparation and sibling edits
-retain their existing authorization boundaries.
+Shared owns this support policy; repositories own implementation, focused commands
+and adoption evidence. Tool/cache preparation, sibling edits and publication
+retain their existing authorization boundaries. A pending shared rule does not
+prove that a consumer or previously published archive has adopted the new floor.
 
 ## Example
 

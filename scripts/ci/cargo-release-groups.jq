@@ -5,6 +5,39 @@ def relative: type == "string" and length > 0 and
   (test("[\\r\\n\\t]") or startswith("/") or
    (split("/") | any(. == "" or . == "." or . == "..")) | not);
 def stable: type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
+# Source-only shape admission is shared by resolved plans and bootstrap observation.
+# It grants neither a coherent Cargo graph nor release authority.
+def release_policy:
+  if type != "object" or (keys - ["shared_metadata_files"]) != ["groups", "schema"] or .schema != 1 or
+     (.groups | type) != "array" or (.groups | length) == 0
+  then error("invalid release-group workspace/configuration") else . end |
+  if any(.groups[]; (keys - ["metadata_files"]) != ["changelog","dependencies","members","name","primary","version"] or
+     (.name | name | not) or (.primary | name | not) or (.changelog | relative | not) or
+     (.members | type) != "array" or (.members | length) == 0 or (.members | all(.[]; name) | not))
+  then error("invalid release-group declaration") else . end |
+  if any(.groups[]; . as $g | (.members | index($g.primary)) == null or
+       (.version != "workspace" and .version != "package") or
+       (.dependencies | type) != "array" or (.dependencies | all(.[]; name) | not) or
+       (.dependencies | unique | length) != (.dependencies | length) or
+       .changelog == "Cargo.toml" or .changelog == "Cargo.lock" or (.changelog | endswith("/Cargo.toml"))) or
+     (.groups | map(.name) | unique | length) != (.groups | length) or
+     (.groups | map(.changelog) | unique | length) != (.groups | length) or
+     (.groups | map(select(.version == "workspace")) | length) > 1 or
+     ([.groups[].members[]] | unique | length) != ([.groups[].members[]] | length)
+  then error("missing/overlapping release-group members or identities") else . end |
+  if any(.groups[]; has("metadata_files") and
+      ((.metadata_files | type) != "array" or (.metadata_files | all(.[]; relative) | not)))
+  then error("invalid release-group metadata files") else . end |
+  if has("shared_metadata_files") and
+      ((.shared_metadata_files | type) != "array" or (.shared_metadata_files | all(.[]; relative) | not))
+  then error("invalid shared release metadata files") else . end |
+  ([.groups[] | (.metadata_files // [])[]] + (.shared_metadata_files // [])) as $extra |
+  if ($extra | unique | length) != ($extra | length) or
+     any($extra[]; . == "Cargo.toml" or . == "Cargo.lock" or . == "ci/cargo-release-groups.json" or
+         . == ".git" or startswith(".git/")) or
+     any(.groups[]; .changelog as $path | $extra | index($path))
+  then error("overlapping or reserved release-group metadata files") else . end;
+
 # Root declarations are a complete catalog, including aliases not inherited by
 # any member. Cargo itself does not resolve or validate those unused entries.
 def member_catalog($root; $owned):
@@ -14,43 +47,20 @@ def member_catalog($root; $owned):
 def admit_groups($config; $root; $manifests; $lock; $selected):
   . as $metadata |
   [.packages[] | select(.id as $id | $metadata.workspace_members | index($id))] as $owned |
-  if ($config | keys - ["shared_metadata_files"]) != ["groups", "schema"] or $config.schema != 1 or
-     ($config.groups | type) != "array" or ($config.groups | length) == 0 or
-     ($owned | length) == 0 or
+  ($config | release_policy) as $config |
+  if ($owned | length) == 0 or
      ($owned | map(.id) | sort) != ($metadata.workspace_members | sort) or
      ($owned | map(.name) | unique | length) != ($owned | length) or
      any($owned[]; .source != null or (.name | name | not) or (.version | stable | not))
   then error("invalid release-group workspace/configuration") else . end |
   $config.groups as $groups |
-  if any($groups[]; (keys - ["metadata_files"]) != ["changelog","dependencies","members","name","primary","version"] or
-     (.name | name | not) or (.primary | name | not) or (.changelog | relative | not) or
-     (.members | type) != "array" or (.members | length) == 0 or (.members | all(.[]; name) | not))
-  then error("invalid release-group declaration") else . end |
-  if any($groups[]; . as $g | (.members | index($g.primary)) == null or
-       (.version != "workspace" and .version != "package") or
-       (.dependencies | type) != "array" or (.dependencies | all(.[]; name) | not) or
-       (.dependencies | unique | length) != (.dependencies | length) or
-       .changelog == "Cargo.toml" or .changelog == "Cargo.lock" or (.changelog | endswith("/Cargo.toml"))) or
-     ($groups | map(.name) | unique | length) != ($groups | length) or
-     ($groups | map(.changelog) | unique | length) != ($groups | length) or
-     ($groups | map(select(.version == "workspace")) | length) > 1 or
-     ([$groups[].members[]] | sort) != ($owned | map(.name) | sort)
+  if ([$groups[].members[]] | sort) != ($owned | map(.name) | sort)
   then error("missing/overlapping release-group members or identities") else . end |
-  if any($groups[]; has("metadata_files") and
-      ((.metadata_files | type) != "array" or (.metadata_files | all(.[]; relative) | not)))
-  then error("invalid release-group metadata files") else . end |
-  if ($config | has("shared_metadata_files")) and
-      (($config.shared_metadata_files | type) != "array" or
-       ($config.shared_metadata_files | all(.[]; relative) | not))
-  then error("invalid shared release metadata files") else . end |
   ($config.shared_metadata_files // []) as $shared |
   ([$groups[] | (.metadata_files // [])[]] + $shared) as $extra |
-  (["Cargo.toml", "Cargo.lock", "ci/cargo-release-groups.json"] +
-   [$groups[].changelog] +
+  (["Cargo.toml", "Cargo.lock", "ci/cargo-release-groups.json"] + [$groups[].changelog] +
    [$owned[].manifest_path | ltrimstr($metadata.workspace_root + "/")]) as $reserved |
-  if ($extra | unique | length) != ($extra | length) or
-     any($extra[]; . as $path | ($reserved | index($path)) != null or
-       $path == ".git" or ($path | startswith(".git/")))
+  if any($extra[]; . as $path | ($reserved | index($path)) != null)
   then error("overlapping or reserved release-group metadata files") else . end |
   ($groups | map(. as $g |
     ($owned | map(select(.name as $n | $g.members | index($n)))) as $members |

@@ -16,6 +16,9 @@ runner_dir="${BASH_SOURCE[0]}"
 runner_dir="$(cd -P "${runner_dir%/*}" && printf '%s/.' "$PWD")"
 runner_dir="${runner_dir%/.}"
 release_group="${RELEASE_GROUP:-}"
+version_mode="${RELEASE_VERSION_MODE:-released}"
+case "$version_mode" in released|pending) ;; *) fail 'invalid RELEASE_VERSION_MODE' ;; esac
+[[ "$version_mode" != pending || -z "$release_group" ]] || fail 'pending VERSION mode does not apply to Cargo release groups'
 [[ -z "$release_group" || "$release_group" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || fail 'invalid release group'
 export RELEASE_GROUP="$release_group"
 plan_prefix="${release_group:+$release_group-}"
@@ -168,6 +171,9 @@ select_release() {
     fi
     kind="$mode"
     previous="$("$make_bin" --no-print-directory -s release-version "RELEASE_GROUP=$release_group")"
+    if [[ "$version_mode" == pending ]]; then
+        previous="$("$make_bin" --no-print-directory -s release-base-version)"
+    fi
     if [[ -n "$release_group" ]]; then
         [[ "$previous" == "$(bash "$runner_dir/cargo-release-group.sh" version "$release_group")" ]] || fail 'adapter selected the wrong group version'
     fi
@@ -347,11 +353,12 @@ while [[ "$phase" != complete ]]; do
             assert_source
             [[ "$delivery" != pr ]] || pr_prepare_branch
             current="$("$make_bin" --no-print-directory -s release-version "RELEASE_GROUP=$release_group")"
-            if [[ "$current" == "$previous" ]]; then
+            if [[ "$current" != "$previous" && "$current" != "$candidate" ]]; then
+                fail 'prepared version differs from the exact saved release'
+            fi
+            if [[ "$current" == "$previous" || "$version_mode" == pending ]]; then
                 hook release-preflight
                 hook release-prepare-version
-            elif [[ "$current" != "$candidate" ]]; then
-                fail 'prepared version differs from the exact saved release'
             fi
             hook release-prepared-check
             [[ "$("$make_bin" --no-print-directory -s release-version "RELEASE_GROUP=$release_group")" == "$candidate" ]] || fail 'preparation did not produce the candidate'

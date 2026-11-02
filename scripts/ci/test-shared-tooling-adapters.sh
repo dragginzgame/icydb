@@ -15,7 +15,7 @@ fixture_complete=false
 source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$FIXTURE" "Shared adapter fixture retained"' EXIT
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
-for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl \
+for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl \
   run-icydb-validation-targets.sh \
   install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
@@ -135,7 +135,7 @@ printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
 printf '[workspace]\n' > "$native/testing/canic-adapter/Cargo.toml"
 printf 'version = 4\n' > "$native/testing/canic-adapter/Cargo.lock"
-for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl \
+for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl \
   run-icydb-validation-targets.sh \
   run-nonempty-cargo-test.sh wasm-size-report.sh wasm-audit-report.sh \
   wasm-report-common.sh verify-file-checksum.sh; do
@@ -204,6 +204,8 @@ if [[ -n "${ICYDB_SQL_TIER_C_FAILURE_ARTIFACT:-}" ]]; then
   [[ "$ICYDB_SQL_TIER_C_FAILURE_ARTIFACT" == "$CI_CARGO_ROOT/failure.fixture.json" ]]
 fi
 CARGO
+# Runtime selection has its own fixture; this suite substitutes product gates.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/test-model-runtime-selection.sh"
 chmod +x "$native/bin/cargo"
 for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter ci-adapter-sql-tier-a; do
   PATH="$native/bin:$PATH" ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/failure-logs" \
@@ -479,79 +481,47 @@ printf '%s\n' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cmp "$native/expected-trace" "$CI_CARGO_SERVER_TRACE"
 
-# Metadata and release callbacks must retain the same transport as compilers.
-# Keep real version/pin admission, formatting and preparation control flow;
-# substitute only version mutation and candidate receipt effects.
-mkdir -p "$native/scripts/release" "$native/ci" "$native/docs/changelog" "$native/.tools/host/bin"
-cp "$ROOT/.tools/host/bin/yq" "$native/.tools/host/bin/"
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" \
-  scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-pins.sh \
-  scripts/ci/finalize-release-changelog.awk
-cp "$ROOT/scripts/release/"{prepare.sh,files.sh,check-metadata.sh,finalize-notes.sh,render-candidate.sh} "$native/scripts/release/"
-printf '[workspace.package]\nversion = "0.1.1"\n' > "$native/Cargo.toml"
-printf 'version = 4\n' > "$native/Cargo.lock"
-printf '[workspace]\n' > "$native/testing/canic-adapter/Cargo.toml"
-printf 'version = 4\n' > "$native/testing/canic-adapter/Cargo.lock"
-printf '.cache/\n' > "$native/.gitignore"
-printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
-cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
-printf '[]\n' > "$native/ci/dependency-pinning-exceptions.json"
-printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo metadata --locked --offline --no-deps --format-version 1\n' > "$native/scripts/ci/bump-version.sh"
-# The receipt substitute expands the selected working directory in its child.
-# shellcheck disable=SC2016
-printf '#!/usr/bin/env bash\nset -euo pipefail\n[[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]\ncargo locate-project --workspace --message-format plain --manifest-path "$PWD/Cargo.toml"\n' \
-  > "$native/scripts/ci/release-candidate-receipt.sh"
-cp "$native/scripts/ci/release-candidate-receipt.sh" "$native/scripts/ci/record-release-gate-receipt.sh"
-# This fixture owns Cargo environment/jobserver transport only. The real
-# selected-source metadata semantics are qualified in test-cargo-metadata-adoption.
-# Make calls below substitute editor admission with the existing Cargo executable;
-# the standard release fixture qualifies real selection and admission refusal.
-cat > "$native/scripts/ci/cargo-release-metadata.sh" <<'METADATA'
+# Real release Make callbacks must retain Cargo environment and jobserver
+# transport. The separate group matrix owns metadata/receipt semantics.
+mkdir -p "$native/scripts/release" "$native/ci"
+cp "$ROOT/scripts/release/group.sh" "$native/scripts/release/"
+cp "$ROOT/scripts/ci/cargo-release-groups.jq" "$native/scripts/ci/"
+cp "$ROOT/ci/cargo-release-groups.json" "$native/ci/"
+export RELEASE_GROUP=database
+for callback in prepare check-metadata version; do
+    cat > "$native/scripts/release/$callback.sh" <<'CALLBACK'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$*" == 'check icydb --manifest-order-grouped' ]]
-[[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]
-cargo sort --workspace --check --grouped
 cargo metadata --locked --offline --format-version 1 >/dev/null
-METADATA
-# Git inventory is real, with no commits; the receipt command above models only
-# its Cargo transport, while the dedicated receipt fixture owns its semantics.
-git -C "$native" init --quiet
-git -C "$native" add Cargo.toml Cargo.lock
-mkdir -p "$native/.cache/release-tmp"
-: > "$CI_CARGO_TRACE"
-for lane in version release-version check-versioning check-dependency-pins \
-  release-prepared-check release-commit-check release-committed-check release-tagged-check \
-  release-prepare-version; do
-  if [[ "$lane" == release-prepare-version ]]; then
-    printf '## [0.1.1]\n' > "$native/CHANGELOG.md"
-  else
-    printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
-  fi
-  cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
-  metadata_selection=()
-  if [[ "$lane" == release-committed-check ]]; then
-    metadata_selection=(RELEASE_COMMIT=1111111111111111111111111111111111111111)
-  fi
-  # Keep Make's deferred $$ variable literal until recipe expansion.
-  # shellcheck disable=SC2016
-  PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
-    'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
-    ${metadata_selection[@]+"${metadata_selection[@]}"} \
-    RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
-    RELEASE_SOURCE=1111111111111111111111111111111111111111 \
-    > "$native/$lane.log" 2>&1
+CALLBACK
 done
-printf '%s\n' 'locate-project default' 'locate-project default' \
-  'locate-project default' 'locate-project default' \
-  'locate-project default' 'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
-  'locate-project default' 'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
-  'locate-project default' 'locate-project default' 'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
-  'metadata default' 'sort default' 'fmt default' 'metadata default' \
-  'sort-derives default' 'sort default' 'sort-derives default' 'fmt default' \
-  'locate-project default' 'sort default' 'metadata default' \
-  'locate-project default' 'locate-project default' 'locate-project default' > "$native/expected-trace"
-cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+cp "$native/scripts/release/check-metadata.sh" "$native/scripts/ci/cargo-release-group.sh"
+cp "$native/scripts/release/check-metadata.sh" "$native/scripts/ci/release-candidate-receipt.sh"
+cp "$native/scripts/release/check-metadata.sh" "$native/scripts/ci/record-release-gate-receipt.sh"
+for lane in release-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-prepare-version; do
+    : > "$CI_CARGO_TRACE"
+    # Keep the editor substitute literal until the child Make expands it.
+    # shellcheck disable=SC2016
+    PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
+        'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
+        RELEASE_COMMIT=1111111111111111111111111111111111111111 \
+        > "$native/$lane.log" 2>&1
+    count=1
+    case "$lane" in release-commit-check|release-committed-check) count=2 ;; esac
+    [[ "$(wc -l < "$CI_CARGO_TRACE")" == "$count" ]]
+    if grep -v '^metadata default$' "$CI_CARGO_TRACE"; then exit 1; fi
+    : > "$CI_CARGO_TRACE"
+    status=0
+    # shellcheck disable=SC2016
+    PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=metadata \
+        make --no-print-directory -C "$native" -j2 "$lane" \
+        'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
+        RELEASE_COMMIT=1111111111111111111111111111111111111111 \
+        > "$native/failure-$lane.log" 2>&1 || status=$?
+    [[ "$status" == 2 && "$(wc -l < "$CI_CARGO_TRACE")" == 1 ]]
+    rg -F native-cargo-failure "$native/failure-$lane.log" >/dev/null
+done
+unset RELEASE_GROUP
 # Explicit composition formatting retains both workspaces; product formatting
 # above stays independent of the adapter manifest and dependency selection.
 : > "$CI_CARGO_TRACE"
@@ -561,38 +531,6 @@ printf '%s\n' 'sort default' 'fmt default' 'metadata default' \
   'sort-derives default' 'sort default' 'sort-derives default' \
   'fmt default' 'sort default' 'fmt default' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
-
-for failure in early metadata; do
-for lane in release-prepared-check release-commit-check release-prepare-version; do
-  if [[ "$lane" == release-prepare-version ]]; then
-    printf '## [0.1.1]\n' > "$native/CHANGELOG.md"
-  else
-    printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
-  fi
-  cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
-  cp "$native/CHANGELOG.md" "$native/notes-before"
-  : > "$CI_CARGO_TRACE"
-  status=0
-  fail_command=''
-  if [[ "$failure" == metadata ]]; then fail_command=metadata; fi
-  # Keep Make's deferred $$ variable literal until recipe expansion.
-  # shellcheck disable=SC2016
-  PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$fail_command" \
-    make --no-print-directory -C "$native" -j2 "$lane" \
-    'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
-    RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
-    > "$native/failure-$failure-$lane.log" 2>&1 || status=$?
-  [[ "$status" == 2 ]]
-  if [[ "$failure" == early ]]; then
-    [[ "$(wc -l < "$CI_CARGO_TRACE")" == 1 ]]
-  else
-    [[ "$(tail -n 1 "$CI_CARGO_TRACE")" == 'metadata default' ]]
-  fi
-  rg -F native-cargo-failure "$native/failure-$failure-$lane.log" >/dev/null
-  cmp "$native/notes-before" "$native/CHANGELOG.md"
-  cmp "$native/docs/changelog/0.1.md" "$native/CHANGELOG.md"
-done
-done
 
 # CLI installation must keep the user's selected Cargo paths while preserving
 # the same parallel descriptors. The substitute never installs a binary.
@@ -733,6 +671,15 @@ for owner in executor commit journal startup; do
   mkdir -p "$native/crates/icydb-core/src/db/$owner"
   printf 'fn production() {}\n' > "$native/crates/icydb-core/src/db/$owner/probe.rs"
 done
+# The graph guard consumes a group version; keep its transport observable while
+# the dedicated group fixture owns real metadata admission.
+cat > "$native/scripts/release/version.sh" <<'VERSION'
+#!/usr/bin/env bash
+set -euo pipefail
+cargo locate-project --workspace --message-format plain >/dev/null
+VERSION
+version="$("$ROOT/.tools/host/bin/yq" -p toml -o json -r '.package.version' "$ROOT/crates/icydb/Cargo.toml")"
+printf "printf '%%s\\n' '%s'\n" "$version" >> "$native/scripts/release/version.sh"
 for command in build locate-project run; do
   : > "$CI_CARGO_TRACE"
   status=0
@@ -759,7 +706,7 @@ done
 for script in check-dependency-graph-invariants.sh check-executor-no-production-panics.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/$script"
 done
-cat > "$native/scripts/ci/test-release-candidate-receipt.sh" <<'RECEIPT'
+cat > "$native/scripts/release/test-release-groups.sh" <<'RECEIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]

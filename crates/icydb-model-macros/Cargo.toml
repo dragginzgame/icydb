@@ -1,8 +1,8 @@
 [package]
 name = "icydb-model-macros"
 edition = { workspace = true }
-rust-version = "1.91.0"
-version = { workspace = true }
+rust-version = { workspace = true }
+version = "0.294.0"
 license-file = { workspace = true }
 description = "Procedural macros for IcyDB application models"
 repository = { workspace = true }

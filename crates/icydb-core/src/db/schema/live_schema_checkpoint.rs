@@ -13,6 +13,7 @@ use crate::{
     db::{
         database_format::crc32c,
         integrity::DatabaseIncarnationId,
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision,
             control_store::{
@@ -140,6 +141,14 @@ struct LiveSchemaCheckpointStore {
     map: SchemaControlMap<LiveSchemaCheckpointKey>,
 }
 
+/// Fully encoded identity checkpoint for one synchronous commit window.
+/// Recovery continues to derive its updates from the durable marker.
+#[derive(Debug)]
+pub(in crate::db) struct PreparedLiveIdentityCheckpoint {
+    key: LiveSchemaCheckpointKey,
+    bytes: Vec<u8>,
+}
+
 impl LiveSchemaCheckpointStore {
     fn open(memory: ControlMemory) -> Result<Self, InternalError> {
         Self::from_map(SchemaControlMap::open(
@@ -156,7 +165,7 @@ impl LiveSchemaCheckpointStore {
 
     fn from_map(map: SchemaControlMap<LiveSchemaCheckpointKey>) -> Result<Self, InternalError> {
         let store = Self { map };
-        if let Some(record) = store.map.get(&LiveSchemaCheckpointKey::migration()) {
+        if let Some(record) = store.map.get(&LiveSchemaCheckpointKey::migration())? {
             decode_schema_migration_record(&record.0)?;
         }
         if store.checkpoint_count()? > MAX_LIVE_SCHEMA_CHECKPOINTS {
@@ -168,7 +177,7 @@ impl LiveSchemaCheckpointStore {
     fn load(&self, store_path: &str) -> Result<Option<LiveSchemaCheckpoint>, InternalError> {
         let key = LiveSchemaCheckpointKey::for_store(store_path)?;
         self.map
-            .get(&key)
+            .get(&key)?
             .map(|bytes| decode_checkpoint(&bytes.0, key))
             .transpose()
     }
@@ -201,7 +210,7 @@ impl LiveSchemaCheckpointStore {
         self.map.insert(
             key,
             SchemaControlBytes(encode_checkpoint(store_path, &checkpoint)?),
-        );
+        )?;
         Ok(())
     }
 
@@ -261,24 +270,20 @@ impl LiveSchemaCheckpointStore {
     }
 
     fn checkpoint_count(&self) -> Result<u64, InternalError> {
+        let lineage = self.map.get(&LiveSchemaCheckpointKey::lineage())?.is_some();
+        let migration = self
+            .map
+            .get(&LiveSchemaCheckpointKey::migration())?
+            .is_some();
         self.map
-            .len()
-            .checked_sub(u64::from(
-                self.map.get(&LiveSchemaCheckpointKey::lineage()).is_some(),
-            ))
-            .and_then(|count| {
-                count.checked_sub(u64::from(
-                    self.map
-                        .get(&LiveSchemaCheckpointKey::migration())
-                        .is_some(),
-                ))
-            })
+            .len()?
+            .checked_sub(u64::from(lineage) + u64::from(migration))
             .ok_or_else(InternalError::store_corruption)
     }
 
     fn load_migration(&self) -> Result<Option<SchemaMigrationRecord>, InternalError> {
         self.map
-            .get(&LiveSchemaCheckpointKey::migration())
+            .get(&LiveSchemaCheckpointKey::migration())?
             .map(|bytes| decode_schema_migration_record(&bytes.0))
             .transpose()
     }
@@ -291,7 +296,7 @@ impl LiveSchemaCheckpointStore {
         operation.validate()?;
         let current = self
             .map
-            .get(&LiveSchemaCheckpointKey::migration())
+            .get(&LiveSchemaCheckpointKey::migration())?
             .map(|bytes| bytes.0);
         if current.as_deref() == Some(operation.after_bytes()) {
             return Ok(LiveSchemaCheckpointPreflight::AlreadyApplied);
@@ -316,13 +321,13 @@ impl LiveSchemaCheckpointStore {
         self.map.insert(
             LiveSchemaCheckpointKey::migration(),
             SchemaControlBytes(operation.after_bytes().to_vec()),
-        );
+        )?;
         Ok(())
     }
 
     fn load_lineage(&self) -> Result<Option<AcceptedEntitySourceLineageCatalog>, InternalError> {
         self.map
-            .get(&LiveSchemaCheckpointKey::lineage())
+            .get(&LiveSchemaCheckpointKey::lineage())?
             .map(|bytes| decode_entity_source_lineage_catalog(&bytes.0))
             .transpose()
     }
@@ -334,7 +339,7 @@ impl LiveSchemaCheckpointStore {
         operation.validate()?;
         let current = self
             .map
-            .get(&LiveSchemaCheckpointKey::lineage())
+            .get(&LiveSchemaCheckpointKey::lineage())?
             .map(|bytes| bytes.0);
         if current.as_deref() == Some(operation.after_bytes()) {
             return Ok(LiveSchemaCheckpointPreflight::AlreadyApplied);
@@ -356,23 +361,55 @@ impl LiveSchemaCheckpointStore {
         self.map.insert(
             LiveSchemaCheckpointKey::lineage(),
             SchemaControlBytes(operation.after_bytes().to_vec()),
-        );
+        )?;
         Ok(())
     }
 
-    fn preflight_identity_range(
+    fn prepare_identity_ranges(
         &self,
         store_path: &str,
-        range: IdentityRangeAdvance,
-    ) -> Result<(), InternalError> {
-        let checkpoint = self
+        ranges: &[(IdentityRangeAdvance, IdentityAdvanceId)],
+        budget: &dyn ConstructionBudget,
+    ) -> Result<PreparedLiveIdentityCheckpoint, InternalError> {
+        let mut checkpoint = self
             .load(store_path)?
             .ok_or_else(InternalError::identity_state_corruption)?;
-        let state = checkpoint
-            .identity_states()
-            .get(&(range.owner().entity_tag(), range.owner().field_id()))
-            .ok_or_else(InternalError::identity_state_corruption)?;
-        state.preflight_range_advance(range)
+        // Coalesce every owner of this store before encoding, so later owners
+        // cannot overwrite earlier advances with an independently prepared image.
+        for (range, advance_id) in ranges {
+            let key = (range.owner().entity_tag(), range.owner().field_id());
+            let state = checkpoint
+                .identity_states
+                .get(&key)
+                .ok_or_else(InternalError::identity_state_corruption)?;
+            state.preflight_range_advance(*range)?;
+            let next = state.apply_range_advance(*range, *advance_id)?;
+            checkpoint.identity_states.insert(key, next);
+        }
+        // These lengths already passed bounded checkpoint decoding. Charge the
+        // retained encoded image before allocating it alongside other stores.
+        let bytes = CHECKPOINT_FIXED_BYTES
+            + store_path.len()
+            + checkpoint.candidate().encoded_bundle().len()
+            + checkpoint.candidate().encoded_root().len()
+            + checkpoint.identity_states().len() * IDENTITY_STATE_RECORD_BYTES;
+        budget.charge(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes,
+            bytes as u64,
+        )?;
+        Ok(PreparedLiveIdentityCheckpoint {
+            key: LiveSchemaCheckpointKey::for_store(store_path)?,
+            bytes: encode_checkpoint(store_path, &checkpoint)?,
+        })
+    }
+
+    fn apply_prepared_identity_checkpoint(
+        &mut self,
+        prepared: PreparedLiveIdentityCheckpoint,
+    ) -> Result<(), InternalError> {
+        self.map
+            .insert(prepared.key, SchemaControlBytes(prepared.bytes))?;
+        Ok(())
     }
 
     fn apply_identity_range(
@@ -395,7 +432,7 @@ impl LiveSchemaCheckpointStore {
         self.map.insert(
             checkpoint_key,
             SchemaControlBytes(encode_checkpoint(store_path, &checkpoint)?),
-        );
+        )?;
         Ok(())
     }
 }
@@ -581,11 +618,28 @@ pub(in crate::db) fn verify_live_schema_checkpoint(
     Ok(())
 }
 
-pub(in crate::db) fn preflight_live_identity_range_checkpoint(
+pub(in crate::db) fn prepare_live_identity_ranges_checkpoint(
     store_path: &str,
-    range: IdentityRangeAdvance,
+    ranges: &[(IdentityRangeAdvance, IdentityAdvanceId)],
+    budget: &dyn ConstructionBudget,
+) -> Result<PreparedLiveIdentityCheckpoint, InternalError> {
+    LiveSchemaCheckpointStore::open(control_memory()?)?
+        .prepare_identity_ranges(store_path, ranges, budget)
+}
+
+/// Publish images prepared before this synchronous window's marker. No schema
+/// publication may intervene; interrupted windows recover from marker records.
+pub(in crate::db) fn apply_prepared_live_identity_checkpoints(
+    checkpoints: Vec<PreparedLiveIdentityCheckpoint>,
 ) -> Result<(), InternalError> {
-    LiveSchemaCheckpointStore::open(control_memory()?)?.preflight_identity_range(store_path, range)
+    if checkpoints.is_empty() {
+        return Ok(());
+    }
+    let mut store = LiveSchemaCheckpointStore::open(control_memory()?)?;
+    for checkpoint in checkpoints {
+        store.apply_prepared_identity_checkpoint(checkpoint)?;
+    }
+    Ok(())
 }
 
 pub(in crate::db) fn apply_live_identity_range_checkpoint(
@@ -712,7 +766,7 @@ pub(in crate::db) fn verify_schema_migration_record_op(
 ) -> Result<(), InternalError> {
     let current = LiveSchemaCheckpointStore::open(control_memory()?)?
         .map
-        .get(&LiveSchemaCheckpointKey::migration())
+        .get(&LiveSchemaCheckpointKey::migration())?
         .ok_or_else(InternalError::recovery_effect_verification_failed)?;
     if current.0 != operation.after_bytes() {
         return Err(InternalError::recovery_effect_verification_failed());
@@ -771,7 +825,7 @@ pub(in crate::db) fn verify_entity_source_lineage_catalog_op(
 ) -> Result<(), InternalError> {
     let current = LiveSchemaCheckpointStore::open(control_memory()?)?
         .map
-        .get(&LiveSchemaCheckpointKey::lineage())
+        .get(&LiveSchemaCheckpointKey::lineage())?
         .ok_or_else(InternalError::recovery_effect_verification_failed)?;
     if current.0 != operation.after_bytes() {
         return Err(InternalError::recovery_effect_verification_failed());
@@ -806,7 +860,7 @@ mod tests {
         },
         testing::test_memory,
     };
-    use ic_memory::Memory;
+    use ic_storage::Memory;
     use icydb_schema::{
         EntitySourceDigest, EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
         SchemaMigrationPlanDigest, SchemaProposalDigest, TargetDatabaseIdentity,

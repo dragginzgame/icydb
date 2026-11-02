@@ -24,7 +24,10 @@ fn heap_identity_marker_recovery_restores_the_indexed_row() {
             .expect("the direct identity marker should recover")
     );
     assert!(session.db.ensure_recovered_state().is_err());
-    assert_eq!(INDEX_STORE.with(|store| store.borrow().len()), 1);
+    assert_eq!(
+        (INDEX_STORE.with(|store| store.borrow().len())).expect("storage operation should succeed"),
+        1
+    );
     assert!(
         session
             .db
@@ -47,6 +50,11 @@ fn heap_identity_mixed_batch_recovers_after_partial_row_publication() {
 #[test]
 fn heap_identity_mixed_batch_recovers_after_all_rows_publish() {
     assert_heap_identity_mixed_batch_recovers(MutationCommitInterruption::RowsPublished);
+}
+
+#[test]
+fn heap_identity_mixed_batch_recovers_after_checkpoint_publication() {
+    assert_heap_identity_mixed_batch_recovers(MutationCommitInterruption::StateMaterialized);
 }
 
 fn assert_heap_identity_mixed_batch_recovers(interruption: MutationCommitInterruption) {
@@ -93,7 +101,10 @@ fn assert_heap_identity_mixed_batch_recovers(interruption: MutationCommitInterru
     assert_dynamic_payload(&session, 2, 300);
     assert_dynamic_payload(&session, 3, 100);
     assert_eq!(DATA_STORE.with(|store| store.borrow().len()), 2);
-    assert_eq!(INDEX_STORE.with(|store| store.borrow().len()), 2);
+    assert_eq!(
+        (INDEX_STORE.with(|store| store.borrow().len())).expect("storage operation should succeed"),
+        2
+    );
     assert!(
         session
             .db
@@ -255,7 +266,10 @@ fn recovery_verification_failure_retains_marker_and_admission_barrier() {
             .drive_startup_recovery_page()
             .expect("replay should publish indexes")
     );
-    assert_eq!(INDEX_STORE.with(|store| store.borrow().len()), 2);
+    assert_eq!(
+        (INDEX_STORE.with(|store| store.borrow().len())).expect("storage operation should succeed"),
+        2
+    );
     // Final verification must inspect stored effects in its own call. It must
     // not replay the marker again and hide a missing derived effect.
     // Reverse marker traversal verifies row 2 first. Remove only row 1's key
@@ -269,9 +283,14 @@ fn recovery_verification_failure_retains_marker_and_admission_barrier() {
                 Ok::<_, InternalError>(IndexStoreVisit::Stop)
             })
             .expect("the ordered payload index should be readable");
-        store.remove(&first_key.expect("the first payload key should exist"));
+        store
+            .remove(&first_key.expect("the first payload key should exist"))
+            .expect("fixture storage operation should succeed");
     });
-    assert_eq!(INDEX_STORE.with(|store| store.borrow().len()), 1);
+    assert_eq!(
+        (INDEX_STORE.with(|store| store.borrow().len())).expect("storage operation should succeed"),
+        1
+    );
     for _ in 0..2 {
         let error = session
             .db
@@ -369,5 +388,9 @@ fn recovery_restarts_after_a_completed_fold_without_losing_committed_progress() 
             .expect("the retained marker should verify")
     );
     assert_dynamic_payload(&session, 1, 100);
-    assert_eq!(JOURNALED_INDEX_STORE.with(|store| store.borrow().len()), 1);
+    assert_eq!(
+        (JOURNALED_INDEX_STORE.with(|store| store.borrow().len()))
+            .expect("storage operation should succeed"),
+        1
+    );
 }

@@ -10,7 +10,7 @@ pub struct HeapStore {}
 )]
 pub struct JournaledStore {}
 
-#[model_api::entity(
+#[runtime_api::model::entity(
     store = "HeapStore",
     version = 1,
     pk(field = "id"),

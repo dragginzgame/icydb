@@ -12,7 +12,7 @@ git -C "$ROOT_DIR" merge-base --is-ancestor "$release_commit" HEAD || {
 }
 workspace_version="$(bash "$ROOT_DIR/scripts/release/read-committed-version.sh" "$ROOT_DIR" "$release_commit")" || exit 1
 
-release_tag="v$workspace_version"
+release_tag="${RELEASE_GROUP:?}-v$workspace_version"
 tag_type="$(git -C "$ROOT_DIR" cat-file -t "refs/tags/$release_tag" 2>/dev/null || true)"
 tag_commit="$(git -C "$ROOT_DIR" rev-parse --verify "refs/tags/$release_tag^{commit}" 2>/dev/null || true)"
 

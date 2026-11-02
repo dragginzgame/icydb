@@ -78,9 +78,9 @@ fn index_key(
 
 fn initialized_stores() -> (DataStore, IndexStore, SchemaStore) {
     (
-        DataStore::init_journaled(test_memory(180)),
-        IndexStore::init_journaled(test_memory(181)),
-        SchemaStore::init_journaled(test_memory(182)),
+        DataStore::init_journaled(test_memory(180)).expect("fixture storage should initialize"),
+        IndexStore::init_journaled(test_memory(181)).expect("fixture storage should initialize"),
+        SchemaStore::init_journaled(test_memory(182)).expect("fixture storage should initialize"),
     )
 }
 
@@ -211,7 +211,8 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
     let data_memory = crate::testing::test_memory_owner(190);
     let index_memory = crate::testing::test_memory_owner(191);
     let schema_memory = crate::testing::test_memory_owner(192);
-    let mut data = DataStore::init_journaled(data_memory.open());
+    let mut data =
+        DataStore::init_journaled(data_memory.open()).expect("fixture storage should initialize");
     for value in 0..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
         data.fold_recovered_journal_put(
             row_key(entity, value),
@@ -222,8 +223,10 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
         )
         .expect("canonical row should seed");
     }
-    let index = IndexStore::init_journaled(index_memory.open());
-    let mut schema = SchemaStore::init_journaled(schema_memory.open());
+    let index =
+        IndexStore::init_journaled(index_memory.open()).expect("fixture storage should initialize");
+    let mut schema = SchemaStore::init_journaled(schema_memory.open())
+        .expect("fixture storage should initialize");
     let authority = authority([entity], [], 0);
 
     assert!(matches!(
@@ -249,9 +252,12 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
     drop(index);
     drop(schema);
 
-    let data = DataStore::init_journaled(data_memory.open());
-    let index = IndexStore::init_journaled(index_memory.open());
-    let mut schema = SchemaStore::init_journaled(schema_memory.open());
+    let data =
+        DataStore::init_journaled(data_memory.open()).expect("fixture storage should initialize");
+    let index =
+        IndexStore::init_journaled(index_memory.open()).expect("fixture storage should initialize");
+    let mut schema = SchemaStore::init_journaled(schema_memory.open())
+        .expect("fixture storage should initialize");
     let final_row_page = advance_cardinality_build_page(&data, &index, &mut schema, &authority)
         .expect("exclusive row checkpoint should resume after reopen");
     let CardinalityBuildPageOutcome::Advanced { phase, totals, .. } = final_row_page else {
@@ -291,7 +297,8 @@ fn distinct_entity_counts_stay_within_the_frozen_physical_growth_bound() {
     let index_memory = test_memory(197);
     let schema_memory = crate::testing::test_memory_owner(198);
     let schema_measurement = &schema_memory;
-    let mut data = DataStore::init_journaled(data_memory);
+    let mut data =
+        DataStore::init_journaled(data_memory).expect("fixture storage should initialize");
     let mut entities = BTreeSet::new();
     for value in 1..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
         let entity = EntityTag::new(value);
@@ -302,8 +309,10 @@ fn distinct_entity_counts_stay_within_the_frozen_physical_growth_bound() {
         )
         .expect("canonical distinct-entity row should seed");
     }
-    let index = IndexStore::init_journaled(index_memory);
-    let mut schema = SchemaStore::init_journaled(schema_memory.open());
+    let index =
+        IndexStore::init_journaled(index_memory).expect("fixture storage should initialize");
+    let mut schema = SchemaStore::init_journaled(schema_memory.open())
+        .expect("fixture storage should initialize");
     let baseline_bytes = schema_measurement.size() * 65_536;
     let authority = authority(entities, [], 0);
 
@@ -348,7 +357,8 @@ fn repeated_maximum_shape_reuses_both_count_slots_at_fixed_physical_high_water()
     let index_memory = test_memory(203);
     let schema_memory = crate::testing::test_memory_owner(204);
     let schema_measurement = &schema_memory;
-    let mut data = DataStore::init_journaled(data_memory);
+    let mut data =
+        DataStore::init_journaled(data_memory).expect("fixture storage should initialize");
     let mut entities = BTreeSet::new();
     for value in 1..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
         let entity = EntityTag::new(value);
@@ -359,8 +369,10 @@ fn repeated_maximum_shape_reuses_both_count_slots_at_fixed_physical_high_water()
         )
         .expect("canonical maximum-shape row should seed");
     }
-    let index = IndexStore::init_journaled(index_memory);
-    let mut schema = SchemaStore::init_journaled(schema_memory.open());
+    let index =
+        IndexStore::init_journaled(index_memory).expect("fixture storage should initialize");
+    let mut schema = SchemaStore::init_journaled(schema_memory.open())
+        .expect("fixture storage should initialize");
 
     drive_generation_to_ready(
         &data,
@@ -477,8 +489,10 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
     let index_memory = crate::testing::test_memory_owner(194);
     let schema_memory = crate::testing::test_memory_owner(195);
     let schema_measurement = &schema_memory;
-    let data = DataStore::init_journaled(data_memory.open());
-    let mut index = IndexStore::init_journaled(index_memory.open());
+    let data =
+        DataStore::init_journaled(data_memory.open()).expect("fixture storage should initialize");
+    let mut index =
+        IndexStore::init_journaled(index_memory.open()).expect("fixture storage should initialize");
     for value in 0..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
         let raw = index_key(
             accepted,
@@ -490,7 +504,8 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
             .apply_canonical_entry(raw, Some(IndexEntryValue::presence_only()))
             .expect("canonical maximum-fanout entry should seed");
     }
-    let mut schema = SchemaStore::init_journaled(schema_memory.open());
+    let mut schema = SchemaStore::init_journaled(schema_memory.open())
+        .expect("fixture storage should initialize");
     let baseline_bytes = schema_measurement.size() * 65_536;
     let authority = authority([entity], [(accepted, MAX_INDEX_FIELDS)], 0);
 
@@ -516,9 +531,12 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
     drop(index);
     drop(schema);
 
-    let data = DataStore::init_journaled(data_memory.open());
-    let index = IndexStore::init_journaled(index_memory.open());
-    let mut schema = SchemaStore::init_journaled(schema_memory.open());
+    let data =
+        DataStore::init_journaled(data_memory.open()).expect("fixture storage should initialize");
+    let index =
+        IndexStore::init_journaled(index_memory.open()).expect("fixture storage should initialize");
+    let mut schema = SchemaStore::init_journaled(schema_memory.open())
+        .expect("fixture storage should initialize");
     let complete = advance_cardinality_build_page(&data, &index, &mut schema, &authority)
         .expect("exclusive index checkpoint should resume after reopen");
     let CardinalityBuildPageOutcome::CandidateComplete { totals, .. } = complete else {
@@ -640,7 +658,8 @@ fn source_change_is_reported_without_reusing_the_candidate() {
 
 #[test]
 fn canonical_accepted_root_derives_the_build_source_without_generated_models() {
-    let mut schema = SchemaStore::init_journaled(test_memory(200));
+    let mut schema =
+        SchemaStore::init_journaled(test_memory(200)).expect("fixture storage should initialize");
     let candidate = empty_accepted_schema_candidate_for_tests(
         "test::CardinalityBuildAuthority",
         AcceptedSchemaRevision::INITIAL,
@@ -672,7 +691,8 @@ fn canonical_accepted_root_derives_the_build_source_without_generated_models() {
 #[test]
 fn cached_live_successor_cannot_authorize_the_canonical_build_domain() {
     let entity = EntityTag::new(7);
-    let mut schema = SchemaStore::init_journaled(test_memory(200));
+    let mut schema =
+        SchemaStore::init_journaled(test_memory(200)).expect("fixture storage should initialize");
     let initial = empty_accepted_schema_candidate_for_tests(
         "test::CardinalityBuildAuthority",
         AcceptedSchemaRevision::INITIAL,
@@ -719,7 +739,8 @@ fn cached_live_successor_cannot_authorize_the_canonical_build_domain() {
 
 #[test]
 fn cached_live_root_without_canonical_root_cannot_authorize_a_build() {
-    let mut schema = SchemaStore::init_journaled(test_memory(200));
+    let mut schema =
+        SchemaStore::init_journaled(test_memory(200)).expect("fixture storage should initialize");
     let entity = EntityTag::new(7);
     let candidate = accepted_entity_candidate(AcceptedSchemaRevision::INITIAL, entity);
     schema
@@ -740,7 +761,8 @@ fn verified_domain_reuse_preserves_restart_counts_and_watermark_rebuilds() {
     let entity = EntityTag::new(7);
     let memory = crate::testing::test_memory_owner(200);
     let (mut data, index, _) = initialized_stores();
-    let mut schema = SchemaStore::init_journaled(memory.open());
+    let mut schema =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     let candidate = accepted_entity_candidate(AcceptedSchemaRevision::INITIAL, entity);
     schema
         .publish_accepted_schema_candidate(
@@ -764,7 +786,8 @@ fn verified_domain_reuse_preserves_restart_counts_and_watermark_rebuilds() {
         .expect("bounded build should advance");
     }
     drop(schema);
-    let mut schema = SchemaStore::init_journaled(memory.open());
+    let mut schema =
+        SchemaStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     // Restart discards the heap cache while retaining the exact durable cursor.
     let cold = canonical_authority(&schema, FoldWatermark::initial());
     assert_eq!(cold.source(), initial.source());

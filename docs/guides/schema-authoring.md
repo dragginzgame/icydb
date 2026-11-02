@@ -22,6 +22,12 @@ disagree.
 Runtime-enabled crates normally use `icydb::model`; this keeps model authoring
 and database runtime on one direct `icydb` dependency. Schema-only tooling may
 instead depend directly on `icydb-model` without pulling in the runtime.
+The entity/record macro import is authoritative: direct model macros always emit
+schema-only declarations, while the facade's macros emit typed runtime adapters
+and field references. Development, optional and target-specific dependencies do
+not select emission. When migrating a crate that directly imports model macros
+and also uses runtime adapters, replace those imports with
+`use icydb::model::prelude::*;` (or the equivalent renamed facade path).
 
 ## Generated Rust Names
 
@@ -199,6 +205,23 @@ validation and source-program lowering. Fractional or negative unsigned integer
 literals, integers outside the source literal domain, and nonfinite float or
 unrepresentable decimal literals produce compiler errors. Accepted field
 contracts remain responsible for their narrower value bounds.
+
+## Text Expression Indexes
+
+`LOWER`, `UPPER`, `TRIM` and `LOWER(TRIM(...))` use Unicode 17.0.0 data for
+persisted keys and query bounds. Core checks the standard library's Unicode
+version at compile time, including in downstream canisters. Upgrading a compiler
+to different Unicode data therefore requires an explicit retained-index
+compatibility review. Do not change the guard merely to make that compiler build.
+Golden tests cover every scalar mapping/whitespace property and contextual casing.
+No extra mapping tables, runtime check or per-index configuration are introduced.
+
+This freezes the selected compiler's current behavior; it does not prove that
+older retained indexes used the same data. Rust 1.91 uses Unicode 16, for example.
+For an installation built with different or unknown transform data, establish
+its affected-index repair or retirement plan before upgrading. Existing rows,
+journal effects and indexes are not disposable. This change neither rebuilds nor
+clears them and adds no compatibility reader.
 
 ## Prefix Index Declarations
 
@@ -526,32 +549,31 @@ pub struct AppCanister;
 pub struct TransferStore;
 
 // In the canister root, not the schema crate:
-fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
-        vec![icydb::db::MemoryAuthority::new("icydb.app", "icydb.app.")?],
-        vec![], // Explicitly exclude physical IDs held by unmanaged host users.
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![
+        icydb::db::MemoryAuthority::new("icydb_app", "icydb.app.")?,
+    ])
 }
 ```
 
-The required host `icydb_memory_pool` provider grants disjoint permanent key
-namespaces to their named owners in one shared physical pool. It is called only
-for IcyDB-owned cold bootstrap; a composed host that commits first is adopted
-without invoking it. Governance IDs are excluded automatically; add explicit
-physical exclusions for unmanaged host memory. All admitted owners share eligible
-free slots. Namespaces do not reserve an ID range.
-`ic-memory` persists the key-to-ID mapping. The schema does not assign physical
-IDs. Use disjoint namespace grants when composing databases
-or frameworks. `canic_icydb::start!` exposes `icydb_memory_requests() -> Result<Vec<MemoryRequest>,
-MemoryDeclarationError>` at the application root. It describes every permanent
+The required host `icydb_storage_grants` provider grants disjoint permanent
+namespaces to named owners. It is called only for IcyDB-owned cold bootstrap;
+an already bound composed host is adopted without invoking it. Storage owns
+allocation identities and placement; there are no application-selected physical
+slots or numeric exclusions. IcyDB's owner label is `icydb_<namespace>` while
+its permanent keys retain the `icydb.<namespace>.` prefix.
+`ic-storage` persists the key-to-ID mapping. IDs are opaque 64-bit identities,
+not memory addresses or opening capabilities. Use disjoint namespace grants
+when composing databases or frameworks. Generated `icydb_memory_requests()`
+returns `Result<Vec<MemoryRequest>, AdmissionError>` and describes every permanent
 control and journaled store role before any lazy store opens; heap stores add no
 stable requests. A composed host combines this list with its other components,
-then passes `SealedDeclarationSnapshot::new(requests)` explicitly to Memory
+then passes `SealedDeclarationSnapshot::new(requests)` explicitly to Storage
 bootstrap. Store initialization only opens committed keys.
 
 A host that bootstraps first must call
-`icydb::db::prepare_memory_bootstrap` from its `RuntimeBootstrapPolicy`
-preparation hook. Standalone IcyDB bootstrap calls that same hook automatically.
+`icydb::db::prepare_memory_bootstrap(&snapshot, admission)` from its
+`RuntimeBootstrapPolicy` preparation hook, passing the exact source snapshot. Standalone IcyDB bootstrap calls that same hook automatically.
 
 Canister controls use `icydb.app.{commit.control,startup.control,integrity.progress}.v1`.
 The store uses `icydb.app.store.transfers.{data,index,schema,journal}.v1`.
@@ -572,53 +594,21 @@ Persisted databases must use the current logical-memory identity contract.
 Noncurrent databases require recreation or reinstall under the
 [persisted format policy](../contracts/PERSISTED_FORMAT_POLICY.md#current-compatibility-posture).
 
-### Canister memory profiles
+### Storage configuration and installations
 
-The canister declaration selects the bucket size used when IcyDB initializes
-the shared memory manager. Omission selects `general`:
+Generated standalone startup uses `ic-storage::StorageConfig::default()`.
+A composed host may construct and bootstrap Storage with its chosen resource
+limits before binding the runtime. IcyDB verifies its admitted declarations
+without replacing that configuration or invoking the grants provider again.
+Allocation reports expose retained names, opaque identities, committed generation
+and logical extent bytes. They do not report physical allocator usage or payload
+bytes.
 
-```rust,ignore
-#[canister(
-    memory_namespace = "app",
-    memory_profile = "general"
-)]
-pub struct AppCanister;
-```
-
-| Profile | Bucket size | Shared manager capacity |
-| --- | ---: | ---: |
-| `compact` | 4 pages / 256 KiB | 8 GiB |
-| `general` (default) | 16 pages / 1 MiB | 32 GiB |
-| `high_headroom` | 128 pages / 8 MiB | 256 GiB |
-
-Capacity is the manager's bucket-table ceiling before platform/backing limits,
-not payload capacity. Data, indexes, journals and other users of this manager
-share it. Smaller buckets reduce rounding slack, not encoded row size. Use
-`compact` for measured small deployments and `high_headroom` when growth needs
-more than the general profile's headroom. The
-[measured fixture](../reports/investigations/2026/09/13/bucket-sizing/01/report.md)
-supports `general` as a starting point, not a universal optimum.
-
-This is one physical bootstrap setting, not per-store configuration or a schema
-migration. The build-time model exposes `Canister::with_memory_profile` and
-`CanisterMemoryProfile`; generated code uses the same mapping. Existing memory
-must match the selected bucket size. Changing it requires recreation/reinstall;
-it cannot shrink an existing allocation. For a 128-page IcyDB-owned deployment,
-explicitly select `high_headroom` before upgrading to the new default, or recreate
-it. That preserves bucket geometry, not compatibility with unrelated format cuts.
-
-When IcyDB-owned bootstrap detects a size mismatch, public startup observation
-returns `E274` (`MemoryBucketSizeMismatch`). Its numeric facts are `Expected`
-(requested pages) and `Actual` (persisted pages); one page is 64 KiB. The CLI
-renders this without a schema artifact. This is a terminal configuration
-conflict, not pending recovery: retain the persisted size or explicitly recreate
-the database. No allocation is resized by the failed bootstrap.
-
-If the host explicitly bootstraps the shared manager before IcyDB participates,
-the host's policy and bucket size take precedence; this setting does not override
-them. IcyDB still validates its committed declarations. Inspect the existing
-allocation report for effective bucket size and usage. There is no second
-profile override on `start!` and no endpoint configuration argument.
+This adoption targets **fresh installations only**. Storage 0.64 rejects earlier
+Memory/Storage images without changing their bytes. There is no compatibility
+reader, converter or automatic reset. Retain earlier binaries and backups for
+required recovery/export; this source update authorizes no deletion or deployment.
+Same-contract restarts preserve named allocations and require current admission.
 
 Host declarations produce schema proposals and generated adapters. After
 acceptance, the accepted schema snapshot is the sole runtime authority for row

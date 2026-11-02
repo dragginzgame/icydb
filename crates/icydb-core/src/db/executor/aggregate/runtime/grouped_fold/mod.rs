@@ -84,7 +84,10 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         stream_bindings: AccessStreamBindings {
             index_prefix_specs: route.index_prefix_specs(),
             index_range_specs: route.index_range_specs(),
-            continuation: AccessScanContinuationInput::new(None, route.direction()),
+            continuation: AccessScanContinuationInput::new(
+                route.resume_anchor.as_ref(),
+                route.direction(),
+            ),
             index_prefix_child_expansion: None,
         },
         execution_preparation: prepared_residents.execution_preparation(),

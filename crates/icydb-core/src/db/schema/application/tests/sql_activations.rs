@@ -1,5 +1,6 @@
 //! Generated reconciliation preserves unchanged SQL-owned activation authority.
 
+mod pending_completion;
 mod revision_fence;
 mod unique_abort;
 
@@ -222,7 +223,10 @@ fn qualify(ddl: &str, constraint: &str, pages: usize, changed_entity: Option<&st
     );
     assert_eq!(snapshot(&db), before);
     assert_eq!(job(&db, &before), before_job);
-    assert_eq!(store.with_index(IndexStore::len), before_indexes);
+    assert_eq!(
+        (store.with_index(IndexStore::len)).expect("storage operation should succeed"),
+        (before_indexes).expect("storage operation should succeed")
+    );
     assert_eq!(ABORT_DATA.with(|data| data.borrow().len()), 2);
     assert_eq!(apply_generated_schema(&db, &generated).unwrap(), receipt);
     if constraint == "sql_check" && pages == 2 {

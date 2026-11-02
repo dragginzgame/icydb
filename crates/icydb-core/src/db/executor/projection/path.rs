@@ -15,6 +15,71 @@ use crate::{
     value::Value,
 };
 
+/// Resolve sibling leaves with one raw map traversal. Scratch slices are
+/// caller-admitted; no result is materialized until the complete root is valid.
+pub(in crate::db::executor) fn resolve_slot_sibling_paths(
+    slots: &dyn CanonicalSlotReader,
+    root_slot: usize,
+    prefix: &[Box<[u8]>],
+    members: &[&[u8]],
+    shaped: &mut Vec<Value>,
+) -> Result<(), InternalError> {
+    if slots.get_bytes(root_slot).is_some() {
+        let mut selected = vec![None; members.len()];
+        ValueStorageView::select_raw_map_members(
+            slots.required_bytes(root_slot)?,
+            prefix,
+            members,
+            &mut selected,
+        )
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+        for leaf in selected {
+            shaped.push(
+                leaf.map(decode_structural_value_storage_bytes)
+                    .transpose()
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?
+                    .unwrap_or(Value::Null),
+            );
+        }
+        return Ok(());
+    }
+    let root = slots.required_value_by_contract_cow(root_slot)?;
+    resolve_value_sibling_paths(root.as_ref(), prefix, members, shaped)
+}
+
+/// Resolve sibling leaves from one materialized parent without cloning its map.
+/// The caller admits member-selection backing before entering this helper.
+pub(in crate::db::executor) fn resolve_value_sibling_paths(
+    root: &Value,
+    prefix: &[Box<[u8]>],
+    members: &[&[u8]],
+    shaped: &mut Vec<Value>,
+) -> Result<(), InternalError> {
+    let parent = resolve_value_field_path(root, prefix)
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+    let mut selected = vec![None; members.len()];
+    if let Some(parent) = parent.filter(|value| !matches!(value, Value::Null)) {
+        let entries = parent
+            .as_map()
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        for (key, value) in entries {
+            if let Value::Text(key) = key {
+                for (member, result) in members.iter().zip(&mut selected) {
+                    if result.is_none() && key.as_bytes() == *member {
+                        *result = Some(value);
+                    }
+                }
+            }
+        }
+    }
+    shaped.extend(
+        selected
+            .into_iter()
+            .map(|value| value.cloned().unwrap_or(Value::Null)),
+    );
+    Ok(())
+}
+
 /// Walk one already-materialized record path without cloning nested maps.
 /// Missing members and null ancestors both project as an absent scalar leaf;
 /// a non-map ancestor is persisted-row corruption.

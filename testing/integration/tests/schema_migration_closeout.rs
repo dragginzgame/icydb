@@ -517,7 +517,6 @@ fn advance(
             expected_plan: status
                 .plan_digest()
                 .expect("deployed v2 fixture should expose its migration plan"),
-            acknowledged_finding_page: None,
         },
     )
 }

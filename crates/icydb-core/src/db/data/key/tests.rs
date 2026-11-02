@@ -527,8 +527,9 @@ fn data_key_fuzz_roundtrip_is_canonical() {
 #[test]
 fn raw_data_store_key_storable_roundtrip() {
     let key = max_width_data_store_key_fixture().to_raw().unwrap();
-    let bytes = key.to_bytes();
-    let decoded = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
+    let bytes = key.to_bytes().expect("fixture encoding");
+    let decoded =
+        <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes)).expect("fixture decoding");
     assert_eq!(key, decoded);
 }
 

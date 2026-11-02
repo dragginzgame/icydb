@@ -37,15 +37,15 @@ impl Path for HeapCanister {
 }
 
 impl CanisterKind for HeapCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(170)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema_wakeup.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(171)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.test.schema_wakeup.startup.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(172)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.schema_wakeup.integrity.v1";
@@ -227,7 +227,6 @@ fn heap_metadata_migration_wakes_reconciliation_without_another_upgrade() {
             expected_database: candidate.target_database(),
             expected_head: candidate.expected_head().clone(),
             expected_plan: candidate.migration().unwrap().digest(),
-            acknowledged_finding_page: None,
         },
     )
     .unwrap();

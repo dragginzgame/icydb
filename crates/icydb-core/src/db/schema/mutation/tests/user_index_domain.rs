@@ -73,6 +73,80 @@ fn complete_domain_setup_admits_both_projections_before_returning_a_builder() {
 }
 
 #[test]
+fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
+    use crate::db::resource::budget::MaintenanceConstructionBudget;
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+    let base = base_snapshot();
+    let predicate = crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+        "name != 'Ada' AND name != 'Grace' AND name != 'Lin'",
+        base.fields(),
+    );
+    // Each before/after projection visits one index and the canonical source,
+    // then classifies three conjunction pairs under the same stage allowance.
+    let source_steps = 2 * (1 + predicate.canonical_bytes().unwrap().len() as u64);
+    for expression in [false, true] {
+        let key = if expression {
+            domain_expression_index(1, "by_name", false, None)
+        } else {
+            domain_field_index(1, "by_name", false)
+        };
+        let index = PersistedIndexSnapshot::new(
+            key.schema_id(),
+            key.ordinal(),
+            key.name().into(),
+            key.store().into(),
+            false,
+            key.key().clone(),
+            Some(predicate.clone()),
+        );
+        let snapshot = snapshot_with_indexes(&base, vec![index]);
+        let contract = accepted_row_contract(&snapshot);
+        let store = IndexStore::init_heap();
+        let physical_before = index_store_entries(&store);
+        for pair_allowance in [5, 6, 7] {
+            let limit = source_steps + pair_allowance;
+            let result = super::StagedUserIndexDomainReplacementBuilder::new(
+                accepted_identity(&snapshot),
+                &snapshot,
+                &snapshot,
+                Some(&contract),
+                Some(&contract),
+                &store,
+                MaintenanceConstructionBudget::with_limit_for_tests(
+                    Resource::PredicateExpressionSteps,
+                    limit,
+                ),
+            );
+            if pair_allowance < 6 {
+                let error = match result {
+                    Ok(_) => panic!("the sixth comparison must exceed the shared setup budget"),
+                    Err(error) => error.into_internal_error(),
+                };
+                for fact in [
+                    (
+                        DiagnosticFactTag::BudgetResource,
+                        Resource::PredicateExpressionSteps.raw(),
+                    ),
+                    (DiagnosticFactTag::Limit, limit),
+                    (DiagnosticFactTag::Actual, source_steps + 6),
+                ] {
+                    assert!(error.diagnostic_facts().contains(&fact));
+                }
+            } else {
+                result
+                    .map_err(super::StagedUserIndexDomainError::into_internal_error)
+                    .unwrap()
+                    .finish(&store)
+                    .map_err(super::StagedUserIndexDomainError::into_internal_error)
+                    .unwrap();
+            }
+            assert_eq!(index_store_entries(&store), physical_before);
+        }
+    }
+}
+
+#[test]
 fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejection() {
     use crate::db::resource::budget::MaintenanceConstructionBudget;
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
@@ -214,8 +288,12 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
     );
     let system_key = unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91);
     let other_entity_key = unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92);
-    store.insert(system_key.clone(), IndexEntryValue::presence());
-    store.insert(other_entity_key.clone(), IndexEntryValue::presence());
+    store
+        .insert(system_key.clone(), IndexEntryValue::presence())
+        .expect("fixture storage operation should succeed");
+    store
+        .insert(other_entity_key.clone(), IndexEntryValue::presence())
+        .expect("fixture storage operation should succeed");
     let physical_before = index_store_entries(&store);
 
     let staged = stage_domain(
@@ -255,9 +333,12 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
         .collect::<Vec<_>>();
     assert_eq!(ordinals, vec![2, 2]);
     assert_eq!(index_store_entries(&store), physical_before);
-    assert_eq!(store.get(&system_key), Some(IndexEntryValue::presence()));
     assert_eq!(
-        store.get(&other_entity_key),
+        (store.get(&system_key)).expect("storage operation should succeed"),
+        Some(IndexEntryValue::presence())
+    );
+    assert_eq!(
+        (store.get(&other_entity_key)).expect("storage operation should succeed"),
         Some(IndexEntryValue::presence()),
     );
     assert_eq!(store.state(), IndexState::Ready);
@@ -286,31 +367,37 @@ fn complete_domain_stage_rejects_physical_before_projection_mismatch() {
         result,
         Err(super::StagedUserIndexDomainError::CurrentDomainMismatch),
     ));
-    assert!(store.is_empty());
+    assert!((store.is_empty()).expect("fixture storage read should succeed"));
     assert_eq!(store.state(), IndexState::Ready);
 }
 
 #[test]
 fn empty_user_index_domain_proof_is_entity_and_kind_scoped() {
     let mut store = IndexStore::init_heap();
-    store.insert(
-        unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
-        IndexEntryValue::presence(),
-    );
-    store.insert(
-        unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
-        IndexEntryValue::presence(),
-    );
+    store
+        .insert(
+            unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
+            IndexEntryValue::presence(),
+        )
+        .expect("fixture storage operation should succeed");
+    store
+        .insert(
+            unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
+            IndexEntryValue::presence(),
+        )
+        .expect("fixture storage operation should succeed");
 
     assert!(
         super::prove_empty_user_index_domain(&store, EntityTag::new(7)).is_ok(),
         "system and other-entity keys do not occupy the user domain",
     );
 
-    store.insert(
-        unrelated_key(EntityTag::new(7), IndexKeyKind::User, 1, 93),
-        IndexEntryValue::presence(),
-    );
+    store
+        .insert(
+            unrelated_key(EntityTag::new(7), IndexKeyKind::User, 1, 93),
+            IndexEntryValue::presence(),
+        )
+        .expect("fixture storage operation should succeed");
     assert!(matches!(
         super::prove_empty_user_index_domain(&store, EntityTag::new(7)),
         Err(super::StagedUserIndexDomainError::CurrentDomainMismatch),
@@ -428,7 +515,10 @@ fn complete_domain_stage_uses_historical_fill_in_composite_index_key() {
     assert_eq!(staged.usage().accepted_before_entries(), 0);
     assert_eq!(staged.usage().accepted_after_entries(), 1);
     assert_eq!(staged.insertion_entries().len(), 1);
-    assert!(store.is_empty(), "staging must remain zero-write");
+    assert!(
+        (store.is_empty()).expect("fixture storage read should succeed"),
+        "staging must remain zero-write"
+    );
 }
 
 #[test]
@@ -500,7 +590,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
         result,
         Err(super::StagedUserIndexDomainError::CandidateUniqueConflict),
     ));
-    assert!(store.is_empty());
+    assert!((store.is_empty()).expect("fixture storage read should succeed"));
 }
 
 #[test]
@@ -589,7 +679,10 @@ fn filtered_unique_domain_omits_guard_false_rows_and_matches_incremental_keys() 
 
     assert_eq!(staged.usage().accepted_after_entries(), 1);
     assert_eq!(staged.insertion_entries().len(), 1);
-    assert!(store.is_empty(), "domain staging must remain zero-write");
+    assert!(
+        (store.is_empty()).expect("fixture storage read should succeed"),
+        "domain staging must remain zero-write"
+    );
 
     assert_filtered_unique_incremental_key_parity(after, &staged, &first_after, &third_after);
 }
@@ -664,7 +757,7 @@ fn complete_domain_stage_rejects_index_owned_by_another_store() {
         result,
         Err(super::StagedUserIndexDomainError::AcceptedIndexStoreMismatch),
     ));
-    assert!(store.is_empty());
+    assert!((store.is_empty()).expect("fixture storage read should succeed"));
     assert_eq!(store.state(), IndexState::Ready);
 }
 
@@ -696,7 +789,7 @@ fn complete_domain_stage_rejects_duplicate_unique_expression_components() {
         result,
         Err(super::StagedUserIndexDomainError::CandidateUniqueConflict),
     ));
-    assert!(store.is_empty());
+    assert!((store.is_empty()).expect("fixture storage read should succeed"));
     assert_eq!(store.state(), IndexState::Ready);
 }
 
@@ -724,7 +817,7 @@ fn complete_domain_stage_preserves_mixed_key_component_order() {
         .expect("mixed staged key should decode");
     assert_eq!(key.component_count(), 2);
     assert_ne!(key.component(0), key.component(1));
-    assert!(store.is_empty());
+    assert!((store.is_empty()).expect("fixture storage read should succeed"));
 }
 
 #[test]
@@ -754,7 +847,7 @@ fn complete_domain_stage_requires_row_contract_for_filtered_indexes() {
         result,
         Err(super::StagedUserIndexDomainError::MissingPredicateRowContract),
     ));
-    assert!(store.is_empty());
+    assert!((store.is_empty()).expect("fixture storage read should succeed"));
 }
 
 #[test]
@@ -932,7 +1025,7 @@ fn complete_domain_stage_flat_or_matches_explicit_membership() {
             } else {
                 expected_keys = Some(keys);
             }
-            assert!(store.is_empty());
+            assert!((store.is_empty()).expect("fixture storage read should succeed"));
         }
     }
 }
@@ -1024,7 +1117,11 @@ fn insert_projection_entries(
             .expect("test value should be indexable")
             .to_raw()
             .expect("test key should encode");
-            assert_eq!(store.insert(key, IndexEntryValue::presence()), None);
+            assert_eq!(
+                (store.insert(key, IndexEntryValue::presence()))
+                    .expect("storage operation should succeed"),
+                None
+            );
         }
     }
 }
@@ -1048,11 +1145,11 @@ fn unrelated_key(
 
 fn index_store_entries(store: &IndexStore) -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
     let mut entries = Vec::new();
-    let result: Result<(), std::convert::Infallible> = store.visit_entries(|key, value| {
+    let result: Result<(), crate::error::InternalError> = store.visit_entries(|key, value| {
         entries.push((key.clone(), value.clone()));
         Ok(crate::db::index::IndexStoreVisit::Continue)
     });
-    result.unwrap_or_else(|never| match never {});
+    result.expect("fixture traversal should succeed");
     entries
 }
 
@@ -1171,6 +1268,6 @@ fn complete_domain_generated_numeric_filters_enforce_unique_membership_after_cod
             ),
             "two matching typed rows must collide"
         );
-        assert!(store.is_empty());
+        assert!((store.is_empty()).expect("fixture read"));
     }
 }

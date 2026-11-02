@@ -1,8 +1,8 @@
 [package]
 name = "icydb-model"
 edition = { workspace = true }
-rust-version = "1.91.0"
-version = { workspace = true }
+rust-version = { workspace = true }
+version = "0.294.0"
 license-file = { workspace = true }
 description = "IcyDB application-model authoring, validation, and code generation"
 repository = { workspace = true }

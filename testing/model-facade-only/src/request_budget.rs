@@ -193,13 +193,14 @@ fn interleaved_async_polls_share_nested_work_but_isolate_request_headroom() {
         );
         with_request_execution_async(async {
             read_one();
+            Ok::<(), runtime_api::Error>(())
         })
-        .await;
+        .await?;
         assert_eq!(
             session.request_budget().observed(Resource::QueryExecutions),
             2
         );
-        session.request_budget()
+        Ok::<_, runtime_api::Error>(session.request_budget())
     }));
     let mut second = Box::pin(with_request_execution_async(async {
         read_one();
@@ -211,7 +212,7 @@ fn interleaved_async_polls_share_nested_work_but_isolate_request_headroom() {
             2
         );
         read_one();
-        session.request_budget()
+        Ok::<_, runtime_api::Error>(session.request_budget())
     }));
     let mut cx = Context::from_waker(Waker::noop());
     assert!(first.as_mut().poll(&mut cx).is_pending());
@@ -220,10 +221,10 @@ fn interleaved_async_polls_share_nested_work_but_isolate_request_headroom() {
         "suspended polls leave no ambient owner"
     );
     assert!(second.as_mut().poll(&mut cx).is_pending());
-    let Poll::Ready(first_budget) = first.as_mut().poll(&mut cx) else {
+    let Poll::Ready(Ok(first_budget)) = first.as_mut().poll(&mut cx) else {
         panic!("first should finish")
     };
-    let Poll::Ready(second_budget) = second.as_mut().poll(&mut cx) else {
+    let Poll::Ready(Ok(second_budget)) = second.as_mut().poll(&mut cx) else {
         panic!("second should finish")
     };
     assert_eq!(first_budget.observed(Resource::QueryExecutions), 2);

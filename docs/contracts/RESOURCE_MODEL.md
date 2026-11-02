@@ -276,10 +276,15 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   comparison pairs to the existing request across ordinary planning, exact
   metadata selection and diagnostic EXPLAIN. Schema metadata projects the bound
   tree; consumers retain normalization authority. Commit metadata preserves its
-  existing pure normalization, including retained journal replay. Commit/recovery,
-  shared user-index-domain and migration/activation preparation still require
-  their own authority propagation; these checks do not claim complete projection
-  allocation or sorting accounting.
+  existing pure normalization, including retained journal replay.
+- Complete user-index-domain staging and migration validation/rewrite charge
+  accepted predicate conjunction pairs to their existing construction allowance.
+  Unique activation shares one page allowance between projection preparation
+  and scanning, with final checks before publication. Its shared projection
+  constructor requires caller-owned normalization; accepted commit/replay keeps
+  its existing pure normalization without a new maintenance ceiling.
+  Commit/recovery authority and complete projection allocation/sorting accounting
+  remain separately qualified work.
 - Cold accepted-runtime and inspection-plan construction has its own admitted
   boundaries. A shared request profile is not proof of complete schema compilation,
   journal replay or publication accounting. Atomic candidate publication and

@@ -96,7 +96,11 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                     if $members{$package->{id}} && (
                         (exists($rules{$name}) && !$rules{$name}{$package->{name}})
                         || ($common{$name} && $package->{name} ne "ic-platform"
-                            && !($package->{name} eq "ic-platform-types" && $name eq "ic_principal")));
+                            && !($package->{name} eq "ic-platform-types" && $name eq "ic_principal")
+                            && !($package->{name} eq "ic-platform-pocket-ic"
+                                && ($name eq "candid" || $name eq "ic-certification" || $name eq "ic-management-canister-types")
+                                && !defined($dependency->{kind})
+                                && ($dependency->{target} // "") eq q{cfg(not(target_family = "wasm"))})));
             }
         }
         $packages{$_} or die "missing workspace member package\n" for keys %members;

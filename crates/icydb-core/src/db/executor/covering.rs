@@ -41,7 +41,7 @@ fn read_row_presence_with_consistency_from_data_store(
     consistency: MissingRowPolicy,
 ) -> Result<bool, InternalError> {
     let raw = key.raw_key()?;
-    let row_exists = data.contains(raw);
+    let row_exists = data.contains(raw)?;
 
     match consistency {
         MissingRowPolicy::Error if !row_exists => Err(InternalError::store_corruption()),

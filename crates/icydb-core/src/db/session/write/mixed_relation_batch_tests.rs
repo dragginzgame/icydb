@@ -1,3 +1,5 @@
+mod recovery;
+
 use super::{DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
 use crate::{
     db::{
@@ -57,15 +59,15 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(47)
     }
     const COMMIT_STABLE_KEY: &'static str = "icydb.mixed_relation_batch_tests.commit.v1";
-    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(50)
     }
     const STARTUP_STABLE_KEY: &'static str = "icydb.mixed_relation_batch_tests.startup.control.v1";
-    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
         Ok(48)
     }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =

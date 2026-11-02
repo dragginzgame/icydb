@@ -112,7 +112,7 @@ fn borrowed_grouped_aggregate_facts_preserve_all_identity_families() {
                     assert_eq!(
                         GroupedPlanAggregateFamily::try_from_grouped_aggregates(
                             std::slice::from_ref(&spec),
-                            &mut |_| Ok::<_, std::convert::Infallible>(()),
+                            &mut |_| Ok::<_, crate::error::InternalError>(()),
                         )
                         .unwrap(),
                         expected_family
@@ -166,7 +166,7 @@ fn borrowed_grouped_aggregate_facts_preserve_list_and_explain_profiles() {
         assert_eq!(
             GroupedPlanAggregateFamily::try_from_grouped_aggregates(&aggregates, &mut |_| Ok::<
                 _,
-                std::convert::Infallible,
+                crate::error::InternalError,
             >(
                 ()
             ),)

@@ -19,7 +19,7 @@ if [[ ! -f "$LOCK" || ! -f "$MANIFEST" ]]; then
   exit 1
 fi
 
-workspace_version="$(bash "$ROOT/scripts/ci/read-cargo-workspace-version.sh" --stable "$MANIFEST")" || exit 1
+workspace_version="$(RELEASE_GROUP=database bash "$ROOT/scripts/release/version.sh")" || exit 1
 
 for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
   workspace_requirement="$(
@@ -57,7 +57,7 @@ fi
 
 awk -v required_time="$workspace_time_version" '
 BEGIN {
-  split("candid digest ic-cdk ic-cdk-executor ic-cdk-macros ic-memory ic-platform-runtime ic-platform-types ic-stable-structures ic0 ic_principal icrc-ledger-types sha2", sensitive)
+  split("candid digest ic-cdk ic-cdk-executor ic-cdk-macros ic-storage ic-platform-runtime ic-platform-types ic-stable-structures ic0 ic_principal icrc-ledger-types sha2", sensitive)
   for (idx in sensitive) {
     sensitive_set[sensitive[idx]] = 1
   }
@@ -76,7 +76,7 @@ function strip_value(line) {
   return line
 }
 
-function record_package() {
+function record_package(    identity, parts) {
   if (name == "") {
     return
   }
@@ -84,11 +84,21 @@ function record_package() {
     banned[name] = version
   }
   if (name in sensitive_set) {
-    key = name SUBSEP version
+    identity = name
+    # Approved coexistence: database/host hashing uses 0.10 and Platform Types
+    # uses 0.11. Retain one resolved version per family and reject other lines.
+    if (name == "sha2" || name == "digest") {
+      split(version, parts, ".")
+      if (parts[1] != "0" || (parts[2] != "10" && parts[2] != "11")) {
+        unsupported_hash[name] = version
+      }
+      identity = name "@" parts[1] "." parts[2]
+    }
+    key = identity SUBSEP version
     if (!(key in seen_version)) {
       seen_version[key] = 1
-      version_count[name] += 1
-      versions[name] = versions[name] " " version
+      version_count[identity] += 1
+      versions[identity] = versions[identity] " " version
     }
   }
   if (name in required_exact && version != required_exact[name]) {
@@ -117,6 +127,10 @@ END {
   record_package()
 
   failed = 0
+  for (crate in unsupported_hash) {
+    printf "unqualified hash dependency: %s %s\n", crate, unsupported_hash[crate] > "/dev/stderr"
+    failed = 1
+  }
   for (crate in banned) {
     printf "banned dependency resolved: %s %s\n", crate, banned[crate] > "/dev/stderr"
     failed = 1

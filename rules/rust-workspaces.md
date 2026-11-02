@@ -95,6 +95,15 @@ still governs demonstrated integration blockers.
   helpers coordinated; do not create one group per crate by default. Shared
   ownership, directory placement or qualification alone does not require matching
   versions. Similar names or occasional unchanged releases do not justify a split.
+- When an unrelated capability change forces downstream upgrades, trace the
+  public-type, implementation and singleton edges before choosing release groups.
+  Record the cause and affected consumers in the existing issue or change notes.
+  A feature gate does not give a capability an independent package version.
+  If an approved split separates a runtime from unrelated capabilities, move the
+  implementation owner with its tightly coupled helpers; loosening an empty
+  guard's pin cannot establish one runtime. Preserve real singleton refusal.
+  Qualify that an unrelated group change leaves the runtime supplier and its
+  existing consumers usable, and that incompatible runtime suppliers still fail.
 - For independent public versions or workspace migrations beyond the scoped
   integration isolation below, show a recurring maintenance problem, why a local
   fix or release batching is insufficient, and the total migration and
@@ -105,7 +114,9 @@ still governs demonstrated integration blockers.
   Approved release groups may keep one workspace and lockfile using the existing
   [explicit release-group contract](../docs/releases.md#explicit-cargo-release-groups).
   Its admitted member versions are the scoped exception to workspace-version
-  inheritance; root dependency inheritance and full workspace qualification remain.
+  inheritance; root dependency inheritance and repository-wide CI remain.
+  Release qualification defaults to the full gate until the consumer qualifies
+  an explicit [group plan](../docs/release-group-validation.md).
 - In a workspace with independent release groups, every member, including private
   tooling and fixtures, belongs to one explicit group. Remove
   `[workspace.package].version`; every member declares a literal package version
@@ -251,6 +262,13 @@ types, behavior and retained-data contracts.
 - Preserve real core regression coverage. Replacing a framework-hosted test means
   retaining its engine invariant in owner-local tests and its composition proof
   at the integration boundary; moving a test is not permission to drop that proof.
+- Core qualification must have an owner-local path that does not require its
+  downstream adapter to release first. Merely placing a composed fixture in a
+  separate workspace is insufficient if core gates still require it unconditionally.
+  Keep composition qualification explicit and required where the changed contract
+  affects it. Demonstrate that an incompatible adapter graph fails its own check
+  while independent core checks retain accurate results; no silent skipping or
+  stale-source evidence may substitute for required integration acceptance.
 - Before declaring a core upgrade blocked, name the package, target/features,
   conflicting identities and introducing paths. Distinguish a core contract
   change from an adapter's compatibility constraint. Do not require unrelated

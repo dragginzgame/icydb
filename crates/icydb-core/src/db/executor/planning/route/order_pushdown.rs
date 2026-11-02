@@ -6,8 +6,15 @@
 #[cfg(feature = "sql")]
 use std::fmt::Write as _;
 
-use crate::db::query::explain::{
-    ExplainOrderPushdown, SecondaryOrderPushdownRejection as ExplainSecondaryOrderPushdownRejection,
+use crate::db::{
+    QueryError,
+    query::{
+        explain::{
+            ExplainOrderPushdown,
+            SecondaryOrderPushdownRejection as ExplainSecondaryOrderPushdownRejection,
+        },
+        preparation::PreparationWork,
+    },
 };
 
 ///
@@ -27,6 +34,22 @@ pub(in crate::db) enum PushdownApplicability {
 }
 
 impl PushdownApplicability {
+    /// Copy the route decision into detached diagnostics under this caller's budget.
+    pub(in crate::db::executor) fn project_explain(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<ExplainOrderPushdown, QueryError> {
+        let projected = match self {
+            Self::NotApplicable => Self::NotApplicable,
+            Self::Eligible { index, prefix_len } => Self::Eligible {
+                index: work.copy_text(index)?,
+                prefix_len: *prefix_len,
+            },
+            Self::Rejected(reason) => Self::Rejected(reason.copy_for_explain(work)?),
+        };
+        Ok(projected.into())
+    }
+
     /// Return true when this applicability state is eligible for secondary-order pushdown.
     #[must_use]
     pub(in crate::db::executor) const fn is_eligible(&self) -> bool {
@@ -64,7 +87,7 @@ impl From<PushdownApplicability> for ExplainOrderPushdown {
                 Self::EligibleSecondaryIndex { index, prefix_len }
             }
             PushdownApplicability::Rejected(reason) => Self::Rejected(reason.into()),
-            PushdownApplicability::NotApplicable => Self::MissingModelContext,
+            PushdownApplicability::NotApplicable => Self::NotApplicable,
         }
     }
 }
@@ -143,6 +166,50 @@ impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownReje
 }
 
 impl SecondaryOrderPushdownRejection {
+    // Diagnostic output owns its labels independently of route/cache lifetime.
+    // Admit each string and list before allocating, including warm-cache calls.
+    fn copy_for_explain(&self, work: &PreparationWork<'_>) -> Result<Self, QueryError> {
+        Ok(match self {
+            Self::AccessPathIndexRangeUnsupported { index, prefix_len } => {
+                Self::AccessPathIndexRangeUnsupported {
+                    index: work.copy_text(index)?,
+                    prefix_len: *prefix_len,
+                }
+            }
+            Self::InvalidIndexPrefixBounds {
+                prefix_len,
+                index_field_len,
+            } => Self::InvalidIndexPrefixBounds {
+                prefix_len: *prefix_len,
+                index_field_len: *index_field_len,
+            },
+            Self::OrderFieldsDoNotMatchIndex {
+                index,
+                prefix_len,
+                expected_suffix,
+                expected_full,
+                actual,
+            } => Self::OrderFieldsDoNotMatchIndex {
+                index: work.copy_text(index)?,
+                prefix_len: *prefix_len,
+                expected_suffix: work.copy_slice(expected_suffix, |text| work.copy_text(text))?,
+                expected_full: work.copy_slice(expected_full, |text| work.copy_text(text))?,
+                actual: work.copy_slice(actual, |text| work.copy_text(text))?,
+            },
+            Self::VariablePrefixSuffixOrderUnsupported {
+                index,
+                prefix_len,
+                expected_full,
+                actual,
+            } => Self::VariablePrefixSuffixOrderUnsupported {
+                index: work.copy_text(index)?,
+                prefix_len: *prefix_len,
+                expected_full: work.copy_slice(expected_full, |text| work.copy_text(text))?,
+                actual: work.copy_slice(actual, |text| work.copy_text(text))?,
+            },
+        })
+    }
+
     /// Render a stable diagnostic label for this rejection reason.
     #[must_use]
     #[cfg(feature = "sql")]

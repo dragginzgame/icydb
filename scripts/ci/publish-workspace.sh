@@ -5,6 +5,7 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
+source scripts/release/group.sh
 export PATH="$ROOT_DIR/.tools/host/bin:$PATH"
 
 PUBLISH_DRY_RUN="${PUBLISH_DRY_RUN:-0}"
@@ -104,9 +105,22 @@ release_receipt_matches() {
         scripts/ci/verify-release-gate-receipt.sh "$head_commit"
 }
 
-version="$(bash "$SELF_DIR/read-cargo-workspace-version.sh" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
+version="$(bash scripts/release/version.sh)" || exit 1
 
 validate_publish_order
+# Preserve the checked topological order, selecting only this group's members.
+selected_order=()
+for crate in "${PUBLISH_ORDER[@]}"; do
+    if jq -e --arg group "$RELEASE_GROUP" --arg package "$crate" \
+        '.groups[] | select(.name == $group) | .members | index($package) != null' \
+        ci/cargo-release-groups.json >/dev/null; then selected_order+=("$crate"); fi
+done
+PUBLISH_ORDER=("${selected_order[@]}")
+[[ ${#PUBLISH_ORDER[@]} -gt 0 ]] || exit 1
+if [[ -n "${PACKAGE:-}" ]]; then
+    [[ " ${PUBLISH_ORDER[*]} " == *" $PACKAGE "* ]] || { echo 'PACKAGE is outside the selected release group' >&2; exit 2; }
+    PUBLISH_ORDER=("$PACKAGE")
+fi
 
 for flag in PUBLISH_DRY_RUN PUBLISH_VALIDATE_ONLY; do
     [[ "${!flag}" == 0 || "${!flag}" == 1 ]] || {
@@ -143,15 +157,15 @@ head_commit="$(git rev-parse --verify HEAD)"
 case "$PUBLISH_VERIFY" in
     always)
         verify_packages=1
-        echo "Cargo package verification forced for v$version"
+        echo "Cargo package verification forced for $RELEASE_GROUP-v$version"
         ;;
     auto)
         if release_receipt_matches "$head_commit"; then
             verify_packages=0
-            echo "Reusing release-gate receipt for v$version; Cargo package rebuilds will be skipped"
+            echo "Reusing release-gate receipt for $RELEASE_GROUP-v$version; Cargo package rebuilds will be skipped"
         else
             verify_packages=1
-            echo "No matching release-gate receipt for v$version; Cargo will verify every package"
+            echo "No matching release-gate receipt for $RELEASE_GROUP-v$version; Cargo will verify every package"
         fi
         ;;
     *)
@@ -161,7 +175,7 @@ case "$PUBLISH_VERIFY" in
 esac
 
 if [ "$PUBLISH_VALIDATE_ONLY" = "1" ]; then
-    echo "Publish order validated for IcyDB workspace version $version"
+    echo "Publish order validated for IcyDB $RELEASE_GROUP version $version"
     exit 0
 fi
 

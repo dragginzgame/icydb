@@ -1,5 +1,5 @@
 use crate::{macro_test::normalize::case::LowerCaseText, schema::test::TestStore};
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 ///
 /// Entity

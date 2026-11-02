@@ -47,9 +47,9 @@ fn attributed_native_entry() {
 }
 
 #[icydb::request_execution]
-async fn attributed_async_entry() -> u8 {
+async fn attributed_async_entry() -> Result<u8, icydb::Error> {
     std::future::ready(()).await;
-    9
+    Ok(9)
 }
 
 #[test]
@@ -66,15 +66,15 @@ fn public_endpoint_facade_compile_contract() {
 
     assert_eq!(
         future.as_mut().poll(&mut context),
-        std::task::Poll::Ready(9)
+        std::task::Poll::Ready(Ok(9))
     );
 
     let erased: icydb::db::RequestExecutionFuture<'_, u8> =
-        icydb::db::with_request_execution_async(async { 11 });
+        icydb::db::with_request_execution_async(async { Ok(11) });
     let mut erased = Box::pin(erased);
     assert_eq!(
         erased.as_mut().poll(&mut context),
-        std::task::Poll::Ready(11)
+        std::task::Poll::Ready(Ok(11))
     );
 }
 

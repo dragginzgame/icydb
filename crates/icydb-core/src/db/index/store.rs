@@ -3,7 +3,7 @@
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
-use crate::db::index::{IndexId, IndexKeyKind};
+use crate::db::index::{IndexId, IndexKeyKind, decode_index_key_frame};
 use crate::db::{
     direction::Direction,
     index::{
@@ -17,11 +17,12 @@ use crate::db::{
         JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
     },
 };
+use crate::types::EntityTag;
 
 use crate::error::InternalError;
 
-use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
-use ic_storage::adapter::{MapIter, StableBTreeMap};
+use ic_storage::adapter::{MapEntry, StableBTreeMap};
+use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
@@ -40,7 +41,7 @@ fn record_index_store_entry_read() {
     });
 }
 
-fn visit_index_store_entry<E>(
+fn visit_index_store_entry<E: From<InternalError>>(
     key: &RawIndexStoreKey,
     value: &IndexEntryValue,
     visit: &mut (impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E> + ?Sized),
@@ -149,20 +150,19 @@ impl IndexStore {
     /// # Panics
     /// Panics if retained storage has an invalid header or unsupported layout,
     /// or the backing storage fails. Invalid retained contents are not replaced.
-    #[must_use]
-    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
+    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
         // Retained maps must never be replaced when their header is corrupt.
         let canonical = if memory.size() == 0 {
-            StableBTreeMap::create(memory)
+            StableBTreeMap::create(memory).map_err(InternalError::from)?
         } else {
-            StableBTreeMap::load(memory)
+            StableBTreeMap::load(memory).map_err(InternalError::from)?
         };
         let prefix_cardinality = if canonical.is_empty() {
             IndexPrefixCardinality::synchronized_empty()
         } else {
             IndexPrefixCardinality::unavailable()
         };
-        Self {
+        Ok(Self {
             backend: IndexStoreBackend::Journaled {
                 canonical,
                 live: HeapBTreeMap::new(),
@@ -176,12 +176,12 @@ impl IndexStore {
             // Exact zero cardinality is known for an empty canonical map;
             // populated maps remain unavailable without a startup scan.
             prefix_cardinality,
-        }
+        })
     }
 
     /// Visit all index entries in canonical store order without exposing the
     /// backing stable-map iterator.
-    pub(in crate::db) fn visit_entries<E>(
+    pub(in crate::db) fn visit_entries<E: From<InternalError>>(
         &self,
         mut visitor: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<IndexStoreVisit, E>,
     ) -> Result<(), E> {
@@ -206,19 +206,27 @@ impl IndexStore {
         Ok(())
     }
 
-    pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        match &self.backend {
+    pub(in crate::db) fn get(
+        &self,
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
+        Ok(match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
-            IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
-        }
+            IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key)?,
+        })
     }
 
     /// Load one index entry from the canonical predecessor view.
-    pub(in crate::db) fn get_canonical(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        match &self.backend {
+    pub(in crate::db) fn get_canonical(
+        &self,
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
+        Ok(match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
-            IndexStoreBackend::Journaled { canonical, .. } => canonical.get(key),
-        }
+            IndexStoreBackend::Journaled { canonical, .. } => {
+                canonical.get(key).map_err(InternalError::from)?
+            }
+        })
     }
 
     /// Return whether the canonical predecessor domain is physically empty.
@@ -232,32 +240,32 @@ impl IndexStore {
         }
     }
 
-    pub fn len(&self) -> u64 {
-        match &self.backend {
+    pub fn len(&self) -> Result<u64, InternalError> {
+        Ok(match &self.backend {
             IndexStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
             IndexStoreBackend::Journaled { .. } => {
                 let mut count = 0_u64;
-                let _: Result<(), std::convert::Infallible> = self.visit_entries(|_key, _value| {
+                self.visit_entries(|_key, _value| {
                     count = count.saturating_add(1);
-                    Ok(IndexStoreVisit::Continue)
-                });
+                    Ok::<_, InternalError>(IndexStoreVisit::Continue)
+                })?;
                 count
             }
-        }
+        })
     }
 
-    pub fn is_empty(&self) -> bool {
-        match &self.backend {
+    pub fn is_empty(&self) -> Result<bool, InternalError> {
+        Ok(match &self.backend {
             IndexStoreBackend::Heap(map) => map.is_empty(),
             IndexStoreBackend::Journaled { .. } => {
                 let mut empty = true;
-                let _: Result<(), std::convert::Infallible> = self.visit_entries(|_key, _value| {
+                self.visit_entries(|_key, _value| {
                     empty = false;
-                    Ok(IndexStoreVisit::Stop)
-                });
+                    Ok::<_, InternalError>(IndexStoreVisit::Stop)
+                })?;
                 empty
             }
-        }
+        })
     }
 
     #[must_use]
@@ -407,9 +415,9 @@ impl IndexStore {
         &mut self,
         key: RawIndexStoreKey,
         entry: IndexEntryValue,
-    ) -> Option<IndexEntryValue> {
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
-            self.get(&key)
+            self.get(&key)?
         } else {
             None
         };
@@ -452,7 +460,7 @@ impl IndexStore {
             }
         };
         self.bump_generation();
-        previous
+        Ok(previous)
     }
 
     /// Insert one key whose absence was proved by complete-domain staging.
@@ -481,9 +489,12 @@ impl IndexStore {
         self.bump_generation();
     }
 
-    pub(crate) fn remove(&mut self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
+    pub(crate) fn remove(
+        &mut self,
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
-            self.get(key)
+            self.get(key)?
         } else {
             None
         };
@@ -500,15 +511,17 @@ impl IndexStore {
         self.prefix_cardinality.apply_remove(key, previous.as_ref());
         self.apply_prefix_overlay_delta(key, previous.as_ref(), None);
         self.bump_generation();
-        previous
+        Ok(previous)
     }
 
-    /// Reset the disposable journaled index overlay without traversing or
-    /// mutating the canonical stable index.
+    /// Reset journal-reconstructible entries without mutating the stable index.
+    /// Live-source system entries belong to surviving heap rows, so they retain
+    /// their existing overlay home across online recovery.
     pub(in crate::db) fn reset_journaled_live_projection(
         &mut self,
         data_generation: u64,
         fold_watermark: FoldWatermark,
+        live_source_entities: &BTreeSet<EntityTag>,
     ) -> Result<(), crate::error::InternalError> {
         let IndexStoreBackend::Journaled {
             canonical,
@@ -521,7 +534,23 @@ impl IndexStore {
             return Err(crate::error::InternalError::store_invariant());
         };
 
-        live.clear();
+        if live_source_entities.is_empty() {
+            live.clear();
+        } else {
+            // Validate before removing anything: an undecodable key cannot be
+            // safely classified as a disposable or a surviving live reference.
+            for key in live.keys() {
+                decode_index_key_frame(key).map_err(|_| InternalError::index_corruption())?;
+            }
+            live.retain(|key, _| {
+                decode_index_key_frame(key).is_ok_and(|frame| {
+                    frame.key_kind() == IndexKeyKind::System
+                        && live_source_entities.contains(&frame.index_id().entity_tag())
+                })
+            });
+        }
+        // Live-source keys never enter the canonical tree. Their removals need
+        // no retained tombstone; user cardinality ignores these system entries.
         tombstones.clear();
         positions.clear();
         prefix_cardinality_delta.reset(fold_watermark);
@@ -573,7 +602,10 @@ impl IndexStore {
         let previous = if tombstones.contains(&key) {
             None
         } else {
-            live.get(&key).cloned().or_else(|| canonical.get(&key))
+            match live.get(&key) {
+                Some(value) => Some(value.clone()),
+                None => canonical.get(&key).map_err(InternalError::from)?,
+            }
         };
         let next_value = value.clone();
 
@@ -723,9 +755,14 @@ impl IndexStore {
             // The published stable insertion API consumes its key before
             // returning the previous entry; cardinality still needs this copy.
             let cardinality_key = key.clone();
-            (canonical.insert(key, value.clone()), cardinality_key)
+            (
+                canonical
+                    .insert(key, value.clone())
+                    .map_err(InternalError::from)?,
+                cardinality_key,
+            )
         } else {
-            (canonical.remove(&key), key)
+            (canonical.remove(&key).map_err(InternalError::from)?, key)
         };
         if visible {
             if let Some(value) = value.as_ref() {
@@ -754,13 +791,13 @@ impl IndexStore {
     }
 
     /// Sum of bytes used by all stored index entries.
-    pub fn memory_bytes(&self) -> u64 {
+    pub fn memory_bytes(&self) -> Result<u64, InternalError> {
         let mut bytes = 0u64;
-        let _: Result<(), std::convert::Infallible> = self.visit_entries(|key, value| {
+        self.visit_entries(|key, value| {
             bytes = bytes.saturating_add(key.as_bytes().len() as u64 + value.len() as u64);
-            Ok(IndexStoreVisit::Continue)
-        });
-        bytes
+            Ok::<_, InternalError>(IndexStoreVisit::Continue)
+        })?;
+        Ok(bytes)
     }
 
     /// Return the monotonic perf-only count of index entries yielded by traversal.
@@ -792,7 +829,7 @@ impl IndexStore {
     fn journaled_get(
         backend: &IndexStoreBackend,
         key: &RawIndexStoreKey,
-    ) -> Option<IndexEntryValue> {
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         let IndexStoreBackend::Journaled {
             canonical,
             live,
@@ -800,23 +837,37 @@ impl IndexStore {
             ..
         } = backend
         else {
-            return None;
+            return Ok(None);
         };
-
         if tombstones.contains(key) {
-            return None;
+            return Ok(None);
         }
-        live.get(key).cloned().or_else(|| canonical.get(key))
+        Ok(match live.get(key) {
+            Some(value) => Some(value.clone()),
+            None => canonical.get(key).map_err(InternalError::from)?,
+        })
     }
 
     // Share stable iteration and overlay merging across visitor closures. Error
     // types remain generic so store callers retain their original typed failures.
-    pub(super) fn visit_journaled_entries_in_range<E>(
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one owner preserves ordered traversal, early stop and storage errors across both directions"
+    )]
+    pub(super) fn visit_journaled_entries_in_range<E: From<InternalError>>(
         &self,
         bounds: (Bound<&RawIndexStoreKey>, Bound<&RawIndexStoreKey>),
         direction: Direction,
         mut visit: &mut dyn FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
     ) -> Result<(), E> {
+        type VisitEntry<'a> = Result<
+            OrderedOverlayEntry<
+                MapEntry<RawIndexStoreKey, IndexEntryValue>,
+                (&'a RawIndexStoreKey, &'a IndexEntryValue),
+            >,
+            ic_storage::adapter::CollectionError,
+        >;
+
         let IndexStoreBackend::Journaled {
             canonical,
             live,
@@ -847,7 +898,12 @@ impl IndexStore {
             }
             Direction::Asc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)) {
-                    if visit_index_store_entry(entry.key(), &entry.value(), &mut visit)? {
+                    let entry = entry.map_err(InternalError::from)?;
+                    if visit_index_store_entry(
+                        entry.key(),
+                        &entry.value().map_err(InternalError::from)?,
+                        &mut visit,
+                    )? {
                         return Ok(());
                     }
                 }
@@ -855,7 +911,12 @@ impl IndexStore {
             }
             Direction::Desc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)).rev() {
-                    if visit_index_store_entry(entry.key(), &entry.value(), &mut visit)? {
+                    let entry = entry.map_err(InternalError::from)?;
+                    if visit_index_store_entry(
+                        entry.key(),
+                        &entry.value().map_err(InternalError::from)?,
+                        &mut visit,
+                    )? {
                         return Ok(());
                     }
                 }
@@ -866,18 +927,21 @@ impl IndexStore {
 
         // Share visitor dispatch and stop/error propagation; iterator direction
         // stays statically selected before traversal.
-        let mut visit_entry = |entry: OrderedOverlayEntry<
-            <MapIter<'_, RawIndexStoreKey, IndexEntryValue> as Iterator>::Item,
-            (&RawIndexStoreKey, &IndexEntryValue),
-        >| {
-            let result = match entry {
-                OrderedOverlayEntry::Canonical(entry) => {
-                    visit_index_store_entry(entry.key(), &entry.value(), &mut visit)
+
+        let mut visit_entry = |entry: VisitEntry<'_>| {
+            let result = (|| -> Result<bool, E> {
+                let entry = entry.map_err(InternalError::from)?;
+                match entry {
+                    OrderedOverlayEntry::Canonical(entry) => visit_index_store_entry(
+                        entry.key(),
+                        &entry.value().map_err(InternalError::from)?,
+                        &mut visit,
+                    ),
+                    OrderedOverlayEntry::Live((key, value)) => {
+                        visit_index_store_entry(key, value, &mut visit)
+                    }
                 }
-                OrderedOverlayEntry::Live((key, value)) => {
-                    visit_index_store_entry(key, value, &mut visit)
-                }
-            };
+            })();
             match result {
                 Ok(visit) if !visit => ControlFlow::Continue(()),
                 result => ControlFlow::Break(result.map(|_| ())),
@@ -924,7 +988,7 @@ mod tests {
         types::EntityTag,
     };
     use ic_storage::adapter::Storable;
-    use std::{borrow::Cow, convert::Infallible};
+    use std::borrow::Cow;
 
     #[test]
     fn retained_store_corruption_does_not_initialize_a_replacement() {
@@ -933,6 +997,7 @@ mod tests {
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+            .expect("storage operation should succeed")
     }
 
     fn overlay_position(sequence: u64) -> JournalOverlayPosition {
@@ -969,10 +1034,12 @@ mod tests {
 
     fn malformed_index_entry_value() -> IndexEntryValue {
         <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xFF]))
+            .expect("storage operation should succeed")
     }
 
     fn invalid_index_entry_value() -> IndexEntryValue {
         <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1]))
+            .expect("storage operation should succeed")
     }
 
     #[test]
@@ -980,11 +1047,13 @@ mod tests {
         let id = IndexId::new(EntityTag::new(42), 7);
         for mut store in [
             IndexStore::init_heap(),
-            IndexStore::init_journaled(test_memory(94)),
+            IndexStore::init_journaled(test_memory(94)).expect("fixture storage should initialize"),
         ] {
             for value in 0_u64..5_000 {
                 let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
-                store.insert(key, IndexEntryValue::presence());
+                store
+                    .insert(key, IndexEntryValue::presence())
+                    .expect("fixture storage operation should succeed");
             }
             store.mark_prefix_cardinality_data_generation(7);
             let components = vec![0_u64.to_be_bytes().to_vec()];
@@ -994,7 +1063,10 @@ mod tests {
             );
             for value in [0_u64, 4_095, 4_096, 4_999] {
                 let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
-                assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
+                assert_eq!(
+                    (store.get(&key)).expect("storage operation should succeed"),
+                    Some(IndexEntryValue::presence())
+                );
             }
         }
     }
@@ -1006,7 +1078,7 @@ mod tests {
         let key = indexed_raw_key(&id, components.clone(), 1);
         for mut store in [
             IndexStore::init_heap(),
-            IndexStore::init_journaled(test_memory(94)),
+            IndexStore::init_journaled(test_memory(94)).expect("fixture storage should initialize"),
         ] {
             let journaled = matches!(store.backend, IndexStoreBackend::Journaled { .. });
             let mut previous = None;
@@ -1022,8 +1094,14 @@ mod tests {
                 } else {
                     store.remove(&key)
                 };
-                assert_eq!(returned, previous);
-                assert_eq!(store.get(&key), next);
+                assert_eq!(
+                    (returned).expect("storage operation should succeed"),
+                    previous
+                );
+                assert_eq!(
+                    (store.get(&key)).expect("storage operation should succeed"),
+                    next
+                );
                 let count = u64::from(next == Some(IndexEntryValue::presence()));
                 store.mark_prefix_cardinality_data_generation(7);
                 assert_eq!(
@@ -1058,7 +1136,10 @@ mod tests {
                             overlay_position(sequence as u64 + 1),
                         )
                         .unwrap();
-                    assert_eq!(store.get(&key), next);
+                    assert_eq!(
+                        (store.get(&key)).expect("storage operation should succeed"),
+                        next
+                    );
                     let count = u64::from(next == Some(IndexEntryValue::presence()));
                     store.mark_prefix_cardinality_data_generation(9);
                     assert_eq!(
@@ -1082,18 +1163,24 @@ mod tests {
         let review = b"Review".to_vec();
         let mut store = IndexStore::init_heap();
 
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
-            IndexEntryValue::presence(),
-        );
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
 
         assert_eq!(
             store.exact_prefix_cardinality(
@@ -1151,9 +1238,15 @@ mod tests {
             Some((0, 0, true)),
             "initialized empty metadata must positively prove exact zero",
         );
-        store.insert(alpha_one.clone(), IndexEntryValue::presence());
-        store.insert(alpha_two.clone(), IndexEntryValue::presence());
-        store.insert(beta_one.clone(), IndexEntryValue::presence());
+        store
+            .insert(alpha_one.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(alpha_two.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(beta_one.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store
                 .exact_first_component_range_cardinality(0, index_id, &bound, &bound, 3)
@@ -1185,9 +1278,15 @@ mod tests {
             "row-generation drift must fail closed",
         );
 
-        store.remove(&alpha_one);
-        store.remove(&alpha_two);
-        store.remove(&beta_one);
+        store
+            .remove(&alpha_one)
+            .expect("fixture storage operation should succeed");
+        store
+            .remove(&alpha_two)
+            .expect("fixture storage operation should succeed");
+        store
+            .remove(&beta_one)
+            .expect("fixture storage operation should succeed");
         store.mark_prefix_cardinality_data_generation(8);
         assert_eq!(
             store
@@ -1214,14 +1313,16 @@ mod tests {
         let mut store = IndexStore::init_heap();
         for prefix in 0..=255_u8 {
             for child in 0..2_u8 {
-                store.insert(
-                    indexed_raw_key(
-                        &index_id,
-                        vec![vec![prefix], vec![child], vec![0]],
-                        u64::from(prefix) * 2 + u64::from(child),
-                    ),
-                    IndexEntryValue::presence(),
-                );
+                store
+                    .insert(
+                        indexed_raw_key(
+                            &index_id,
+                            vec![vec![prefix], vec![child], vec![0]],
+                            u64::from(prefix) * 2 + u64::from(child),
+                        ),
+                        IndexEntryValue::presence(),
+                    )
+                    .expect("fixture storage operation should succeed");
             }
         }
         store.mark_prefix_cardinality_data_generation(7);
@@ -1289,26 +1390,34 @@ mod tests {
         let published = b"Published".to_vec();
         let mut store = IndexStore::init_heap();
 
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(
-                &index_id,
-                vec![other_collection.clone(), published.clone()],
-                4,
-            ),
-            IndexEntryValue::presence(),
-        );
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(
+                    &index_id,
+                    vec![other_collection.clone(), published.clone()],
+                    4,
+                ),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
         store.mark_prefix_cardinality_data_generation(7);
 
         assert_eq!(
@@ -1380,22 +1489,28 @@ mod tests {
         let published = b"Published".to_vec();
         let mut store = IndexStore::init_heap();
 
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 2),
-            IndexEntryValue::presence(),
-        );
-        store.insert(
-            indexed_raw_key(
-                &index_id,
-                vec![other_collection.clone(), published.clone()],
-                3,
-            ),
-            IndexEntryValue::presence(),
-        );
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 2),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(
+                indexed_raw_key(
+                    &index_id,
+                    vec![other_collection.clone(), published.clone()],
+                    3,
+                ),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
         store.mark_prefix_cardinality_data_generation(7);
 
         let parents = [
@@ -1464,6 +1579,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one cardinality scenario compares user and system index mutations"
+    )]
     fn index_prefix_cardinality_ignores_system_index_mutations() {
         let user_index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let system_index_id = IndexId::new(EntityTag::new(0xCA7D), 2);
@@ -1472,10 +1591,12 @@ mod tests {
         let system_component = b"reverse-edge".to_vec();
         let mut store = IndexStore::init_heap();
 
-        store.insert(
-            indexed_raw_key(&user_index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        );
+        store
+            .insert(
+                indexed_raw_key(&user_index_id, vec![collection.clone(), draft.clone()], 1),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
         store.mark_prefix_cardinality_data_generation(7);
 
         assert_eq!(
@@ -1494,7 +1615,9 @@ mod tests {
             vec![system_component],
             1,
         );
-        store.insert(system_key.clone(), IndexEntryValue::presence());
+        store
+            .insert(system_key.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1506,7 +1629,9 @@ mod tests {
             "system index writes must not invalidate synchronized user-prefix cardinality",
         );
 
-        store.remove(&system_key);
+        store
+            .remove(&system_key)
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1524,7 +1649,9 @@ mod tests {
             vec![b"malformed-reverse-edge".to_vec()],
             2,
         );
-        store.insert(malformed_system_key.clone(), malformed_index_entry_value());
+        store
+            .insert(malformed_system_key.clone(), malformed_index_entry_value())
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1536,7 +1663,9 @@ mod tests {
             "malformed system index payloads must not invalidate user-prefix cardinality",
         );
 
-        store.remove(&malformed_system_key);
+        store
+            .remove(&malformed_system_key)
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1549,10 +1678,12 @@ mod tests {
         );
 
         let review = b"Review".to_vec();
-        store.insert(
-            indexed_raw_key(&user_index_id, vec![collection.clone(), review.clone()], 2),
-            IndexEntryValue::presence(),
-        );
+        store
+            .insert(
+                indexed_raw_key(&user_index_id, vec![collection.clone(), review.clone()], 2),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1572,14 +1703,18 @@ mod tests {
         let draft = b"Draft".to_vec();
         let mut store = IndexStore::init_heap();
 
-        store.insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        );
+        store
+            .insert(
+                indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+                IndexEntryValue::presence(),
+            )
+            .expect("fixture storage operation should succeed");
         store.mark_prefix_cardinality_data_generation(7);
 
         let stale_key = indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2);
-        store.insert(stale_key.clone(), invalid_index_entry_value());
+        store
+            .insert(stale_key.clone(), invalid_index_entry_value())
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
                 7,
@@ -1591,7 +1726,9 @@ mod tests {
             "invalid user index entries invalidate synchronized prefix cardinality",
         );
 
-        store.remove(&stale_key);
+        store
+            .remove(&stale_key)
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(7, IndexKeyKind::User, index_id, &[collection, draft],),
             None,
@@ -1601,17 +1738,26 @@ mod tests {
 
     #[test]
     fn journaled_mixed_index_range_traversal_preserves_order_and_early_stop() {
-        let mut store = IndexStore::init_journaled(test_memory(93));
+        let mut store =
+            IndexStore::init_journaled(test_memory(93)).expect("fixture storage should initialize");
         for value in [1_u8, 3, 5] {
             store
                 .apply_canonical_entry(raw_key(value), Some(IndexEntryValue::presence()))
                 .expect("canonical index seed should apply");
         }
 
-        store.insert(raw_key(0), IndexEntryValue::presence());
-        store.insert(raw_key(4), IndexEntryValue::presence());
-        store.insert(raw_key(5), IndexEntryValue::presence());
-        store.remove(&raw_key(1));
+        store
+            .insert(raw_key(0), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(raw_key(4), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(raw_key(5), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .remove(&raw_key(1))
+            .expect("fixture storage operation should succeed");
 
         let lower = Bound::Included(raw_key(0));
         let upper = Bound::Included(raw_key(5));
@@ -1623,7 +1769,7 @@ mod tests {
                 Direction::Asc,
                 &mut |key, _value| {
                     asc.push(key.as_bytes()[0]);
-                    Ok::<_, Infallible>(asc.len() == 2)
+                    Ok::<_, InternalError>(asc.len() == 2)
                 },
             )
             .expect("asc journaled index range traversal should succeed");
@@ -1636,7 +1782,7 @@ mod tests {
                 Direction::Desc,
                 &mut |key, _value| {
                     desc.push(key.as_bytes()[0]);
-                    Ok::<_, Infallible>(desc.len() == 2)
+                    Ok::<_, InternalError>(desc.len() == 2)
                 },
             )
             .expect("desc journaled index range traversal should succeed");
@@ -1647,7 +1793,8 @@ mod tests {
     fn journaled_index_range_preserves_typed_failure_and_stops_immediately() {
         // Exercise canonical-only, live-only and mixed/tombstoned fast paths.
         for backend in 0..3 {
-            let mut store = IndexStore::init_journaled(test_memory(93));
+            let mut store = IndexStore::init_journaled(test_memory(93))
+                .expect("fixture storage should initialize");
             if backend != 1 {
                 for value in [1, 3, 5] {
                     store
@@ -1657,9 +1804,13 @@ mod tests {
             }
             if backend != 0 {
                 for value in [0, 4, 5] {
-                    store.insert(raw_key(value), IndexEntryValue::presence());
+                    store
+                        .insert(raw_key(value), IndexEntryValue::presence())
+                        .expect("fixture storage operation should succeed");
                 }
-                store.remove(&raw_key(1));
+                store
+                    .remove(&raw_key(1))
+                    .expect("fixture storage operation should succeed");
             }
             let lower = Bound::Included(raw_key(0));
             let upper = Bound::Included(raw_key(5));
@@ -1670,10 +1821,12 @@ mod tests {
                     direction,
                     &mut |key, _| {
                         visited.push(key.as_bytes()[0]);
-                        Err::<bool, u8>(7)
+                        Err::<bool, crate::testing::VisitorTestError>(
+                            crate::testing::VisitorTestError::Callback(7),
+                        )
                     },
                 );
-                assert_eq!(result, Err(7));
+                assert_eq!(result, Err(crate::testing::VisitorTestError::Callback(7)));
                 let first = match direction {
                     Direction::Asc if backend == 0 => 1,
                     Direction::Asc => 0,
@@ -1689,17 +1842,22 @@ mod tests {
         let memory = crate::testing::test_memory_owner(94);
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
-        let mut store = IndexStore::init_journaled(memory.open());
+        let mut store =
+            IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
         store
             .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("canonical index seed should apply");
         drop(store);
 
-        let mut reopened = IndexStore::init_journaled(memory.open());
+        let mut reopened =
+            IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         let bound = Bound::Unbounded;
 
-        assert_eq!(reopened.get(&key), Some(IndexEntryValue::presence()));
+        assert_eq!(
+            (reopened.get(&key)).expect("storage operation should succeed"),
+            Some(IndexEntryValue::presence())
+        );
         assert_eq!(
             reopened.exact_prefix_cardinality(
                 0,
@@ -1726,7 +1884,9 @@ mod tests {
             Some(0),
         );
         let second = indexed_raw_key(&index_id, vec![collection.clone()], 2);
-        reopened.insert(second.clone(), IndexEntryValue::presence());
+        reopened
+            .insert(second.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
         assert_eq!(
             reopened.exact_prefix_cardinality_delta(
                 IndexKeyKind::User,
@@ -1750,11 +1910,105 @@ mod tests {
     }
 
     #[test]
+    fn journaled_reset_preserves_only_live_source_system_entries() {
+        let memory = crate::testing::test_memory_owner(97);
+        let mut store =
+            IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
+        let live_source = EntityTag::new(101);
+        let durable_source = EntityTag::new(102);
+        let key = |source, kind, pk| {
+            indexed_raw_key_with_kind(&IndexId::new(source, u16::MAX), kind, vec![vec![1]], pk)
+        };
+        let retained = key(live_source, IndexKeyKind::System, 1);
+        let removed = key(live_source, IndexKeyKind::System, 2);
+        let user = key(live_source, IndexKeyKind::User, 3);
+        let durable = key(durable_source, IndexKeyKind::System, 4);
+        for key in [&retained, &removed, &user, &durable] {
+            store
+                .insert(key.clone(), IndexEntryValue::presence())
+                .expect("fixture storage operation should succeed");
+        }
+        store
+            .remove(&removed)
+            .expect("fixture storage operation should succeed");
+        let owners = BTreeSet::from([live_source]);
+        for _ in 0..2 {
+            store
+                .reset_journaled_live_projection(0, FoldWatermark::initial(), &owners)
+                .unwrap();
+            assert!(
+                store
+                    .get(&retained)
+                    .expect("storage operation should succeed")
+                    .is_some()
+            );
+            for key in [&removed, &user, &durable] {
+                assert!(
+                    store
+                        .get(key)
+                        .expect("storage operation should succeed")
+                        .is_none()
+                );
+            }
+        }
+        drop(store);
+        let reopened =
+            IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
+        assert!(
+            reopened
+                .get(&retained)
+                .expect("storage operation should succeed")
+                .is_none(),
+            "live references must not become durable"
+        );
+    }
+
+    #[test]
+    fn journaled_reset_refuses_unclassifiable_live_keys_before_removal() {
+        let mut store =
+            IndexStore::init_journaled(test_memory(97)).expect("fixture storage should initialize");
+        let source = EntityTag::new(101);
+        let valid = indexed_raw_key_with_kind(
+            &IndexId::new(source, u16::MAX),
+            IndexKeyKind::System,
+            vec![vec![1]],
+            1,
+        );
+        let invalid = RawIndexStoreKey::from_persisted_bytes(vec![0xff]);
+        store
+            .insert(valid.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        store
+            .insert(invalid.clone(), IndexEntryValue::presence())
+            .expect("fixture storage operation should succeed");
+        let error = store
+            .reset_journaled_live_projection(0, FoldWatermark::initial(), &BTreeSet::from([source]))
+            .unwrap_err();
+        assert_eq!(
+            error.diagnostic_code(),
+            InternalError::index_corruption().diagnostic_code()
+        );
+        assert!(
+            store
+                .get(&valid)
+                .expect("storage operation should succeed")
+                .is_some()
+        );
+        assert!(
+            store
+                .get(&invalid)
+                .expect("storage operation should succeed")
+                .is_some()
+        );
+    }
+
+    #[test]
     fn empty_journaled_index_store_retains_exact_prefix_cardinality_without_scanning() {
         let memory = crate::testing::test_memory_owner(95);
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
-        let mut store = IndexStore::init_journaled(memory.open());
+        let mut store =
+            IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
 
         assert_eq!(
             store.exact_prefix_cardinality(
@@ -1766,7 +2020,11 @@ mod tests {
             Some(0),
         );
         store
-            .reset_journaled_live_projection(7, FoldWatermark::initial())
+            .reset_journaled_live_projection(
+                7,
+                FoldWatermark::initial(),
+                &std::collections::BTreeSet::new(),
+            )
             .expect("empty projection reset should succeed");
         assert_eq!(
             store.exact_prefix_cardinality(
@@ -1779,7 +2037,8 @@ mod tests {
         );
         drop(store);
 
-        let reopened = IndexStore::init_journaled(memory.open());
+        let reopened =
+            IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
         assert_eq!(
             reopened.exact_prefix_cardinality(
                 0,
@@ -1793,13 +2052,14 @@ mod tests {
 
     #[test]
     fn journaled_prefix_delta_binds_and_advances_its_canonical_watermark() {
-        let mut store = IndexStore::init_journaled(test_memory(99));
+        let mut store =
+            IndexStore::init_journaled(test_memory(99)).expect("fixture storage should initialize");
         assert_eq!(store.exact_prefix_cardinality_delta_watermark(), None);
 
         let current = FoldWatermark::new(JournalSequence::new(7), 3);
         let next = FoldWatermark::new(JournalSequence::new(8), 4);
         store
-            .reset_journaled_live_projection(0, current)
+            .reset_journaled_live_projection(0, current, &std::collections::BTreeSet::new())
             .expect("delta reset should bind the current canonical watermark");
         assert_eq!(
             store.exact_prefix_cardinality_delta_watermark(),
@@ -1819,7 +2079,8 @@ mod tests {
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
         let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
-        let mut store = IndexStore::init_journaled(test_memory(96));
+        let mut store =
+            IndexStore::init_journaled(test_memory(96)).expect("fixture storage should initialize");
 
         store
             .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
@@ -1853,7 +2114,8 @@ mod tests {
     #[test]
     fn positioned_index_overlay_preserves_later_membership_until_exact_retirement() {
         let key = raw_key(7);
-        let mut store = IndexStore::init_journaled(test_memory(97));
+        let mut store =
+            IndexStore::init_journaled(test_memory(97)).expect("fixture storage should initialize");
         store
             .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("canonical membership should seed");
@@ -1879,7 +2141,10 @@ mod tests {
             .apply_canonical_entry(key.clone(), None)
             .expect("tombstone batch should become canonical");
         store.apply_prepared_position_retirement(prepared);
-        assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
+        assert_eq!(
+            (store.get(&key)).expect("storage operation should succeed"),
+            Some(IndexEntryValue::presence())
+        );
 
         let prepared = store
             .prepare_position_retirement([key.clone()], overlay_position(2))
@@ -1892,13 +2157,16 @@ mod tests {
             .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("membership batch should become canonical");
         store.apply_prepared_position_retirement(prepared);
-        assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
+        assert_eq!(
+            (store.get(&key)).expect("storage operation should succeed"),
+            Some(IndexEntryValue::presence())
+        );
 
         let mut visible = Vec::new();
         store
             .visit_entries(|visited_key, value| {
                 visible.push((visited_key.clone(), value.clone()));
-                Ok::<_, Infallible>(IndexStoreVisit::Continue)
+                Ok::<_, InternalError>(IndexStoreVisit::Continue)
             })
             .expect("positioned index should remain range-visible");
         assert_eq!(visible, vec![(key, IndexEntryValue::presence())]);
@@ -1908,7 +2176,8 @@ mod tests {
     fn positioned_index_overlay_coalesces_repeated_same_batch_target() {
         let key = raw_key(8);
         let position = overlay_position(3);
-        let mut store = IndexStore::init_journaled(test_memory(98));
+        let mut store =
+            IndexStore::init_journaled(test_memory(98)).expect("fixture storage should initialize");
 
         store
             .publish_positioned_journal_entry(
@@ -1931,6 +2200,11 @@ mod tests {
             .apply_canonical_entry(key.clone(), None)
             .expect("coalesced final effect should become canonical");
         store.apply_prepared_position_retirement(prepared);
-        assert!(store.get(&key).is_none());
+        assert!(
+            store
+                .get(&key)
+                .expect("storage operation should succeed")
+                .is_none()
+        );
     }
 }

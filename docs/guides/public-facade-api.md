@@ -63,6 +63,20 @@ root immediately before each poll, and removes it immediately afterward.
 Nested attributed helpers reuse the active root. Caller authorization remains
 application-owned; the execution root supplies database accounting only.
 
+Async attributed functions and `with_request_execution_async` require
+`Result<T, E>` with `E: From<icydb::Error>`. Use `icydb::Error` directly or
+convert it into the application's error type. A started future polled beneath
+a different active root returns `RequestExecutionRootMismatch` before polling
+its child; it does not transfer request counters or replace the outer scope.
+Child success and application errors pass through unchanged. Keep pending
+request futures within their originating request and share completed data
+instead. Synchronous boundaries retain their ordinary return types.
+
+When calling the helper directly, an otherwise infallible body can finish with
+`Ok::<_, icydb::Error>(value)`; callers must handle the awaited result. The
+explicit future type is `RequestExecutionFuture<'a, T, E = icydb::Error>`, whose
+output is `Result<T, E>`.
+
 The explicit argument form is for integrations that deliberately retain the
 root themselves:
 

@@ -23,6 +23,103 @@ use crate::{
 };
 use std::borrow::Cow;
 
+#[test]
+fn sibling_projection_preserves_values_order_duplicates_and_missing() {
+    use crate::db::{
+        RequestExecutionRoot,
+        resource::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_read_execution_budget,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope,
+        DiagnosticExecutionLane, DiagnosticFactTag,
+    };
+    let layout = RowLayout::from_structural_row_contract(projection_contract(
+        AcceptedFieldKind::Map {
+            key: Box::new(AcceptedFieldKind::Text { max_len: None }),
+            value: Box::new(AcceptedFieldKind::Text { max_len: None }),
+        },
+        LeafCodec::Structural,
+        FieldStorageDecode::CatalogValue,
+    ));
+    let expressions: Vec<_> = ["city", "name", "city", "missing"]
+        .into_iter()
+        .map(|name| CompiledExpr::FieldPath {
+            root_slot: 1,
+            segments: vec![name.to_string()].into_boxed_slice(),
+            segment_bytes: vec![name.as_bytes().to_vec().into_boxed_slice()].into_boxed_slice(),
+        })
+        .collect();
+    let payload = Value::Map(vec![
+        (Value::Text("city".into()), Value::Text("Paris".into())),
+        (Value::Text("name".into()), Value::Text("Ada".into())),
+    ]);
+    for (payload, expected) in [
+        (
+            payload,
+            vec![
+                Value::Text("Paris".into()),
+                Value::Text("Ada".into()),
+                Value::Text("Paris".into()),
+                Value::Null,
+            ],
+        ),
+        (Value::Null, vec![Value::Null; 4]),
+    ] {
+        let row = projection_row(layout.contract(), &payload);
+        assert_eq!(
+            project_scalar_data_row(&expressions, &row, &layout, None).unwrap(),
+            expected
+        );
+        let reader = layout.open_raw_row_with_contract(&row.1).unwrap();
+        let general: Vec<_> = expressions
+            .iter()
+            .map(|expr| {
+                eval_compiled_expr_with_required_slot_reader_cow(expr, &reader, &mut |_| {})
+                    .unwrap()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(general, expected);
+
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, 0),
+        );
+        let mut shaped = Vec::new();
+        let error = with_read_execution_budget(
+            &root.scope(),
+            HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::PublicRead,
+                1,
+            ),
+            || {
+                project_sibling_paths(
+                    &expressions,
+                    &mut shaped,
+                    |root, prefix, members, shaped| {
+                        crate::db::executor::projection::path::resolve_slot_sibling_paths(
+                            &reader, root, prefix, members, shaped,
+                        )
+                    },
+                )
+            },
+        )
+        .unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw(),
+        )));
+        assert!(shaped.is_empty());
+    }
+}
+
 fn nested_kind(max_len: u32) -> AcceptedFieldKind {
     AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Map {
         key: Box::new(AcceptedFieldKind::Text { max_len: Some(8) }),

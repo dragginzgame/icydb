@@ -237,6 +237,7 @@ fn envelope_emptiness_identifies_empty_equal_exclusive_bounds() {
 
 fn raw_key(byte: u8) -> RawIndexStoreKey {
     <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
+        .expect("storage operation should succeed")
 }
 
 fn property_index_id() -> IndexId {

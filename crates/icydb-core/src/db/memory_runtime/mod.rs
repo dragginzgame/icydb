@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests;
 
-use ic_memory::{DefaultMemoryImpl, MemoryRuntime, RuntimeMemory, RuntimeOpenError};
+use ic_storage::{DefaultMemoryImpl, MemoryRuntime, RuntimeMemory, RuntimeOpenError};
 use std::{cell::OnceCell, rc::Rc};
 
 thread_local! {
@@ -64,8 +64,26 @@ pub fn memory_runtime() -> Option<Rc<MemoryRuntime<DefaultMemoryImpl>>> {
 pub fn open_memory(stable_key: &str) -> Result<RuntimeMemory<DefaultMemoryImpl>, RuntimeOpenError> {
     memory_runtime()
         .ok_or(RuntimeOpenError::NotBootstrapped)?
-        .open_memory(
-            &ic_memory::StableKey::parse(stable_key)
-                .map_err(|_| RuntimeOpenError::StableKeyNotCommitted(stable_key.into()))?,
-        )
+        .open_memory(&ic_storage::StableKey::parse(stable_key).map_err(|_| {
+            RuntimeOpenError::Directory(ic_storage::DirectoryError::Invalid(
+                "invalid allocation key",
+            ))
+        })?)
+}
+
+// Resolve a passive identity; actual lease opening independently checks admission.
+pub(crate) fn allocation_id(stable_key: &str) -> Result<u64, RuntimeOpenError> {
+    let runtime = memory_runtime().ok_or(RuntimeOpenError::NotBootstrapped)?;
+    if !runtime.is_bootstrapped() {
+        return Err(RuntimeOpenError::NotBootstrapped);
+    }
+    let key = ic_storage::StableKey::parse(stable_key).map_err(|_| {
+        RuntimeOpenError::Directory(ic_storage::DirectoryError::Invalid(
+            "invalid allocation key",
+        ))
+    })?;
+    runtime
+        .allocation_id(&key)
+        .map(ic_storage::AllocationId::get)
+        .ok_or(RuntimeOpenError::NotAdmitted(key))
 }

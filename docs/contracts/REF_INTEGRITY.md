@@ -248,6 +248,14 @@ RI enforcement:
 * does not rely on traps or recovery
 * applies to both save-time target existence checks and delete-time source checks
 
+Heap-source relations into journaled targets remain live across online recovery.
+The target's index reset preserves system entries owned by accepted live-source
+entities, since their heap rows survive and no source journal can reconstruct
+those entries. Journal-owned projections are still discarded and replayed.
+Malformed overlay keys refuse reset before entries are removed when live-source
+ownership must be distinguished. This does not make heap rows or their reverse
+entries durable across an upgrade or process restart.
+
 ### 5.2 What is enforced
 
 Every schema-declared relation receives RI guarantees.

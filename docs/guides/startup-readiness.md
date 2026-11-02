@@ -138,10 +138,9 @@ migration already in progress still uses the explicit controller lane below.
 Retryable schema errors are returned to the adapter for its existing logged
 retry cadence; they do not request an immediate progress callback.
 
-For example, `E274` reports a memory bucket-size conflict with requested
-(`Expected`) and persisted (`Actual`) page counts. It requires configuration
-correction or explicit recreation, not another recovery poll. See
-[canister memory profiles](schema-authoring.md#canister-memory-profiles).
+Storage 0.64 accepts only its current directory and collection formats. Earlier
+images fail startup without reset. This release targets fresh installations;
+see [storage configuration and installations](schema-authoring.md#storage-configuration-and-installations).
 
 Memory bootstrap and host-adoption rejection use the same bounded diagnostic
 payload in `startup_state()`, ordinary `db!()` calls, and startup failure
@@ -151,12 +150,11 @@ parameters. Match the typed leaf code, not its broad class or display text.
 
 | Code | Rejected boundary | Numeric evidence and correction |
 | --- | --- | --- |
-| E276 | Logical allocation resolution or host grant | Optional `ActualMemoryId`; check the authority and eligible free slots. Fresh allocations need an explicit namespace grant. |
 | E277 | Historical IcyDB namespace removed | Restore the permanent namespace and its three controls. |
 | E278 | Incomplete allocation roles | `ExpectedCount` is 3 for database controls or 4 for a store; restore the complete role set. |
 | E279 | Invalid declarations | Check current role/key grammar, logical requests and namespace authority. |
-| E280 | Declaration snapshot or adoption requirements differ | Reconcile current declarations, pool and policy with committed host authority. |
-| E281 | Historical journal allocation unavailable | Optional `ActualMemoryId`; restore its current host authority and resolve the rejected historical allocation lifecycle. |
+| E280 | Declaration snapshot or adoption requirements differ | Reconcile current declarations and grants with committed host authority. |
+| E281 | Historical journal allocation unavailable | Restore its current host authority and resolve the rejected historical allocation lifecycle. |
 
 The declaration/admission owners still reject these failures before IcyDB opens
 ordinary database work. Startup observation does not grant memory or repair a
@@ -164,23 +162,20 @@ rejected declaration. Unknown upstream variants and unrelated runtime
 internal faults retain E23, with runtime origin. No unbounded upstream error text,
 namespace, authority or stable-key strings enter the public error record.
 
-The host grants permanent namespaces and excludes unmanaged physical IDs in
-one checked allocation pool. Supply it before cold startup seals the linked
-declaration snapshot:
+The host grants permanent namespaces through checked allocation grants before
+cold startup seals the declaration snapshot:
 
 ```rust,ignore
-fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
-    icydb::db::MemoryAllocationPool::new(
-        vec![icydb::db::MemoryAuthority::new("icydb.app", "icydb.app.")?],
-        vec![], // Explicitly exclude physical IDs held by unmanaged host users.
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![
+        icydb::db::MemoryAuthority::new("icydb_app", "icydb.app.")?,
+    ])
 }
 ```
 
-The final host grants namespaces through one checked allocation pool. All owners
-share eligible free IDs; unmanaged physical memory requires explicit exclusions.
-The provider is not invoked when adopting an already committed host. Keep the
-same keys and bucket geometry during upgrades; existing assignments remain.
+The provider is not invoked when adopting an already bound host. Keep permanent
+keys across same-contract restarts; retained directory entries alone do not grant
+opening authority. Allocation IDs are opaque 64-bit values.
 See [compact diagnostics](diagnostics.md) for offline code
 and fact interpretation.
 
@@ -225,10 +220,16 @@ Optional cardinality construction gives at most one store a bounded page per
 callback, rotating journaled stores so repeated source changes at one store do
 not starve the others. This disposable scheduling position is scoped to the
 actual registry instance and is discarded when all stores are quiescent.
-Source validation and restart rules remain unchanged: a busy individual store
-can still restart after folds, as tracked in
-[#81](https://github.com/dragginzgame/icydb/issues/81). This adds no timer policy
-or durable scheduling state and does not change the `Ready` condition.
+Ordinary journal folds preserve Building progress: count changes behind the
+exclusive scan checkpoint are applied with the next header/cursor watermark,
+while the subsequent scan observes changes ahead of it
+([#81](https://github.com/dragginzgame/icydb/issues/81)). Once row scanning finishes,
+folds maintain all entity counts and only the completed index range. Clearing
+has no current counts to maintain. Cursor totals retain cumulative builder work,
+not live row counts. Schema/index-domain, allocation and incarnation changes
+still require the existing source restart. Invalid partial evidence is retained
+and left stale rather than blocking authoritative row folding. This adds no
+timer policy or durable scheduling state and does not change the `Ready` condition.
 
 Accepted schema publication re-arms this watchdog for both heap and journaled
 stores. Heap-only DDL therefore schedules replicated runtime preparation even

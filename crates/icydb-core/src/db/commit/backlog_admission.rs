@@ -437,7 +437,7 @@ mod tests {
         };
 
         thread_local! {
-            static TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(225)));
+            static TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(225)).expect("fixture storage should initialize"));
         }
         let identities = StoreAllocationIdentities::new_journaled(
             StoreAllocationIdentity::new(222, "icydb.test.metrics.data.v1"),
@@ -484,7 +484,7 @@ mod tests {
             let retirement = tail
                 .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
                 .unwrap();
-            tail.apply_prepared_batch_retirement(retirement);
+            tail.apply_prepared_batch_retirement(retirement).unwrap();
         });
         let retired = crate::metrics::metrics_report().unwrap();
         assert_eq!(retired.journal_debt(), ExactBacklogMeasurement::EMPTY);
@@ -548,10 +548,12 @@ mod tests {
         assert_eq!(prepared.contribution().record_count(), 3);
         assert_eq!(prepared.contribution().encoded_batch_bytes(), exact_bytes);
 
-        let mut first_tail = JournalTailStore::init(test_memory(248));
+        let mut first_tail =
+            JournalTailStore::init(test_memory(248)).expect("fixture storage should initialize");
         first_tail.initialize_current_tail_control().unwrap();
         first_tail.append_batch(&first).unwrap();
-        let mut second_tail = JournalTailStore::init(test_memory(249));
+        let mut second_tail =
+            JournalTailStore::init(test_memory(249)).expect("fixture storage should initialize");
         second_tail.initialize_current_tail_control().unwrap();
         second_tail.append_batch(&second).unwrap();
         let current = ExactBacklogMeasurement::from_tail_controls(&[
