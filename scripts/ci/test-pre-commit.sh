@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# The disposable workspaces below own their Make/cache selections. Unsafe-mode
+# controls still supply their own flags explicitly at the invocation boundary.
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
 
 # Qualify IcyDB's actual Make/hook selection, derive coverage and staged-file
 # preservation. Generic formatter/input-reuse permutations belong upstream.

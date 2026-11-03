@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# This fixture owns its Make/cache/group selections, including when called from
+# a live release gate with command-line assignments in the inherited flags.
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
 export RELEASE_GROUP=database
 
 # Execute publication preflight, order and retries using command substitutes.
