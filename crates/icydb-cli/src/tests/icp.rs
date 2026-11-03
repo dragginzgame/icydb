@@ -10,8 +10,8 @@ use std::path::Path;
 use crate::icp::test_support::{
     build_command, canister_status_id_command, canister_status_json_command, deploy_command,
     fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
-    install_upgrade_command, parse_canister_cycles, parse_manifest_canisters,
-    parse_manifest_environment_network, status_command, top_up_command,
+    install_upgrade_command, parse_canister_cycles, parse_manifest_canisters, status_command,
+    top_up_command,
 };
 
 #[test]
@@ -25,7 +25,7 @@ environments:
 ";
 
     assert_eq!(
-        parse_manifest_canisters(manifest, "demo"),
+        parse_manifest_canisters(manifest, "demo").unwrap(),
         vec!["demo_rpg".to_string(), "minimal".to_string()],
     );
 }
@@ -42,7 +42,7 @@ environments:
 ";
 
     assert_eq!(
-        parse_manifest_canisters(manifest, "demo"),
+        parse_manifest_canisters(manifest, "demo").unwrap(),
         vec!["demo_rpg".to_string()],
     );
 }
@@ -56,7 +56,7 @@ environments:
 "#;
 
     assert_eq!(
-        parse_manifest_canisters(manifest, "test"),
+        parse_manifest_canisters(manifest, "test").unwrap(),
         vec!["one_simple".to_string(), "ten_complex".to_string()],
     );
 }
@@ -72,11 +72,11 @@ environments:
 "#;
 
     assert_eq!(
-        parse_manifest_canisters(manifest, "demo"),
+        parse_manifest_canisters(manifest, "demo").unwrap(),
         vec!["demo_rpg".to_string()],
     );
     assert_eq!(
-        parse_manifest_canisters(manifest, "test"),
+        parse_manifest_canisters(manifest, "test").unwrap(),
         vec!["test_sql".to_string()],
     );
 }
@@ -293,33 +293,6 @@ Canister Status Report:
 }
 
 #[test]
-fn manifest_environment_network_parser_detects_local_targets() {
-    let contents = r"
-environments:
-  - name: demo
-    network: local
-    canisters: [demo_rpg]
-
-  - name: ic
-    network: ic
-    canisters: [demo_rpg]
-";
-
-    assert_eq!(
-        parse_manifest_environment_network(contents, "demo"),
-        Some("local")
-    );
-    assert_eq!(
-        parse_manifest_environment_network(contents, "ic"),
-        Some("ic")
-    );
-    assert_eq!(
-        parse_manifest_environment_network(contents, "missing"),
-        None
-    );
-}
-
-#[test]
 fn hex_response_bytes_accepts_plain_or_labeled_icp_hex_output() {
     assert_eq!(
         hex_response_bytes("4449444c00017f").expect("plain hex should parse"),
@@ -362,34 +335,76 @@ fn hex_response_diagnostics_are_control_free() {
 }
 
 #[test]
-fn manifest_environment_values_do_not_escape_or_skip_empty_first_keys() {
+fn manifest_missing_or_empty_canisters_preserve_environment_boundaries() {
     let manifest = r"
-network: local
 canisters: [outside]
 environments:
   - name: missing-keys
   - name: empty-keys
-    network: ''
-    network: local
     canisters: []
-    canisters: [later]
   - name: populated
-    network: local
     canisters: [inside]
 ";
     for environment in ["missing-keys", "empty-keys", "absent"] {
-        assert_eq!(
-            parse_manifest_environment_network(manifest, environment),
-            None
+        assert!(
+            parse_manifest_canisters(manifest, environment)
+                .unwrap()
+                .is_empty()
         );
-        assert!(parse_manifest_canisters(manifest, environment).is_empty());
     }
     assert_eq!(
-        parse_manifest_environment_network(manifest, "populated"),
-        Some("local")
-    );
-    assert_eq!(
-        parse_manifest_canisters(manifest, "populated"),
+        parse_manifest_canisters(manifest, "populated").unwrap(),
         vec!["inside"]
     );
+}
+
+#[test]
+fn manifest_yaml_projection_preserves_literal_names_and_ignores_unrelated_tags() {
+    let manifest = r#"
+canisters: [{name: outside, build: !script [false]}]
+environments:
+  - name: "demo\\name"
+    canisters: ['first,second', 'literal''quote', "line\nname", '', z, z]
+  - name: other
+    canisters: [outside]
+"#;
+    assert_eq!(
+        parse_manifest_canisters(manifest, "demo\\name").unwrap(),
+        ["first,second", "line\nname", "literal'quote", "z", "z"]
+    );
+}
+
+#[test]
+fn manifest_yaml_projection_refuses_malformed_documents_and_wrong_shapes() {
+    for manifest in [
+        "[",
+        "[]",
+        "not a project",
+        "environments: fixture",
+        "environments: [{name: fixture, canisters: 42}]",
+        "environments: [{name: fixture, canisters: [{name: one}]}]",
+        "environments: [{name: fixture, canisters: [], canisters: [later]}]",
+        "environments: []\n---\nenvironments: []",
+    ] {
+        assert!(parse_manifest_canisters(manifest, "fixture").is_err());
+    }
+}
+
+#[test]
+fn manifest_yaml_projection_preserves_empty_and_first_environment_selections() {
+    for manifest in [
+        "",
+        "{}",
+        "environments: null",
+        "environments: []",
+        "environments: [{name: fixture}]",
+        "environments: [{name: fixture, canisters: null}]",
+        "environments: [{name: fixture, canisters: []}, {name: fixture, canisters: [later]}]",
+    ] {
+        assert!(
+            parse_manifest_canisters(manifest, "fixture")
+                .unwrap()
+                .is_empty()
+        );
+    }
 }

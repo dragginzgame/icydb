@@ -1,101 +1,71 @@
 //! Module: ICP manifest discovery.
-//! Responsibility: read and parse project-local `icp.yaml` environment metadata.
-//! Does not own: icp-cli JSON discovery, process execution, or setup diagnostics.
-//! Boundary: exposes manifest-derived canister names and network targeting to project discovery.
+//! Responsibility: project fallback canister names from project-local `icp.yaml`.
+//! Does not own: effective project resolution, YAML mechanics or process execution.
+//! Boundary: read an admitted regular file, then project its declared environment inventory.
+
+use std::{io, path::Path};
+
+use ic_host_fs::read::open_regular_file;
+use ic_host_text::{
+    escape::terminal_text,
+    yaml::{self, DecodePolicy},
+};
+use serde::Deserialize;
 
 const ICP_YAML_PATH: &str = "icp.yaml";
 
+#[derive(Deserialize)]
+struct Manifest {
+    environments: Option<Vec<Environment>>,
+}
+
+#[derive(Deserialize)]
+struct Environment {
+    name: String,
+    canisters: Option<Vec<String>>,
+}
+
 pub(super) fn known_canisters(environment: &str) -> Result<Vec<String>, String> {
-    let contents = std::fs::read_to_string(ICP_YAML_PATH)
+    let contents = read_manifest()?;
+    parse_canisters(&contents, environment)
+}
+
+fn read_manifest() -> Result<String, String> {
+    // Admit the selected descriptor before reading so a FIFO cannot block at
+    // open. Host FS owns that check; regular-file symlinks remain supported.
+    let file = open_regular_file(Path::new(ICP_YAML_PATH))
         .map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))?;
-
-    Ok(parse_canisters(contents.as_str(), environment))
+    io::read_to_string(file).map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))
 }
 
-pub(super) fn environment_targets_local(environment: &str) -> Result<bool, String> {
-    let contents = std::fs::read_to_string(ICP_YAML_PATH)
-        .map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))?;
-
-    Ok(parse_environment_network(contents.as_str(), environment)
-        .is_some_and(|network| network == "local"))
-}
-
-pub(super) fn parse_canisters(contents: &str, environment: &str) -> Vec<String> {
-    environment_value(contents, environment, "canisters:")
-        .map(parse_inline_canister_list)
-        .unwrap_or_default()
-}
-
-pub(super) fn parse_environment_network<'a>(
-    contents: &'a str,
-    environment: &str,
-) -> Option<&'a str> {
-    let network = environment_value(contents, environment, "network:")?
-        .trim()
-        .trim_matches(['"', '\'']);
-    (!network.is_empty()).then_some(network)
-}
-
-// Stop at the next environment even when the requested key was absent.
-fn environment_value<'a>(contents: &'a str, environment: &str, key: &str) -> Option<&'a str> {
-    let mut in_environments = false;
-    let mut in_target_environment = false;
-    for line in contents.lines().map(str::trim) {
-        if line == "environments:" {
-            in_environments = true;
-            in_target_environment = false;
-            continue;
-        }
-        if !in_environments {
-            continue;
-        }
-        if let Some(name) = environment_name(line) {
-            if in_target_environment {
-                return None;
-            }
-            in_target_environment = name == environment;
-            continue;
-        }
-        if in_target_environment && let Some(value) = line.strip_prefix(key) {
-            return Some(value);
-        }
-    }
-    None
-}
-
-fn environment_name(line: &str) -> Option<&str> {
-    let name = line
-        .strip_prefix("- name:")?
-        .trim()
-        .trim_matches(['"', '\'']);
-
-    (!name.is_empty()).then_some(name)
-}
-
-fn parse_inline_canister_list(value: &str) -> Vec<String> {
-    let trimmed = value.trim();
-    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Vec::new();
-    }
-
-    sorted_canister_names(
-        trimmed
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .split(',')
-            .filter_map(parse_manifest_name),
+pub(super) fn parse_canisters(contents: &str, environment: &str) -> Result<Vec<String>, String> {
+    // The file read retains its existing size policy. This extent admits only
+    // the supplied buffer; it is not a new file or parser-memory ceiling.
+    // Ignore unrelated tagged fields, without resolving YAML merges or recipes.
+    let manifest: Option<Manifest> = yaml::from_slice(
+        contents.as_bytes(),
+        contents.len(),
+        DecodePolicy {
+            ignore_unknown_tags: true,
+            preserve_merge_keys: true,
+        },
     )
-}
-
-fn parse_manifest_name(value: &str) -> Option<String> {
-    let name = value.trim().trim_matches(['"', '\'']);
-
-    (!name.is_empty()).then(|| name.to_string())
-}
-
-fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
-    let mut names = names.collect::<Vec<_>>();
-    names.sort();
-
-    names
+    .map_err(|error| {
+        format!(
+            "parse {ICP_YAML_PATH}: {}",
+            terminal_text(&error.to_string())
+        )
+    })?;
+    let mut canisters = manifest
+        .and_then(|manifest| manifest.environments)
+        .and_then(|environments| {
+            environments
+                .into_iter()
+                .find(|item| item.name == environment)
+        })
+        .and_then(|item| item.canisters)
+        .unwrap_or_default();
+    canisters.retain(|name| !name.is_empty());
+    canisters.sort();
+    Ok(canisters)
 }

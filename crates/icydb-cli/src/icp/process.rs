@@ -4,6 +4,7 @@
 //! Boundary: exposes process primitives to sibling ICP modules.
 
 use std::{
+    ffi::OsStr,
     io,
     process::{Command, Output, Stdio},
     sync::{
@@ -21,9 +22,11 @@ use ic_host_process::{
         capture_command, capture_group_command_with_cancellation,
     },
 };
+use ic_host_text::escape::terminal_text;
+use ic_host_tools::icp::{StatusOutput, decode_installation_status, status_command};
 use icydb_schema::Principal;
 
-const PROBE_STDOUT_BYTES: usize = 16 * 1024 * 1024;
+pub(super) const PROBE_STDOUT_BYTES: usize = 16 * 1024 * 1024;
 const PROBE_STDERR_BYTES: usize = 64 * 1024;
 
 /// Capture read-only ICP observations with finite output and elapsed-time budgets.
@@ -116,21 +119,15 @@ pub(super) fn run_external_command(mut command: Command, label: &str) -> Result<
 
 /// Return whether icp-cli reports an installed canister in the selected environment.
 pub(super) fn canister_is_installed(environment: &str, canister: &str) -> Result<bool, String> {
-    let output = canister_status_output(environment, canister, CanisterStatusOutput::Json)?;
-    let status = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-        .map_err(|err| format!("parse icp canister status --json: {err}"))?;
-    // A failed probe never proves absence. ICP owns the successful status
-    // contract: module_hash is null for a created canister without installed Wasm.
-    match status.get("module_hash") {
-        Some(serde_json::Value::Null) => Ok(false),
-        Some(serde_json::Value::String(_)) => Ok(true),
-        _ => Err("icp canister status --json omitted a valid module_hash".to_string()),
-    }
+    let output = canister_status_output(environment, canister, StatusOutput::Json)?;
+    // Only a successful probe may supply the shared installation projection.
+    decode_installation_status(&output.stdout)
+        .map_err(|error| terminal_text(&error.to_string()).into_owned())
 }
 
 /// Resolve an icp-cli canister id without treating absent local ids as fatal.
 pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<String>, String> {
-    let output = canister_status_output(environment, canister, CanisterStatusOutput::IdOnly)?;
+    let output = canister_status_output(environment, canister, StatusOutput::IdOnly)?;
     let id = std::str::from_utf8(&output.stdout)
         .map_err(|error| format!("parse icp canister id UTF-8: {error}"))?
         .trim();
@@ -145,16 +142,10 @@ pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<St
     Ok(Some(id.to_owned()))
 }
 
-pub(super) enum CanisterStatusOutput {
-    Capture,
-    Json,
-    IdOnly,
-}
-
 fn canister_status_output(
     environment: &str,
     canister: &str,
-    output: CanisterStatusOutput,
+    output: StatusOutput,
 ) -> Result<Output, String> {
     let output = probe_output(&mut canister_status_command(environment, canister, output))
         .map_err(|err| format!("failed to run icp canister status: {err}"))?;
@@ -163,6 +154,8 @@ fn canister_status_output(
             "icp canister status for '{canister}' in environment '{environment}' failed with {}: {}",
             output.status,
             output_stderr(&output.stderr),
+            canister = terminal_text(canister),
+            environment = terminal_text(environment),
         ));
     }
     Ok(output)
@@ -171,23 +164,13 @@ fn canister_status_output(
 pub(super) fn canister_status_command(
     environment: &str,
     canister: &str,
-    output: CanisterStatusOutput,
+    output: StatusOutput,
 ) -> Command {
-    let mut command = Command::new("icp");
-    command.arg("canister").arg("status").arg(canister);
-    match output {
-        CanisterStatusOutput::Capture => {
-            command.stdout(Stdio::piped());
-        }
-        CanisterStatusOutput::Json => {
-            command.arg("--json").stdout(Stdio::piped());
-        }
-        CanisterStatusOutput::IdOnly => {
-            command.arg("--id-only").stdout(Stdio::piped());
-        }
-    }
-
-    command.arg("--environment").arg(environment);
+    let mut command = status_command(Command::new("icp"), OsStr::new(canister), output);
+    command
+        .arg("--environment")
+        .arg(environment)
+        .stdout(Stdio::piped());
 
     command
 }

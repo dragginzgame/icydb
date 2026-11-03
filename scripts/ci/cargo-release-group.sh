@@ -136,7 +136,7 @@ check_group_candidate() {
 if [[ -n "$ordering" ]]; then
     sort_arguments=(sort --workspace --check)
     [[ "$ordering" != --manifest-order-grouped ]] || sort_arguments+=(--grouped)
-    (cd "$selected_root" && cargo "${sort_arguments[@]}")
+    (cd "$selected_root" && cargo "${sort_arguments[@]}") || exit "$?"
 fi
 admit "$selected_root" "$temporary/admitted"
 if [[ -n "$expected_primary" ]]; then

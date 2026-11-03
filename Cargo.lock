@@ -513,9 +513,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.74.1"
+version = "0.74.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed106efef97b990faabc68ed44a64985f4898d281f9a8ca0eb4b4ebe8d0dc6f"
+checksum = "c999cf66b5a17279ef46f289f518f90ab8eaf78c2ef20505cf9f2cda27ae5ef4"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -573,16 +573,19 @@ version = "0.74.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a15792afa8aefe2d9c1f3d35774f27e8ffcb1a036a44f8522212dfe351bd8374"
 dependencies = [
+ "serde",
  "unicode-width",
+ "yaml_serde",
 ]
 
 [[package]]
 name = "ic-host-tools"
-version = "0.79.0"
+version = "0.80.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35aa4d6a1024c53c81a42958ec38c996fa67164e7327f3d0354bfd284a3981e2"
+checksum = "e7b48116e227027e4900fa259809348ac0b1b1273e0b8bed175dfa9aa0ec245d"
 dependencies = [
  "ic-host-artifacts",
+ "ic-host-text",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -590,18 +593,18 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.28.0"
+version = "0.28.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de2cd8cb8da32cd175e8b63f3c883e52b041749aa2df3ae6d5936434674eb19e"
+checksum = "0d8cbfc169c0266b813ca6f604088fae2a7065ba004603855ca90df71a47ea97"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ic-platform"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06a85185aca3ced2084507e0431def65be9beb7beeb3dd4adf2ddb18d561819"
+checksum = "e87f01cbae3cc6cbd5b0ffc705c9086618817e4f0045ce67821e3fcbbc338670"
 dependencies = [
  "blake3",
 ]
@@ -629,9 +632,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.66.0"
+version = "0.66.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00918186b092ee0ef2373640bd818b6600d32e6557ead9d0f028e28c9c9bb289"
+checksum = "35d187e67fc27cc56f9ab6b3d9b125f6e8d73c538c55578888b27edd86dd8938"
 dependencies = [
  "ic-platform-runtime",
  "ic-wire",
@@ -641,9 +644,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.16.0"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7405eaf0d977aa1765f7f2ab06724154653ef2235da72a99b9c92a19fbd75230"
+checksum = "ef5c9c1d5a07ba652379ed698a1eec7e92b6c10bc2b305eee311cca113eae942"
 dependencies = [
  "bytemuck",
  "ic-wire-derive",
@@ -655,9 +658,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.16.0"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "022f7cfa0eb58ac31669b30e9d65f4476ad16d2c09e42585938f2c3f524c5e14"
+checksum = "806f1fc46fb963176e2af03b8c53acdb55a6b2a8d6a7a190d0d55d007ef3167f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1004,6 +1007,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libyaml-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777"
+
+[[package]]
 name = "linktime-proc-macro"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1259,6 +1268,12 @@ dependencies = [
  "utf8parse",
  "windows-sys",
 ]
+
+[[package]]
+name = "ryu"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "semver"
@@ -1738,6 +1753,19 @@ name = "xxhash-rust"
 version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
+
+[[package]]
+name = "yaml_serde"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33b729a08a9a6be689bbad3e2bf8015926db54b6622cc89c3a5f7dc174b9e918"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "libyaml-rs",
+ "ryu",
+ "serde",
+]
 
 [[package]]
 name = "zerocopy"

@@ -80,6 +80,12 @@ neither role labels nor cached build success establishes it.
 
 ## Upgrade impact
 
+Adopt a snapshot for an applicable fix, a needed capability or an explicitly
+requested refresh. An intact older snapshot does not trigger adoption on its own.
+Batch optional refreshes with requested maintenance or a natural release boundary;
+do not refresh every sibling after each Shared release. Required fixes retain
+their own urgency and actual caller qualification.
+
 Run `scripts/distribution/refresh-consumer.sh --impact --source /reviewed/shared-checkout
 --consumer /consumer` before adopting a clean committed Shared revision. This
 implies `--preview`; it never publishes or retires consumer files. The source
@@ -724,6 +730,15 @@ Shared Tooling CI qualifies the shared implementation. A consumer qualifies how
 its selected snapshot is wired into its own repository. Installing a snapshot
 does not require running every exported upstream test in routine consumer CI or
 adding the complete producer suite to its release gate.
+
+Inspect the selected fixture's nested dispatch before running it. A single
+script may still execute hundreds of unrelated cases. Prefer a named case or
+bounded caller check, and add independent case selection when changing an
+oversized fixture. Keep its full entrypoint for producer release qualification.
+When narrow selection is unavailable, report the specific gap rather than
+silently substituting the complete upstream suite during ordinary development.
+Development completion requires the affected proof, not release readiness for
+every host or automatic follow-up adoption in another workspace.
 
 During adoption, inventory prerequisites for **every target in the actual release
 gate**, including nested/native and browser steps. Keep consumer-owned

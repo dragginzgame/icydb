@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::StructuralRowContract,
-        predicate::{PredicateProgram, normalize},
+        predicate::{Predicate, PredicateProgram},
         schema::{SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo, SchemaInfo},
     },
     error::InternalError,
@@ -25,19 +25,25 @@ pub(in crate::db) struct PreparedIndexMutationMetadata {
 
 impl PreparedIndexMutationMetadata {
     /// Compile accepted predicates and dependency slots once for this context.
-    /// Normalize here so commit and retained replay keep their preparation contract.
+    /// The caller supplies normalization authority so ordinary preparation can
+    /// charge its request without imposing new ceilings on retained replay.
     pub(in crate::db) fn new(
         schema_info: SchemaInfo,
         row_contract: StructuralRowContract,
+        mut normalize: impl FnMut(Predicate) -> Result<Predicate, InternalError>,
     ) -> Result<Self, InternalError> {
         let field_path_inputs = schema_info
             .field_path_indexes()
             .iter()
             .map(|index| {
-                let program = index.predicate()?.map(|predicate| {
-                    let predicate = normalize(predicate);
-                    PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
-                });
+                let program =
+                    index
+                        .predicate()?
+                        .map(&mut normalize)
+                        .transpose()?
+                        .map(|predicate| {
+                            PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
+                        });
                 Ok(PreparedIndexInputs::new(
                     &row_contract,
                     program,
@@ -49,10 +55,14 @@ impl PreparedIndexMutationMetadata {
             .expression_indexes()
             .iter()
             .map(|index| {
-                let program = index.predicate()?.map(|predicate| {
-                    let predicate = normalize(predicate);
-                    PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
-                });
+                let program =
+                    index
+                        .predicate()?
+                        .map(&mut normalize)
+                        .transpose()?
+                        .map(|predicate| {
+                            PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
+                        });
                 Ok(PreparedIndexInputs::new(
                     &row_contract,
                     program,

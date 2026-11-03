@@ -16,7 +16,7 @@ use icydb::diagnostic::{
     SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
     SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
-use std::{fmt::Write as _, fs::File, io::Read, path::Path};
+use std::{fmt::Write as _, io::Read, path::Path};
 
 use crate::{
     cli::DiagnosticArgs,
@@ -25,6 +25,8 @@ use crate::{
 };
 
 use ic_host_artifacts::artifact::{ArtifactError, read_reader};
+use ic_host_fs::read::open_regular_file;
+use ic_host_text::escape::terminal_text;
 
 // Decode failures cannot prove version skew: corruption and a wrong endpoint
 // can fail identically. Preserve the original diagnostic and offer lockstep advice.
@@ -59,20 +61,30 @@ const MAX_DIAGNOSTIC_ERROR_BYTES: usize = 64 * 1024;
 fn read_error_json(reader: impl Read) -> Result<icydb::Error, String> {
     let bytes = read_reader(reader, MAX_DIAGNOSTIC_ERROR_BYTES).map_err(|error| match error {
         ArtifactError::LimitExceeded { .. } => "diagnostic error JSON exceeds 64 KiB".to_string(),
-        other => format!("cannot read diagnostic error JSON: {other}"),
+        other => format!(
+            "cannot read diagnostic error JSON: {}",
+            terminal_text(&other.to_string())
+        ),
     })?;
     if bytes.iter().find(|byte| !byte.is_ascii_whitespace()) != Some(&b'{') {
         return Err("diagnostic error JSON must be an object".to_string());
     }
-    serde_json::from_slice(&bytes).map_err(|err| format!("invalid public IcyDB Error JSON: {err}"))
+    serde_json::from_slice(&bytes).map_err(|err| {
+        format!(
+            "invalid public IcyDB Error JSON: {}",
+            terminal_text(&err.to_string())
+        )
+    })
 }
 
 fn load_error_json(path: &Path) -> Result<icydb::Error, String> {
     if path == Path::new("-") {
         read_error_json(std::io::stdin().lock())
     } else {
-        let file =
-            File::open(path).map_err(|err| format!("cannot open diagnostic error JSON: {err}"))?;
+        // Admit the selected descriptor before reading so a FIFO cannot wait
+        // for a writer during open; intentional stream input uses `-` above.
+        let file = open_regular_file(path)
+            .map_err(|err| format!("cannot open diagnostic error JSON: {err}"))?;
         read_error_json(file)
     }
 }
@@ -304,8 +316,8 @@ fn render_error_code_report_with_facts(
             ),
             (false, Some(_), Some(resolved)) => lines.push(format!(
                 "accepted entity: {} ({})",
-                resolved.entity_name(),
-                resolved.entity_path()
+                terminal_text(resolved.entity_name()),
+                terminal_text(resolved.entity_path())
             )),
         }
     }
@@ -382,12 +394,13 @@ fn parse_facts(inputs: &[String]) -> Result<Vec<RawDiagnosticFact>, String> {
 }
 
 fn parse_fact(input: &str) -> Result<RawDiagnosticFact, String> {
+    let display = terminal_text(input);
     let (tag, value) = input
         .split_once('=')
-        .ok_or_else(|| format!("invalid diagnostic fact `{input}`; expected TAG=VALUE"))?;
+        .ok_or_else(|| format!("invalid diagnostic fact `{display}`; expected TAG=VALUE"))?;
     let tag = parse_fact_tag(tag)?;
     let value = value.parse::<u64>().map_err(|_| {
-        format!("invalid diagnostic fact `{input}`; VALUE must be an unsigned integer")
+        format!("invalid diagnostic fact `{display}`; VALUE must be an unsigned integer")
     })?;
     Ok(RawDiagnosticFact { tag, value })
 }
@@ -405,7 +418,8 @@ fn parse_fact_tag(input: &str) -> Result<u8, String> {
         }
     }
     Err(format!(
-        "unknown diagnostic fact tag `{input}`; use a numeric tag or maintained label"
+        "unknown diagnostic fact tag `{}`; use a numeric tag or maintained label",
+        terminal_text(input)
     ))
 }
 
@@ -473,7 +487,10 @@ fn render_fact_value(
         DiagnosticFactTag::ExecutionLane => execution_lane_text(value),
         _ => None,
     };
-    label.map_or_else(|| value.to_string(), |label| format!("{value}({label})"))
+    label.map_or_else(
+        || value.to_string(),
+        |label| format!("{value}({})", terminal_text(label)),
+    )
 }
 
 const fn grouped_limit_text(value: u64) -> Option<&'static str> {
@@ -604,13 +621,17 @@ fn parse_error_code(input: &str) -> Result<u16, String> {
 
     if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
         return Err(format!(
-            "invalid IcyDB diagnostic code `{input}`; expected E7, 7, E190, or 190"
+            "invalid IcyDB diagnostic code `{}`; expected E7, 7, E190, or 190",
+            terminal_text(input)
         ));
     }
 
-    digits
-        .parse::<u16>()
-        .map_err(|_| format!("invalid IcyDB diagnostic code `{input}`; code does not fit u16"))
+    digits.parse::<u16>().map_err(|_| {
+        format!(
+            "invalid IcyDB diagnostic code `{}`; code does not fit u16",
+            terminal_text(input)
+        )
+    })
 }
 
 /// Render one compact public IcyDB error for CLI output.
@@ -1775,7 +1796,7 @@ mod tests {
         MAX_DIAGNOSTIC_ERROR_BYTES, RawDiagnosticFact, artifact::DiagnosticSchemaArtifact,
         diagnostic_command_report, diagnostic_fact_schema_mismatch, parse_error_code,
         read_error_json, render_error, render_error_code_report,
-        render_error_code_report_with_facts,
+        render_error_code_report_with_facts, render_fact_value,
     };
     use crate::cli::{CliArgs, CliCommand};
     use clap::Parser;
@@ -2321,6 +2342,41 @@ mod tests {
             assert!(report.contains("field_id=1"), "{report}");
             assert!(!report.contains("field_id=1(id)"), "{report}");
         }
+    }
+
+    #[test]
+    fn resolved_fact_labels_escape_each_identity_family_at_presentation() {
+        use icydb::diagnostic::DiagnosticFactTag;
+
+        let label = "界-e\u{301}-\\n\t\r\n\x1b[2J\u{0085}\u{202e}\u{2028}";
+        let mut json = serde_json::to_value(DiagnosticSchemaArtifact::test_fixture()).unwrap();
+        let entity = &mut json["entities"][0];
+        entity["entity_name"] = label.into();
+        entity["fields"][0]["name"] = label.into();
+        entity["constraints"][0]["name"] = label.into();
+        entity["constraints"][0]["kind"] = label.into();
+        entity["indexes"] = serde_json::json!([{"id": 2, "name": label}]);
+        entity["relations"] = serde_json::json!([{"id": 4, "name": label}]);
+        let artifact: DiagnosticSchemaArtifact = serde_json::from_value(json).unwrap();
+        let resolved = artifact.resolve(1, [7; 16], 42, Some(3)).unwrap();
+        for (tag, value) in [
+            (DiagnosticFactTag::EntityTag, 42),
+            (DiagnosticFactTag::ConstraintId, 3),
+            (DiagnosticFactTag::FieldId, 1),
+            (DiagnosticFactTag::RootField, 1),
+            (DiagnosticFactTag::IndexId, 2),
+            (DiagnosticFactTag::RelationId, 4),
+            (DiagnosticFactTag::ConstraintKind, 255),
+        ] {
+            assert_eq!(
+                render_fact_value(tag, value, Some(&resolved)),
+                format!("{value}({})", ic_host_text::escape::terminal_text(label))
+            );
+        }
+        assert_eq!(
+            render_fact_value(DiagnosticFactTag::ConstraintKind, 5, Some(&resolved)),
+            "5(unique)"
+        );
     }
 
     #[test]

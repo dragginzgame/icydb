@@ -5,6 +5,7 @@
 
 use std::{collections::VecDeque, io::ErrorKind, path::Path};
 
+use ic_host_text::escape::terminal_text;
 use rustyline::{DefaultEditor, error::ReadlineError};
 
 use crate::shell::{
@@ -48,8 +49,9 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
                     record_history_entry(&mut editor, config.history_file.as_path(), sql.as_str())
                 {
                     eprintln!(
-                        "WARNING: could not save SQL history '{}': {error}",
-                        config.history_file.display(),
+                        "WARNING: could not save SQL history '{}': {}",
+                        terminal_text(&config.history_file.display().to_string()),
+                        terminal_text(&error),
                     );
                 }
             }
@@ -65,8 +67,9 @@ fn prepare_editor(history_file: &Path) -> Result<DefaultEditor, String> {
         Ok(()) => {}
         Err(ReadlineError::Io(error)) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => eprintln!(
-            "WARNING: could not load SQL history '{}': {error}",
-            history_file.display(),
+            "WARNING: could not load SQL history '{}': {}",
+            terminal_text(&history_file.display().to_string()),
+            terminal_text(&error.to_string()),
         ),
     }
 
@@ -98,6 +101,8 @@ fn print_successful_command_output(output: &str) {
 
 pub(super) fn interactive_start_message(environment: &str, canister: &str) -> String {
     format!(
-        "[icydb sql] interactive mode on '{environment}:{canister}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)"
+        "[icydb sql] interactive mode on '{}:{}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)",
+        terminal_text(environment),
+        terminal_text(canister),
     )
 }

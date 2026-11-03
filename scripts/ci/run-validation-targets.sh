@@ -42,6 +42,7 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     cp "$(dirname "$RUNNER_SOURCE")/verify-file-checksum.sh" "$RUNNER_SNAPSHOT_DIR/"
     cp "$(dirname "$RUNNER_SOURCE")/validation-input-checkpoint.pl" "$RUNNER_SNAPSHOT_DIR/"
     cp "$(dirname "$RUNNER_SOURCE")/release-validation-plan.pl" "$RUNNER_SNAPSHOT_DIR/"
+    cp "$(dirname "$RUNNER_SOURCE")/ValidationPlan.pm" "$RUNNER_SNAPSHOT_DIR/"
     bash -n "$RUNNER_SNAPSHOT"
     snapshot_status=0
     VALIDATION_REPOSITORY_ROOT="$REPOSITORY_ROOT" \

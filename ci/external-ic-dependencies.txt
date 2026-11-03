@@ -15,6 +15,7 @@ ic-representation-independent-hash
 ic-secp256k1
 ic-signature-verification
 ic-stable-structures
+ic-transport-types
 ic-verify-bls-signature
 ic0
 ic_principal

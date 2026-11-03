@@ -27,7 +27,9 @@ workspace checks already include CLI compilation/tests; no duplicate work is
 added to the default release gate.
 
 The selector requires clean committed HEAD and an annotated ancestor tag from
-the selected group. It examines the complete diff from that baseline. Manifests,
+the selected group. Shared observes the baseline and complete diff; unavailable,
+lightweight and non-ancestor baselines remain consumer refusals. Shared also
+checks roster/group equality; product mapping and recipe admission remain local. Manifests,
 locks, features, shared/compiler/CI/release files, generators, fixtures, public
 library/build surfaces, database sources and unknown paths expand to workspace.
 No change also selects workspace. Every stage has a reason. CLI-only release
@@ -52,27 +54,40 @@ request under the local operating manual.
 
 Each invocation creates a fresh `target/release-validation/qualification.*`
 attempt and calls Shared's existing runner through IcyDB's adapter. Plan mode
-fails fast, retaining lint-before-tests order. Shared owns checkpoints, stage
-execution and raw logs. Consumer receipts re-admit the same selector and verify
-all successful stage events, completion records, raw log identities and complete
-input/source/configuration custody. Missing, failed, interrupted, stale or
+selects the unique run that retained the exact submitted plan, so nested
+positional runners cannot supply or obscure its evidence. It fails fast,
+retaining lint-before-tests order. Shared owns checkpoints, stage
+execution and raw logs. Shared verifies plan/policy bytes, ordered stage events, before/after checkpoints
+and retained logs, publishing an immutable evidence component through its atomic
+receipt helper. Consumer receipts re-admit that saved proof and the same product
+selector, source/index and host/compiler/configuration. Their JSON is published
+through the same shared byte-custody helper; local event/timing parsers are removed. Missing, failed, interrupted, stale or
 unknown stage evidence cannot produce a receipt. Failed attempts are retained;
 retry creates a new attempt. Readmission can recheck the same evidence, but never
 replaces or upgrades a failed stage. Stage reuse is disabled: every selected
 stage is recorded as `executed`, with `reused: 0`.
 
-Receipts use `icydb-release-validation-qualification/1`, report executed/reused
-stage counts and explicitly set `release_omission_admitted: false`. Existing
-`GROUP-vVERSION.commit` release receipts retain their original semantics. Raw
+Receipts use `icydb-release-validation-qualification/2`, report executed/reused
+Make-target invocation counts and explicitly set `release_omission_admitted: false`. Existing
+`GROUP-vVERSION.commit` release receipts retain their original semantics.
+Version 1 qualification receipts are historical evidence; the new caller requires
+its own saved Shared proof and never reinterprets those older bytes. Raw
 Shared logs include execution durations for troubleshooting; neither qualification
 nor acceptance uses elapsed time as a performance metric.
+
+Shared's UTF-8 text contract applies to selection/event/timing records, including
+non-ASCII reasons and checkout paths. Evidence digests still bind the original
+bytes. Invalid UTF-8 or changed text cannot replace an admitted consumer receipt;
+restoring the exact saved bytes permits identical readmission. The consumer
+fixture exercises that boundary from a path containing spaces and a non-ASCII
+character.
 
 ## Activation obligations
 
 Fixture qualification exercises the actual selector, plan runner and receipt
 with substitute stage bodies. It proves selection, exact target dispatch,
-required/excluded failures, conservative expansion, recipe/roster drift, source
-and configuration drift, interruption and fresh retry. It does not qualify
+required/excluded failures, conservative expansion, recipe/roster drift, unavailable baselines, source/configuration drift,
+interruption, fresh retry and failure to replace a receipt after log tampering. It does not qualify
 product, archive or native-host behavior.
 
 Before release activation, run matched real full/selected plans on the same

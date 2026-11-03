@@ -9,15 +9,18 @@ use crate::db::{
     data::DecodedDataStoreKey,
     key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     relation::RelationCommitBudget,
-    schema::AcceptedSchemaFingerprint,
+    schema::{AcceptedIndexPredicate, AcceptedSchemaFingerprint},
+    test_support::request_with_limit,
 };
 use ic_storage::adapter::Storable;
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
 const CANDIDATE_GENERATION: u64 = 9;
 
 fn candidate_snapshot(
     store_path: &str,
     base_fingerprint: AcceptedSchemaFingerprint,
+    predicate: Option<AcceptedIndexPredicate>,
 ) -> PersistedSchemaSnapshot {
     let index_id = SchemaIndexId::new(2).unwrap();
     let candidate = PersistedIndexSnapshot::new_sql_ddl(
@@ -33,7 +36,7 @@ fn candidate_snapshot(
             AcceptedFieldKind::Nat64,
             false,
         )]),
-        None,
+        predicate,
     )
     .clone_with_schema_identity(index_id, 2, CANDIDATE_GENERATION);
     identity_snapshot(store_path, false)
@@ -42,7 +45,11 @@ fn candidate_snapshot(
         .with_schema_version(SchemaVersion::new(2))
 }
 
-fn publish_candidate<C: CanisterKind>(session: &DbSession<C>, store_path: &'static str) {
+fn publish_candidate<C: CanisterKind>(
+    session: &DbSession<C>,
+    store_path: &'static str,
+    predicate: Option<AcceptedIndexPredicate>,
+) {
     let store = session.db.store_handle(store_path).unwrap();
     let base_fingerprint = store
         .with_schema(SchemaStore::current_accepted_schema_root)
@@ -54,7 +61,10 @@ fn publish_candidate<C: CanisterKind>(session: &DbSession<C>, store_path: &'stat
         store_path,
         AcceptedSchemaRevision::new(2),
         BTreeMap::from([
-            (ENTITY_TAG, candidate_snapshot(store_path, base_fingerprint)),
+            (
+                ENTITY_TAG,
+                candidate_snapshot(store_path, base_fingerprint, predicate),
+            ),
             (
                 SECOND_ENTITY_TAG,
                 identity_snapshot_for_entity(
@@ -88,6 +98,65 @@ fn publish_candidate<C: CanisterKind>(session: &DbSession<C>, store_path: &'stat
         &candidate,
     )
     .unwrap();
+}
+
+#[test]
+fn candidate_unique_predicate_pairs_use_the_same_commit_request_authority() {
+    let initialized = initialize();
+    let predicate = AcceptedIndexPredicate::bind_test_sql(
+        "payload != 10 AND payload != 20 AND payload != 30",
+        identity_snapshot(STORE_PATH, false).fields(),
+    );
+    publish_candidate(&initialized, STORE_PATH, Some(predicate));
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 2);
+    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    let selection = session
+        .db
+        .store_handle(STORE_PATH)
+        .unwrap()
+        .with_schema(|schema| {
+            schema.current_accepted_catalog_selection(ENTITY_TAG, ENTITY_SOURCE, STORE_PATH)
+        })
+        .unwrap()
+        .unwrap();
+    let fingerprint = selection.identity().accepted_schema_fingerprint();
+    // Retained explicit authority stays usable without spending this request.
+    for mode in [
+        CommitPrepareMode::RecoveryReplay,
+        CommitPrepareMode::DerivedRebuild,
+    ] {
+        assert!(
+            prepare_commit_context_from_catalog_selection(
+                &session.db,
+                &selection,
+                fingerprint,
+                mode
+            )
+            .is_ok()
+        );
+        assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
+    }
+    let Err(error) = prepare_commit_context_from_catalog_selection(
+        &session.db,
+        &selection,
+        fingerprint,
+        CommitPrepareMode::NormalWrite,
+    ) else {
+        panic!("candidate membership must charge its third conjunction pair");
+    };
+    for fact in [
+        (
+            DiagnosticFactTag::BudgetResource,
+            Resource::PredicateExpressionSteps.raw(),
+        ),
+        (DiagnosticFactTag::Limit, 2),
+        (DiagnosticFactTag::Actual, 3),
+    ] {
+        assert!(error.diagnostic_facts().contains(&fact), "{error:?}");
+    }
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    assert_eq!(DATA_STORE.with_borrow(DataStore::len), 0);
+    assert_eq!(INDEX_STORE.with_borrow(IndexStore::len).unwrap(), 0);
 }
 
 fn fingerprint(session: &DbSession<JournaledTestCanister>) -> [u8; 16] {
@@ -169,7 +238,7 @@ fn candidate_delete_preparation_tracks_live_and_canonical_schema_ownership() {
         predecessor_fingerprint,
         CommitPrepareMode::RecoveryReplay,
     );
-    publish_candidate(&session, JOURNALED_STORE_PATH);
+    publish_candidate(&session, JOURNALED_STORE_PATH, None);
     let candidate_fingerprint = fingerprint(&session);
     assert_ne!(candidate_fingerprint, predecessor_fingerprint);
     let candidate_id = IndexId::new_with_generation(ENTITY_TAG, 2, CANDIDATE_GENERATION);
@@ -245,7 +314,7 @@ fn candidate_delete_preparation_tracks_live_and_canonical_schema_ownership() {
 fn explicit_selection_preserves_entity_and_record_fingerprint_checks() {
     let session = initialize_journaled();
     seed_row(&session);
-    publish_candidate(&session, JOURNALED_STORE_PATH);
+    publish_candidate(&session, JOURNALED_STORE_PATH, None);
     let fingerprint = fingerprint(&session);
     let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
     for (tag, path, expected) in [
@@ -284,7 +353,7 @@ fn explicit_selection_preserves_entity_and_record_fingerprint_checks() {
 fn candidate_schema_folds_before_an_interrupted_delete_and_survives_stage_loss() {
     let session = initialize_journaled();
     seed_row(&session);
-    publish_candidate(&session, JOURNALED_STORE_PATH);
+    publish_candidate(&session, JOURNALED_STORE_PATH, None);
     interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::MarkerPersisted);
     let error = session
         .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Delete {
@@ -322,7 +391,7 @@ fn direct_recovery_restores_candidate_authority_from_the_live_schema_checkpoint(
     session
         .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(10)])
         .unwrap();
-    publish_candidate(&session, STORE_PATH);
+    publish_candidate(&session, STORE_PATH, None);
     let accepted_before = SCHEMA_STORE
         .with_borrow(SchemaStore::current_accepted_schema_bundle)
         .unwrap()

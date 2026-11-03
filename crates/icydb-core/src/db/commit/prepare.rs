@@ -22,6 +22,8 @@ use crate::{
             plan_index_mutation_for_slot_reader_structural,
         },
         key_taxonomy::PrimaryKeyValue,
+        predicate::{Predicate, normalize, normalize_with_budget},
+        query::preparation::PreparationWork,
         registry::StoreRecoveryCapability,
         relation::{
             AcceptedRelationTargetContract, RelationCommitBudget, RelationConstraintProjection,
@@ -36,6 +38,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 use std::{cell::RefCell, ops::Bound, rc::Rc, thread::LocalKey};
 
 ///
@@ -315,8 +318,25 @@ pub(in crate::db) fn prepare_commit_context_from_catalog_selection<C: CanisterKi
         return Err(InternalError::store_unsupported());
     }
     let authority = CommitPrepareAuthority::from_catalog_selection(selection, schema_fingerprint);
-    let constraint_schedule =
-        accepted_storage_constraint_schedule(db, &authority, selection, mode)?;
+    let constraint_schedule = if matches!(mode, CommitPrepareMode::NormalWrite) {
+        // Ordinary preflight shares the request across entities and contexts,
+        // including direct writes without an active row-execution tracker.
+        PreparationWork::run_internal(
+            db.request_execution_scope(),
+            DiagnosticExecutionLane::Mutation,
+            |work| {
+                accepted_storage_constraint_schedule(db, &authority, selection, mode, |predicate| {
+                    normalize_with_budget(predicate, work)
+                })
+            },
+        )?
+    } else {
+        // Replay/rebuild must finish already-admitted work under its existing
+        // recovery contract, without a fresh mutation/request ceiling.
+        accepted_storage_constraint_schedule(db, &authority, selection, mode, |predicate| {
+            Ok(normalize(predicate))
+        })?
+    };
 
     Ok(CommitPrepareContext {
         authority,
@@ -593,6 +613,7 @@ fn accepted_storage_constraint_schedule<C>(
     authority: &CommitPrepareAuthority,
     selection: &AcceptedCatalogSnapshotSelection,
     mode: CommitPrepareMode,
+    mut normalize: impl FnMut(Predicate) -> Result<Predicate, InternalError>,
 ) -> Result<AcceptedStorageConstraintSchedule, InternalError>
 where
     C: CanisterKind,
@@ -608,6 +629,7 @@ where
         authority.entity_tag,
         accepted.persisted_snapshot(),
         &row_contract,
+        &mut normalize,
     )?;
     let relations = mutation_relation_constraint_schedule(
         db,
@@ -623,6 +645,7 @@ where
         Some(PreparedIndexMutationMetadata::new(
             schema_info,
             row_contract.clone(),
+            &mut normalize,
         )?)
     };
     Ok(AcceptedStorageConstraintSchedule {
@@ -726,6 +749,7 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
     entity_tag: EntityTag,
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     row_contract: &StructuralRowContract,
+    normalize: impl FnOnce(Predicate) -> Result<Predicate, InternalError>,
 ) -> Result<Option<CandidateUniqueCommitContract>, InternalError> {
     let [candidate] = snapshot.candidate_indexes() else {
         if snapshot.candidate_indexes().is_empty() {
@@ -744,12 +768,8 @@ fn candidate_unique_commit_contract<C: CanisterKind>(
             )
         })
         .ok_or_else(InternalError::store_corruption)?;
-    // Accepted commit preparation also serves retained replay. Preserve its
-    // canonical normalization without introducing a new maintenance ceiling.
     let projection =
-        UniqueConstraintProjection::new(entity_tag, candidate, row_contract, |predicate| {
-            Ok(crate::db::predicate::normalize(predicate))
-        })?;
+        UniqueConstraintProjection::new(entity_tag, candidate, row_contract, normalize)?;
     let index_store = db
         .with_store_registry(|registry| registry.try_get_store(candidate.store()))?
         .index_store();

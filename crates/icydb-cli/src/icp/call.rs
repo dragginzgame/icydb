@@ -4,6 +4,7 @@
 //! Boundary: exposes reusable call builders and response decoding to CLI command surfaces.
 
 use std::{
+    ffi::OsStr,
     fmt::Write as _,
     io::{self, Write as _},
     path::Path,
@@ -11,7 +12,11 @@ use std::{
 };
 
 use ic_host_fs::scratch::TemporaryFile;
-use ic_host_tools::response::{ResponseError, ResponseFormat, ResponseLimits, decode};
+use ic_host_text::escape::terminal_text;
+use ic_host_tools::{
+    icp::{CallArguments, CallMode, call_command},
+    response::{ResponseError, ResponseFormat, ResponseLimits, decode},
+};
 
 use ic_host_process::tool::{ExecutionFailure, ExecutionOperation, ToolError};
 
@@ -67,7 +72,10 @@ impl IcpCallKind {
 
     fn capture_error(self, error: io::Error) -> String {
         let not_started = capture_failed_before_dispatch(&error);
-        let mut detail = format!("failed to run icp canister call: {error}");
+        let mut detail = format!(
+            "failed to run icp canister call: {}",
+            terminal_text(&error.to_string())
+        );
         if matches!(self, Self::Update)
             && let Some(evidence) = error
                 .get_ref()
@@ -124,22 +132,17 @@ fn icp_call_command(
     argument_file: &Path,
     kind: IcpCallKind,
 ) -> Command {
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(method)
-        .arg("--args-file")
-        .arg(argument_file)
-        .arg("--args-format")
-        .arg("bin");
-    match kind {
-        IcpCallKind::Query => {
-            command.arg("--query");
-        }
-        IcpCallKind::Update => {}
-    }
+    let mode = match kind {
+        IcpCallKind::Query => CallMode::Query,
+        IcpCallKind::Update => CallMode::Update,
+    };
+    let mut command = call_command(
+        Command::new("icp"),
+        OsStr::new(canister),
+        OsStr::new(method),
+        CallArguments::BinaryFile(argument_file),
+        mode,
+    );
     command
         .arg("--output")
         .arg("hex")
@@ -226,15 +229,25 @@ pub(super) fn call_hex(
     // removal failures; Drop retains unwind cleanup. Paths avoid argv/NUL limits.
     // Host owns exclusive allocation and scoped file custody. Complete the
     // write before starting a child, preserving both write and cleanup failures.
-    let mut arguments = TemporaryFile::new_in(&std::env::temp_dir(), "icydb-icp-args")
-        .map_err(|source| format!("create ICP argument file: {source}"))?;
+    let mut arguments =
+        TemporaryFile::new_in(&std::env::temp_dir(), "icydb-icp-args").map_err(|source| {
+            format!(
+                "create ICP argument file: {}",
+                terminal_text(&source.to_string())
+            )
+        })?;
     if let Err(source) = arguments.as_file_mut().write_all(wire_arg) {
         let path = arguments.path().to_owned();
         return Err(match arguments.close() {
-            Ok(()) => format!("write ICP argument file: {source}"),
+            Ok(()) => format!(
+                "write ICP argument file: {}",
+                terminal_text(&source.to_string())
+            ),
             Err(cleanup) => format!(
-                "write ICP argument file: {source}; remove '{}': {cleanup}",
-                path.display()
+                "write ICP argument file: {}; remove '{}': {}",
+                terminal_text(&source.to_string()),
+                terminal_text(&path.display().to_string()),
+                terminal_text(&cleanup.to_string()),
             ),
         });
     }

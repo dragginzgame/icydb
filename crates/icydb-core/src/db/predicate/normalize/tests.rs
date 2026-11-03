@@ -1,4 +1,5 @@
 mod admission;
+mod backing;
 mod owned_membership;
 mod signed_lookup;
 
@@ -753,7 +754,7 @@ fn normalization_pair_failure_stops_nested_traversal_without_a_partial_predicate
     };
     let predicate = Predicate::Or(vec![Predicate::Not(Box::new(pair())), pair(), pair()]);
     let mut visited = 0;
-    let result = super::normalize_with_pair_charge(predicate, &mut || {
+    let result = super::normalize_with_charge(predicate, &mut |_, _| {
         visited += 1;
         if visited == 2 { Err(17) } else { Ok(()) }
     });
@@ -761,7 +762,7 @@ fn normalization_pair_failure_stops_nested_traversal_without_a_partial_predicate
     assert_eq!(visited, 2);
     let absorbed = Predicate::And(vec![Predicate::False, pair()]);
     assert_eq!(
-        super::normalize_with_pair_charge(absorbed, &mut || Err(17)),
+        super::normalize_with_charge(absorbed, &mut |_, _| Err(17)),
         Ok(Predicate::False),
     );
 }

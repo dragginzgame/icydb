@@ -3,6 +3,7 @@
 //! Does not own: SQL routing, response decoding, or final shell rendering.
 //! Boundary: exposes shell-call wire helpers to the shell runner.
 
+use ic_host_text::escape::terminal_text;
 use icydb::__macro::RpcMethod;
 
 use crate::icp::{call_query_hex, call_update_hex};
@@ -29,11 +30,15 @@ pub(super) fn icp_update(
     sql: &str,
 ) -> Result<Vec<u8>, String> {
     let method = endpoint.name();
+    let operation = match endpoint {
+        RpcMethod::Ddl => "DDL",
+        _ => "update",
+    };
     let wire_arg = endpoint
         .encode_request(sql, icydb::wire::limits(icydb::wire::MAX_REQUEST_BYTES))
         .map_err(|error| error.to_string())?;
     call_update_hex(environment, canister, method, &wire_arg, |stderr| {
-        sql_call_error("DDL", environment, canister, method, stderr)
+        sql_call_error(operation, environment, canister, method, stderr)
     })
 }
 
@@ -46,5 +51,7 @@ fn sql_call_error(
 ) -> String {
     format!(
         "IcyDB SQL {call_kind} method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+        canister = terminal_text(canister),
+        environment = terminal_text(environment),
     )
 }

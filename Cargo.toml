@@ -122,9 +122,9 @@ ic-host-artifacts = { version = "0.74.1", default-features = false }
 ic-host-fs = { version = "0.74.1", default-features = false }
 ic-host-process = "0.74.1"
 ic-host-text = "0.74.0"
-ic-host-tools = "0.79.0"
+ic-host-tools = "0.80.0"
 ic-metrics = { version = "0.28.0", default-features = false }
-ic-platform = { version = "0.20.0", default-features = false }
+ic-platform = { version = "0.21.0", default-features = false }
 ic-platform-runtime = { version = "0.19.0", default-features = false }
 ic-platform-types = { version = "0.18.0", default-features = false }
 ic-storage = "0.66.0"

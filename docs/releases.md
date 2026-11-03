@@ -1055,6 +1055,10 @@ Shared's selected IC Build 0.73.0 editor with its explicit `cli` feature. Direct
 producer integration qualification may select a compiled candidate explicitly;
 that evidence is not registry delivery or installed-tool admission.
 
+For manifest-order status propagation and selected-commit checks, run
+`bash scripts/ci/test-cargo-release-groups.sh --case ordering`. This focused case
+needs no compiled editor; the full entrypoint retains the integration matrix.
+
 Publication remains separate. Use the consumer's explicit selected package batch
 with the existing publication adapter; it admits each package's own version and
 leaves Cargo's dependency ordering intact. Group release does not publish another

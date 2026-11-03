@@ -3,9 +3,12 @@
 //! Does not own: generic canister calls, process execution semantics, or project discovery.
 //! Boundary: exposes CLI command handlers and test-covered fixture call construction through icp.
 
-use std::{path::Path, process::Command};
+use std::{ffi::OsStr, path::Path, process::Command};
 
 mod fixtures;
+
+use ic_host_text::escape::terminal_text;
+use ic_host_tools::icp::{self, StatusOutput};
 
 use crate::{
     icp::{
@@ -24,7 +27,10 @@ const CANISTER_LIST_ALIGNMENTS: [ColumnAlign; 3] =
 pub(super) fn list_canisters(environment: &str) -> Result<(), String> {
     let canisters = known_canisters(environment)?;
     if canisters.is_empty() {
-        println!("No canisters were found in icp.yaml for environment '{environment}'.");
+        println!(
+            "No canisters were found in icp.yaml for environment '{}'.",
+            terminal_text(environment)
+        );
 
         return Ok(());
     }
@@ -48,7 +54,10 @@ fn canister_list_row(environment: &str, canister: String) -> Result<CanisterList
 
 // Print the local canister inventory with principal as the final column.
 fn print_canister_table(environment: &str, rows: &[CanisterListRow]) {
-    let mut output = format!("Known IcyDB canisters in environment '{environment}':\n");
+    let mut output = format!(
+        "Known IcyDB canisters in environment '{}':\n",
+        terminal_text(environment)
+    );
     append_indented_table(
         &mut output,
         "  ",
@@ -61,7 +70,11 @@ fn print_canister_table(environment: &str, rows: &[CanisterListRow]) {
 
 /// Deploy a local ICP canister without forcing reinstall mode.
 pub(super) fn deploy_canister(environment: &str, canister: &str) -> Result<(), String> {
-    eprintln!("[icydb] deploying canister '{canister}' in environment '{environment}'");
+    eprintln!(
+        "[icydb] deploying canister '{}' in environment '{}'",
+        terminal_text(canister),
+        terminal_text(environment)
+    );
 
     run_external_command(deploy_command(environment, canister), "icp deploy")
 }
@@ -69,15 +82,20 @@ pub(super) fn deploy_canister(environment: &str, canister: &str) -> Result<(), S
 /// Deploy a canister and request reinstall mode only when refresh targets an existing install.
 fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String> {
     eprintln!(
-        "[icydb] reinstalling canister '{canister}' when already installed in environment '{environment}'"
+        "[icydb] reinstalling canister '{}' when already installed in environment '{}'",
+        terminal_text(canister),
+        terminal_text(environment),
     );
     let mut command = deploy_command(environment, canister);
     // A failed probe cannot authorize deployment under the uninstalled path.
-    if canister_is_installed(environment, canister)? {
+    let label = if canister_is_installed(environment, canister)? {
         command.arg("--mode").arg("reinstall").arg("--yes");
-    }
+        "icp deploy reinstall"
+    } else {
+        "icp deploy"
+    };
 
-    run_external_command(command, "icp deploy reinstall")
+    run_external_command(command, label)
 }
 
 /// Deploy or reinstall the canister, then load fixtures or report a failed fixture call.
@@ -93,7 +111,9 @@ pub(super) fn upgrade_canister(
     wasm: Option<&Path>,
 ) -> Result<(), String> {
     eprintln!(
-        "[icydb] building canister '{canister}' for stable-memory-preserving upgrade in environment '{environment}'"
+        "[icydb] building canister '{}' for stable-memory-preserving upgrade in environment '{}'",
+        terminal_text(canister),
+        terminal_text(environment),
     );
     run_external_command(build_command(environment, canister), "icp build")?;
 
@@ -102,11 +122,14 @@ pub(super) fn upgrade_canister(
     {
         return Err(format!(
             "expected wasm not found after build: {}",
-            wasm_path.display()
+            terminal_text(&wasm_path.display().to_string())
         ));
     }
 
-    eprintln!("[icydb] upgrading canister '{canister}' without demo data reset");
+    eprintln!(
+        "[icydb] upgrading canister '{}' without demo data reset",
+        terminal_text(canister)
+    );
     run_external_command(
         install_upgrade_command(environment, canister, wasm),
         "icp canister install --mode upgrade",
@@ -137,7 +160,11 @@ pub(super) fn install_upgrade_command(
 
 /// Show icp-cli status for one local canister without changing lifecycle state.
 pub(super) fn status_canister(environment: &str, canister: &str) -> Result<(), String> {
-    eprintln!("[icydb] reading canister status for '{canister}' in environment '{environment}'");
+    eprintln!(
+        "[icydb] reading canister status for '{}' in environment '{}'",
+        terminal_text(canister),
+        terminal_text(environment)
+    );
 
     run_external_command(status_command(environment, canister), "icp canister status")
 }
@@ -159,8 +186,11 @@ pub(super) fn build_command(environment: &str, canister: &str) -> Command {
 }
 
 pub(super) fn status_command(environment: &str, canister: &str) -> Command {
-    let mut command = Command::new("icp");
-    command.arg("canister").arg("status").arg(canister);
+    let mut command = icp::status_command(
+        Command::new("icp"),
+        OsStr::new(canister),
+        StatusOutput::Text,
+    );
     append_environment_args(&mut command, environment);
 
     command

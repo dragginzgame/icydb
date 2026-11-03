@@ -4,13 +4,21 @@ use strict;
 use warnings;
 use JSON::PP;
 use Digest::SHA qw(sha256_hex);
+use Fcntl qw(O_WRONLY O_CREAT O_EXCL);
 my $json = JSON::PP->new->canonical->utf8;
 my ($group, $source, $baseline, $output, $scope) = @ARGV;
 @ARGV == 5 && $scope =~ /\A(?:auto|workspace)\z/
     or die "usage: validation-plan.pl GROUP SOURCE GROUP-TAG OUTPUT auto|workspace\n";
 sub capture {
     open my $fh, '-|', @_ or die "start @_: $!\n";
-    local $/; my $value = <$fh> // '';
+    my $value = '';
+    while (1) {
+        my $n = read $fh, my $chunk, 65536;
+        defined($n) or die "cannot read observation\n";
+        last unless $n;
+        $value .= $chunk;
+        length($value) <= 4194304 or die "observation exceeds 4 MiB\n";
+    }
     close $fh or die "command failed: @_\n";
     return $value;
 }
@@ -28,12 +36,8 @@ sub same_names {
     join("\0",@$a) eq join("\0",@$b) or die "stage/group roster drift\n";
 }
 my $policy_path = 'ci/release-validation.json';
-my $policy_raw = read_file($policy_path);
-my $policy = $json->decode($policy_raw);
-$policy_raw eq $json->encode($policy)."\n" or die "noncanonical policy\n";
 my $groups = $json->decode(read_file('ci/cargo-release-groups.json'));
 my @groups = sort map { $_->{name} } @{$groups->{groups}};
-same_names($policy->{groups}, \@groups);
 grep($_ eq $group, @groups) or die "unknown group\n";
 # Pin the reviewed complete recipes, not just their names. A new/removed gate,
 # changed aggregation, release dispatch or group policy requires explicit review.
@@ -45,7 +49,10 @@ for my $path ('Makefile', 'ci/cargo-release-groups.json') {
     sha256_hex(read_file($path)) eq ($contract->{files}{$path}//'')
         or die "release recipes/group policy changed; requalify mapping\n";
 }
-my @full = @{$policy->{stages}};
+my $groups_path = "$output.groups.json";
+write_new($groups_path, \@groups);
+my @full = split /\n/, capture('perl', 'scripts/ci/validation-evidence.pl',
+    'roster', '.', $policy_path, $groups_path);
 my @mapped = sort (@{$contract->{full_stages}}, @{$contract->{supplemental_stages}});
 same_names([sort @full], \@mapped);
 $source =~ /\A[0-9a-f]{40,64}\z/ && capture('git','rev-parse','HEAD') eq "$source\n"
@@ -53,12 +60,11 @@ $source =~ /\A[0-9a-f]{40,64}\z/ && capture('git','rev-parse','HEAD') eq "$sourc
 capture('git','status','--porcelain','--untracked-files=all') eq ''
     or die "release plan requires clean committed source\n";
 $baseline =~ /\A\Q$group\E-v\d+\.\d+\.\d+\z/ or die "wrong baseline group/tag\n";
-capture('git','cat-file','-t',"refs/tags/$baseline") eq "tag\n"
-    or die "baseline must be an annotated group tag\n";
-my $baseline_object = capture('git','rev-parse',"refs/tags/$baseline"); chomp $baseline_object;
-my $base = capture('git','rev-parse','--verify',"refs/tags/$baseline^{commit}"); chomp $base;
-system('git','merge-base','--is-ancestor',$base,$source) == 0 or die "baseline is not ancestor\n";
-my @changed = grep { length } split /\0/, capture('git','diff','--name-only','--no-renames','-z',$base,$source,'--');
+my $observation = $json->decode(capture('perl', 'scripts/ci/validation-evidence.pl',
+    'baseline', '.', $source, "refs/tags/$baseline"));
+$observation->{available} or die "an annotated ancestor group baseline is required\n";
+my ($base, $baseline_object) = @{$observation}{qw(baseline object)};
+my @changed = @{$observation->{changes}};
 # The CLI is a binary-only reverse consumer. Only its existing private Rust
 # command/presentation/test surface may narrow. New library/build surfaces,
 # manifests, dependency locks, shared tooling, generated identities, fixtures and
@@ -95,20 +101,26 @@ my $context = {
     environment=>{map {$_=>sha256_hex($ENV{$_})} grep { !/\A(?:_|SHLVL|PWD|OLDPWD)\z/ } keys %ENV},
 };
 my $context_path = "$output.context.json";
-for my $path ($output,$context_path) {
-    $path =~ m{\Atarget/[A-Za-z0-9_./-]+\z} && $path !~ m{(?:^|/)\.\.?/} or die "output must be beneath target\n";
-    !-e $path && !-l $path or die "never overwrite a plan/receipt\n";
-    my $route = '.';
-    for (split m{/}, $path) { $route .= "/$_"; !-l $route or die "redirected output\n"; }
-}
-open my $ctx, '>:raw', $context_path or die "write context: $!\n";
-print {$ctx} $json->encode($context),"\n"; close $ctx or die "close context\n";
+write_new($context_path, $context);
 my $plan = {
     schema=>1, source=>$source, group=>$group, scope=>$narrow?'group':'workspace', policy=>$policy_path,
-    inputs=>[sort(@inputs,$context_path)],
+    inputs=>[sort(@inputs,$context_path,$groups_path)],
     stages=>[map { {target=>$_, required=>($narrow && exists $excluded{$_})?JSON::PP::false:JSON::PP::true,
         reason=>($narrow && exists $excluded{$_})?$excluded{$_}:'Required existing root gate or supplemental CLI obligation; separate native-host, installed and final-artifact proofs remain unqualified.'} } @full],
 };
-open my $out,'>:raw',$output or die "write plan: $!\n";
-print {$out} $json->encode($plan),"\n"; close $out or die "close plan\n";
+write_new($output, $plan);
 print "$output\n";
+
+# Product-owned generated inputs are immutable within a qualification attempt.
+sub write_new {
+    my ($path, $value) = @_;
+    $path =~ m{\Atarget/[A-Za-z0-9_./-]+\z} && $path !~ m{(?:^|/)\.\.?(?:/|$)}
+        or die "output must be beneath target\n";
+    my $route = '.';
+    for (split m{/}, $path) { $route .= "/$_"; !-l $route or die "redirected output\n"; }
+    my $raw = $json->encode($value)."\n";
+    length($raw) <= 1048576 or die "generated selection/context exceeds 1 MiB\n";
+    sysopen my $out, $path, O_WRONLY|O_CREAT|O_EXCL or die "write new selection: $!\n";
+    binmode $out;
+    print {$out} $raw; close $out or die "close selection\n";
+}

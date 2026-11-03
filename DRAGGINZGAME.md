@@ -24,51 +24,33 @@ same approach: mandatory local constraints first, task-specific references after
 
 ## Scope and authorization
 
-- Preserve unrelated dirty work and reread dirty files before editing. Task-relevant
-  sibling inspection needs no additional permission. Never edit another
-  contributor's sibling working checkout in place.
-- Keep lasting implementation in the requested local checkout. An authorized PR
-  may use a disclosed durable contribution checkout; an issue may record deferred
-  work. Never leave the only copy of code changes in `/tmp`, `target/`, caches or
-  a disposable patch. If those delivery options are unavailable, ask the user
-  before choosing another location. Follow the [durable work contract](rules/contributions.md#durable-work-and-checkout-location).
-- Ordinary fixes authorize local implementation and focused checks. Leave staging,
-  commits, package release versions, tags and release execution to the user unless
-  delegated. Shared Tooling alone automatically prepares its local `VERSION`
-  with pending notes under the [next-version rules](rules/changelogs.md#automatic-next-version-selection).
-  A PR request includes its branch, scoped commits, branch push and PR.
-  A release/ship/deploy request delegates the corresponding delivery workflow,
-  including routine group/version/order choices under
-  [delegated delivery](rules/contributions.md#delegated-delivery). Direct pushes
-  to `main` or another integration branch and delivery from an alternate checkout
-  require explicit authorization for that path. Disclose local versus remote
-  effects before execution; a configured direct-release default is not consent.
-  Do not ask again
-  for each necessary command; guidance and readiness questions do not execute it.
-- Work and delivery stay with the requested repository. A dependency blocker
-  does not authorize another repository's release or deployment. Cross-repository
-  source contributions require explicit scope. Open PRs only when requested or
-  required by that repository's authorized delivery workflow; routine
-  version/snapshot adoption stays with the receiving owner. Follow the
-  [contribution workflow](rules/contributions.md#cross-repository-pull-requests).
-  `toko` and `toko-miner` remain excluded without explicit
-  authorization; DFINITY contributions remain excluded. Merges, integration-branch
-  pushes, history rewrites, releases, publication, deployment and paid effects
-  require delivery or specific action authority and retain enforced protections.
-- Do not file issues merely to request or wait for a sibling release, publication
-  or deployment. Tell the user which supplier/group and version or commit is
-  needed, what is available, and what remains blocked; the user coordinates
-  delivery. Track actual defects, missing capabilities and substantive consumer
-  code changes under the [dependency finding rules](rules/engineering-details.md#shared-dependency-findings).
-- Carry established authorization forward. Do not ask again for necessary
-  substeps or stop an accepted coherent batch after each small slice. Inspection
-  alone does not authorize repair. Resolve actual scope or effect ambiguity,
-  not routine implementation choices. Read [scope details](rules/engineering-details.md#scope-and-authorization)
-  for issue work or other external effects.
-- Runtime approval restrictions remain independent. If an action is rejected,
-  retain prepared work, report the exact action and reason, and continue
-  independent work. Do not switch execution paths to evade a rejection or wait
-  on optional CI merely to outlast it.
+The [contribution rules](rules/contributions.md) own detailed action authority;
+local overlays must not duplicate it or add routine permission gates.
+
+- Prefer direct edits in the normal authorized checkout when a PR is optional.
+  Ordinary fixes include focused checks and pending notes, not staging, commits
+  or delivery. Shared alone also prepares its pending `VERSION`.
+- A PR request includes its topic branch, scoped commits, branch push and PR.
+  Release/ship/deploy requests include their necessary delivery steps and direct
+  integration-branch pushes. An unqualified “deploy” covers all changed eligible
+  Dragginzgame repositories in the established projects directory and crates.io
+  publication for affected publishable groups. Announce the selected plan, then
+  proceed under [delegated delivery](rules/contributions.md#delegated-delivery).
+- Named scope, no-push/read-only instructions and exclusions take precedence.
+  `toko` and `toko-miner` require explicit inclusion; DFINITY contributions remain
+  excluded. A dependency blocker alone does not expand delivery scope.
+- Preserve unrelated dirty work and reread files before editing. Sibling inspection
+  is read-only; source contributions need scoped authority. Coordinate active
+  sessions before changing their inputs or preparing an authorized fleet release.
+- Additional checkouts require approval of their location. Never leave the only
+  copy of lasting work in `/tmp`, `target/`, caches or a disposable patch.
+  Follow the [checkout contract](rules/contributions.md#durable-work-and-checkout-location).
+- Carry authorization forward without repeated approval. Inspection and readiness
+  questions alone do not authorize repair or delivery. Ask only for a genuinely
+  missing decision; do not create unsolicited PRs or sibling-release waiting issues.
+- Runtime approval restrictions and repository protections remain independent.
+  If rejected, report the exact action/reason, preserve work and continue independent
+  tasks. Do not switch execution routes to evade the rejection.
 
 ## Ownership and simplification
 
@@ -95,6 +77,10 @@ when changing interfaces, persistence or installation/recovery behavior.
 
 ## Validation and evidence
 
+- Ordinary coding and cleanup end after the relevant focused checks pass. Do not
+  turn that handoff into release preparation, fleet adoption or qualification of
+  every supported host. Those are separately requested workflows; missing broad
+  release evidence alone is not unfinished development work.
 - **Finish a coherent edit batch, then run its smallest meaningful checks once.**
   During development, run checks when they answer a specific implementation or
   debugging question. Do not test after every edit or rerun merely because it is
@@ -110,6 +96,12 @@ when changing interfaces, persistence or installation/recovery behavior.
   narrower selections. Do not stack check/build/test commands that prove the same
   compilation, or add feature/MSRV/native matrices without a changed obligation.
   Distinct lint, runtime, platform and product proofs still apply when relevant.
+- Inspect nested work before calling a fixture focused. Select its affected
+  cases rather than an aggregate that also runs unrelated installer, export or
+  release suites. If no narrow entrypoint exists, provide one when practical or
+  report that limitation; do not silently broaden an ordinary task into the full
+  suite. Name the changed behavior each selected check proves. Keep unchanged
+  generic regression matrices with their producer.
 - Reserve local full repository/workspace suites and broad gates for an explicitly
   authorized release or explicit request for those checks. Implementation,
   continuation, PR delivery and readiness wording do not authorize them. Focused
@@ -213,7 +205,9 @@ the existing full gate. Repository-wide CI remains separate and unchanged.
 ## Changelogs and artifact preservation
 
 Use IcyDB-style emoji category sections in root release notes; read the
-[changelog rules](rules/changelogs.md) when updating them. Preserve selected
+[changelog rules](rules/changelogs.md) when updating them. Every issue fixed must
+have a direct link in root `CHANGELOG.md` before handoff, including when detailed
+or release-group notes hold the full explanation. Preserve selected
 deliverables and required provenance/recovery evidence. Regenerable tool-build
 scratch and obsolete cache generations need bounded retention; they are not
 permanent evidence. Consumer release artifacts remain protected from implicit
@@ -226,7 +220,7 @@ technical need. Artifact retention must not narrow explicit cleanup.
 
 ## IC stable-memory governance
 
-Production stable stores use `ic-memory`-issued checked handles. Read the
+Production stable stores use `ic-storage`-issued checked allocation handles. Read the
 [memory contract](rules/engineering-details.md#ic-stable-memory-governance) for
 storage allocation, admission, backing access or persistence integrations.
 
@@ -249,11 +243,17 @@ releases. Independent groups all use explicit package versions and
 is an index. Require explicit group selection for releases and publication.
 Show every member's path and every publishable member's version in root
 `Cargo.toml` dependency declarations. Private dev helpers may use path-only entries.
-Group them once, with short titles and separate changelog comments, under the
+Group them once at the top of `[workspace.dependencies]`, before all external
+dependencies, with short titles and separate changelog comments, under the
 [workspace versioning rules](rules/rust-workspaces.md#coordinated-versions-and-workspace-boundaries).
 Dependency adoption must distinguish required compatibility/security changes from
 optional refreshes and check the destination graph before planning downstream
 releases. A newer external patch alone does not require republishing consumers.
+Defer optional dependency and snapshot refreshes by default, batching them at a
+natural release boundary when requested. Adopt Shared Tooling for a needed fix,
+capability or explicit refresh; an intact older snapshot alone is not work to do.
+Required API, security or compatibility migrations qualify the affected consumer
+boundary, rather than automatically updating the whole fleet.
 Follow the [adoption planning contract](docs/cargo-graph-checks.md#dependency-adoption-planning).
 Use root-owned dependency selections, reviewed shared tooling and explicit setup.
 Rust 1.99.1 is the approved minimum and pinned development/release compiler;

@@ -97,8 +97,8 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                         (exists($rules{$name}) && !$rules{$name}{$package->{name}})
                         || ($common{$name} && $package->{name} ne "ic-platform"
                             && !($package->{name} eq "ic-platform-types" && $name eq "ic_principal")
-                            && !($package->{name} eq "ic-platform-pocket-ic"
-                                && ($name eq "candid" || $name eq "ic-certification" || $name eq "ic-management-canister-types")
+                            && !($package->{name} eq "ic-testkit"
+                                && ($name eq "candid" || $name eq "ic-certification" || $name eq "ic-management-canister-types" || $name eq "ic-transport-types")
                                 && !defined($dependency->{kind})
                                 && ($dependency->{target} // "") eq q{cfg(not(target_family = "wasm"))})));
             }

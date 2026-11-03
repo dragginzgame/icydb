@@ -13,6 +13,7 @@ use crate::{
     icp::{IcpCallKind, require_created_canister},
     observability::call_endpoint,
 };
+use ic_host_text::escape::terminal_text;
 
 /// Read and print the generated accepted-schema endpoint.
 pub(super) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
@@ -30,7 +31,10 @@ pub(super) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> R
         report.as_slice(),
     )?;
     artifact.write_new(args.output())?;
-    println!("wrote {}", args.output().display());
+    println!(
+        "wrote {}",
+        terminal_text(&args.output().display().to_string())
+    );
     Ok(())
 }
 
@@ -40,7 +44,10 @@ pub(super) fn run_diagnostic_source_metadata_command(
     let metadata = DiagnosticSchemaArtifact::read_deployment(args.artifact())?
         .bind_to_source(args.source())?;
     metadata.write_new(args.output())?;
-    println!("wrote {}", args.output().display());
+    println!(
+        "wrote {}",
+        terminal_text(&args.output().display().to_string())
+    );
     Ok(())
 }
 

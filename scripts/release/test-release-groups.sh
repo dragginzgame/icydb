@@ -12,6 +12,14 @@ fixture_complete=false
 source "$root/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$fixture" "Release group fixture retained"' EXIT
 : "${CARGO_RELEASE_METADATA_EDITOR:?prepare the locked IC Build editor}"
+# Synthetic commits/tags and the local-only remote must not inherit developer
+# signing/hooks configuration or a caller-selected repository/index.
+mkdir -p "$fixture/templates"
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
+git_context="$(git rev-parse --local-env-vars)"
+while IFS= read -r variable; do
+    unset "$variable"
+done <<< "$git_context"
 expect_failure() {
     if "$@" > "$fixture/refused.log" 2>&1; then echo "Unexpected success: $*" >&2; exit 1; fi
 }

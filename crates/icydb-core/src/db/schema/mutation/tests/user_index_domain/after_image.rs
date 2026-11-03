@@ -11,6 +11,8 @@ use crate::{
             EncodedValue, IndexMutationPlan, IndexPlanReadView, IndexReadContract,
             PreparedIndexMutationMetadata, plan_index_mutation_for_slot_reader_structural,
         },
+        predicate::{normalize, normalize_with_budget},
+        resource::budget::MaintenanceConstructionBudget,
     },
     error::InternalError,
 };
@@ -133,13 +135,22 @@ fn after_image_schema(index: PersistedIndexSnapshot) -> (SchemaInfo, StructuralR
     )
 }
 
+// After-image controls use canonical metadata; budget controls below supply
+// their own explicit normalization authority to the same constructor.
+fn canonical_commit_metadata(
+    schema: SchemaInfo,
+    contract: StructuralRowContract,
+) -> Result<PreparedIndexMutationMetadata, InternalError> {
+    PreparedIndexMutationMetadata::new(schema, contract, |predicate| Ok(normalize(predicate)))
+}
+
 fn plan_name_update(
     schema: &SchemaInfo,
     contract: &StructuralRowContract,
     old: &ObservedNameRow,
     new: &ObservedNameRow,
 ) -> Result<IndexMutationPlan, InternalError> {
-    let metadata = PreparedIndexMutationMetadata::new(schema.clone(), contract.clone())?;
+    let metadata = canonical_commit_metadata(schema.clone(), contract.clone())?;
     let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(crate::types::Ulid::MIN));
     plan_index_mutation_for_slot_reader_structural(
         EntityTag::new(7),
@@ -152,6 +163,82 @@ fn plan_name_update(
         Some(&primary_key),
         Some(new),
     )
+}
+
+#[test]
+fn commit_metadata_shares_predicate_pairs_across_field_and_expression_indexes() {
+    let base = base_snapshot();
+    let predicate = crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+        "name != 'Ada' AND name != 'Grace' AND name != 'Lin'",
+        base.fields(),
+    );
+    let indexes = [
+        domain_field_index(1, "by_name", false),
+        domain_expression_index(2, "by_lower_name", false, None),
+    ]
+    .into_iter()
+    .map(|index| {
+        PersistedIndexSnapshot::new(
+            index.schema_id(),
+            index.ordinal(),
+            index.name().into(),
+            index.store().into(),
+            false,
+            index.key().clone(),
+            Some(predicate.clone()),
+        )
+    })
+    .collect();
+    let snapshot = snapshot_with_indexes(&base, indexes);
+    let contract = accepted_row_contract(&snapshot);
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot).unwrap();
+    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(
+        &accepted,
+        contract.accepted_value_catalog_handle().clone(),
+    );
+    // Each family's three non-reducing conjunction pairs share one allowance.
+    for limit in [5, 6] {
+        let work = MaintenanceConstructionBudget::with_limit_for_tests(
+            Resource::PredicateExpressionSteps,
+            limit,
+        );
+        let result =
+            PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), |predicate| {
+                normalize_with_budget(predicate, &work)
+            });
+        if limit == 5 {
+            let Err(error) = result else {
+                panic!("the second index must charge its final pair");
+            };
+            for fact in [
+                (
+                    DiagnosticFactTag::BudgetResource,
+                    Resource::PredicateExpressionSteps.raw(),
+                ),
+                (DiagnosticFactTag::Limit, 5),
+                (DiagnosticFactTag::Actual, 6),
+            ] {
+                assert!(error.diagnostic_facts().contains(&fact), "{error:?}");
+            }
+        } else {
+            assert!(
+                result.is_ok(),
+                "exact allowance must admit both index families"
+            );
+            let Err(error) =
+                PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), |predicate| {
+                    normalize_with_budget(predicate, &work)
+                })
+            else {
+                panic!("repeated metadata preparation cannot reset its owner");
+            };
+            assert!(
+                error
+                    .diagnostic_facts()
+                    .contains(&(DiagnosticFactTag::Actual, 7))
+            );
+        }
+    }
 }
 
 #[test]
@@ -192,7 +279,7 @@ fn reused_index_metadata_tracks_partial_membership_for_both_index_families() {
             &accepted,
             contract.accepted_value_catalog_handle().clone(),
         );
-        let metadata = PreparedIndexMutationMetadata::new(schema, contract.clone()).unwrap();
+        let metadata = canonical_commit_metadata(schema, contract.clone()).unwrap();
         let make_row = |enabled: Value| {
             let values = [
                 Value::Ulid(crate::types::Ulid::MIN),
@@ -624,8 +711,7 @@ fn nested_expression_index_writes_match_rebuild_keys_and_null_membership() {
         .unwrap()
         .into_row_contract();
         let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog.clone());
-        let metadata =
-            PreparedIndexMutationMetadata::new(schema.clone(), contract.clone()).unwrap();
+        let metadata = canonical_commit_metadata(schema.clone(), contract.clone()).unwrap();
         for (profile, has_key) in [
             (
                 Value::Map(vec![(

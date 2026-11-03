@@ -1,8 +1,16 @@
 //! Shared predicate normalization must preserve index effects through recovery.
 
 use super::*;
-use crate::db::sql_shared::MAX_SQL_EXPR_DEPTH;
+use crate::db::{
+    commit::{CommitPrepareContextCache, CommitPrepareMode, observe_commit_control},
+    sql_shared::MAX_SQL_EXPR_DEPTH,
+    test_support::request_with_limit,
+};
 use ic_storage::adapter::Storable;
+use icydb_diagnostic_code::{
+    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope,
+    DiagnosticExecutionLane, DiagnosticFactTag,
+};
 
 fn partial_index_snapshot(sql: &str) -> PersistedSchemaSnapshot {
     let base = identity_snapshot(STORE_PATH, false);
@@ -27,6 +35,230 @@ fn partial_index_snapshot(sql: &str) -> PersistedSchemaSnapshot {
             )),
         )],
     )
+}
+
+#[test]
+fn normal_commit_predicate_preparation_charges_request_pairs() {
+    let initialized = initialize_with_snapshot(partial_index_snapshot(
+        "payload != 10 AND payload != 20 AND payload != 30",
+    ));
+    let fingerprint = initialized
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap()
+        .fingerprint();
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 2);
+    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    let entity = session
+        .db
+        .accepted_runtime_entity_for_path(ENTITY_SOURCE)
+        .unwrap();
+    // Already-admitted replay/rebuild does not acquire a new request ceiling.
+    for mode in [
+        CommitPrepareMode::RecoveryReplay,
+        CommitPrepareMode::DerivedRebuild,
+    ] {
+        assert!(
+            entity
+                .prepare_commit_context(&session.db, fingerprint, mode)
+                .is_ok()
+        );
+        assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
+    }
+    let Err(error) =
+        entity.prepare_commit_context(&session.db, fingerprint, CommitPrepareMode::NormalWrite)
+    else {
+        panic!("ordinary writes must admit the third predicate pair");
+    };
+    for fact in [
+        (
+            DiagnosticFactTag::BudgetResource,
+            Resource::PredicateExpressionSteps.raw(),
+        ),
+        (DiagnosticFactTag::Limit, 2),
+        (DiagnosticFactTag::Actual, 3),
+    ] {
+        assert!(error.diagnostic_facts().contains(&fact), "{error:?}");
+    }
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    assert_eq!(DATA_STORE.with_borrow(DataStore::len), 0);
+    assert_eq!(INDEX_STORE.with_borrow(IndexStore::len).unwrap(), 0);
+    assert_eq!(
+        session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .unwrap()
+            .fingerprint(),
+        fingerprint,
+    );
+}
+
+#[test]
+fn commit_predicate_pairs_accumulate_across_fresh_contexts_but_not_cache_hits() {
+    let initialized = initialize_with_snapshot(partial_index_snapshot(
+        "payload != 10 AND payload != 20 AND payload != 30",
+    ));
+    let fingerprint = initialized
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap()
+        .fingerprint();
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 3);
+    let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    let entity = session
+        .db
+        .accepted_runtime_entity_for_path(ENTITY_SOURCE)
+        .unwrap();
+    let mut contexts = CommitPrepareContextCache::new(CommitPrepareMode::NormalWrite);
+    contexts
+        .get_or_prepare(ENTITY_SOURCE, fingerprint, |mode| {
+            entity.prepare_commit_context(&session.db, fingerprint, mode)
+        })
+        .unwrap();
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    contexts
+        .get_or_prepare(ENTITY_SOURCE, fingerprint, |_| {
+            panic!("a successful operation-local context must be reused")
+        })
+        .unwrap();
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    // A fresh context performs real normalization again against the same root.
+    let Err(error) =
+        entity.prepare_commit_context(&session.db, fingerprint, CommitPrepareMode::NormalWrite)
+    else {
+        panic!("a new context cannot reset the request allowance");
+    };
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Actual, 4))
+    );
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Limit, 3))
+    );
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 4);
+}
+
+#[test]
+fn dynamic_insert_refuses_partial_index_work_without_publication_or_identity_gaps() {
+    let limit = unfiltered_insert_predicate_steps() + 2;
+    let initialized = initialize_with_snapshot(partial_index_snapshot(
+        "payload != 10 AND payload != 20 AND payload != 30",
+    ));
+    let fingerprint = initialized
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap()
+        .fingerprint();
+    let control = observe_commit_control().unwrap();
+    let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
+    let bounded = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    let error = bounded
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(40)])
+        .expect_err("the final partial-index pair must refuse before publication");
+    for fact in [
+        (
+            DiagnosticFactTag::BudgetResource,
+            Resource::PredicateExpressionSteps.raw(),
+        ),
+        (DiagnosticFactTag::Limit, limit),
+        (DiagnosticFactTag::Actual, limit + 1),
+        (
+            DiagnosticFactTag::ExecutionBudgetScope,
+            DiagnosticExecutionBudgetScope::Request.raw(),
+        ),
+        (
+            DiagnosticFactTag::ExecutionLane,
+            DiagnosticExecutionLane::Mutation.raw(),
+        ),
+    ] {
+        assert!(error.diagnostic_facts().contains(&fact), "{error:?}");
+    }
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), limit + 1);
+    assert_eq!(observe_commit_control().unwrap(), control);
+    assert_eq!(DATA_STORE.with_borrow(DataStore::len), 0);
+    assert_eq!(INDEX_STORE.with_borrow(IndexStore::len).unwrap(), 0);
+    assert_eq!(
+        initialized
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .unwrap()
+            .fingerprint(),
+        fingerprint,
+    );
+    SCHEMA_STORE.with_borrow(|store| {
+        let cursor = store
+            .identity_statement_cursor(
+                database_incarnation_id().unwrap(),
+                ENTITY_TAG,
+                FieldId::new(1),
+                &AcceptedFieldKind::Nat64,
+            )
+            .unwrap();
+        assert_eq!(cursor.expected_high_water(), 0);
+        assert!(!cursor.has_allocations());
+    });
+    let retry = DbSession::<TestCanister>::new(
+        &STORE_REGISTRY,
+        &crate::db::RequestExecutionRoot::__new_runtime_root(),
+    );
+    let inserted = retry
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(40)])
+        .unwrap();
+    assert_eq!(
+        inserted.rows,
+        vec![vec![OutputValue::nat64(1), OutputValue::nat64(40)]]
+    );
+    assert_eq!(INDEX_STORE.with_borrow(IndexStore::len).unwrap(), 1);
+}
+
+#[test]
+fn dynamic_insert_accepts_the_exact_partial_index_pair_allowance() {
+    let limit = unfiltered_insert_predicate_steps() + 3;
+    initialize_with_snapshot(partial_index_snapshot(
+        "payload != 10 AND payload != 20 AND payload != 30",
+    ));
+    let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
+    let bounded = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+    let inserted = bounded
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![dynamic_payload_patch(40)])
+        .unwrap();
+    assert_eq!(
+        inserted.rows,
+        vec![vec![OutputValue::nat64(1), OutputValue::nat64(40)]]
+    );
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), limit);
+    assert_eq!(DATA_STORE.with_borrow(DataStore::len), 1);
+    assert_eq!(INDEX_STORE.with_borrow(IndexStore::len).unwrap(), 1);
+    assert!(
+        crate::db::commit::retained_commit_marker_measurement_for_tests()
+            .unwrap()
+            .is_none()
+    );
+}
+
+// Account for unchanged input/row staging through an ordinary unfiltered
+// write. The partial predicate contributes three independently specified pairs.
+// A fresh thread also gives this reference its own durable fixture state.
+fn unfiltered_insert_predicate_steps() -> u64 {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                initialize();
+                let root = request_with_limit(Resource::PredicateExpressionSteps, u64::MAX);
+                let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+                let inserted = session
+                    .execute_trusted_dynamic_insert_batch(
+                        ENTITY_NAME,
+                        vec![dynamic_payload_patch(40)],
+                    )
+                    .unwrap();
+                assert_eq!(
+                    inserted.rows,
+                    vec![vec![OutputValue::nat64(1), OutputValue::nat64(40)]]
+                );
+                root.observed(Resource::PredicateExpressionSteps)
+            })
+            .join()
+            .unwrap()
+    })
 }
 
 #[test]

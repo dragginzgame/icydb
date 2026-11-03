@@ -159,6 +159,15 @@ upgrade and required runtime/public-type/security/minimum-capability alignments
 from optional refreshes. Explain required extra selections with their introducing
 dependency path or contract; do not make every package track the latest release.
 
+Optional refreshes are deferred by default and batched with requested maintenance
+or a natural release boundary. Do not start an update-everything pass because a
+supplier published another version. Keep compatible minimum requirements where
+they still describe the supported contract; a newer tested lock selection does
+not itself require raising every manifest minimum or publishing the consumer.
+Required API/security/compatibility changes select the affected consumer-boundary
+checks once. Adoption alone does not justify replaying upstream generic fixtures
+or starting downstream release procedures.
+
 Admit the proposed combined graph cheaply in disposable preparation before
 expensive artifact work. Reuse the focused checks below and existing source/archive
 qualification for unpublished suppliers. Candidate source evidence is not registry

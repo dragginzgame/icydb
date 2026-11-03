@@ -121,17 +121,18 @@ compile does not prove installed IC or macOS behavior.
   development and build tables, for standalone version/source declarations.
   Preserve the selected lockfile dependencies and build/publication behavior;
   centralization alone does not authorize dependency upgrades or release changes.
-- Keep root and child manifests ordered with `cargo sort --workspace` under the
+- Keep root and child manifests ordered with `cargo sort --workspace --grouped` under the
   [shared formatting contract](git-hooks.md). Include manifest sorting in both
   automatic pre-commit formatting and independent CI/release checks; ordering
   must preserve the catalog and every inherited selection.
 
 ## External IC dependency boundary
 
-The Platform-owned `ic-platform-pocket-ic` implementation package may select
-`candid`, `ic-certification` and `ic-management-canister-types` only as normal
-dependencies under `cfg(not(target_family = "wasm"))`. This narrow maintenance
-exception preserves the existing facade and native-only graph; it grants no
+The Tooling-owned `ic-testkit` native PocketIC implementation may select
+`candid`, `ic-certification`, `ic-management-canister-types` and
+`ic-transport-types` only as normal dependencies under
+`cfg(not(target_family = "wasm"))`. This narrow maintenance
+exception preserves the transferred client and native-only graph; it grants no
 server ownership, other IC dependencies, portable/Wasm declarations or build/dev
 exception. Consumer dependency policies can restrict it further.
 
@@ -140,9 +141,10 @@ packages, must be consumed through explicit `ic-platform` features and interface
 The canonical identity owner is `ic-platform-types` for `ic_principal`: conversion
 impls must live with the canonical owned type to satisfy Rust coherence. That
 exception admits no Candid, runtime, storage or other external IC dependency.
-The IC Platform repository is the sole direct dependency owner for these upstream
-packages. Other repositories must not declare or import them directly, including
-through renamed dependencies, generated code or proc-macro expansions.
+Apart from this native Testkit exception, IC Platform is the direct dependency
+owner for these upstream packages. Other repositories must not declare or import
+them directly, including through renamed dependencies, generated code or
+proc-macro expansions.
 
 This section and its automated inventory govern Cargo packages. JavaScript and
 TypeScript SDK integration uses the separate `@tokostudios/ic-platform` npm
@@ -183,10 +185,12 @@ from domain, persistence and RPC models under that encoding contract.
 
 ## Dependency roles and deployment checks
 
-Organize the root `[workspace.dependencies]` catalog into two sections headed
-`# Production dependencies` and `# Tests and tooling only`. Put each header once
-above its section, with a blank line between sections and alphabetical order
-within each. Do not repeat role annotations after individual dependencies.
+Place local release-group blocks first under the
+[visible group-map convention](rust-workspaces.md#visible-release-group-map-in-cargotoml).
+Follow them with external production, mixed production/test, then test/tooling-only
+dependencies; omit empty sections. Use one short comment heading per block, a
+blank line between blocks and alphabetical order within each. Do not repeat role
+annotations after individual dependencies or split local groups by dependency role.
 These dependency-role headers belong only inside `[workspace.dependencies]`.
 The `members` array may separately use `# Production packages` and
 `# Tests and tooling packages` under the
@@ -195,9 +199,10 @@ Dependency roles describe use within this workspace, not whether a selected
 version is published to a registry.
 
 - A production dependency is needed by a production package through normal or
-  build dependencies, including supported optional features and targets. Put an
-  entry used by both production and tests in the production category. Build
-  dependencies belong here even though their code need not enter the artifact.
+  build dependencies, including supported optional features and targets. Label
+  external entries shared with tests/tooling as mixed; they still belong to the
+  production graph. Production build dependencies also belong here even though
+  their code need not enter the artifact.
 - Tests and tooling entries are used only through development dependencies or
   non-production packages. A package can be published elsewhere and still serve
   only this role here. Workspace membership and `package.publish` do not prove

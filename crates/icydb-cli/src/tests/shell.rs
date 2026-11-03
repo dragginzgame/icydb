@@ -165,6 +165,15 @@ fn interactive_start_message_names_target_and_exit_controls() {
 }
 
 #[test]
+fn interactive_start_message_escapes_only_target_scalars() {
+    let target = "界-e\u{301}-\\n\r\n\t\x1b[2J\u{0085}\u{202e}\u{2028}";
+    let message = interactive_start_message(target, target);
+    assert_eq!(ic_host_text::escape::terminal_text(&message), message);
+    assert!(message.contains(ic_host_text::escape::terminal_text(target).as_ref()));
+    assert_eq!(message.lines().count(), 1);
+}
+
+#[test]
 fn sql_shell_call_kind_routes_sql_to_fixed_endpoint_family() {
     for sql in [
         "CREATE INDEX name_idx ON Character (name);",

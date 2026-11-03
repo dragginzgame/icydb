@@ -1,7 +1,7 @@
 # IcyDB Agent Rules
 
 For scope, delegated delivery, validation, compiler support and reporting, use
-[Shared policy at 8c7fae6](https://github.com/dragginzgame/shared-tooling/blob/8c7fae6605c69a930e3b1f14e1ff5c4c9dafbcb7/DRAGGINZGAME.md)
+[Shared policy at 5596075](https://github.com/dragginzgame/shared-tooling/blob/55960755351c127b8ef2a03a1f08fdeba068f5e4/DRAGGINZGAME.md)
 and its revision-bound references over older snapshot or local-guide wording.
 This includes Rust 1.99.1 as minimum and pinned development/release compiler;
 check local declarations and qualification before claiming adoption is complete.
@@ -27,6 +27,8 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
 - Use GitHub issues exclusively for upstream feedback and follow-up tracking.
   Check issue bodies and comments; local notes may summarize linked evidence
   but must not become a separate feedback queue.
+  Routine local fixes and tooling updates do not require a new issue; reuse
+  existing tracking when follow-up is needed.
 - Ordinary implementation does not change package versions. Explicit delivery
   delegates version preparation to the shared release workflow; preserve unrelated
   version edits and report conflicting in-progress release work.
@@ -136,6 +138,12 @@ rather than prohibiting retired names.
 ## Changelog / Release Notes
 
 - Before any changelog edit, follow `docs/governance/changelog.md`.
+- Preserve issue-linked outcome bullets in pending group ledgers when adding
+  fixes; do not replace them with an omnibus summary. See the shared
+  [readable layout](rules/changelogs.md#readable-release-layout).
+- Maintainer-approved presentation override (2026-11-03): keep fixed-issue links
+  in each group's main `releases/<group>/CHANGELOG.md`; root `CHANGELOG.md` is
+  navigation only. This overrides Shared's root fixed-issue index requirement.
 - Keep meaningful completed behavior/tooling notes in the selected release-group ledger
   and minor-line draft before handoff. Governance-only edits need no note unless
   requested. Never create an `Unreleased` section or a separate notes queue.

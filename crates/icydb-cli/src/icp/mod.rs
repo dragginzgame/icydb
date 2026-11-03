@@ -62,13 +62,10 @@ pub(crate) fn require_created_canister(environment: &str, canister: &str) -> Res
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use ic_host_tools::icp::StatusOutput;
     use std::process::Command;
 
-    use crate::icp::{
-        call, commands,
-        process::{self, CanisterStatusOutput},
-        project,
-    };
+    use crate::icp::{call, commands, process, project};
 
     pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
         call::hex_response_bytes(output)
@@ -129,21 +126,17 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn canister_status_json_command(environment: &str, canister: &str) -> Command {
-        process::canister_status_command(environment, canister, CanisterStatusOutput::Json)
+        process::canister_status_command(environment, canister, StatusOutput::Json)
     }
 
     pub(crate) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
-        process::canister_status_command(environment, canister, CanisterStatusOutput::IdOnly)
+        process::canister_status_command(environment, canister, StatusOutput::IdOnly)
     }
 
-    pub(crate) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
-        project::parse_manifest_canisters(contents, environment)
-    }
-
-    pub(crate) fn parse_manifest_environment_network<'a>(
-        contents: &'a str,
+    pub(crate) fn parse_manifest_canisters(
+        contents: &str,
         environment: &str,
-    ) -> Option<&'a str> {
-        project::parse_manifest_environment_network(contents, environment)
+    ) -> Result<Vec<String>, String> {
+        project::parse_manifest_canisters(contents, environment)
     }
 }

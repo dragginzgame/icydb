@@ -15,6 +15,10 @@ product, release and recovery obligations remain binding when applicable.
   numeric limits, validation gates and release identities stay local. Release
   target names and workflow follow the common contract below. Do not copy one
   consumer's architecture into the common baseline.
+- Give each rule one detailed owner. The baseline summarizes it and links there;
+  overlays list local choices and commands. Update the owning text when policy
+  changes instead of appending repeated exceptions. Keep detailed reference
+  procedures task-specific rather than adding them to every startup read.
 - Shared Tooling owns consistency across the repository fleet: repository/sibling
   counts, shared-snapshot and pin drift, CI/issue overviews, cross-repository LOC
   and tooling inventories, and common maintenance/audit procedures. Run central
@@ -45,83 +49,24 @@ product, release and recovery obligations remain binding when applicable.
 
 ## Scope and authorization
 
-- **Task-relevant read-only inspection of sibling repositories is authorized by
-  default and requires no separate permission.** Read source, manifests, history,
-  instructions and existing evidence as needed to verify consumers, ownership or
-  compatibility. Consumer `AGENTS.md` files must not add an "ask before reading
-  siblings" gate. Honour explicit user exclusions and access restrictions. This
-  authorizes inspection, not edits or commands that write in a sibling checkout;
-  those follow the contribution and validation rules below.
-- Work within the authorized repositories and preserve unrelated dirty work.
-  Re-read dirty files before editing. Agents working in one repository must not
-  edit another contributor's sibling checkout in place. Cross-repository source
-  work requires an explicit destination/change scope; PR creation requires a PR
-  request or that destination's authorized configured delivery workflow. Use the
-  [isolated PR workflow](contributions.md#cross-repository-pull-requests) when
-  authorized, carrying its necessary substeps forward without repeated permission.
-  Routine version, lock and snapshot adoption belongs to the receiving owner;
-  do not create unsolicited adoption PRs or duplicate an active owner's work.
-  Preserve explicit read-only instructions, repository exclusions and active
-  ownership. Contributions under other GitHub owners require explicit
-  target/action authorization.
-  Direct sibling-checkout edits require an express exception naming that checkout
-  and change; shared ownership or a PR contribution never supplies that exception.
-- Ordinary implementation does not include staging, commits or release execution. During
-  ordinary implementation, leave the real checkout's index, package/application
-  release versions and Git refs alone. Do not run `git add .`, `git add -A`,
-  `git commit`, package version-bump helpers, `git tag`, pushes, `make release-*` or
-  mutating release adapters to finish a coding task. This includes release
-  recovery and indirect calls from scripts or Make targets. "Keep going",
-  "prepare the release", "work on 0.4" and "ready to push?" authorize no such
-  effects unless the session already delegates delivery. Prepare source, numbered
-  changelog notes, and in Shared Tooling only the matching pending `VERSION` under the
-  [next-version rules](changelogs.md#automatic-next-version-selection), and
-  validation within the established scope. A release/ship/deploy
-  request delegates its corresponding workflow and routine group/version/order
-  choices under [delegated delivery](contributions.md#delegated-delivery).
-  Explicitly authorize direct integration-branch pushes and alternate delivery
-  checkouts under that contract; a configured default does not grant consent.
-  Continue that workflow without per-step permission; preserve explicit target
-  restrictions and the explicitly scoped isolated PR boundary. A dependency
-  blocker does not extend delivery to another repository: report the required
-  supplier work without starting its release preparation, gates or deployment.
-- Follow the [contribution rules](contributions.md): contributions submitted
-  for review use branches and pull requests; ordinary agent implementation
-  leaves reviewable local changes. Agents may create
-  scoped commits when asked to commit or deliver a PR. A PR request includes the
-  branch, commits, branch push and PR creation/update needed to deliver it;
-  do not require the maintainer to commit first or approve each substep again.
-  PR creation elsewhere requires the destination scope in the contribution
-  rules; neither an issue nor a dependency update grants it. A PR-only request
-  does not authorize package release versions or tags.
-- A PR request does not authorize merging, pushing directly to `main`, `master`
-  or another integration/release branch, or rewriting shared history. Those
-  effects require explicit authorization. Preserve branch protections and
-  required reviews/checks. Ordinary repair or continuation requests authorize
-  local work in the current repository; an explicitly requested cross-repository
-  PR separately authorizes its isolated contribution commits and branch push.
-- Agents may execute package/manifest version changes, tags, pushes, publication,
-  deployment and paid effects when explicitly authorized for their target and effect.
-  Authorization includes the necessary documented substeps of the requested
-  outcome, including Git integration and package publication when shipping the
-  scoped crates. Inspect helpers before invoking them; a contribution PR is not a
-  release request. Continuation retains existing delivery authority; readiness
-  questions alone do not create it.
-- An explicit instruction is sufficient for its named action. Carry established
-  authorization forward; do not require magic phrases or repeated confirmation.
-  Complete authorized preparation so any required approval concerns a concrete
-  result. Apply authorized current-repository fixes directly to the working tree
-  and run the appropriate focused checks; a detached patch alone does not complete
-  a local repair. Inspection remains distinct from repair authorization.
-  Relevant GitHub issue work has standing authorization only in repositories
-  owned by `dragginzgame`: create, comment, update, assign, close or reopen issues
-  as warranted by the evidence, following the feedback rules below. Verify the
-  actual GitHub owner before writing. Issue actions in any other GitHub repository
-  require explicit maintainer authorization for that destination and action;
-  searching and reading issues remain permitted. Prepare external issue content
-  for review before requesting authorization. This does not authorize
-  unrelated messages or release effects. Cross-repository source contributions
-  require the separate explicit contribution authority above, not issue-posting authority.
+The [contribution rules](contributions.md) own implementation, PR, checkout and
+delivery authority. Use their [authorization table](contributions.md#agent-authorization)
+and [delegated delivery](contributions.md#delegated-delivery) contract rather than
+adding local approval gates. Direct edits are the default when a PR is optional;
+an unqualified deploy has the defined fleet scope.
+
+- Task-relevant sibling inspection is read-only and needs no separate permission.
+  Source contributions require destination/change scope; fleet delivery permits
+  release preparation in included normal checkouts after coordinating active work.
+  Shared ownership or issue permission alone does not authorize sibling edits.
+- Carry established authorization forward. Complete necessary preparation before
+  asking about a genuinely missing decision; do not require magic phrases or
+  repeated approval of already-authorized substeps. Inspection alone is not repair.
+- Issue actions follow [agent maintenance](agent-maintenance.md#issue-review-and-repair):
+  verify the GitHub owner, use current evidence and distinguish issue authority
+  from source/delivery authority. Other external messages retain their own scope.
+- Preserve unrelated work, explicit exclusions and runtime approval restrictions.
+  An unavailable checkout or rejected action does not authorize an alternate route.
 
 ## Ownership and simplification
 
@@ -489,26 +434,13 @@ contracts; ordinary development does not require rereading these mechanics.
 - Check for active builds before compilation or source mutation that could affect their inputs. Do not change
   source under active validation or compete for its build lock. Use the owning
   repository's build directory; preserve unrelated artifacts.
-- Authorized development, tests and validation include `cargo fetch --locked`
-  for missing dependency sources in the affected workspace's existing lockfile;
-  no separate maintainer approval is needed. Preserve lock selection and report
-  preparation failures. A missing or inconsistent lockfile does not authorize
-  an unlocked update. Honour explicit offline settings and actual environment
-  network restrictions. For offline gates, prepare caches before validation.
-  An authorized dependency update includes the registry/Git
-  access needed for that selected update; do not require separate network approval
-  or add `--offline`, `--frozen` or `CARGO_NET_OFFLINE=true` by habit. Offline
-  validation is not a blanket policy for dependency preparation. Follow the
-  [Cargo network policy](cargo-dependencies.md#cargo-network-policy);
-  do not silently override a caller's explicit offline setting or select
-  unrequested dependency versions.
-  A selected standard release includes its documented locked cache and selected
-  executable-tool preparation under the [release contract](../docs/releases.md),
-  including required cache preparation before compiled
-  adapter startup. Locked source preparation does not authorize executable-tool
-  installation, runtime network access, new credentials/targets, paid operations
-  or release effects. Keep offline checks and standalone helper reads offline;
-  prepare missing sources separately rather than adding implicit fetches to them.
+- Prepare locked dependency sources under the
+  [Cargo network policy](cargo-dependencies.md#cargo-network-policy). Authorized
+  preparation and dependency updates need no repeated network permission;
+  explicit offline settings and execution-environment restrictions still apply.
+  Prepare selected executable tools separately through the
+  [release/setup contract](../docs/releases.md), before dependent validation.
+  Offline checks and standalone read helpers must not install or fetch implicitly.
 - Test maintained observable behavior, typed failures and genuine architectural
   boundaries. Delete tests that only prohibit a removed name or remember an old
   implementation. Source inspection can enforce a live architectural invariant;
@@ -546,6 +478,15 @@ contracts; ordinary development does not require rereading these mechanics.
   unknown scope refuses or uses the existing full gate. Keep full repository CI,
   source/archive admission and recovery intact. Group selection alone grants no
   omission; qualify the mapping before enabling it in a release adapter.
+- Keep group validation modular under the
+  [shared-mechanics boundary](../docs/release-group-validation.md#shared-mechanics-and-local-policy).
+  Consumers own product mappings and one full-stage roster; Shared owns reusable
+  dispatch, checkpoint and evidence mechanics. Raise missing shared capabilities
+  at their owner instead of multiplying local frameworks. Full CI must not loop
+  over group gates and repeat common checks; full-versus-selected qualification
+  comparisons must have an explicit lifecycle rather than run indefinitely on
+  every ordinary change. Preserve distinct host/feature obligations and existing
+  admission until an equivalent replacement is qualified.
 - Standard release entrypoints must select their required prepared executables
   through the consumer's offline admission interface; do not require maintainers
   to export tool paths in each shell. Fresh preflight prepares missing selections
@@ -654,37 +595,26 @@ contracts; ordinary development does not require rereading these mechanics.
 
 ## IC stable-memory governance
 
-- Production stable stores in `dragginzgame` IC applications and components must
-  use memory handles issued by `ic-memory` after successful admission and durable
-  allocation commitment. Stable keys and their retained memory-ID assignments
-  belong to `ic-memory`; store formats, schema admission and data semantics stay
-  with their storage owners.
-- Application and component code must not independently assign memory IDs,
-  construct `MemoryManager` instances, or read/write unmanaged stable memory.
-  The host integration supplies raw backing memory to its owned `ic-memory`
-  runtime; it must not retain an alternate store-access path or create another
-  manager over that backing. Raw backing access and manager construction belong
-  to that integration boundary and `ic-memory` internals.
-- Production storage integration entry points must require checked runtime
-  handles and preserve validation and persistence before opening stores.
-  Generic storage engines may accept the upstream `Memory` trait, but accepting
-  that trait alone does not enforce allocation governance. Their production
-  callers must supply `ic-memory::RuntimeMemory` through the checked integration.
-- `ic-storage` is a collection layer; it does not replace allocation governance.
-  Its production integrations must use `ic-memory` handles. Selecting it as the
-  standard collection implementation is a separate product decision, qualified
-  at the affected consumers. An upstream collection using checked runtime memory
-  can preserve allocation safety; a replacement collection using unmanaged
-  memory cannot claim that protection.
-- Review actual handle construction and access, including dependency re-exports.
-  Importing `Memory`, `Storable` or an upstream collection is not itself a bypass;
-  neither an import-path rule nor a direct-dependency ban proves this invariant.
-- Raw-memory infrastructure internals, isolated tests and benchmarks may use
-  scoped unmanaged memory. Document the owning boundary and purpose; such
-  evidence does not qualify a production integration. Other production bypasses
-  require a maintainer-approved exception naming the scope, reason and safety
-  qualification. Adopt this rule through a reviewed snapshot or revision-bound
-  reference; policy adoption alone does not prove consumer implementation.
+- `ic-storage` owns allocation governance, backing custody, exclusive leases and
+  governed collections. Production applications obtain checked allocation handles
+  only after admission and durable commitment. Application schemas, lifecycle
+  and recovery decisions remain with their owning products.
+- Applications must not assign allocation IDs, create a second manager/runtime
+  over the same backing or retain an unmanaged store-access path. The host supplies
+  backing at its owned Storage integration boundary; raw backing access belongs
+  there and inside Storage, not in ordinary application stores.
+- Storage integration must preserve validation and commitment before opening
+  stores. A generic engine accepting a `Memory` trait still needs checked
+  Storage-owned handles at its production integration. Inspect actual construction
+  and access, including re-exports; imports or dependency bans alone prove nothing.
+- Isolated raw-memory tests, benchmarks and infrastructure internals may use
+  scoped unmanaged backing with a documented purpose. They do not qualify a
+  production integration. Other production bypasses require an approved exception
+  naming the scope, reason and qualification.
+- `ic-memory` is the retired allocation owner. This rule describes the current
+  Storage boundary, not permission to upgrade dependencies, reset backing or
+  migrate retained data. Existing deployments keep their explicit recovery and
+  migration obligations; adopting documentation does not establish code adoption.
 
 ## Rust workspaces and portable tooling
 

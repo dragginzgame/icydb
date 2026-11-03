@@ -25,7 +25,7 @@ pub(super) fn run_schema_migration_command(command: SchemaMigrationCommand) -> R
         }
         SchemaMigrationCommand::Run(target) => run_to_terminal(target),
         SchemaMigrationCommand::Abort(args) => run_confirmed_abort(args),
-        SchemaMigrationCommand::Adopt(args) => run_confirmed(args, "adopt", adopt),
+        SchemaMigrationCommand::Adopt(args) => run_confirmed_adopt(args),
     }?;
     print_status(&status);
 
@@ -92,21 +92,21 @@ fn run_confirmed_abort(
     ))
 }
 
-fn run_confirmed(
+fn run_confirmed_adopt(
     args: &ConfirmedMigrationTarget,
-    operation: &str,
-    run: impl FnOnce(
-        &CanisterTarget,
-        &SchemaMigrationStatusPage,
-    ) -> Result<SchemaMigrationStatusPage, String>,
 ) -> Result<SchemaMigrationStatusPage, String> {
     if !args.confirmed() {
-        return Err(format!(
-            "schema migration {operation} requires explicit --yes confirmation"
-        ));
+        return Err("schema migration adopt requires explicit --yes confirmation".to_string());
     }
-    let status = load_status(args.target())?;
-    run(args.target(), &status)
+    let target = args.target();
+    let status = load_status(target)?;
+    call_command(
+        target,
+        &RuntimeMigrationCommand::Adopt {
+            expected_database: status.database_identity(),
+            expected_head: status.accepted_head().clone(),
+        },
+    )
 }
 
 fn run_to_terminal(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, String> {
@@ -191,19 +191,6 @@ fn abort(
             expected_database: status.database_identity(),
             expected_head: status.accepted_head().clone(),
             expected_plan: plan,
-        },
-    )
-}
-
-fn adopt(
-    target: &CanisterTarget,
-    status: &SchemaMigrationStatusPage,
-) -> Result<SchemaMigrationStatusPage, String> {
-    call_command(
-        target,
-        &RuntimeMigrationCommand::Adopt {
-            expected_database: status.database_identity(),
-            expected_head: status.accepted_head().clone(),
         },
     )
 }

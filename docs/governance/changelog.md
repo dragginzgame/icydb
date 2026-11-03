@@ -10,8 +10,13 @@ These rules are intended to be followed by automated agents.
 # 1. Purpose
 
 Each `releases/<group>/CHANGELOG.md` is the canonical ledger for its release group.
-Root `CHANGELOG.md` indexes the `database` and `cli` ledgers and the unchanged
-coordinated history in `releases/history.md`.
+Root `CHANGELOG.md` only indexes the `database` and `cli` ledgers and the unchanged
+coordinated history in `releases/history.md`. For IcyDB, "main changelog" means
+the owning group's `releases/<group>/CHANGELOG.md`: keep every completed fix's
+descriptive issue link beside its outcome there, and preserve those links after
+release. The maintainer approved this presentation override on 2026-11-03;
+it supersedes Shared's root fixed-issue index requirement. Group ledgers remain
+the release/version authority.
 
 It records high-level architectural and behavioral changes per release.
 
@@ -35,7 +40,9 @@ For example: [docs/changelog/0.33.md](../changelog/0.33.md)
   - Date
   - High-level summary sections
   - Links to detailed notes
-- Root minor-line summary entries must use exactly one concise bullet per patch version.
+- Keep each patch under its existing version heading. Follow the shared
+  [readable release layout](../../rules/changelogs.md#readable-release-layout):
+  separate independent outcomes and retain descriptive issue links beside fixes.
 
 ## 2.2 Detailed Minor Notes
 
@@ -48,22 +55,22 @@ For example: [docs/changelog/0.33.md](../changelog/0.33.md)
   - Validation and invariant notes
   - Migration commentary
 - This is the preferred place for code examples, LoC snapshots, and fenced blocks (` ``` `) that improve scanability.
-- Detailed minor notes may be substantially more verbose than root changelog entries.
+- Detailed minor notes may be substantially more verbose than group main-changelog entries.
 
 All patch releases in the same minor line share one detailed notes file.
 Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to [docs/changelog/0.33.md](../changelog/0.33.md).
 
-The root changelog must link to the detailed file when present.
+The group main changelog must link to the detailed file when present.
 
 ## 2.3 Active Version Work
 
 The latest release or numbered pending entry stays at the top. The repository has no
 `Unreleased` section or separate notes queue. Record meaningful completed
-behavior and tooling in the current root entry and shared minor-line notes;
+behavior and tooling in the current group entry and matching minor-line notes;
 governance-only edits need no note unless requested.
 
 Apply [the shared automatic next-version rules](../../rules/changelogs.md).
-Use one undated `## [X.Y.Z]` at the top of root and matching minor-line notes.
+Use one undated `## [X.Y.Z]` at the top of the group ledger and matching minor-line notes.
 Derive the version from the latest finalized release and the complete pending
 batch: compatible pre-1.0 work selects the next patch; breaking public API,
 semantics or output selects the next minor. Honour compatible maintainer overrides
@@ -73,7 +80,7 @@ reuse that pending line until released. Do not ask the user to name or confirm
 the number when they direct work to start on the next minor.
 
 When the pending candidate changes minor line, move only its unpublished notes
-and update the root detail link. Keep finalized notes in their original files.
+and update the group ledger's detail link. Keep finalized notes in their original files.
 Selecting that heading does not change Cargo versions or authorize new
 implementation scope, commits, tags, pushes or publication.
 
@@ -83,7 +90,7 @@ release identity conflicts must be resolved before preparation.
 
 ---
 
-# 3. Version Entry Rules (Root CHANGELOG.md)
+# 3. Version Entry Rules (Group Main Changelog)
 
 Released entries use the following form; pending entries use
 `## [X.Y.Z]` without a date:
@@ -104,26 +111,29 @@ Rules:
 1. Keep the existing changelog structure and header format.
 2. Smaller entries may omit the title segment and use:
    `## [<version>] - <YYYY-MM-DD>`.
-3. Changelog subsections are optional; include only sections relevant to that release.
+3. Use the shared emoji subsection format; include only relevant categories.
 4. If an entry reaches 4 lines or more of changelog content, split it into subsection headers.
-5. For small cleanup releases, prefer no subsection headers; use a short plain-language summary with concise bullets.
+5. A small release may use one `📝 Summary` subsection with concise bullets.
 6. For internal cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
 7. If a section like `Changed` becomes large, split into topic-based subheaders (for example `Changed - Aggregate Execution`, `Changed - Structure`).
 8. Do not include file paths.
 9. Do not include test names.
 10. Do not include internal refactor noise.
-11. Do not exceed ~15 bullets total in the root entry.
+11. Aim for roughly 15 bullets in a group entry without removing meaningful issue coverage.
 12. If a section exceeds ~4 lines of explanation, move detail to `releases/<group>/<major>.<minor>.md`.
-13. For a root minor-line entry (`<major>.<minor>.x`), use exactly one bullet per patch version listed in that minor line.
-14. Each root minor-line patch bullet must be a high-level summary sentence, not an exhaustive implementation list.
-15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `releases/<group>/<major>.<minor>.md`.
-16. Do not add a new root patch bullet for every code slice. Update the one
-    active patch bullet until that version is reported published; then open the
-    numbered pending entry after publication under the shared selection rules.
+13. Keep separate outcome bullets within each patch; do not compress a broad
+    pending batch into one omnibus summary.
+14. Each bullet describes one coherent outcome. Link its owning issue with its
+    number and a descriptive title, following the shared issue-link rules.
+15. Move supporting implementation detail to `releases/<group>/<major>.<minor>.md`;
+    keep meaningful fixes and their issue links visible in the group ledger.
+16. Extend the existing pending version as fixes complete. Add or update outcome
+    bullets without replacing earlier issue-linked fixes or creating a version
+    per slice. After publication, use the shared next-version selection rules.
 
 ## 3.1 Section Header Emoji Mapping
 
-When section headers are used in `CHANGELOG.md` or `docs/changelog/*.md`,
+When section headers are used in group ledgers or their minor-line notes,
 emoji-prefixed headers are the default and must use this fixed mapping:
 
 - `Added=➕`
@@ -143,7 +153,7 @@ Keep emoji usage consistent across releases.
 
 ## 3.2 Link Formatting
 
-For root changelog references to detailed notes, links must be clickable Markdown links.
+For group-ledger references to detailed notes, links must be clickable Markdown links.
 
 Use:
 
@@ -180,11 +190,11 @@ When preparing a release:
    - Internal renames without surface impact
 5. Generate a concise summary entry in the selected group ledger.
 6. Generate or update docs/changelog/<major>.<minor>.md with full detail.
-7. Insert clickable Markdown link from root file to detailed file.
+7. Insert a clickable Markdown link from the group ledger to its detailed file.
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
-10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `releases/<group>/<major>.<minor>.md`.
-11. Reconcile the complete candidate into the already active root and detailed
+10. If a change set is changelog-policy/governance-only, do not add or update release notes in `releases/<group>/CHANGELOG.md` or `releases/<group>/<major>.<minor>.md` unless requested.
+11. Reconcile the complete candidate into the already active group and detailed
     entries. Reconstruct missing notes when practical, but do not make their
     absence alone a mechanical release blocker.
 
@@ -219,7 +229,7 @@ If a change alters:
 - Error taxonomy
 - Persistence format
 
-The root entry must:
+The group main-changelog entry must:
 
 - Include a clear note under "Changed" or "Removed".
 - Mention migration implications.
@@ -229,12 +239,12 @@ The root entry must:
 
 # 6. Archival Policy
 
-Older detailed entries may be moved from root CHANGELOG.md
-into docs/changelog/<major>.<minor>.md if the root file grows large.
+Older detailed entries may be moved from a group main changelog
+into its `releases/<group>/<major>.<minor>.md` if the group ledger grows large.
 
 When archiving:
 
-- Leave version header in root.
+- Leave the version header in the group ledger.
 - Replace detailed content with a summary.
 - Insert link to detailed file.
 
@@ -271,7 +281,9 @@ Bullet and detail rules:
 
 - Prefer short bullets (1-2 sentences), with inline code formatting for API/type names when relevant.
 - Bullets do not need to be single-line if additional sentence context is needed.
-- In root minor-line summaries, prefer one short sentence per patch bullet; avoid long multi-clause bullets that enumerate every internal change.
+- In group ledgers, use short outcome bullets with descriptive issue links;
+  preserve separate fixes as the pending batch grows. Supporting detail belongs
+  in the minor-line notes, rather than an omnibus paragraph or detached issue list.
 - Avoid deep implementation detail (module paths, helper names, routing internals) unless required for migration/debugging.
 - In selected group ledger, avoid code examples/LoC dumps unless strictly necessary.
 - Prefer placing code examples, LoC snapshots, and fenced blocks in `releases/<group>/<major>.<minor>.md`.
@@ -282,7 +294,7 @@ Bullet and detail rules:
 - If a minor-version patch makes a new user-visible SQL query family executable, include one representative SQL example for that patch in `releases/<group>/<major>.<minor>.md`.
 - That example should show a real newly-admitted query shape, not just a nearby query that was already possible before the patch.
 - Prefer the smallest query that demonstrates the newly-shipped surface clearly.
-- Root `CHANGELOG.md` may still omit the example when the one-line summary is clear enough, but the detailed minor-line notes should carry it for query-surface widenings.
+- The group main changelog may omit the example when the one-line summary is clear enough, but the detailed minor-line notes should carry it for query-surface widenings.
 
 Testing section rules:
 
@@ -295,7 +307,7 @@ Testing section rules:
 
 For each release:
 
-1. Include every relevant change in the numbered, undated root and minor-line
+1. Include every relevant change in the numbered, undated group and minor-line
    pending entries. Select the release kind matching the whole batch's compatibility.
 2. The maintainer reviews and commits the source and notes; start from a clean
    tree on the configured release branch.

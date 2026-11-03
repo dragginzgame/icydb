@@ -15,6 +15,7 @@ use crate::cli::{
 };
 use crate::icp::{IcpCallKind, call_query_hex, call_update_hex};
 
+use ic_host_text::escape::terminal_text;
 use icydb::__macro::RpcMethod;
 use serde::de::DeserializeOwned;
 
@@ -119,6 +120,8 @@ fn method_error(
 ) -> String {
     format!(
         "IcyDB {label} method '{method}' failed on canister '{canister}' in environment '{environment}': {detail}",
+        canister = terminal_text(canister),
+        environment = terminal_text(environment),
     )
 }
 

@@ -10,6 +10,7 @@ use std::{
 };
 
 use ic_host_fs::read::{open_regular_file, read_opened_file};
+use ic_host_text::escape::terminal_text;
 use serde::{Deserialize, Serialize};
 
 const DIAGNOSTIC_ARTIFACT_FORMAT: &str = "icydb-diagnostic-schema";
@@ -114,7 +115,7 @@ impl DiagnosticSchemaArtifact {
         ) {
             return Err(format!(
                 "diagnostic artifact '{}' is source metadata, not a deployment artifact",
-                path.display()
+                terminal_text(&path.display().to_string())
             ));
         }
         Ok(artifact)
@@ -125,7 +126,7 @@ impl DiagnosticSchemaArtifact {
         if !matches!(&artifact.provenance, DiagnosticArtifactOwner::Source { .. }) {
             return Err(format!(
                 "diagnostic source metadata '{}' is a deployment artifact",
-                path.display()
+                terminal_text(&path.display().to_string())
             ));
         }
         Ok(artifact)
@@ -146,7 +147,8 @@ impl DiagnosticSchemaArtifact {
         let file = open_regular_file(path).map_err(|err| {
             format!(
                 "failed to open diagnostic artifact '{}': {err}",
-                path.display()
+                terminal_text(&path.display().to_string()),
+                err = terminal_text(&err.to_string()),
             )
         })?;
         // Keep the selected descriptor and existing symlink policy; the shared
@@ -154,13 +156,15 @@ impl DiagnosticSchemaArtifact {
         let bytes = read_opened_file(file, MAX_DIAGNOSTIC_ARTIFACT_BYTES).map_err(|err| {
             format!(
                 "failed to read diagnostic artifact '{}': {err}",
-                path.display()
+                terminal_text(&path.display().to_string()),
+                err = terminal_text(&err.to_string()),
             )
         })?;
         let artifact = serde_json::from_slice::<Self>(bytes.as_slice()).map_err(|err| {
             format!(
                 "failed to decode current diagnostic artifact '{}': {err}",
-                path.display()
+                terminal_text(&path.display().to_string()),
+                err = terminal_text(&err.to_string()),
             )
         })?;
         artifact.validate()?;
@@ -200,7 +204,8 @@ impl DiagnosticSchemaArtifact {
                 // This terminal CLI error never authorizes overwrite or retry.
                 format!(
                     "failed to publish diagnostic artifact '{}': {err}",
-                    path.display()
+                    terminal_text(&path.display().to_string()),
+                    err = terminal_text(&err.to_string()),
                 )
             })
         }
@@ -245,7 +250,10 @@ impl DiagnosticSchemaArtifact {
         {
             return Err(format!(
                 "unsupported diagnostic artifact format/version '{}'/{}; expected '{}'/{}",
-                self.format, self.version, DIAGNOSTIC_ARTIFACT_FORMAT, DIAGNOSTIC_ARTIFACT_VERSION
+                terminal_text(&self.format),
+                self.version,
+                DIAGNOSTIC_ARTIFACT_FORMAT,
+                DIAGNOSTIC_ARTIFACT_VERSION
             ));
         }
         match &self.provenance {
@@ -266,17 +274,10 @@ impl DiagnosticSchemaArtifact {
             icydb_schema::MAX_FRAGMENT_ENTITIES,
         )?;
 
-        let mut entity_keys = BTreeSet::new();
+        // Unique tags also make each (method, fingerprint, tag) identity unique.
         let mut entity_tags = BTreeSet::new();
         for entity in &self.entities {
             entity.validate()?;
-            if !entity_keys.insert((
-                entity.fingerprint_method,
-                entity.fingerprint,
-                entity.entity_tag,
-            )) {
-                return Err("diagnostic artifact contains duplicate entity identity".to_string());
-            }
             if !entity_tags.insert(entity.entity_tag) {
                 return Err("diagnostic artifact contains a duplicate entity tag".to_string());
             }

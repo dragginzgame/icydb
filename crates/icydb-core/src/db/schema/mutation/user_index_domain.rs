@@ -768,7 +768,8 @@ pub(in crate::db) struct UniqueConstraintProjection {
 impl UniqueConstraintProjection {
     /// Compile one exact unique-index owner against the accepted row contract.
     /// The caller supplies normalization authority: maintenance borrows its page
-    /// budget; commit/replay preserves its already-accepted preparation contract.
+    /// budget; ordinary commit borrows its request, while replay preserves its
+    /// already-accepted preparation contract without a fresh ceiling.
     pub(in crate::db) fn new(
         entity_tag: EntityTag,
         index: &crate::db::schema::PersistedIndexSnapshot,

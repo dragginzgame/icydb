@@ -3,6 +3,8 @@
 //! Does not own: generic canister lifecycle commands or project discovery.
 //! Boundary: exposes fixture command construction and cycle parsing to the ICP command owner.
 
+use ic_host_text::escape::terminal_text;
+use ic_host_tools::icp::StatusOutput;
 use icydb::__macro::RpcMethod;
 
 use std::process::Command;
@@ -11,8 +13,7 @@ use crate::icp::{
     IcpCallKind,
     commands::append_environment_args,
     process::{
-        CanisterStatusOutput, canister_status_command, output_stderr, probe_output,
-        run_external_command, update_output,
+        canister_status_command, output_stderr, probe_output, run_external_command, update_output,
     },
     project::environment_targets_local,
 };
@@ -24,7 +25,11 @@ const LOCAL_FIXTURE_CYCLES_TOP_UP_THRESHOLD: u128 = LOCAL_FIXTURE_CYCLES_TOP_UP_
 pub(super) fn load_after_refresh(environment: &str, canister: &str) -> Result<(), String> {
     ensure_local_fixture_cycles(environment, canister)?;
 
-    eprintln!("[icydb] loading fixtures for canister '{canister}' in environment '{environment}'");
+    eprintln!(
+        "[icydb] loading fixtures for canister '{}' in environment '{}'",
+        terminal_text(canister),
+        terminal_text(environment)
+    );
     let stdout = run_fixtures_load(environment, canister)?;
     print!("{stdout}");
 
@@ -34,7 +39,8 @@ pub(super) fn load_after_refresh(environment: &str, canister: &str) -> Result<()
 fn ensure_local_fixture_cycles(environment: &str, canister: &str) -> Result<(), String> {
     if !environment_targets_local(environment) {
         eprintln!(
-            "[icydb] environment '{environment}' does not target the local ICP network; skipping automatic fixture cycles top-up"
+            "[icydb] local ICP network is not confirmed for environment '{}'; skipping automatic fixture cycles top-up",
+            terminal_text(environment),
         );
 
         return Ok(());
@@ -42,20 +48,26 @@ fn ensure_local_fixture_cycles(environment: &str, canister: &str) -> Result<(), 
 
     let Some(cycles) = read_canister_cycles(environment, canister)? else {
         eprintln!(
-            "[icydb] could not read current cycles for canister '{canister}' in environment '{environment}'; skipping automatic fixture cycles top-up"
+            "[icydb] could not read current cycles for canister '{}' in environment '{}'; skipping automatic fixture cycles top-up",
+            terminal_text(canister),
+            terminal_text(environment),
         );
 
         return Ok(());
     };
 
     if cycles >= LOCAL_FIXTURE_CYCLES_TOP_UP_THRESHOLD {
-        eprintln!("[icydb] canister '{canister}' has {cycles} cycles; skipping fixture top-up");
+        eprintln!(
+            "[icydb] canister '{}' has {cycles} cycles; skipping fixture top-up",
+            terminal_text(canister)
+        );
 
         return Ok(());
     }
 
     eprintln!(
-        "[icydb] local fixture refresh reserves cycles for '{canister}': current={cycles}, threshold={LOCAL_FIXTURE_CYCLES_TOP_UP_THRESHOLD}; topping up {LOCAL_FIXTURE_CYCLES_TOP_UP_AMOUNT}"
+        "[icydb] local fixture refresh reserves cycles for '{}': current={cycles}, threshold={LOCAL_FIXTURE_CYCLES_TOP_UP_THRESHOLD}; topping up {LOCAL_FIXTURE_CYCLES_TOP_UP_AMOUNT}",
+        terminal_text(canister),
     );
     run_external_command(
         top_up_command(environment, canister, LOCAL_FIXTURE_CYCLES_TOP_UP_AMOUNT),
@@ -67,7 +79,7 @@ fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128
     let output = probe_output(&mut canister_status_command(
         environment,
         canister,
-        CanisterStatusOutput::Capture,
+        StatusOutput::Text,
     ))
     .map_err(|err| err.to_string())?;
     if !output.status.success() {

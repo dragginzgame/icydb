@@ -48,35 +48,36 @@ use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 /// - predictable test behavior
 #[must_use]
 pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
-    match normalize_with_pair_charge(predicate, &mut || Ok::<_, std::convert::Infallible>(())) {
+    match normalize_with_charge(predicate, &mut |_, _| Ok::<_, std::convert::Infallible>(())) {
         Ok(predicate) => predicate,
         Err(never) => match never {},
     }
 }
 
-/// Normalize under the caller's existing construction authority. Each visited
-/// conjunction pair is charged before classification, including non-reducing pairs.
+/// Normalize under the caller's existing construction authority. Charge visited
+/// conjunction pairs and new flattening/membership backing before work. Reusing
+/// owned backing is free; sort scratch and key encoding remain separately scoped.
 pub(in crate::db) fn normalize_with_budget(
     predicate: Predicate,
     work: &dyn ConstructionBudget,
 ) -> Result<Predicate, InternalError> {
-    normalize_with_pair_charge(predicate, &mut || {
-        work.charge(Resource::PredicateExpressionSteps, 1)
+    normalize_with_charge(predicate, &mut |resource, amount| {
+        work.charge(resource, amount)
     })
 }
 
-fn normalize_with_pair_charge<E>(
+fn normalize_with_charge<E>(
     predicate: Predicate,
-    charge_pair: &mut impl FnMut() -> Result<(), E>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Predicate, E> {
     // Normalize recursively while preserving logical equivalence.
     Ok(match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
 
-        Predicate::And(children) => normalize_and(children, charge_pair)?,
-        Predicate::Or(children) => normalize_or(children, charge_pair)?,
-        Predicate::Not(inner) => normalize_not(inner, charge_pair)?,
+        Predicate::And(children) => normalize_and(children, charge)?,
+        Predicate::Or(children) => normalize_or(children, charge)?,
+        Predicate::Not(inner) => normalize_not(inner, charge)?,
 
         Predicate::Compare(cmp) => Predicate::Compare(cmp),
         Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
@@ -613,11 +614,11 @@ fn normalize_numeric_value_for_target(
 ///
 fn normalize_not<E>(
     mut inner: Box<Predicate>,
-    charge_pair: &mut impl FnMut() -> Result<(), E>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Predicate, E> {
     // Keep the owned shell when NOT survives. Moving its child through the
     // normalizer must not require allocating a replacement box.
-    *inner = normalize_with_pair_charge(*inner, charge_pair)?;
+    *inner = normalize_with_charge(*inner, charge)?;
     if let Predicate::Not(double) = *inner {
         // The inner subtree is already canonical; removing both NOT nodes
         // must not traverse, sort or rebuild it a second time.
@@ -639,9 +640,9 @@ fn normalize_not<E>(
 ///
 fn normalize_and<E>(
     children: Vec<Predicate>,
-    charge_pair: &mut impl FnMut() -> Result<(), E>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Predicate, E> {
-    let Some(out) = normalize_boolean_children(children, true, charge_pair)? else {
+    let Some(out) = normalize_boolean_children(children, true, charge)? else {
         return Ok(Predicate::False);
     };
 
@@ -651,7 +652,10 @@ fn normalize_and<E>(
 
     // Compare-pair simplification scans all conjunction children directly, so
     // it does not require a pre-sorted shape to preserve semantics.
-    let Some(mut out) = simplify_and_compare_constraints(out, charge_pair)? else {
+    let Some(mut out) = simplify_and_compare_constraints(out, &mut || {
+        charge(Resource::PredicateExpressionSteps, 1)
+    })?
+    else {
         return Ok(Predicate::False);
     };
 
@@ -679,9 +683,9 @@ fn normalize_and<E>(
 ///
 fn normalize_or<E>(
     children: Vec<Predicate>,
-    charge_pair: &mut impl FnMut() -> Result<(), E>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Predicate, E> {
-    let Some(mut out) = normalize_boolean_children(children, false, charge_pair)? else {
+    let Some(mut out) = normalize_boolean_children(children, false, charge)? else {
         return Ok(Predicate::True);
     };
 
@@ -691,7 +695,7 @@ fn normalize_or<E>(
 
     // Eligible equalities only need the membership owner's value ordering, not
     // a preceding sort of complete predicate keys. Other OR shapes still sort.
-    if let Some(collapsed) = collapse_same_field_or_equalities(&mut out) {
+    if let Some(collapsed) = collapse_same_field_or_equalities(&mut out, charge)? {
         return Ok(collapsed);
     }
 
@@ -710,7 +714,7 @@ fn normalize_or<E>(
 fn normalize_boolean_children<E>(
     mut children: Vec<Predicate>,
     conjunction: bool,
-    charge_pair: &mut impl FnMut() -> Result<(), E>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Option<Vec<Predicate>>, E> {
     let mut failure = None;
     let mut absorbed = false;
@@ -719,7 +723,7 @@ fn normalize_boolean_children<E>(
         if absorbed || failure.is_some() {
             return false;
         }
-        match normalize_with_pair_charge(std::mem::replace(child, Predicate::True), charge_pair) {
+        match normalize_with_charge(std::mem::replace(child, Predicate::True), charge) {
             Ok(normalized) => *child = normalized,
             Err(error) => {
                 failure = Some(error);
@@ -763,6 +767,10 @@ fn normalize_boolean_children<E>(
 
     // Size the destination during normalization, not in a separate prepass.
     // Appending then moves each child once without geometric backing growth.
+    charge(
+        Resource::TemporaryBytes,
+        (flattened_len as u64).saturating_mul(size_of::<Predicate>() as u64),
+    )?;
     let mut out = Vec::with_capacity(flattened_len);
     for child in children {
         match child {
@@ -779,14 +787,17 @@ fn normalize_boolean_children<E>(
 // - all children target the same field
 // - all children share one supported coercion family
 // - all equality literals are scalar-ish (not list/map payloads)
-fn collapse_same_field_or_equalities(children: &mut Vec<Predicate>) -> Option<Predicate> {
+fn collapse_same_field_or_equalities<E>(
+    children: &mut Vec<Predicate>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<Option<Predicate>, E> {
     if children.len() < 2 {
-        return None;
+        return Ok(None);
     }
 
     // Prove compatibility without allocating or consuming any child. Failed
     // collapse must leave the authored order and operands intact for sorting.
-    let (_, coercion) = membership_compare_domain(children.iter().map(|child| {
+    let Some((_, coercion)) = membership_compare_domain(children.iter().map(|child| {
         let Predicate::Compare(compare) = child else {
             return None;
         };
@@ -803,16 +814,24 @@ fn collapse_same_field_or_equalities(children: &mut Vec<Predicate>) -> Option<Pr
             return None;
         }
         Some((compare.field.as_str(), compare.coercion.id))
-    }))?;
+    })) else {
+        return Ok(None);
+    };
 
     // The ordinary sort/dedup would retain the first identical leaf. Keep that
     // equality (and its complete coercion metadata), not a singleton IN list.
     if children.windows(2).all(|pair| pair[0] == pair[1]) {
-        return children.drain(..).next();
+        return Ok(children.drain(..).next());
     }
 
-    let Predicate::Compare(first) = children.first_mut()? else {
-        return None;
+    // Admit the complete destination before consuming fields or values. Even
+    // duplicate members occupy backing before the membership owner deduplicates.
+    charge(
+        Resource::TemporaryBytes,
+        (children.len() as u64).saturating_mul(size_of::<Value>() as u64),
+    )?;
+    let Some(Predicate::Compare(first)) = children.first_mut() else {
+        return Ok(None);
     };
     let field = std::mem::take(&mut first.field);
     // Preflight established every variant and the minimum count. Draining
@@ -823,12 +842,12 @@ fn collapse_same_field_or_equalities(children: &mut Vec<Predicate>) -> Option<Pr
             values.push(compare.value);
         }
     }
-    Some(Predicate::Compare(membership_compare_from_values(
+    Ok(Some(Predicate::Compare(membership_compare_from_values(
         field,
         CompareOp::In,
         values,
         coercion,
-    )))
+    ))))
 }
 
 // Keep OR->IN canonicalization fail-closed for collection/map literals because

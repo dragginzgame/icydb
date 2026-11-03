@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ordering_only=false
+if [[ $# != 0 ]]; then
+  [[ $# == 2 && "$1" == --case && "$2" == ordering ]] || {
+    echo 'usage: test-cargo-metadata-adoption.sh [--case ordering]' >&2
+    exit 2
+  }
+  ordering_only=true
+fi
+
 # Exercise IcyDB's real Make gate in a disposable current-manifest inventory.
 # Git effects are fixture-only; Cargo consumes prepared locked offline inputs.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS GNUMAKEFLAGS
@@ -10,7 +19,8 @@ unset RELEASE_GROUP RELEASE_COMMIT RELEASE_SOURCE
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-cargo-adoption.XXXXXX")"
+mkdir -p "$ROOT/target"
+fixture="$(mktemp -d "$ROOT/target/cargo-adoption.XXXXXX")"
 fixture_complete=false
 finish() {
   local status=$?
@@ -20,152 +30,165 @@ finish() {
   exit "$status"
 }
 trap finish EXIT
-mkdir "$fixture/repo"
-git -C "$ROOT" archive --format=tar HEAD > "$fixture/source.tar"
-tar -xf "$fixture/source.tar" -C "$fixture/repo"
-git -C "$ROOT" ls-files --cached --others --exclude-standard -z -- '*Cargo.toml' > "$fixture/manifests"
-while IFS= read -r -d '' path; do
-  if [[ -f "$ROOT/$path" ]]; then
-    mkdir -p "$fixture/repo/$(dirname "$path")"
-    cp "$ROOT/$path" "$fixture/repo/$path"
-  fi
-done < "$fixture/manifests"
-# The pending qualification workspace is not in the committed archive yet.
-# Copy its actual manifest, lock and targets together before Cargo admission.
-cp -R "$ROOT/testing/canic-adapter" "$fixture/repo/testing/"
-# Target moves must follow the current manifests even before they are committed;
-# the archived source otherwise retains auto-discovered actor tests in Build.
-for directory in testing/build/tests testing/integration/tests; do
-  rm -rf "$fixture/repo/$directory"
-  if [[ -d "$ROOT/$directory" ]]; then
-    cp -R "$ROOT/$directory" "$fixture/repo/$directory"
-  fi
-done
-for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
-  scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
-  scripts/ci/check-cargo-dependency-boundaries.sh ci/external-ic-dependencies.txt \
-  ci/cargo-dependency-boundaries.json; do
-  cp "$ROOT/$path" "$fixture/repo/$path"
-done
-cp -R "$ROOT/releases" "$fixture/repo/"
-cp "$ROOT/ci/cargo-release-groups.json" "$fixture/repo/ci/"
-cp "$ROOT/scripts/release/"{group.sh,version.sh} "$fixture/repo/scripts/release/"
-# Graph admission must execute the current helper, not its archived HEAD copy.
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/repo" \
-  scripts/ci/check-dependency-pins.sh scripts/ci/check-cargo-graph.pl
-cd "$fixture/repo"
-git init --quiet
-git add -- .
-check() {
-  make --no-print-directory check-dependency-pins "YQ=$YQ" \
-    "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb" > "$fixture/check.log" 2>&1
-}
-check || { cat "$fixture/check.log" >&2; exit 1; }
-bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph.log" 2>&1
-cp Cargo.lock "$fixture/qualified.lock"
-# Coexisting hash families do not admit another line or duplicate versions
-# within a family, and do not relax other sensitive dependency checks.
-for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0'; do
-  cp "$fixture/qualified.lock" Cargo.lock
-  read -r package unexpected_version <<< "$addition"
-  printf '\n[[package]]\nname = "%s"\nversion = "%s"\n' "$package" "$unexpected_version" >> Cargo.lock
-  if bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph-negative.log" 2>&1; then
-    echo "unexpected dependency admitted: $addition" >&2
-    exit 1
-  fi
-done
-cp "$fixture/qualified.lock" Cargo.lock
-version="$(RELEASE_GROUP=database make --no-print-directory -s release-version "YQ=$YQ" \
-  "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb")"
-cp crates/icydb-diagnostic-code/Cargo.toml "$fixture/member.toml"
-# Renamed dependencies inherit their identity from the root catalog.
-requirement="$("$YQ" -p toml -o json '.workspace.dependencies.remain' Cargo.toml |
-  jq -r 'if type == "string" then . else .version end')"
-printf '\n[workspace.dependencies.adoption_alias]\npackage = "remain"\nversion = "%s"\n' "$requirement" >> Cargo.toml
-for section in dependencies dev-dependencies build-dependencies 'target."cfg(unix)".build-dependencies'; do
-  # Replace the original edge: Cargo rejects two names for the same package.
-  sed '/^remain = /d' "$fixture/member.toml" > crates/icydb-diagnostic-code/Cargo.toml
-  printf '\n[%s.adoption_alias]\nworkspace = true\n' "$section" \
-    >> crates/icydb-diagnostic-code/Cargo.toml
-  check || { cat "$fixture/check.log" >&2; exit 1; }
-  printf 'version = "1"\n' >> crates/icydb-diagnostic-code/Cargo.toml
-  if check; then echo 'member dependency source override admitted' >&2; exit 1; fi
-done
-cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
-printf '\n[build-dependencies.missing_alias]\nworkspace = true\n' >> crates/icydb-diagnostic-code/Cargo.toml
-if check; then echo 'missing root dependency alias admitted' >&2; exit 1; fi
-sed "s/^version = \"$version\"/version = \"0.0.0\"/" "$fixture/member.toml" \
-  > crates/icydb-diagnostic-code/Cargo.toml
-if check; then echo 'mismatched group member version admitted' >&2; exit 1; fi
-cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
-check || { cat "$fixture/check.log" >&2; exit 1; }
-# Exercise the actual consumer allowlist before injecting a forbidden canonical
-# SDK/substrate identity through aliases, disabled optional features and inactive targets.
-CARGO_HOME="$ROOT/.cache/cargo/icydb" \
-  bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
-  > "$fixture/boundaries.log" 2>&1
-cp Cargo.toml "$fixture/catalog.toml"
-for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3 ic-platform ic-platform-runtime ic-platform-types; do
-  cp "$fixture/catalog.toml" Cargo.toml
-  case "$dependency" in
-    canic-icydb) requirement=0.113.0 ;;
-    blake3) requirement=1.8.7 ;;
-    ic-cdk) requirement=0.20.3 ;;
-    ic-stable-structures) requirement=0.7.2 ;;
-    pocket-ic) requirement=16.1.0 ;;
-    ic-representation-independent-hash) requirement=3.1.0 ;;
-    ic-cdk-management-canister) requirement=0.1.1 ;;
-    ic-platform) requirement=0.17.0 ;;
-    ic-platform-runtime) requirement=0.17.1 ;;
-    ic-platform-types) requirement=0.16.0 ;;
-  esac
-  printf '\n[workspace.dependencies.boundary_alias]\npackage = "%s"\nversion = "%s"\n' \
-    "$dependency" "$requirement" >> Cargo.toml
-  for section in dependencies build-dependencies dev-dependencies \
-      'target."cfg(target_os = \"none\")".build-dependencies' \
-      'target."cfg(target_os = \"none\")".dev-dependencies'; do
-    cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
-    printf '\n[%s.boundary_alias]\nworkspace = true\n' "$section" \
-      >> crates/icydb-diagnostic-code/Cargo.toml
-    if [[ "$section" == dependencies ]]; then
-      printf 'optional = true\n\n[features]\ndisabled-boundary = ["dep:boundary_alias"]\n' \
-        >> crates/icydb-diagnostic-code/Cargo.toml
+mkdir -p "$fixture/templates"
+# Synthetic repositories must not inherit the caller's Git/index context,
+# signing policy or template hooks. Keep overrides confined to this process.
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
+git_context="$(git rev-parse --local-env-vars)"
+while IFS= read -r variable; do
+  unset "$variable"
+done <<< "$git_context"
+
+# Keep the broader dependency matrix out of focused ordering qualification.
+if [[ "$ordering_only" == false ]]; then
+  mkdir "$fixture/repo"
+  git -C "$ROOT" archive --format=tar HEAD > "$fixture/source.tar"
+  tar -xf "$fixture/source.tar" -C "$fixture/repo"
+  git -C "$ROOT" ls-files --cached --others --exclude-standard -z -- '*Cargo.toml' > "$fixture/manifests"
+  while IFS= read -r -d '' path; do
+    if [[ -f "$ROOT/$path" ]]; then
+      mkdir -p "$fixture/repo/$(dirname "$path")"
+      cp "$ROOT/$path" "$fixture/repo/$path"
     fi
-    # Successful metadata admission proves rejection is from the boundary policy,
-    # rather than a malformed target table or an unavailable dependency.
-    CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
-      --no-deps --format-version 1 > "$fixture/injected-metadata.json"
-    jq -e --arg dependency "$dependency" '.packages[] | select(.name == "icydb-diagnostic-code") | .dependencies |
-      any(.name == $dependency and .rename == "boundary_alias")' \
-      "$fixture/injected-metadata.json" > /dev/null
-    if CARGO_HOME="$ROOT/.cache/cargo/icydb" \
-      bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
-        > "$fixture/boundary-rejection.log" 2>&1; then
-      echo "consumer boundary admitted excluded dependency alias: $dependency" >&2; exit 1
+  done < "$fixture/manifests"
+  # The pending qualification workspace is not in the committed archive yet.
+  # Copy its actual manifest, lock and targets together before Cargo admission.
+  cp -R "$ROOT/testing/canic-adapter" "$fixture/repo/testing/"
+  # Target moves must follow the current manifests even before they are committed;
+  # the archived source otherwise retains auto-discovered actor tests in Build.
+  for directory in testing/build/tests testing/integration/tests; do
+    rm -rf "$fixture/repo/$directory"
+    if [[ -d "$ROOT/$directory" ]]; then
+      cp -R "$ROOT/$directory" "$fixture/repo/$directory"
     fi
   done
-done
-cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
-cp "$fixture/catalog.toml" Cargo.toml
+  for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
+    scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
+    scripts/ci/check-cargo-dependency-boundaries.sh ci/external-ic-dependencies.txt \
+    ci/cargo-dependency-boundaries.json; do
+    cp "$ROOT/$path" "$fixture/repo/$path"
+  done
+  cp -R "$ROOT/releases" "$fixture/repo/"
+  cp "$ROOT/ci/cargo-release-groups.json" "$fixture/repo/ci/"
+  cp "$ROOT/scripts/release/"{group.sh,version.sh} "$fixture/repo/scripts/release/"
+  # Graph admission must execute the current helper, not its archived HEAD copy.
+  bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/repo" \
+    scripts/ci/check-dependency-pins.sh scripts/ci/check-cargo-graph.pl
+  cd "$fixture/repo"
+  git init --quiet
+  git add -- .
+  check() {
+    make --no-print-directory check-dependency-pins "YQ=$YQ" \
+      "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb" > "$fixture/check.log" 2>&1
+  }
+  check || { cat "$fixture/check.log" >&2; exit 1; }
+  bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph.log" 2>&1
+  cp Cargo.lock "$fixture/qualified.lock"
+  # Coexisting hash families do not admit another line or duplicate versions
+  # within a family, and do not relax other sensitive dependency checks.
+  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0'; do
+    cp "$fixture/qualified.lock" Cargo.lock
+    read -r package unexpected_version <<< "$addition"
+    printf '\n[[package]]\nname = "%s"\nversion = "%s"\n' "$package" "$unexpected_version" >> Cargo.lock
+    if bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph-negative.log" 2>&1; then
+      echo "unexpected dependency admitted: $addition" >&2
+      exit 1
+    fi
+  done
+  cp "$fixture/qualified.lock" Cargo.lock
+  version="$(RELEASE_GROUP=database make --no-print-directory -s release-version "YQ=$YQ" \
+    "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb")"
+  cp crates/icydb-diagnostic-code/Cargo.toml "$fixture/member.toml"
+  # Renamed dependencies inherit their identity from the root catalog.
+  requirement="$("$YQ" -p toml -o json '.workspace.dependencies.remain' Cargo.toml |
+    jq -r 'if type == "string" then . else .version end')"
+  printf '\n[workspace.dependencies.adoption_alias]\npackage = "remain"\nversion = "%s"\n' "$requirement" >> Cargo.toml
+  for section in dependencies dev-dependencies build-dependencies 'target."cfg(unix)".build-dependencies'; do
+    # Replace the original edge: Cargo rejects two names for the same package.
+    sed '/^remain = /d' "$fixture/member.toml" > crates/icydb-diagnostic-code/Cargo.toml
+    printf '\n[%s.adoption_alias]\nworkspace = true\n' "$section" \
+      >> crates/icydb-diagnostic-code/Cargo.toml
+    check || { cat "$fixture/check.log" >&2; exit 1; }
+    printf 'version = "1"\n' >> crates/icydb-diagnostic-code/Cargo.toml
+    if check; then echo 'member dependency source override admitted' >&2; exit 1; fi
+  done
+  cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+  printf '\n[build-dependencies.missing_alias]\nworkspace = true\n' >> crates/icydb-diagnostic-code/Cargo.toml
+  if check; then echo 'missing root dependency alias admitted' >&2; exit 1; fi
+  sed "s/^version = \"$version\"/version = \"0.0.0\"/" "$fixture/member.toml" \
+    > crates/icydb-diagnostic-code/Cargo.toml
+  if check; then echo 'mismatched group member version admitted' >&2; exit 1; fi
+  cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+  check || { cat "$fixture/check.log" >&2; exit 1; }
+  # Exercise the actual consumer allowlist before injecting a forbidden canonical
+  # SDK/substrate identity through aliases, disabled optional features and inactive targets.
+  CARGO_HOME="$ROOT/.cache/cargo/icydb" \
+    bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
+    > "$fixture/boundaries.log" 2>&1
+  cp Cargo.toml "$fixture/catalog.toml"
+  for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3 ic-platform ic-platform-runtime ic-platform-types; do
+    cp "$fixture/catalog.toml" Cargo.toml
+    case "$dependency" in
+      canic-icydb) requirement=0.113.0 ;;
+      blake3) requirement=1.8.7 ;;
+      ic-cdk) requirement=0.20.3 ;;
+      ic-stable-structures) requirement=0.7.2 ;;
+      pocket-ic) requirement=16.1.0 ;;
+      ic-representation-independent-hash) requirement=3.1.0 ;;
+      ic-cdk-management-canister) requirement=0.1.1 ;;
+      ic-platform) requirement=0.17.0 ;;
+      ic-platform-runtime) requirement=0.17.1 ;;
+      ic-platform-types) requirement=0.16.0 ;;
+    esac
+    printf '\n[workspace.dependencies.boundary_alias]\npackage = "%s"\nversion = "%s"\n' \
+      "$dependency" "$requirement" >> Cargo.toml
+    for section in dependencies build-dependencies dev-dependencies \
+        'target."cfg(target_os = \"none\")".build-dependencies' \
+        'target."cfg(target_os = \"none\")".dev-dependencies'; do
+      cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+      printf '\n[%s.boundary_alias]\nworkspace = true\n' "$section" \
+        >> crates/icydb-diagnostic-code/Cargo.toml
+      if [[ "$section" == dependencies ]]; then
+        printf 'optional = true\n\n[features]\ndisabled-boundary = ["dep:boundary_alias"]\n' \
+          >> crates/icydb-diagnostic-code/Cargo.toml
+      fi
+      # Successful metadata admission proves rejection is from the boundary policy,
+      # rather than a malformed target table or an unavailable dependency.
+      CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
+        --no-deps --format-version 1 > "$fixture/injected-metadata.json"
+      jq -e --arg dependency "$dependency" '.packages[] | select(.name == "icydb-diagnostic-code") | .dependencies |
+        any(.name == $dependency and .rename == "boundary_alias")' \
+        "$fixture/injected-metadata.json" > /dev/null
+      if CARGO_HOME="$ROOT/.cache/cargo/icydb" \
+        bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
+          > "$fixture/boundary-rejection.log" 2>&1; then
+        echo "consumer boundary admitted excluded dependency alias: $dependency" >&2; exit 1
+      fi
+    done
+  done
+  cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+  cp "$fixture/catalog.toml" Cargo.toml
 
-# Core resolution must not even parse the composition workspace. Break only its
-# manifest and inspect the real locked root graph; package selection alone would
-# not provide this boundary if actors were still root workspace members.
-cp testing/canic-adapter/Cargo.toml "$fixture/adapter.toml"
-printf 'not valid TOML\n' > testing/canic-adapter/Cargo.toml
-CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
-  --format-version 1 > "$fixture/core-only-metadata.json"
-jq -e 'all(.packages[]; .name != "canic-icydb" and .name != "canic" and
-  .name != "canic-macros")' "$fixture/core-only-metadata.json" > /dev/null
-jq -e 'all(.packages[].targets[]; .name != "canister_artifact_contract")' \
-  "$fixture/core-only-metadata.json" > /dev/null
-cp "$fixture/adapter.toml" testing/canic-adapter/Cargo.toml
-# Product acceptance checks the declared composition owner without resolving its
-# SDK graph: an incompatible adapter lock must not block independent core work.
-"$YQ" -p toml -o json '.' testing/integration/Cargo.toml |
-  jq -e '.package.workspace == "../canic-adapter" and
-    any(.test[]; .name == "canister_artifact_contract" and
-      .path == "tests/canister_artifact_contract.rs")' > /dev/null
+  # Core resolution must not even parse the composition workspace. Break only its
+  # manifest and inspect the real locked root graph; package selection alone would
+  # not provide this boundary if actors were still root workspace members.
+  cp testing/canic-adapter/Cargo.toml "$fixture/adapter.toml"
+  printf 'not valid TOML\n' > testing/canic-adapter/Cargo.toml
+  CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
+    --format-version 1 > "$fixture/core-only-metadata.json"
+  jq -e 'all(.packages[]; .name != "canic-icydb" and .name != "canic" and
+    .name != "canic-macros")' "$fixture/core-only-metadata.json" > /dev/null
+  jq -e 'all(.packages[].targets[]; .name != "canister_artifact_contract")' \
+    "$fixture/core-only-metadata.json" > /dev/null
+  cp "$fixture/adapter.toml" testing/canic-adapter/Cargo.toml
+  # Product acceptance checks the declared composition owner without resolving its
+  # SDK graph: an incompatible adapter lock must not block independent core work.
+  "$YQ" -p toml -o json '.' testing/integration/Cargo.toml |
+    jq -e '.package.workspace == "../canic-adapter" and
+      any(.test[]; .name == "canister_artifact_contract" and
+        .path == "tests/canister_artifact_contract.rs")' > /dev/null
+
+fi
 
 # Qualify the selected-source release checker with real Cargo and isolated Git
 # commits. Unused catalog entries expose global-vs-grouped ordering without
@@ -231,5 +254,9 @@ if RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 RELEASE_COMMIT="$selected" \
   > "$fixture/committed-unsorted.log" 2>&1; then
   echo 'release ordering read the newer worktree instead of the selected commit' >&2; exit 1
 fi
-echo 'IcyDB Cargo inheritance, grouped ordering and selected-source release policies passed'
+if [[ "$ordering_only" == true ]]; then
+  echo 'IcyDB grouped ordering and selected-source release policies passed'
+else
+  echo 'IcyDB Cargo inheritance, grouped ordering and selected-source release policies passed'
+fi
 fixture_complete=true

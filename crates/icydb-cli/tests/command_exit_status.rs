@@ -10,10 +10,11 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::{Command, Output, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
+use ic_host_fs::testing::create_fixture_directory;
+use ic_host_process::tool::{OutputLimit, OutputLimits, capture_command};
 use icydb::{
     Error, ErrorOrigin,
     db::{
@@ -48,13 +49,11 @@ impl IcpFixture {
         reason = "keep the single executable fixture script with its temporary-path setup"
     )]
     fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let directory = std::env::temp_dir().join(format!(
-            "icydb-command-status-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed),
-        ));
-        fs::create_dir(&directory).unwrap();
+        let parent = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        fs::create_dir_all(&parent).unwrap();
+        // PID reuse must not collide with retained failures. The shared owner
+        // allocates a fresh directory without reclaiming earlier evidence.
+        let directory = create_fixture_directory(&parent, "icydb-command-status").unwrap();
         let executable = directory.join("icp");
         // Only the child receives this PATH. Unexpected calls fail closed;
         // the log proves the CLI reached the selected endpoint and call lane.
@@ -62,7 +61,25 @@ impl IcpFixture {
             &executable,
             r#"#!/bin/sh
 printf '%s\n' "$@" >> "$ICP_FIXTURE_LOG"
+if [ -n "${ICP_FIXTURE_ARGV-}" ]; then
+  printf '%s\000' "$@" >> "$ICP_FIXTURE_ARGV"
+fi
 case "$1:$2" in
+  project:show)
+    [ "$#" -eq 2 ] || exit 2
+    case "${ICP_FIXTURE_PROJECT_CASE-}" in
+      invalid-utf8) printf '\377' ;;
+      oversized) command -p dd if=/dev/zero bs=1048576 count=17 2>/dev/null ;;
+      *)
+        if [ -n "${ICP_FIXTURE_PROJECT_RESPONSE+x}" ]; then
+          printf '%s\n' "$ICP_FIXTURE_PROJECT_RESPONSE"
+        else
+          printf '%s\n' 'environments: {local: {name: local, network: {name: local}}, fixture: {name: fixture, network: {name: ic}}}'
+        fi
+        ;;
+    esac
+    exit "${ICP_FIXTURE_PROJECT_STATUS:-0}"
+    ;;
   build:fixture)
     [ "${ICP_FIXTURE_UPGRADE_FAILURE-}" != build ] || exit 1
     printf '%s\n' 'fresh build' > "$ICP_FIXTURE_BUILD_OUTPUT"
@@ -79,6 +96,12 @@ case "$1:$2" in
     printf '%s\n' "$contents" > "$ICP_FIXTURE_DIRECTORY/installed"
     ;;
   canister:list)
+    printf '%s' "${ICP_FIXTURE_LIST_ERROR-}" >&2
+    case "${ICP_FIXTURE_LIST_CAPTURE-}" in
+      stdout) command -p dd if=/dev/zero bs=1048576 count=17 2>/dev/null ;;
+      stderr) (command -p dd if=/dev/zero bs=1024 count=65 2>/dev/null) >&2 ;;
+      signal) kill -TERM "$$" ;;
+    esac
     if [ -n "${ICP_FIXTURE_LIST_RESPONSE+x}" ]; then
       printf '%s\n' "$ICP_FIXTURE_LIST_RESPONSE"
     else
@@ -93,19 +116,33 @@ case "$1:$2" in
     fi
     case "${ICP_FIXTURE_REFRESH_CASE-}" in
       status-failure) printf '%s\n' 'connection refused' >&2; exit 1 ;;
-      uninstalled) printf '%s\n' '{"module_hash":null}' ;;
+      uninstalled|uninstalled-deploy-failure) printf '%s\n' '{"module_hash":null}' ;;
       invalid-status) printf '%s\n' '{"status":"running"}' ;;
       invalid-json) printf '%s\n' '{' ;;
       invalid-module-hash) printf '%s\n' '{"module_hash":42}' ;;
       *)
         case "$4" in
           --json) printf '%s\n' '{"module_hash":"0x0123"}' ;;
-          *) printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}" ;;
+          --id-only) printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}" ;;
+          *)
+            if [ -n "${ICP_FIXTURE_CYCLES+x}" ]; then
+              printf 'Cycles: %s\n' "$ICP_FIXTURE_CYCLES"
+            else
+              printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}"
+            fi
+            ;;
         esac
         ;;
     esac
     ;;
-  deploy:fixture) [ "${ICP_FIXTURE_REFRESH_CASE-}" != deploy-failure ] || exit 1 ;;
+  deploy:fixture)
+    case "${ICP_FIXTURE_REFRESH_CASE-}" in
+      deploy-failure|uninstalled-deploy-failure) exit 1 ;;
+    esac
+    ;;
+  canister:top-up)
+    [ "$3:$4:$5:$6:$7" = --amount:100t:fixture:--environment:fixture ] || exit 2
+    ;;
   canister:call)
     [ -f "$6" ] || exit 2
     printf '%s\n' "$6" >> "$ICP_FIXTURE_DIRECTORY/argument-paths"
@@ -205,6 +242,18 @@ esac
         )
         .unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_icydb"));
+        // Fixture controls belong to this invocation. Clear ambient overrides
+        // without mutating the test process's environment; each test may then
+        // set its own child-only controls after the defaults below.
+        for (name, _) in std::env::vars_os() {
+            let bytes = name.as_encoded_bytes();
+            if bytes.starts_with(b"ICP_FIXTURE_")
+                || bytes.starts_with(b"ICP_WIRE_")
+                || name == "ICP_ENVIRONMENT"
+            {
+                command.env_remove(name);
+            }
+        }
         command
             .current_dir(&self.directory)
             .env("PATH", &self.directory)
@@ -213,12 +262,7 @@ esac
             .env("ICP_FIXTURE_RESPONSE", response)
             .env("ICP_FIXTURE_SUCCESS", success_response())
             .env("ICP_FIXTURE_SUCCESS_ARG", &success)
-            .env("ICP_FIXTURE_SUCCESS_ARG_TERMINATED", &terminated)
-            .env_remove("ICP_FIXTURE_STATUS_ERROR")
-            .env_remove("ICP_FIXTURE_REFRESH_CASE")
-            .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE")
-            .env_remove("ICP_FIXTURE_CAPTURE_METHOD")
-            .env_remove("ICP_FIXTURE_CAPTURE_CASE");
+            .env("ICP_FIXTURE_SUCCESS_ARG_TERMINATED", &terminated);
 
         for (name, endpoint) in [
             ("QUERY", icydb::__macro::RpcMethod::Query),
@@ -386,6 +430,25 @@ impl Drop for IcpFixture {
         } else {
             let _ = fs::remove_dir_all(&self.directory);
         }
+    }
+}
+
+// This watchdog bounds a blocking-file regression, not filesystem performance.
+// The shared process owner drains output and cleans up the captured child.
+fn file_admission_output(command: &mut Command) -> Output {
+    let captured = capture_command(
+        command.stdin(Stdio::null()),
+        OutputLimits {
+            stdout: OutputLimit::Terminate(64 * 1024),
+            stderr: OutputLimit::Terminate(64 * 1024),
+            timeout: Some(Duration::from_secs(5)),
+        },
+    )
+    .expect("file admission must finish without waiting for a FIFO writer");
+    Output {
+        status: captured.status,
+        stdout: captured.stdout,
+        stderr: captured.stderr,
     }
 }
 
@@ -635,8 +698,190 @@ fn diagnostic_valid_live_reports_and_invalid_explicit_artifacts_keep_their_bound
 }
 
 #[test]
-fn diagnostic_artifact_options_refuse_fifos_without_waiting_for_a_writer() {
-    for option in ["--artifact", "--source-metadata"] {
+fn unsupported_artifact_formats_are_terminal_safe_before_calls_or_publication() {
+    for format in [
+        "",
+        "other-format",
+        "界-e\u{301}-\\n\t\r\n\x1b]52;c;data\x07\u{0085}\u{202e}\u{2028}",
+    ] {
+        for route in ["--artifact", "--source-metadata", "export"] {
+            let fixture = IcpFixture::new();
+            let artifact = fixture.directory.join("unsupported.json");
+            let destination = fixture.directory.join("output.json");
+            let mut json = diagnostic_artifact_json();
+            json["format"] = format.into();
+            fs::write(&artifact, json.to_string()).unwrap();
+            let mut command = if route == "export" {
+                let mut command = fixture.command("");
+                command
+                    .args(["schema", "diagnostic-source-metadata", "--artifact"])
+                    .arg(&artifact)
+                    .args(["--source", "fixture-source", "--output"])
+                    .arg(&destination);
+                command
+            } else {
+                let mut command = fixture.diagnostic_command("");
+                command.arg(route).arg(&artifact);
+                command
+            };
+            let output = command.output().unwrap();
+            assert!(!output.status.success(), "{route}: {output:?}");
+            assert!(output.stdout.is_empty());
+            let stderr = assert_terminal_lines(&output.stderr);
+            assert_eq!(
+                stderr,
+                format!(
+                    "ERROR: unsupported diagnostic artifact format/version '{}'/1; expected 'icydb-diagnostic-schema'/1\n",
+                    ic_host_text::escape::terminal_text(format),
+                )
+            );
+            assert!(!fixture.directory.join("calls").exists());
+            assert!(!destination.exists());
+        }
+    }
+}
+
+#[test]
+fn diagnostic_lookup_labels_keep_terminal_lines_and_exact_schema_matching() {
+    for route in ["--artifact", "--source-metadata", "live"] {
+        for stale in [false, true] {
+            let mut line_count = None;
+            for label in [
+                "界-e\u{301}-\\n",
+                "界-e\u{301}-\\n\t\r\n\x1b]52;c;data\x07\u{0085}\u{202e}\u{2028}",
+            ] {
+                let fixture = IcpFixture::new();
+                let path = format!("schema::{label}");
+                let field = format!("field-{label}");
+                let fingerprint = if stale { 8 } else { 7 };
+                let constraint = serde_json::from_value(serde_json::json!({
+                    "id": 3, "name": "required", "kind": "not_null",
+                    "origin": "ddl", "validation_state": "validated", "field_id": 1,
+                    "fields": [&field], "semantics": "required"
+                }))
+                .unwrap();
+                let mut report =
+                    serde_json::to_value(diagnostic_report(path.clone(), vec![constraint]))
+                        .unwrap();
+                report[0]["entity_name"] = label.into();
+                report[0]["accepted_schema_fingerprint"] = serde_json::json!(vec![fingerprint; 16]);
+                let report: Vec<EntitySchemaDescription> = serde_json::from_value(report).unwrap();
+                let reply = response_hex(Ok(report));
+                let artifact = fixture.directory.join("labels.json");
+                let mut json = diagnostic_artifact_json();
+                json["entities"][0]["entity_name"] = label.into();
+                json["entities"][0]["entity_path"] = path.clone().into();
+                json["entities"][0]["fields"][0]["name"] = field.clone().into();
+                json["entities"][0]["fingerprint"] = serde_json::json!(vec![fingerprint; 16]);
+                if route == "--artifact" {
+                    json["provenance"] = serde_json::json!({"kind":"deployment","environment":"fixture","canister":"fixture"});
+                }
+                let bytes = serde_json::to_vec(&json).unwrap();
+                fs::write(&artifact, &bytes).unwrap();
+                let mut command = fixture.command(&reply);
+                command.args(["diagnostic", "E221"]);
+                let half = u64::from_be_bytes([7; 8]);
+                for (tag, value) in [
+                    (DiagnosticFactTag::AcceptedSchemaFingerprintMethod, 1),
+                    (DiagnosticFactTag::AcceptedSchemaFingerprintHigh, half),
+                    (DiagnosticFactTag::AcceptedSchemaFingerprintLow, half),
+                    (DiagnosticFactTag::EntityTag, 42),
+                    (DiagnosticFactTag::FieldId, 1),
+                    (DiagnosticFactTag::MutationOperation, 1),
+                ] {
+                    command.args(["--fact", &format!("{}={value}", tag.raw())]);
+                }
+                if route == "live" {
+                    command.args(["--canister", "fixture", "-e", "fixture"]);
+                } else {
+                    command.arg(route).arg(&artifact);
+                }
+                let output = command.output().unwrap();
+                assert!(output.status.success(), "{route}: {output:?}");
+                assert!(output.stderr.is_empty());
+                let stdout = assert_terminal_lines(&output.stdout);
+                if let Some(expected) = line_count {
+                    assert_eq!(stdout.lines().count(), expected);
+                } else {
+                    line_count = Some(stdout.lines().count());
+                }
+                if stale {
+                    assert!(!stdout.contains("accepted entity:"));
+                    assert!(stdout.contains("names withheld"));
+                    assert!(!stdout.contains("field-"));
+                } else {
+                    assert!(stdout.contains(&format!(
+                        "accepted entity: {} ({})",
+                        ic_host_text::escape::terminal_text(label),
+                        ic_host_text::escape::terminal_text(&path)
+                    )));
+                    assert!(stdout.contains(&format!(
+                        "field_id=1({})",
+                        ic_host_text::escape::terminal_text(&field)
+                    )));
+                }
+                assert_eq!(fs::read(&artifact).unwrap(), bytes);
+                assert_eq!(fixture.directory.join("calls").exists(), route == "live");
+            }
+        }
+    }
+}
+
+#[test]
+fn diagnostic_lookup_input_errors_keep_terminal_controls_visible() {
+    for case in [
+        "code",
+        "overflow",
+        "fact-shape",
+        "fact-tag",
+        "fact-value",
+        "json",
+    ] {
+        for label in [
+            "界-e\u{301}-\\n",
+            "界-e\u{301}-\\n\t\r\n\x1b[2J\u{0085}\u{202e}\u{2028}",
+        ] {
+            let fixture = IcpFixture::new();
+            let mut command = fixture.command("");
+            command.arg("diagnostic");
+            let input = match case {
+                "overflow" => "\r\n999999\t\u{2028}".to_string(),
+                "fact-tag" => format!("{label}=1"),
+                "fact-value" => format!("entity_tag={label}"),
+                _ => label.to_string(),
+            };
+            if case == "json" {
+                let path = fixture.directory.join("error.json");
+                fs::write(
+                    &path,
+                    serde_json::json!({"code":label,"class":0,"origin":0,"facts":[]}).to_string(),
+                )
+                .unwrap();
+                command.arg("--error-json").arg(path);
+            } else if case.starts_with("fact-") {
+                command.args(["E221", "--fact", &input]);
+            } else {
+                command.arg(&input);
+            }
+            let output = command.output().unwrap();
+            assert!(!output.status.success(), "{case}: {output:?}");
+            assert!(output.stdout.is_empty());
+            let stderr = assert_terminal_lines(&output.stderr);
+            assert_eq!(stderr.lines().count(), 1, "{case}: {stderr}");
+            if case != "json" {
+                let displayed_input = if case == "fact-tag" { label } else { &input };
+                assert!(
+                    stderr.contains(ic_host_text::escape::terminal_text(displayed_input).as_ref())
+                );
+            }
+            assert!(!fixture.directory.join("calls").exists());
+        }
+    }
+}
+
+#[test]
+fn diagnostic_file_options_refuse_fifos_without_waiting_for_a_writer() {
+    for option in ["--artifact", "--source-metadata", "--error-json"] {
         let fixture = IcpFixture::new();
         let fifo = fixture.directory.join("artifact.fifo");
         assert!(
@@ -650,31 +895,274 @@ fn diagnostic_artifact_options_refuse_fifos_without_waiting_for_a_writer() {
         let link = fixture.directory.join("artifact.link");
         std::os::unix::fs::symlink(&fifo, &link).unwrap();
         for selected in [&fifo, &link] {
-            let mut child = fixture
-                .diagnostic_command("00")
-                .arg(option)
-                .arg(selected)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            // This deadline bounds a blocking-open regression in the fixture;
-            // it is neither a performance assertion nor a filesystem deadline.
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while child.try_wait().unwrap().is_none() {
-                if Instant::now() >= deadline {
-                    child.kill().unwrap();
-                    let output = child.wait_with_output().unwrap();
-                    panic!("diagnostic waited for a FIFO writer: {output:?}");
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            let output = child.wait_with_output().unwrap();
+            let mut command = if option == "--error-json" {
+                let mut command = fixture.command("");
+                command.arg("diagnostic");
+                command
+            } else {
+                fixture.diagnostic_command("00")
+            };
+            let output = file_admission_output(command.arg(option).arg(selected));
             assert!(!output.status.success(), "{output:?}");
             assert!(output.stdout.is_empty(), "{output:?}");
             assert!(!output.stderr.is_empty(), "{output:?}");
             assert!(!fixture.directory.join("calls").exists());
+        }
+    }
+}
+
+#[test]
+fn diagnostic_error_json_keeps_regular_aliases_stdin_and_the_existing_byte_limit() {
+    let error = Error::from_runtime_boundary(
+        RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
+        ErrorOrigin::Runtime,
+    );
+    let mut expected_report = None;
+    for oversized in [false, true] {
+        let mut bytes = serde_json::to_vec(&error).unwrap();
+        bytes.resize(64 * 1024 + usize::from(oversized), b' ');
+        for route in ["file", "symlink", "stdin"] {
+            let fixture = IcpFixture::new();
+            let input = fixture.directory.join("error.json");
+            fs::write(&input, &bytes).unwrap();
+            let link = fixture.directory.join("error.link");
+            std::os::unix::fs::symlink(&input, &link).unwrap();
+            let mut command = fixture.command("");
+            command.args(["diagnostic", "--error-json"]);
+            let output = if route == "stdin" {
+                let mut child = command
+                    .arg("-")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                child.stdin.take().unwrap().write_all(&bytes).unwrap();
+                child.wait_with_output().unwrap()
+            } else {
+                command
+                    .arg(if route == "file" { &input } else { &link })
+                    .output()
+                    .unwrap()
+            };
+            assert_eq!(output.status.success(), !oversized, "{route}: {output:?}");
+            if oversized {
+                assert!(output.stdout.is_empty());
+                assert!(!output.stderr.is_empty());
+            } else {
+                assert!(output.stderr.is_empty());
+                assert!(!output.stdout.is_empty());
+                if let Some(expected) = &expected_report {
+                    assert_eq!(&output.stdout, expected);
+                } else {
+                    expected_report = Some(output.stdout);
+                }
+            }
+            assert!(!fixture.directory.join("calls").exists());
+        }
+    }
+}
+
+#[test]
+fn effective_project_network_reserves_fixture_cycles_from_nested_directories() {
+    for nested in [false, true] {
+        let fixture = IcpFixture::new();
+        // ICP accepts flow-style environment declarations; the CLI must use
+        // resolved project facts even when invoked below the project root.
+        fs::write(
+            fixture.directory.join("icp.yaml"),
+            "canisters:\n  - name: fixture\n    build:\n      steps:\n        - type: script\n          commands: [\"false\"]\nenvironments:\n  - {name: fixture, network: local, canisters: [fixture]}\n",
+        )
+        .unwrap();
+        let working_directory = if nested {
+            let directory = fixture.directory.join("nested");
+            fs::create_dir(&directory).unwrap();
+            directory
+        } else {
+            fixture.directory.clone()
+        };
+        let output = fixture
+            .command("")
+            .current_dir(working_directory)
+            .env("ICP_FIXTURE_CYCLES", "1_000")
+            .env(
+                "ICP_FIXTURE_PROJECT_RESPONSE",
+                "environments: {fixture: {name: fixture, network: {name: local}}}",
+            )
+            .args(["canister", "refresh", "fixture", "--yes", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        let calls = calls.lines().collect::<Vec<_>>();
+        for method in ["show", "top-up", "icydb_fixtures_load"] {
+            assert_eq!(calls.iter().filter(|line| **line == method).count(), 1);
+        }
+        let position = |method| calls.iter().position(|line| *line == method).unwrap();
+        assert!(position("show") < position("top-up"));
+        assert!(position("top-up") < position("icydb_fixtures_load"));
+    }
+}
+
+#[test]
+fn effective_project_unknown_or_remote_network_never_enables_fixture_funding() {
+    let local = "environments: {fixture: {name: fixture, network: {name: local}}}";
+    for (environment, response, status, case) in [
+        ("fixture", local, "7", ""),
+        (
+            "local",
+            "environments: {local: {name: local, network: {name: local}}}",
+            "7",
+            "",
+        ),
+        ("fixture", "{}", "0", ""),
+        (
+            "fixture",
+            "environments: {other: {name: other, network: {name: local}}}",
+            "0",
+            "",
+        ),
+        (
+            "fixture",
+            "environments: {fixture: {name: fixture, network: {name: ic}}}",
+            "0",
+            "",
+        ),
+        ("Fixture", local, "0", ""),
+        ("fixture", local, "0", "invalid-utf8"),
+        ("fixture", local, "0", "oversized"),
+    ] {
+        let fixture = IcpFixture::new();
+        // A raw local hint cannot override failed/absent effective facts.
+        fs::write(
+            fixture.directory.join("icp.yaml"),
+            format!("environments:\n  - name: {environment}\n    network: local\n"),
+        )
+        .unwrap();
+        let output = fixture
+            .command("")
+            .env("ICP_FIXTURE_CYCLES", "1_000")
+            .env("ICP_FIXTURE_PROJECT_RESPONSE", response)
+            .env("ICP_FIXTURE_PROJECT_STATUS", status)
+            .env("ICP_FIXTURE_PROJECT_CASE", case)
+            .args(["canister", "refresh", "fixture", "--yes", "-e", environment])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{environment}/{case}: {output:?}");
+        let stderr = assert_terminal_lines(&output.stderr);
+        assert!(
+            stderr.contains(&format!(
+                "local ICP network is not confirmed for environment '{}'",
+                ic_host_text::escape::terminal_text(environment)
+            )),
+            "{stderr}"
+        );
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert!(!calls.lines().any(|line| line == "top-up"));
+        assert_eq!(calls.lines().filter(|line| *line == "status").count(), 1);
+        assert_eq!(calls.lines().filter(|line| *line == "show").count(), 1);
+        assert_eq!(
+            calls
+                .lines()
+                .filter(|line| *line == "icydb_fixtures_load")
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn manifest_file_admission_does_not_wait_for_fifo_writers() {
+    for refresh in [false, true] {
+        for symlink in [false, true] {
+            let fixture = IcpFixture::new();
+            let manifest = fixture.directory.join("icp.yaml");
+            let fifo = if symlink {
+                fixture.directory.join("manifest.fifo")
+            } else {
+                manifest.clone()
+            };
+            assert!(
+                Command::new("/usr/bin/mkfifo")
+                    .args(["-m", "600"])
+                    .arg(&fifo)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            if symlink {
+                std::os::unix::fs::symlink(&fifo, &manifest).unwrap();
+            }
+            let mut command = fixture.command("");
+            if refresh {
+                command.args(["canister", "refresh", "fixture", "--yes", "-e", "fixture"]);
+            } else {
+                command
+                    .env("ICP_FIXTURE_LIST_STATUS", "7")
+                    .args(["canister", "list", "-e", "fixture"]);
+            }
+            let output = file_admission_output(&mut command);
+            let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+            assert!(!calls.lines().any(|line| line == "top-up"));
+            if refresh {
+                // Network discovery uses effective project facts, so refresh
+                // no longer reads this raw manifest. Fixture loading continues.
+                assert!(output.status.success(), "{output:?}");
+                assert_eq!(
+                    calls
+                        .lines()
+                        .filter(|line| *line == "icydb_fixtures_load")
+                        .count(),
+                    1
+                );
+            } else {
+                assert_eq!(output.status.code(), Some(1), "{output:?}");
+                assert!(output.stdout.is_empty());
+                assert!(!output.stderr.is_empty());
+                assert!(
+                    !calls
+                        .lines()
+                        .any(|line| line == "status" || line == "call" || line == "deploy")
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn manifest_file_admission_preserves_regular_symlinks_and_utf8_refusal() {
+    for contents in [
+        b"environments:\n  - name: fixture\n    canisters: [fixture]\n".as_slice(),
+        b"\xff",
+    ] {
+        for symlink in [false, true] {
+            let fixture = IcpFixture::new();
+            let manifest = fixture.directory.join("icp.yaml");
+            if symlink {
+                let target = fixture.directory.join("project.yaml");
+                fs::write(&target, contents).unwrap();
+                std::os::unix::fs::symlink(target, &manifest).unwrap();
+            } else {
+                fs::write(&manifest, contents).unwrap();
+            }
+            let output = file_admission_output(
+                fixture
+                    .command("")
+                    .env("ICP_FIXTURE_LIST_STATUS", "7")
+                    .args(["canister", "list", "-e", "fixture"]),
+            );
+            if std::str::from_utf8(contents).is_ok() {
+                assert!(output.status.success(), "{output:?}");
+                assert!(
+                    String::from_utf8(output.stdout)
+                        .unwrap()
+                        .contains("fixture")
+                );
+            } else {
+                assert_eq!(output.status.code(), Some(1), "{output:?}");
+                assert!(output.stdout.is_empty());
+                assert!(!output.stderr.is_empty());
+            }
         }
     }
 }
@@ -806,6 +1294,30 @@ fn canister_id_admission_preserves_valid_and_absent_observations() {
 }
 
 #[test]
+fn ambient_fixture_controls_cannot_change_canister_observations() {
+    // A child test process supplies ambient state without racing other tests
+    // through process-global environment mutation. It runs the real admission
+    // control, including explicit per-case overrides and the fake ICP process.
+    for (name, value) in [
+        ("ICP_FIXTURE_LIST_RESPONSE", "{}"),
+        ("ICP_FIXTURE_LIST_STATUS", "7"),
+        ("ICP_FIXTURE_STATUS_ERROR", "ambient probe failure"),
+        ("ICP_FIXTURE_REFRESH_CASE", "invalid-json"),
+    ] {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                stringify!(canister_id_admission_preserves_valid_and_absent_observations),
+                "--nocapture",
+            ])
+            .env(name, value)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "ambient {name}: {output:?}");
+    }
+}
+
+#[test]
 fn malformed_inventory_cannot_fall_back_to_the_manifest() {
     for response in [
         "{}",
@@ -829,6 +1341,599 @@ fn malformed_inventory_cannot_fall_back_to_the_manifest() {
         let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
         assert!(!calls.lines().any(|line| line == "status"));
     }
+}
+
+#[test]
+fn upgrade_path_messages_are_safe_and_install_uses_original_path_bytes() {
+    for exists in [false, true] {
+        let mut line_counts = None;
+        for label in [
+            "界-\\n.wasm",
+            "界-\\n\r\n\x1b[2J\u{0085}\u{202e}\u{2028}.wasm",
+        ] {
+            let fixture = IcpFixture::new();
+            let selected = fixture.directory.join(label);
+            if exists {
+                fs::write(&selected, b"selected override\n").unwrap();
+            }
+            let arguments = fixture.directory.join("observed-argv");
+            let output = fixture
+                .upgrade_command("fixture", false)
+                .env("ICP_FIXTURE_ARGV", &arguments)
+                .arg("--wasm")
+                .arg(&selected)
+                .output()
+                .unwrap();
+            assert_eq!(output.status.success(), exists, "{output:?}");
+            let stdout = assert_terminal_lines(&output.stdout);
+            let stderr = assert_terminal_lines(&output.stderr);
+            let counts = (stdout.lines().count(), stderr.lines().count());
+            if let Some(expected) = line_counts {
+                assert_eq!(counts, expected);
+            } else {
+                line_counts = Some(counts);
+            }
+            let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+            assert_eq!(calls.lines().any(|line| line == "install"), exists);
+            if exists {
+                assert_eq!(
+                    fs::read(fixture.directory.join("installed")).unwrap(),
+                    b"selected override\n"
+                );
+                let bytes = fs::read(arguments).unwrap();
+                assert!(
+                    bytes
+                        .split(|byte| *byte == 0)
+                        .any(|argument| argument == selected.as_os_str().as_encoded_bytes())
+                );
+            } else {
+                assert!(stderr.contains(
+                    ic_host_text::escape::terminal_text(&selected.display().to_string()).as_ref()
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn history_path_warnings_are_safe_without_losing_completed_statements() {
+    let mut line_count = None;
+    for label in [
+        "界-\\n-history",
+        "界-\\n-history\r\n\x1b[2J\u{0085}\u{202e}\u{2028}",
+    ] {
+        let fixture = IcpFixture::new();
+        let history = fixture.directory.join(label);
+        fs::create_dir(&history).unwrap();
+        let mut child = fixture
+            .sql_command(&success_response())
+            .arg("--history-file")
+            .arg(&history)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"SELECT id FROM Character;\nSELECT id FROM Character;\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let stderr = assert_terminal_lines(&output.stderr);
+        if let Some(expected) = line_count {
+            assert_eq!(stderr.lines().count(), expected);
+        } else {
+            line_count = Some(stderr.lines().count());
+        }
+        assert!(stderr.contains(
+            ic_host_text::escape::terminal_text(&history.display().to_string()).as_ref()
+        ));
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().filter(|line| *line == "icydb_query").count(),
+            2
+        );
+        assert!(history.is_dir());
+    }
+}
+
+#[test]
+fn artifact_path_messages_preserve_safe_lines_and_create_only_payloads() {
+    for case in ["missing", "malformed", "wrong-owner", "publish", "occupied"] {
+        let mut line_counts = None;
+        let mut expected_bytes = None;
+        for label in ["界-\\n", "界-\\n\r\n\x1b[2J\u{0085}\u{202e}\u{2028}"] {
+            let fixture = IcpFixture::new();
+            let artifact = fixture.directory.join(format!("{label}-input.json"));
+            let destination = fixture.directory.join(format!("{label}-output.json"));
+            let mut json = diagnostic_artifact_json();
+            if case != "wrong-owner" {
+                json["provenance"] = serde_json::json!({"kind":"deployment","environment":"fixture","canister":"fixture"});
+            }
+            match case {
+                "missing" => {}
+                "malformed" => fs::write(&artifact, "{").unwrap(),
+                _ => fs::write(&artifact, json.to_string()).unwrap(),
+            }
+            if case == "occupied" {
+                fs::write(&destination, b"untouched").unwrap();
+            }
+            let output = fixture
+                .command("")
+                .args(["schema", "diagnostic-source-metadata", "--artifact"])
+                .arg(&artifact)
+                .args(["--source", "fixture-source", "--output"])
+                .arg(&destination)
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.success(),
+                case == "publish",
+                "{case}: {output:?}"
+            );
+            let stdout = assert_terminal_lines(&output.stdout);
+            let stderr = assert_terminal_lines(&output.stderr);
+            let counts = (stdout.lines().count(), stderr.lines().count());
+            if let Some(expected) = line_counts {
+                assert_eq!(counts, expected);
+            } else {
+                line_counts = Some(counts);
+            }
+            if case == "publish" {
+                assert!(
+                    stdout.contains(
+                        ic_host_text::escape::terminal_text(&destination.display().to_string())
+                            .as_ref()
+                    )
+                );
+                let bytes = fs::read(&destination).unwrap();
+                if let Some(expected) = &expected_bytes {
+                    assert_eq!(&bytes, expected);
+                } else {
+                    expected_bytes = Some(bytes);
+                }
+            } else {
+                assert!(output.stdout.is_empty());
+                if case == "occupied" {
+                    assert_eq!(fs::read(&destination).unwrap(), b"untouched");
+                } else {
+                    assert!(!destination.exists());
+                }
+            }
+            assert!(!fixture.directory.join("calls").exists());
+        }
+    }
+}
+
+#[test]
+fn target_labels_are_terminal_safe_and_icp_arguments_keep_original_bytes() {
+    let hostile = "界-e\u{301}-\\n\t\r\n\x1b]52;c;data\x07\u{0085}\u{202e}\u{2028}";
+    for case in [
+        "list",
+        "missing-id",
+        "status-error",
+        "sql-error",
+        "report-error",
+        "reset",
+        "status",
+    ] {
+        let mut line_counts = None;
+        for label in ["界-e\u{301}-\\n", hostile] {
+            let fixture = IcpFixture::new();
+            let environment = format!("env-{label}");
+            let canister = format!("app-{label}");
+            let arguments = fixture.directory.join("observed-argv");
+            let mut command = fixture.command(&response_hex(Ok(())));
+            command.env("ICP_FIXTURE_ARGV", &arguments).env(
+                "ICP_FIXTURE_LIST_RESPONSE",
+                serde_json::json!({"canisters": [&canister]}).to_string(),
+            );
+            match case {
+                "list" => {
+                    command.args(["canister", "list", "-e", &environment]);
+                }
+                "status" => {
+                    command.args(["canister", "status", &canister, "-e", &environment]);
+                }
+                "reset" => {
+                    command.args(["metrics", "--reset", &canister, "-e", &environment]);
+                }
+                "report-error" => {
+                    command.env("ICP_FIXTURE_TRANSPORT_FAILURE", "1").args([
+                        "metrics",
+                        &canister,
+                        "-e",
+                        &environment,
+                    ]);
+                }
+                _ => {
+                    command.args([
+                        "sql",
+                        "-c",
+                        &canister,
+                        "-e",
+                        &environment,
+                        "--sql",
+                        "SELECT id FROM Character",
+                    ]);
+                    match case {
+                        "missing-id" => {
+                            command.env("ICP_FIXTURE_STATUS_ID", "");
+                        }
+                        "status-error" => {
+                            command.env("ICP_FIXTURE_STATUS_ERROR", "opaque observation");
+                        }
+                        "sql-error" => {
+                            command.env("ICP_FIXTURE_TRANSPORT_FAILURE", "1");
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            let output = command.output().unwrap();
+            assert_eq!(
+                output.status.success(),
+                matches!(case, "list" | "reset" | "status"),
+                "{case}: {output:?}"
+            );
+            let stdout = assert_terminal_lines(&output.stdout);
+            let stderr = assert_terminal_lines(&output.stderr);
+            let counts = (stdout.lines().count(), stderr.lines().count());
+            if let Some(expected) = line_counts {
+                assert_eq!(counts, expected, "labels cannot add report lines: {case}");
+            } else {
+                line_counts = Some(counts);
+            }
+            let display = format!("{stdout}{stderr}");
+            for target in [&environment, &canister] {
+                assert!(
+                    display.contains(ic_host_text::escape::terminal_text(target).as_ref()),
+                    "{case}: {display:?}"
+                );
+                let bytes = fs::read(&arguments).unwrap();
+                assert!(
+                    bytes
+                        .split(|byte| *byte == 0)
+                        .any(|argument| argument == target.as_bytes()),
+                    "ICP must receive the original target: {case}"
+                );
+            }
+        }
+    }
+}
+
+fn assert_terminal_lines(bytes: &[u8]) -> &str {
+    let text = std::str::from_utf8(bytes).unwrap();
+    for line in text.split('\n') {
+        assert_eq!(ic_host_text::escape::terminal_text(line), line);
+    }
+    text
+}
+
+#[test]
+fn inventory_failures_escape_target_metadata_and_preserve_cause_lines() {
+    for case in ["nonzero", "missing", "permission"] {
+        let mut line_count = None;
+        for environment in [
+            "env-界-\\n",
+            "env-界-\\n\t\r\n\x1b[2J\u{0085}\u{202e}\u{2028}",
+        ] {
+            let fixture = IcpFixture::new();
+            match case {
+                "missing" => fs::remove_file(fixture.directory.join("icp")).unwrap(),
+                "permission" => fs::set_permissions(
+                    fixture.directory.join("icp"),
+                    fs::Permissions::from_mode(0o600),
+                )
+                .unwrap(),
+                _ => {}
+            }
+            let output = fixture
+                .command("")
+                .env("ICP_FIXTURE_LIST_STATUS", "7")
+                .args(["canister", "list", "-e", environment])
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(1), "{case}: {output:?}");
+            assert!(output.stdout.is_empty());
+            let stderr = assert_terminal_lines(&output.stderr);
+            assert!(stderr.contains(ic_host_text::escape::terminal_text(environment).as_ref()));
+            if let Some(expected) = line_count {
+                assert_eq!(stderr.lines().count(), expected);
+            } else {
+                line_count = Some(stderr.lines().count());
+            }
+        }
+    }
+}
+
+#[test]
+fn lifecycle_environment_labels_preserve_owned_lines_and_command_targets() {
+    for case in ["deploy", "upgrade", "refresh"] {
+        let mut line_counts = None;
+        for environment in ["env-界-\\n", "env-界-\\n\x1b[2J\r\n\u{202e}"] {
+            let fixture = IcpFixture::new();
+            let arguments = fixture.directory.join("observed-argv");
+            let mut command = if case == "upgrade" {
+                fixture.upgrade_command(environment, false)
+            } else {
+                let mut command = fixture.command("");
+                command.args(["canister", case, "fixture", "-e", environment]);
+                if case == "refresh" {
+                    command.arg("--yes");
+                }
+                command
+            };
+            let output = command
+                .env("ICP_FIXTURE_ARGV", &arguments)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{case}: {output:?}");
+            let stdout = assert_terminal_lines(&output.stdout);
+            let stderr = assert_terminal_lines(&output.stderr);
+            let counts = (stdout.lines().count(), stderr.lines().count());
+            if let Some(expected) = line_counts {
+                assert_eq!(counts, expected);
+            } else {
+                line_counts = Some(counts);
+            }
+            assert!(stderr.contains(ic_host_text::escape::terminal_text(environment).as_ref()));
+            let bytes = fs::read(arguments).unwrap();
+            assert!(
+                bytes
+                    .split(|byte| *byte == 0)
+                    .any(|argument| argument == environment.as_bytes())
+            );
+        }
+    }
+}
+
+#[test]
+fn manifest_fallback_keeps_yaml_lists_comments_and_literal_name_bytes() {
+    for manifest in [
+        "environments:\n  - name: fixture\n    canisters: [fixture] # local selection\n",
+        "environments:\n  - name: fixture\n    canisters:\n      - fixture\n",
+        "environments: [{name: fixture, canisters: [fixture]}]\n",
+        "environments:\n  - name: fixture\n    canisters: ['one,two', 'literal''quote']\n",
+    ] {
+        let fixture = IcpFixture::new();
+        fs::write(fixture.directory.join("icp.yaml"), manifest).unwrap();
+        let arguments = fixture.directory.join("observed-argv");
+        let output = fixture
+            .command("")
+            .env("ICP_FIXTURE_LIST_STATUS", "7")
+            .env("ICP_FIXTURE_ARGV", &arguments)
+            .args(["canister", "list", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{manifest}: {output:?}");
+        let stdout = std::str::from_utf8(&output.stdout).unwrap();
+        let argv = fs::read(arguments).unwrap();
+        let expected = if manifest.contains("one,two") {
+            vec!["one,two", "literal'quote"]
+        } else {
+            vec!["fixture"]
+        };
+        let expected_probes = expected.len();
+        for name in expected {
+            assert!(stdout.contains(name), "{manifest}: {stdout:?}");
+            assert!(
+                argv.split(|byte| *byte == 0)
+                    .any(|argument| argument == name.as_bytes())
+            );
+        }
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(calls.lines().filter(|line| *line == "list").count(), 1);
+        assert_eq!(
+            calls.lines().filter(|line| *line == "status").count(),
+            expected_probes
+        );
+        assert!(!calls.lines().any(|line| line == "call" || line == "deploy"));
+    }
+}
+
+#[test]
+fn manifest_yaml_refusal_retains_inventory_cause_and_stops_before_status() {
+    let diagnostic = "opaque inventory observation";
+    for manifest in [
+        "environments: [",
+        "environments: [{name: fixture, canisters: [one], canisters: [two]}]",
+        "environments: [{name: fixture, canisters: {one: true}}]",
+        "'\u{202e}': one\n'\u{202e}': two\nenvironments: []",
+    ] {
+        let fixture = IcpFixture::new();
+        fs::write(fixture.directory.join("icp.yaml"), manifest).unwrap();
+        let output = fixture
+            .command("")
+            .env("ICP_FIXTURE_LIST_STATUS", "7")
+            .env("ICP_FIXTURE_LIST_ERROR", diagnostic)
+            .args(["canister", "list", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let stderr = assert_terminal_lines(&output.stderr);
+        assert!(stderr.contains(diagnostic));
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(calls.lines().filter(|line| *line == "list").count(), 1);
+        assert!(
+            !calls
+                .lines()
+                .any(|line| line == "status" || line == "call" || line == "deploy")
+        );
+    }
+}
+
+#[test]
+fn inventory_fallback_retains_child_diagnostics_and_existing_outcomes() {
+    // These are opaque child payloads, not inputs to a failure classifier.
+    let diagnostic = "inventory observation: opaque-π";
+    for environment in ["local", "ic", "fixture"] {
+        for manifest in [
+            None,
+            Some(Vec::new()),
+            Some(vec![0xff]),
+            Some(
+                format!("environments:\n  - name: {environment}\n    canisters: [fixture]\n")
+                    .into_bytes(),
+            ),
+        ] {
+            for capture in ["", "signal"] {
+                let fixture = IcpFixture::new();
+                if let Some(contents) = &manifest {
+                    fs::write(fixture.directory.join("icp.yaml"), contents).unwrap();
+                }
+                let valid_manifest = manifest
+                    .as_ref()
+                    .is_some_and(|contents| std::str::from_utf8(contents).is_ok());
+                let output = fixture
+                    .command("")
+                    .env("ICP_FIXTURE_LIST_STATUS", "7")
+                    .env("ICP_FIXTURE_LIST_ERROR", diagnostic)
+                    .env("ICP_FIXTURE_LIST_CAPTURE", capture)
+                    .args(["canister", "list", "-e", environment])
+                    .output()
+                    .unwrap();
+                assert_eq!(output.status.success(), valid_manifest, "{output:?}");
+                let stderr = String::from_utf8(output.stderr).unwrap();
+                assert!(
+                    stderr.contains(diagnostic),
+                    "child bytes must survive: {stderr:?}"
+                );
+                let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+                assert_eq!(calls.lines().filter(|line| *line == "list").count(), 1);
+                assert_eq!(
+                    calls.lines().filter(|line| *line == "status").count(),
+                    usize::from(valid_manifest && !manifest.as_ref().unwrap().is_empty())
+                );
+                assert!(!calls.lines().any(|line| line == "call" || line == "deploy"));
+                if !valid_manifest {
+                    assert!(output.stdout.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn inventory_fallback_diagnostics_are_control_free() {
+    let fixture = IcpFixture::new();
+    fs::write(fixture.directory.join("icp.yaml"), "").unwrap();
+    let output = fixture
+        .command("")
+        .env("ICP_FIXTURE_LIST_STATUS", "7")
+        .env("ICP_FIXTURE_LIST_ERROR", "opaque\x1b[2J\r\n\tmarker")
+        .args(["canister", "list", "-e", "fixture"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("marker"));
+    assert!(
+        !stderr
+            .chars()
+            .any(|character| character.is_control() && character != '\n')
+    );
+}
+
+#[test]
+fn inventory_capture_failures_never_become_manifest_success() {
+    for capture in ["stdout", "stderr"] {
+        let fixture = IcpFixture::new();
+        fs::write(fixture.directory.join("icp.yaml"), "").unwrap();
+        let output = fixture
+            .command("")
+            .env("ICP_FIXTURE_LIST_CAPTURE", capture)
+            .args(["canister", "list", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(calls.lines().filter(|line| *line == "list").count(), 1);
+        assert!(
+            !calls
+                .lines()
+                .any(|line| line == "status" || line == "call" || line == "deploy")
+        );
+    }
+}
+
+#[test]
+fn inventory_non_missing_spawn_failure_cannot_use_manifest_fallback() {
+    let fixture = IcpFixture::new();
+    fs::write(fixture.directory.join("icp.yaml"), "").unwrap();
+    fs::set_permissions(
+        fixture.directory.join("icp"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let output = fixture
+        .command("")
+        .args(["canister", "list", "-e", "fixture"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.stdout.is_empty());
+    assert!(!output.stderr.is_empty());
+    assert!(!fixture.directory.join("calls").exists());
+}
+
+#[test]
+fn inventory_missing_executable_retains_target_across_manifest_fallback() {
+    let environment = "inventory-target-π";
+    for manifest in [None, Some(Vec::new()), Some(vec![0xff])] {
+        let fixture = IcpFixture::new();
+        fs::remove_file(fixture.directory.join("icp")).unwrap();
+        if let Some(contents) = &manifest {
+            fs::write(fixture.directory.join("icp.yaml"), contents).unwrap();
+        }
+        let output = fixture
+            .command("")
+            .args(["canister", "list", "-e", environment])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.success(),
+            manifest == Some(Vec::new()),
+            "{output:?}"
+        );
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(environment),
+            "selected target must survive: {stderr:?}"
+        );
+        assert!(!fixture.directory.join("calls").exists());
+    }
+}
+
+#[test]
+fn missing_canister_guidance_retains_secondary_inventory_failure() {
+    let diagnostic = "secondary inventory observation: opaque-π";
+    let fixture = IcpFixture::new();
+    let output = fixture
+        .sql_command("")
+        .env("ICP_FIXTURE_STATUS_ID", "")
+        .env("ICP_FIXTURE_LIST_STATUS", "7")
+        .env("ICP_FIXTURE_LIST_ERROR", diagnostic)
+        .args(["--sql", "SELECT id FROM Character"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(diagnostic),
+        "secondary child bytes must survive: {stderr:?}"
+    );
+    let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+    assert_eq!(calls.lines().filter(|line| *line == "status").count(), 1);
+    assert_eq!(calls.lines().filter(|line| *line == "list").count(), 1);
+    assert!(!calls.lines().any(|line| line == "call" || line == "deploy"));
 }
 
 #[test]
@@ -918,6 +2023,7 @@ fn refresh_preserves_probe_admission_and_stops_after_failed_stages() {
         ("invalid-json", 1, false, false, false),
         ("invalid-module-hash", 1, false, false, false),
         ("deploy-failure", 1, true, true, false),
+        ("uninstalled-deploy-failure", 1, true, false, false),
         ("fixture-failure", 1, true, true, true),
     ] {
         let fixture = IcpFixture::new();
@@ -928,7 +2034,23 @@ fn refresh_preserves_probe_admission_and_stops_after_failed_stages() {
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(exit), "{case}");
+        if case.ends_with("deploy-failure") {
+            let label = if reinstalled {
+                "icp deploy reinstall"
+            } else {
+                "icp deploy"
+            };
+            let stderr = assert_terminal_lines(&output.stderr);
+            assert!(
+                stderr.contains(&format!("ERROR: {label} failed with")),
+                "{stderr}"
+            );
+        }
         let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().filter(|line| *line == "deploy").count(),
+            usize::from(deployed)
+        );
         let arguments = calls.lines().collect::<Vec<_>>();
         assert_eq!(arguments.contains(&"deploy"), deployed, "{case}");
         assert_eq!(arguments.contains(&"reinstall"), reinstalled, "{case}");
@@ -1163,15 +2285,29 @@ fn one_shot_sql_null_display_matches_query_and_update_returning() {
 
 #[test]
 fn one_shot_sql_transport_and_invalid_wire_fail_for_every_call_lane() {
-    for (sql, method, query) in STATEMENTS {
+    for ((sql, method, query), label) in STATEMENTS.into_iter().zip(["query", "DDL", "update"]) {
         for transport_failure in [false, true] {
             let fixture = IcpFixture::new();
             let mut command = fixture.sql_command("00");
             if transport_failure {
                 command.env("ICP_FIXTURE_TRANSPORT_FAILURE", "1");
             }
-            assert_failure(command.args(["--sql", sql]).output().unwrap());
+            let output = command.args(["--sql", sql]).output().unwrap();
+            let stderr = assert_terminal_lines(&output.stderr);
+            if transport_failure {
+                assert!(
+                    stderr.contains(&format!("IcyDB SQL {label} method '{method}' failed")),
+                    "{stderr}"
+                );
+            }
+            assert_eq!(
+                stderr.contains("update outcome unknown"),
+                !query,
+                "{stderr}"
+            );
+            assert_failure(output);
             fixture.assert_call(method, query);
+            assert_eq!(fixture.call_arguments(method).len(), 1);
         }
     }
 }

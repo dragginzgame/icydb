@@ -26,7 +26,7 @@ pub(crate) struct DiagnosticArgs {
     )]
     code: Option<String>,
 
-    /// Read one public IcyDB Error JSON object from PATH, or - for stdin (64 KiB maximum).
+    /// Read one public IcyDB Error JSON object from regular-file PATH, or - for stdin (64 KiB maximum).
     #[arg(long, value_name = "PATH", conflicts_with_all = ["code", "facts"])]
     error_json: Option<PathBuf>,
 

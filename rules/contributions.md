@@ -1,12 +1,9 @@
 # Contributions, commits and pull requests
 
 These rules are part of the [engineering baseline](../DRAGGINZGAME.md).
-Contributions submitted for review use a topic branch and a pull request against
-the repository's intended base branch. Ordinary agent implementation leaves
-reviewable local changes until delivery is requested. Human contributors may create branches,
-commits and PRs using their normal repository or fork permissions; no agent or
-special baseline exception is required. Repository reviews, required checks and
-branch protections continue to apply.
+Direct local edits are the default; requested or required review contributions
+use a topic branch and PR. Human contributors use their normal repository/fork
+permissions. The agent authority below does not restrict that human workflow.
 
 ## Trusted pull request sources
 
@@ -34,75 +31,58 @@ agreement does not establish acceptance or configure fleet-wide signing checks.
 
 ## Implementation and delivery authority
 
-Ordinary implementation includes pending changelog preparation under the
-[next-version rules](changelogs.md#automatic-next-version-selection).
-Shared Tooling alone also prepares its local `VERSION` automatically.
-It does not automatically include staging, commits, package version changes,
-tags, pushes or release execution. A request to release, publish, ship or
-deploy delegates the corresponding delivery workflow under
-[delegated delivery](#delegated-delivery), without requiring the user to choose
-every command or release group within the requested repository. Contributions
-elsewhere follow the explicitly scoped
-[cross-repository PR workflow](#cross-repository-pull-requests).
-An ordinary local coding task ends with reviewable working-tree
-changes, numbered changelog notes and the appropriate validation. Leave existing
-staging untouched; do not stage or unstage the user's work to make checks pass.
+**Prefer direct edits in the normal authorized checkout when a PR is optional.**
+Ordinary fixes end with reviewable working-tree changes, focused checks and
+[pending notes](changelogs.md#automatic-next-version-selection). Shared Tooling
+also prepares its local `VERSION`; other package versions remain unchanged.
+Use a PR when requested or required by the authorized delivery workflow or branch
+protections. Optional hosted CI is not a reason to add a PR or approval round.
 
-In particular, do not run `git add .`, `git add -A`, `git commit` (including
-amend), package version-bump helpers, `git tag`, `git push`, `make release-patch`,
-`make release-minor`, `make release-major`, `make release-resume` or their
-mutating adapters as an automatic completion step. Inspect wrappers and Make
-targets for these effects before invoking them. A validation request does not
-authorize changing the real checkout's index, release metadata or refs.
-Documented isolated fixture effects, where local validation policy permits them,
-stay confined to their disposable test repositories; they grant no authority
-over the real checkout or remote.
+The [authorization table](#agent-authorization) defines Git and release effects.
+Inspect wrappers and Make targets for those effects before running them.
+Implementation and validation alone do not authorize staging, commits, release
+metadata, tags, pushes or publication. Disposable validation fixtures may exercise
+those operations only in their documented test repositories.
 
-During implementation, "keep going", "finish this", "prepare the release",
-"work on 0.4", "new changelog" and "ready to push?" do not newly delegate
-release operations. During an already delegated delivery workflow, continuation
-retains that authority; do not stop for permission at each group or command.
-A release number selects the work/notes and, in Shared Tooling only, pending
-`VERSION`; it is not permission to update application/workspace/package versions,
-matching release lock entries or generated release metadata. Explicit dependency
-updates remain separate from package release-version changes.
+Carry established authority forward without repeated permission. During ordinary
+implementation, “keep going”, “finish this”, “prepare the release”, a release
+number or “ready to push?” does not newly authorize delivery. During delegated
+delivery, continuation retains its scope. An exact version-edit request and an
+explicit dependency update authorize their named metadata changes, not release
+execution. A request to change these rules is not a delivery request.
 
-Do not change a published version, delete a tag, reset or rewrite history to
-undo an unexpected release. Report the observed state and leave recovery to an
-explicitly authorized action.
+Preserve unrelated staged/working changes. Never stage or unstage user work to
+make checks pass. Do not undo an unexpected release by rewriting history,
+deleting tags or changing published versions; report the observed state and
+obtain authority for the specific recovery.
 
 ## Durable work and checkout location
 
-Prefer editing the requested local checkout so the user can inspect the actual
-working files. Preserve unrelated changes. A dirty checkout or failed release
-preflight does not authorize moving implementation or delivery elsewhere.
+Use the normal authorized checkout. A topic branch does not isolate sessions
+sharing that checkout: coordinate with its active owner before changing branches
+or shared inputs. A dirty checkout or failed preflight does not authorize moving
+implementation or delivery elsewhere.
 
-- Lasting source changes must live in the normal checkout or a disclosed durable
-  contribution checkout for an authorized PR. Keep contribution checkouts outside
-  `/tmp`, `target/`, caches and other cleanup roots. Disposable clones and patches
-  may support validation of already-preserved source; they must never become the
-  sole copy of unfinished implementation or the place where follow-up work silently
-  continues. A path mentioned only in a final handoff is not prior authorization.
-- Use local files for authorized implementation, an authorized PR for contribution,
-  or an owning issue for deferred work. An issue describing a change does not
-  preserve an existing code diff. If none of those options can retain the work,
-  ask the user to approve a durable location before creating unique edits there.
-  Do not create an unsolicited PR merely to transport a patch.
-- Before using an alternate checkout for delivery, disclose its absolute path,
-  branch, source commit, intended remote destination and what will happen to the
-  user's normal checkout. Obtain explicit approval unless that exact path and
-  workflow are already authorized. Authorization for an isolated PR contribution
-  covers its disclosed durable contribution checkout; it does not authorize
-  switching to a separate direct-release clone.
-- After authorized alternate-checkout delivery, report the released commit and
-  version, remote branch/tag/publication results, remaining unique edits and the
-  normal checkout's observed state. Never imply that a remote push updated the
-  user's local files. Return subsequent implementation to the normal checkout
-  when authorized and safe; otherwise obtain agreement on where it will continue.
-- If existing work is found only in disposable storage, report that immediately
-  and preserve it through an authorized durable route before cleanup. Do not
-  overwrite newer local work or apply a patch blindly. Check tracked and untracked
-  files, and verify preservation before calling the handoff complete.
+- Additional clones, worktrees and contribution directories require approval of
+  their exact location, including for an authorized PR. Do not create sibling
+  `*-contributions` directories by default.
+- Keep lasting changes in the normal checkout or an explicitly approved durable
+  checkout outside `/tmp`, `target/` and caches. Disposable validation copies
+  and patches must not become the sole copy of unfinished work. An issue records
+  deferred work; it does not preserve an existing diff. If no authorized durable
+  route is available, ask before creating unique edits elsewhere.
+- Before alternate-checkout delivery, disclose its absolute path, branch, source
+  commit, remote destination and effect on the normal checkout. Reuse approval
+  for that exact path/workflow; a PR checkout does not authorize a separate
+  direct-release clone. A final handoff cannot supply prior authorization.
+- Afterwards, report the released identity, remote/publication results, remaining
+  unique edits and normal checkout state. A remote push does not update local
+  files. Return implementation to the normal checkout when authorized and safe,
+  or agree where it will continue.
+- If unique work is found in disposable storage, report and preserve it through
+  an authorized durable route before cleanup. Check tracked/untracked files and
+  newer local work; never apply a patch blindly or claim preservation without
+  verifying it.
 
 ## Agent authorization
 
@@ -126,8 +106,9 @@ permission for already-authorized steps.
 | Merge a PR or push directly to a named integration branch | Perform the specifically authorized action, subject to repository protections and required checks. |
 | Change the repository version to an exact value | Make the named metadata edit and its required consistency updates; no commit, tag, push or release execution. |
 | Run a selected standard release command | Execute its documented release effects under the [release contract](../docs/releases.md); package publication and deployment remain separate. |
-| Release the scoped changes | Select affected approved groups and appropriate semantic-version increments, prepare scoped commits and execute the authorized delivery path. Direct integration-branch pushes and alternate delivery checkouts require the explicit scope below. Publication is included when the established request includes registry delivery. |
-| Ship or deploy the scoped crate changes | Complete the established Git release and registry publication workflow for the affected groups, including authorized integration, validation and verification; observe the direct-push and checkout requirements below. |
+| Release the scoped changes | Select affected approved groups and appropriate semantic-version increments, prepare scoped commits and execute delivery, including direct integration-branch pushes. Publication is included when the established request includes registry delivery. |
+| Ship or deploy the scoped crate changes | Complete Git delivery to the established integration branch and registry publication for the affected groups, including validation and verification, without another push/publication approval. |
+| Deploy, without a narrower repository/group or application target | Discover all changed eligible Dragginzgame repositories in the established local projects directory, push their reviewed changes to `origin/main` (or their established integration branch), and release/publish affected eligible crate groups to crates.io in dependency order. |
 | Deploy an application to an established environment | Complete its documented build/release/deployment workflow for the named or already established target. Resolve an unknown destination before deployment. |
 
 Carry the repository, base branch, destination and scope already established in
@@ -139,156 +120,107 @@ narrows the authorized steps.
 
 ## Delegated delivery
 
-Interpret delivery requests by their outcome and session context, not by requiring
-exact command names. "Ship these changes" in a crate-publication task authorizes
-the release and upload; "how do I deploy?" asks for guidance only. A request to
-run only `release-patch` retains that command's Git-only effects. A rules update,
-readiness check, implementation task or PR request is not itself delivery authority.
-The destination and checkout requirements below constrain every delegated workflow.
+Interpret requests by their outcome and session context. “Ship these changes”
+in a crate-publication task includes release and upload; “how do I deploy?” asks
+for guidance. Running only `release-patch` retains its documented Git-only
+effects. Readiness, implementation, policy and PR-only requests are not deployment.
 
-- Select affected existing groups, compatible version increments, supplier-first
-  order within the authorized repository set, and the established branch/registry
-  or environment. Explain
-  the selected plan briefly, then execute without asking for routine choices or
-  repeating approval. Pass `RELEASE_GROUP` explicitly; leave unaffected groups
-  unchanged. Respect any exact version or narrower user-selected scope.
-- Complete necessary source preparation, scoped staging/commits, the authorized
-  PR or direct integration path, required validation, version preparation, tags,
-  pushes and the requested publication/deployment. A full delivery request covers
-  merging its own scoped PR when required checks/reviews permit; a PR-only or
-  release-command-only request does not. Never self-approve or bypass protections.
-- Before executing delivery, state the checkout path and local branch, release
-  scope, remote repository/branch, and intended tags and publication/deployment
-  effects. Direct pushes to `main`, `master` or another integration branch require
-  explicit user authorization for that destination and direct-delivery path.
-  Generic "release", "ship" or "deploy" wording and a repository's configured
-  `direct` default do not alone authorize that push. An explicit request to run a
-  named command whose direct-push effects were already disclosed can authorize
-  them. Reuse clear prior approval within its scope; otherwise ask before the
-  first remote mutation. Do not substitute an unsolicited PR.
-- Keep release and publication as separate executable commands and evidence
-  boundaries. One delivery request can authorize both; do not ask again between
-  them. Use the existing adapters and recovery flow, retain failed evidence, and
-  verify destination/registry state before recovering an uncertain effect.
-- Ask only for missing information that changes the authorized outcome, such as
-  an unapproved direct-push destination or alternate checkout, an unknown production
-  target, ambiguous package scope or destructive migration.
-  Generic user-owned/maintainer-operated wording is a default for ordinary work,
-  not a second approval requirement after delegation. Explicit target restrictions,
-  no-push/no-publication instructions and runtime approval decisions still apply.
-- Delivery authority is repository-scoped, including when a dependency needs
-  adoption or publication elsewhere. Do not start a supplier's or consumer's
-  release preparation, release gates, version transaction, deployment procedure
-  or recovery workflow without delivery authority for that repository. Report
-  the required supplying version and blocker to its owner. Multi-repository
-  delivery requires an explicitly established repository set; a dependency graph,
-  supplier-first plan or "keep going" does not establish that set.
-- Delivery authority does not extend to other repositories, new release
-  boundaries, force pushes, rewritten published history, artifact cleanup or
-  unrelated paid effects. Preserve unrelated dirty/staged work and the isolated
-  sibling contribution workflow. Report actual blockers; do not weaken release
-  gates to complete delivery.
+- **An unqualified “deploy” covers all changed eligible Dragginzgame repositories
+  in the established local projects directory.** Inventory dirty changes, commits
+  awaiting push and committed releases awaiting publication; verify origins and
+  release state. Include reviewed existing changes, required release preparation,
+  direct integration to `origin/main` or the established integration branch,
+  tags and crates.io publication for affected publishable groups. Deliver changed
+  non-publishable repositories through Git only.
+- A named repository/group, application environment or explicit limit narrows
+  scope. `toko`, `toko-miner`, DFINITY and other GitHub owners retain their
+  exclusions under the [cross-repository rules](#cross-repository-pull-requests).
+  Do not scan arbitrary directories. A dependency blocker or “keep going” alone
+  does not expand the selected repository set.
+- Announce one plan: repositories/groups, checkout paths and branches, remote
+  destinations, versions/tags, publication effects and supplier-first order.
+  This is informational, not another approval gate. Select routine version
+  increments and pass `RELEASE_GROUP` explicitly. Do not bump unaffected groups
+  just because a supplier changed or republish an existing version.
+- Coordinate stable inputs with active sessions before staging, switching branches
+  or preparing releases. An unfinished or changing batch is not publishable just
+  because it is dirty. Report concrete blockers and continue independent ready
+  repositories. Delivery does not authorize unrelated feature work.
+- Complete the selected workflow: scoped commits, required validation, integration,
+  version preparation, tags, pushes and publication. Direct integration-branch
+  pushes need no separately worded approval. Prefer direct delivery when permitted;
+  use a PR only when requested or required. Full delivery includes merging its
+  scoped PR once required checks/reviews permit; PR-only and release-command-only
+  requests do not. Never self-approve or bypass protections.
+- Keep release and publication as separate executable/evidence boundaries without
+  asking again between them. Use existing adapters and recovery procedures,
+  preserve failed evidence and verify remote state before retrying uncertain effects.
+- Ask only for information or authority that changes the outcome: an unknown
+  destination, unapproved alternate checkout, genuinely ambiguous scope or
+  destructive migration. Ordinary handoff coordination and generic “user-owned”
+  wording are not additional maintainer approval gates.
+- Preserve explicit restrictions, runtime approval decisions and work outside the
+  selected batch. No force pushes, rewritten published history, artifact cleanup,
+  unrelated paid effects or new architectural/versioning boundaries are implied.
+  Existing checkout rules and release gates remain in force.
 
 ## Cross-repository pull requests
 
-DFINITY crates and repositories are excluded: follow the baseline's
+Task-relevant sibling inspection is read-only and needs no contribution branch.
+Source repair requires authority covering the destination and change; issue
+permission alone does not grant it. Fleet release preparation follows
+[delegated delivery](#delegated-delivery), not this separate source-contribution
+workflow. Prefer direct edits when authorized and a PR is optional.
+
+`dragginzgame/toko` and `dragginzgame/toko-miner` require explicit inclusion.
+Repositories outside Dragginzgame require explicit destination/action authority;
+DFINITY contributions remain excluded under the
 [own-the-solution rule](../DRAGGINZGAME.md#dfinity-dependencies-own-the-solution).
+Explicit read-only and no-push instructions remain binding.
 
-Read-only sibling inspection follows the
-[baseline's scope authorization](../DRAGGINZGAME.md#scope-and-authorization);
-it is not a source contribution and needs no contribution branch or permission
-request. The isolated workflow below applies when making repairs.
+- Verify the repository, read its adopted baseline/local overlay, and compare
+  current source, issues/PRs and active work before contributing. Do not duplicate
+  an ongoing fix or revive an obsolete adoption branch.
+- A PR requires an explicit request or the receiving repository's authorized
+  delivery workflow. Do not create one just to obtain CI, transport a patch or
+  finish ordinary implementation. Routine version/lock/snapshot adoption stays
+  with its receiving owner unless explicitly included in the task.
+- Use a topic branch in the agreed normal checkout after coordinating with its
+  active owner. A PR request does not authorize taking over another session.
+  If that checkout is unavailable, follow the
+  [checkout-location contract](#durable-work-and-checkout-location) before
+  creating another. Never carry another contributor's dirty work into the PR.
+- Complete focused checks for changed behavior and affected callers. PR preparation
+  does not activate full local suites; an unrun full suite alone does not require
+  a draft. Use a draft for incomplete implementation or missing focused evidence.
+  Required hosted checks and product restrictions still apply.
+- PR-only authority includes scoped commits and branch push, not merge/auto-merge,
+  self-approval, direct integration pushes, release versions/tags, publication,
+  deployment or cleanup. Separate delivery authority can supply those effects.
+- Track actual defects and substantive migrations in owning issues. Report supplier
+  release/version waits directly to the user; do not create waiting issues or
+  unsolicited adoption PRs. Follow the
+  [shared dependency finding rule](engineering-details.md#shared-dependency-findings).
 
-The receiving repository's maintainer or active agent owns its dependency and
-Shared Tooling snapshot adoption. Do not open unsolicited PRs for version bumps,
-lock refreshes, snapshot adoption or propagated supplier changes. New releases,
-an audit finding or a blocked downstream build do not authorize those PRs.
-Report the supplying version, concrete required source migration and focused
-evidence; use an existing owning issue for actionable follow-up. Do not create
-waiting issues or PRs merely because another repository is not on the latest version.
-Likewise, do not file an issue asking a sibling to publish, tag, release or deploy
-an already identified change. Report the required supplier/version and blocker
-directly to the user under the [dependency finding rules](engineering-details.md#shared-dependency-findings).
-An actual missing capability or code defect remains an owning engineering issue.
-
-Cross-repository source work requires an explicit request covering that
-destination and change. A PR additionally requires an explicit PR request or
-the receiving repository's already-authorized configured delivery workflow.
-Do not create a PR just to obtain CI, transport routine adoption, or finish an
-ordinary coding task. Keep current-repository changes reviewable in the working
-tree. This replaces the former standing permission for sibling contribution PRs;
-issue-posting authority does not grant source or delivery authority.
-
-An explicitly requested PR includes its scoped source edits, required checks,
-staging selected files, commits, topic-branch push and PR creation/update.
-Carry that authorization forward without asking again for each substep.
-
-- Verify the destination owner, read its adopted baseline and product overlay,
-  and search existing issues/PRs before starting. Keep the contribution tied to
-  confirmed work in the current task; coordinate with an active owner rather
-  than duplicating their fix. Link the owning issue where one exists.
-- Use a separate worktree or clone and a dedicated topic branch from the intended
-  upstream base, in a disclosed durable location under the
-  [checkout contract](#durable-work-and-checkout-location). Never edit, switch
-  branches in, stage, reset, clean or commit
-  another contributor's normal sibling checkout. Do not carry its dirty changes
-  into the contribution. Build and validate in the isolated checkout.
-- Complete the destination's focused checks for the changed behavior and affected
-  callers, respecting its documented execution restrictions. PR preparation does
-  not authorize local full-suite runs; reserve those for release or an explicit
-  request under the baseline. Describe evidence and remaining release checks in
-  the PR. An unrun full suite alone does not require a draft; use a draft for
-  incomplete implementation or missing focused evidence. Required hosted checks
-  still apply. Leave review and integration to the owner.
-- PR-only permission does not include merging, enabling auto-merge, approving
-  your own PR, direct integration-branch pushes, force-pushing, version bumps,
-  tags, releases, publication, deployment or artifact cleanup. Those require
-  their own explicit authorization.
-- Explicit read-only requests, no-push instructions and excluded repositories
-  remain binding. `dragginzgame/toko` and `dragginzgame/toko-miner` remain excluded
-  unless the maintainer explicitly authorizes work there. Repositories outside
-  `dragginzgame` require explicit destination/action authorization.
-- An authorized isolated PR permits its necessary contribution commits and
-  branch push. It does not relax product safety, validation,
-  release or retention requirements. Ordinary work in the current repository
-  still leaves its commits and releases to the user.
-
-An inspection-only task reports findings and owning issues; it does not silently
-become implementation. Before proposing or updating a contribution, compare its
-actual changes with current destination source, open PRs and the active owner's
-work. Do not duplicate an ongoing adoption or refresh an obsolete dependency
-branch that the receiving owner is already replacing. Preserve unique fixes and
-evidence when recommending retirement; a newer version alone does not prove all
-of an old PR is superseded. Requesting a policy update does not request fleet-wide
-adoption PRs. A PR audit alone does not request PR closure or branch deletion.
+Preserve unique fixes/evidence when recommending retirement: a newer dependency
+version does not prove an older PR is superseded. An audit alone does not authorize
+PR closure or branch deletion; a policy update does not request fleet adoption PRs.
 
 ## Delivery and review
 
-- Keep unrelated staged and working changes intact. Review the entire index
-  before committing and stage only explicit reviewed paths for the authorized
-  work; do not use blanket `git add .` or `git add -A`. Use an isolated branch
-  or worktree when needed to preserve another contributor's work.
-- An authorized commit/PR task may organize its own unpublished task commits.
-  Rewriting another contributor's or already-shared history, force-pushing,
-  merging and pushing directly to `main`, `master` or another integration/release
-  branch require explicit authorization. Opening a PR does not authorize merging it.
-- Respect branch protection and required checks; permission to deliver a change
-  does not authorize bypassing them. Leave the PR open and report an actual
-  unmet requirement. GitHub permissions still determine where a branch can be pushed.
-- Follow the [asynchronous CI cadence](../DRAGGINZGAME.md#validation-and-evidence)
-  and its independent agent-runtime approval boundary for ordinary PR delivery
-  and separately authorized merges. That policy owns pending CI, required versus
-  optional reviews, known failures and runtime rejection handling. Report the
-  concrete enforced blocker; do not add an independent GitHub approval requirement
-  merely because optional hosted qualification is pending.
-- Describe the change, validation and remaining gaps in the PR. Use the existing
-  repository template where present. Maintain the numbered changelog draft under
-  the [changelog rules](changelogs.md); an ordinary contribution does not bump
-  package versions, tag, publish or deploy unless those effects were requested.
-- Each requested PR covers one destination and coherent change. Coordinate
-  cross-repository adoption with the receiving owners and existing actionable
-  issues; create isolated PRs only within the explicit authority above. Never
-  make direct edits to sibling working checkouts.
+- Review the whole index before committing; stage only explicit reviewed paths.
+  Never use blanket `git add .` or `git add -A`. PRs use topic branches; delegated
+  direct delivery uses the established integration branch in the normal checkout.
+- An authorized commit/PR task may organize its own unpublished commits.
+  Rewriting another contributor's or shared history and force pushes need separate
+  authority. Ordinary delivery does not waive these restrictions.
+- Respect branch protections, required checks/reviews and repository permissions.
+  Report actual unmet requirements without inventing optional approval gates.
+  Follow the [asynchronous CI policy](../DRAGGINZGAME.md#validation-and-evidence);
+  pending optional CI alone does not require holding the turn open.
+- Keep each PR scoped to one destination and coherent change. Use its template,
+  describing behavior, relevant validation and remaining gaps. Maintain
+  [release notes](changelogs.md) without implying release execution.
 
 The standard release runner defaults to an atomic selected-branch/tag push.
 Consumers can explicitly adopt `RELEASE_DELIVERY=pr` under the

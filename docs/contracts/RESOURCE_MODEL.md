@@ -275,16 +275,26 @@ authority is rechecked on use. There is no separate query-only insertion policy.
 - Planner-visible accepted field/expression index contracts charge conjunction
   comparison pairs to the existing request across ordinary planning, exact
   metadata selection and diagnostic EXPLAIN. Schema metadata projects the bound
-  tree; consumers retain normalization authority. Commit metadata preserves its
-  existing pure normalization, including retained journal replay.
+  tree; consumers retain normalization authority. Ordinary commit preparation
+  charges accepted field/expression and pending unique-index conjunction pairs
+  to the same request before marker publication. Fresh contexts accumulate work;
+  successful operation-local context reuse does not repeat normalization.
 - Complete user-index-domain staging and migration validation/rewrite charge
   accepted predicate conjunction pairs to their existing construction allowance.
   Unique activation shares one page allowance between projection preparation
   and scanning, with final checks before publication. Its shared projection
-  constructor requires caller-owned normalization; accepted commit/replay keeps
-  its existing pure normalization without a new maintenance ceiling.
-  Commit/recovery authority and complete projection allocation/sorting accounting
-  remain separately qualified work.
+  constructor requires caller-owned normalization. Retained journal replay and
+  derived rebuild keep canonical pure normalization without acquiring a fresh
+  request/maintenance ceiling for already-admitted work. This does not establish
+  complete projection allocation/sorting or recovery accounting.
+- Budgeted boolean normalization admits new flattened-child and OR-membership
+  vector backing before allocation, cumulatively with literal construction and
+  comparison pairs under the existing caller. Reused child/NOT backing and
+  duplicate-only OR collapse add no vector charge. Failure returns no partial
+  predicate and skips later normalization work. The pure entrypoint retains
+  canonical recovery behavior without a fresh ceiling; sort scratch/key encoding
+  and complete normalization accounting remain separate obligations
+  ([#76](https://github.com/dragginzgame/icydb/issues/76)).
 - Cold accepted-runtime and inspection-plan construction has its own admitted
   boundaries. A shared request profile is not proof of complete schema compilation,
   journal replay or publication accounting. Atomic candidate publication and

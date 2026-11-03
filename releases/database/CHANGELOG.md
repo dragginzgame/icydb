@@ -3,11 +3,47 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.296.1]
+
+### 🩹 Fixed
+
+- Charge ordinary partial-index commit preparation and new normalization vectors
+  to existing caller budgets, preserving typed refusal and retained recovery
+  ([#76 — Budget predicate simplification and normalization](https://github.com/dragginzgame/icydb/issues/76), partial).
+
+### 🛠️ Tooling
+
+- Adopt Platform 0.21 for the existing crypto capability; Runtime, Types and
+  database byte contracts remain unchanged.
+- Adopt published Host Tools 0.80.0 for native artifact tooling.
+- Adopt the Shared Tooling 0.29.1 development snapshot and strengthen release-plan
+  evidence and fixture isolation; narrow release gates remain disabled
+  ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603), partial).
+- Isolate Cargo metadata fixtures from inherited Git context and expose focused
+  grouped-ordering checks ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603), partial).
+
+### 📚 Documentation
+
+- Preserve issue-linked fixes in pending entries, standing agent instructions
+  and the authoring prompt; keep fixed issues visible in each group's main changelog
+  ([#619 — Preserve issue-linked changelog fixes](https://github.com/dragginzgame/icydb/issues/619)).
+
+[Detailed changes](0.296.md).
+
 ## [0.296.0] - 2026-11-03
 
 - Adopt current Platform, Metrics, Storage and Wire contracts while preserving
   IcyDB-owned bytes; simplify database code and add opt-in release-plan
   qualification ([details](0.296.md)).
+
+- Align public conversions and owned codecs with Types 0.18
+  ([#611 — Adopt Types 0.18](https://github.com/dragginzgame/icydb/issues/611)).
+- Consolidate identical store-snapshot accessors while preserving Wire DTOs
+  ([#612 — Consolidate public store-snapshot accessors](https://github.com/dragginzgame/icydb/issues/612)).
+- Adopt the earlier Shared Tooling 0.27.29 snapshot and consumer wiring
+  ([#613 — Adopt Shared Tooling 0.27.29](https://github.com/dragginzgame/icydb/issues/613)).
+- Separate metrics recording from frontend Wire report types
+  ([#614 — Separate metrics recording types from Wire DTOs](https://github.com/dragginzgame/icydb/issues/614)).
 
 ## [0.295.1] - 2026-11-02
 

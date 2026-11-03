@@ -167,8 +167,14 @@ development edges; versioned private dependencies and normal/build edges are rej
 before release preparation.
 This is a complete crate catalog, including private qualification/tooling members
 and crates that no other member currently depends on.
-List release groups once in this manifest, as contiguous blocks in
-`[workspace.dependencies]`. Give each block a short title identifying the policy
+List release groups once in this manifest, as contiguous blocks **at the top of
+`[workspace.dependencies]`, before every external dependency**. Keep all local
+groups together, including their private members; do not move a private member
+into the external test/tooling section. Follow the local groups with external
+production dependencies, mixed production/test dependencies, then test/tooling-only
+dependencies, omitting empty sections. Build dependencies belong in the section
+matching their actual use, with a separate heading when useful.
+Give each group block a short title identifying the policy
 group and a separate `# Changelog : releases/<group>/CHANGELOG.md` line.
 Separate blocks with a blank line. Sort entries within each block using the
 formatter's grouped mode; do not interleave groups to impose a global alphabetic
@@ -180,26 +186,29 @@ For example:
 ```toml
 [workspace]
 members = [
-    "crates/ic-logging-stable",
-    "crates/ic-memory",
-    "crates/ic-metrics-stable",
-    "crates/ic-storage",
+    "crates/example-core",
+    "crates/example-derive",
+    "crates/example-host",
+    "crates/example-tests",
 ]
 resolver = "3"
 
 [workspace.dependencies]
-# Persistence
-# Changelog : releases/persistence/CHANGELOG.md
-ic-memory = { path = "crates/ic-memory", version = "0.60.0" }
-ic-storage = { path = "crates/ic-storage", version = "0.60.0" }
+# Core
+# Changelog : releases/core/CHANGELOG.md
+example-core = { path = "crates/example-core", version = "0.6.0" }
+example-derive = { path = "crates/example-derive", version = "0.6.0" }
+example-tests = { path = "crates/example-tests" } # Private qualification member
 
-# Metrics-stable
-# Changelog : releases/metrics-stable/CHANGELOG.md
-ic-metrics-stable = { path = "crates/ic-metrics-stable", version = "0.60.0" }
+# Host
+# Changelog : releases/host/CHANGELOG.md
+example-host = { path = "crates/example-host", version = "0.2.0" }
 
-# Logging-stable
-# Changelog : releases/logging-stable/CHANGELOG.md
-ic-logging-stable = { path = "crates/ic-logging-stable", version = "0.60.0" }
+# External production dependencies
+thiserror = "2.0"
+
+# External tests and tooling only
+serde_json = "1.0"
 ```
 
 The example illustrates the convention, not an instruction to create or rename
@@ -226,7 +235,9 @@ remain unchanged. Manual member-version edits must update the corresponding real
 requirements too. Before adopting the check, align root declarations with current
 members without changing package versions.
 
-Use comment headings to distinguish local group catalogs from external production,
+Preserve this local-groups-first order during formatting, dependency adoption and
+release preparation; global alphabetic sorting must not move external entries
+ahead of the groups. Use comment headings to distinguish external production,
 build and test/tooling dependencies. Classify by actual member usage: mark shared
 production/test dependencies as mixed, and describe target/feature restrictions
 where they change the graph (for example, native-only schema support). The root

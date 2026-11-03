@@ -1,5 +1,5 @@
 # Release group validation
-<!-- Shared companions: scripts/ci/run-validation-targets.sh docs/validation-runner.md -->
+<!-- Shared companions: scripts/ci/run-validation-targets.sh docs/validation-runner.md docs/group-validation-adoption.md -->
 
 Independent versions should not force unrelated release checks. A consumer may
 qualify a complete gate for one release group, including its affected integration
@@ -9,7 +9,7 @@ release adapters retain their existing full gate. This is the opt-in contract fo
 
 ## Ownership and selection
 
-The consumer owns the exhaustive stage roster and a reviewed selector. Shared
+The consumer owns the exhaustive stage roster and a reviewed product selector. Shared
 admits the resulting plan and runs its targets through the existing
 [validation runner](validation-runner.md). This is not a dependency resolver or
 an automatic interpretation of a Git diff. A file extension, group name or
@@ -32,6 +32,57 @@ inputs, not the correctness of the selection. Keep the selector, baseline
 identity, configuration and actual stage recipes in the checkpoint inventory.
 Source admission, exclusive checkout ownership and tools/configuration admission
 remain with the existing release adapter.
+
+## Shared mechanics and local policy
+
+Group adoption must not create a separate validation framework in every consumer.
+Use the existing shared runner, checkpoints, receipt byte-custody helper and
+exact-input reuse interface. Keep thin local wrappers for product defaults and
+admission; do not fork the dispatcher or copy its generic regression suite.
+
+| Responsibility | Owner |
+| --- | --- |
+| Group membership and package paths | Existing Cargo release-group policy and Cargo metadata; no second manifest parser. |
+| Packages, features, reverse consumers, installed tests and exclusion reasons | Consumer-owned declarations and narrowly scoped product selection. |
+| Full stage roster | One consumer-owned declaration used by full CI and release selection; avoid independently maintained lists or parsing Make recipe text. |
+| Plan schema, input checkpoints, execution and exact-input reuse | Existing Shared helpers. |
+| Generic event/timing/log validation and reusable roster/baseline mechanics | Shared capability owner; consolidate duplicated implementations through the extraction below. |
+| Trusted baseline, qualified hosts, product environment, source/index custody, archive/publication and recovery authority | Existing consumer adapter; a generic evidence result cannot grant release authority. |
+
+The [shared adoption interfaces](group-validation-adoption.md) provide run-evidence
+verification, roster consistency and conservative baseline observation under
+[Shared #349](https://github.com/dragginzgame/shared-tooling/issues/349).
+Until the shared implementation is qualified and adopted in a consumer, retain its existing admission
+checks and full-gate fallback. Do not delete checks merely to reduce local code,
+or start another general evidence parser to work around the missing capability.
+Record new reusable requirements at Shared; keep consumer work confined to its
+mapping and actual integration. This is implementation work, not a request to
+file supplier-release waiting issues.
+
+A migration must remove the superseded local mechanics and qualify the actual
+caller, including rejection and recovery. Shared owns generic adversarial schema,
+path and evidence fixtures; consumers own mapping, product and native acceptance.
+Small language-specific callers may consume shared machine-readable results;
+they need not reimplement the protocol in Rust, JavaScript or Perl.
+
+## Full CI and mapping qualification
+
+Full repository CI and a selected release gate answer different questions.
+Keep full CI's required obligations and supported hosts. Do not implement full
+CI by looping over every release group and repeatedly executing common stages.
+Use its complete stage roster once per required host/configuration; intentionally
+different feature, installed and integration checks remain distinct obligations.
+
+Matched full-versus-selected runs establish or renew the mapping's qualification.
+They must not become an unconditional permanent addition to every routine CI run
+after that mapping is qualified. Select those comparisons when the mapping,
+runner, relevant configuration or covered contracts change, or through explicit
+qualification. Bind retained qualification to its actual inputs and supported
+hosts; a source change alone is neither proof of equivalence nor a reason to
+rerun every comparison. Unknown applicability still broadens validation.
+When changing this lifecycle, update any baseline-discovery admission that relies
+on the comparison jobs. Preserve outstanding acceptance and keep the full gate
+until the replacement qualification path is proven.
 
 ## Runner interface
 

@@ -31,19 +31,17 @@ enum ShellTopLevelInput {
 }
 
 pub(super) fn is_shell_help_command(input: &str) -> bool {
-    let normalized = input
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_ascii_lowercase();
+    let normalized = input.trim().trim_end_matches(';').trim();
 
-    matches!(normalized.as_str(), "?" | "help" | "\\?" | "\\help")
+    ["?", "help", "\\?", "\\help"]
+        .into_iter()
+        .any(|command| normalized.eq_ignore_ascii_case(command))
 }
 
 pub(super) fn is_shell_exit_command(input: &str) -> bool {
-    let normalized = input.to_ascii_lowercase();
-
-    matches!(normalized.as_str(), "\\q" | "quit" | "exit")
+    ["\\q", "quit", "exit"]
+        .into_iter()
+        .any(|command| input.eq_ignore_ascii_case(command))
 }
 
 pub(super) const fn shell_help_text() -> &'static str {
@@ -176,22 +174,21 @@ pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
     let mut complete = VecDeque::<String>::new();
     let mut start = 0usize;
     let mut in_single_quote = false;
-    let chars = statement.char_indices().collect::<Vec<_>>();
-    let mut index = 0usize;
+    // The scan only needs one-character lookahead. Keep byte offsets directly
+    // from the UTF-8 iterator without materializing an input-sized offset list.
+    let mut chars = statement.char_indices().peekable();
 
-    while index < chars.len() {
-        let (offset, ch) = chars[index];
+    while let Some((offset, ch)) = chars.next() {
         // Match the SQL lexer: doubled quotes escape a quote; a backslash
         // has no effect on string or statement boundaries.
         if ch == '\'' {
-            let next_is_quote = chars.get(index + 1).is_some_and(|(_, next)| *next == '\'');
+            let next_is_quote = chars.peek().is_some_and(|(_, next)| *next == '\'');
             if in_single_quote && next_is_quote {
-                index += 2;
+                let _ = chars.next();
                 continue;
             }
 
             in_single_quote = !in_single_quote;
-            index += 1;
             continue;
         }
 
@@ -203,8 +200,6 @@ pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
             }
             start = end;
         }
-
-        index += 1;
     }
 
     // The unfinished suffix may end inside a literal, including on spaces or

@@ -9,10 +9,9 @@ use icydb::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
     EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput, SqlColumnDefault,
     SqlColumnExtra, SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowColumnsOutput,
-    SqlShowRelationsOutput, StoreCatalogDescription,
+    SqlShowRelationsOutput, StoreCatalogDescription, encode_hex_lower,
     sql::{SqlGroupedRowsOutput, sql_projection_display_rows},
 };
-use std::fmt::Write as _;
 
 #[cfg_attr(
     doc,
@@ -357,10 +356,10 @@ pub(super) fn render_constraint_validation_finding_line(
 
     format!(
         "constraint_finding fingerprint={} entity_tag={} constraint_id={} primary_key={} field_ids={} class={} code=E{}{}",
-        render_hex_bytes(&finding.accepted_schema_fingerprint()),
+        encode_hex_lower(&finding.accepted_schema_fingerprint()),
         finding.entity_tag(),
         finding.constraint_id(),
-        render_hex_bytes(finding.primary_key()),
+        encode_hex_lower(finding.primary_key()),
         finding
             .field_ids()
             .iter()
@@ -371,14 +370,6 @@ pub(super) fn render_constraint_validation_finding_line(
         finding.error_code().raw(),
         value_path,
     )
-}
-
-fn render_hex_bytes(bytes: &[u8]) -> String {
-    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        let _ = write!(rendered, "{byte:02x}");
-    }
-    rendered
 }
 
 const fn error_class_label(class: icydb::diagnostic::ErrorClass) -> &'static str {

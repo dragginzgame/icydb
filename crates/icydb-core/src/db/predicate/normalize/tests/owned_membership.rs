@@ -182,7 +182,9 @@ fn collapse_moves_field_and_heap_backed_operands() {
         let field_address = first.field.as_ptr();
 
         let Predicate::Compare(compare) =
-            collapse_same_field_or_equalities(&mut children).expect("eligible membership")
+            collapse_same_field_or_equalities(&mut children, &mut |_, _| Ok::<_, ()>(()))
+                .unwrap()
+                .expect("eligible membership")
         else {
             panic!("compare")
         };
@@ -222,12 +224,20 @@ fn declined_collapse_preserves_all_children() {
             last,
         ];
         let original = children.clone();
-        assert!(collapse_same_field_or_equalities(&mut children).is_none());
+        assert!(
+            collapse_same_field_or_equalities(&mut children, &mut |_, _| Ok::<_, ()>(()))
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(children, original);
     }
     for mut children in [vec![], vec![equality(Value::Int64(1), strict)]] {
         let original = children.clone();
-        assert!(collapse_same_field_or_equalities(&mut children).is_none());
+        assert!(
+            collapse_same_field_or_equalities(&mut children, &mut |_, _| Ok::<_, ()>(()))
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(children, original);
     }
 }
@@ -249,7 +259,9 @@ fn owned_and_expression_membership_share_canonical_sets() {
                 .map(|value| equality(value, coercion))
                 .collect();
             let owned =
-                collapse_same_field_or_equalities(&mut children).expect("eligible membership");
+                collapse_same_field_or_equalities(&mut children, &mut |_, _| Ok::<_, ()>(()))
+                    .unwrap()
+                    .expect("eligible membership");
             let leaves = values
                 .into_iter()
                 .map(|value| MembershipCompareLeaf::new("tag", value, coercion))

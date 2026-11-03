@@ -60,6 +60,87 @@ fn assert_resource(error: crate::error::InternalError, resource: Resource) {
 }
 
 #[test]
+fn query_normalization_admits_new_backing_after_literal_construction() {
+    use crate::db::predicate::{normalize, normalize_enum_literals};
+    use crate::db::query::plan::normalize_query_predicate;
+
+    let schema = exact_metadata_schema(&[], &[]);
+    let leaf = |field: &str| Predicate::IsNull {
+        field: field.into(),
+    };
+    let cases = [
+        (
+            Predicate::And(vec![
+                leaf("age"),
+                Predicate::And(vec![leaf("rank"), leaf("maybe")]),
+            ]),
+            3 * size_of::<Predicate>() as u64,
+        ),
+        (
+            Predicate::Or(vec![
+                leaf("age"),
+                Predicate::Or(vec![leaf("rank"), leaf("maybe")]),
+            ]),
+            3 * size_of::<Predicate>() as u64,
+        ),
+        (
+            Predicate::Or(
+                [3, 1, 3]
+                    .map(|value| Predicate::eq("age".into(), Value::Int64(value)))
+                    .into(),
+            ),
+            3 * size_of::<Value>() as u64,
+        ),
+    ];
+    for (predicate, backing) in cases {
+        // Literal copying already has its own accounting. The new backing must
+        // consume the same allowance, without replacing or resetting that work.
+        let baseline = request_with_limit(Resource::TemporaryBytes, 16_000_000);
+        let literals = PreparationWork::run(&baseline.scope(), Lane::PublicRead, |work| {
+            normalize_enum_literals(&schema, &predicate, work)
+        })
+        .unwrap();
+        let expected = normalize(literals);
+        let exact = baseline.observed(Resource::TemporaryBytes) + backing;
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for limit in [exact - 1, exact, exact * 2] {
+                let root = request_with_limit(Resource::TemporaryBytes, limit);
+                for attempt in 1..=3 {
+                    let result = PreparationWork::run(&root.scope(), lane, |work| {
+                        normalize_query_predicate(&schema, Some(&predicate), work)
+                    });
+                    if attempt * exact <= limit {
+                        assert_eq!(result.unwrap(), Some(expected.clone()));
+                        assert_eq!(root.observed(Resource::TemporaryBytes), attempt * exact);
+                    } else {
+                        let error = result.unwrap_err();
+                        for fact in [
+                            (
+                                DiagnosticFactTag::BudgetResource,
+                                Resource::TemporaryBytes.raw(),
+                            ),
+                            (DiagnosticFactTag::ExecutionLane, lane.raw()),
+                            (DiagnosticFactTag::Limit, limit),
+                        ] {
+                            assert!(error.diagnostic_facts().contains(&fact));
+                        }
+                        if attempt == 1 {
+                            assert!(
+                                error
+                                    .diagnostic_facts()
+                                    .contains(&(DiagnosticFactTag::Actual, exact))
+                            );
+                        }
+                        break;
+                    }
+                }
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+            }
+        }
+    }
+}
+
+#[test]
 fn ordered_candidate_choice_precedes_exact_keys_across_lookup_and_range_families() {
     use crate::db::query::plan::{
         OrderDirection, OrderSpec, OrderTerm,

@@ -553,8 +553,21 @@ cargo run -q -p icydb-cli -- canister list --environment test
 `canister list` validates ICP's complete JSON inventory. A successful empty
 inventory stays empty; malformed successful output and capture failures stop the
 command. Manifest discovery remains available when ICP is absent or its list
-command exits unsuccessfully. Read-only query and canister observations use
-bounded capture (16 MiB stdout, 64 KiB stderr, a 30-second execution deadline).
+command exits unsuccessfully. Successful fallback warns with the original ICP
+observation; failed fallback reports both the ICP and manifest causes. Optional
+known-canister setup hints also retain secondary discovery failures. CLI-owned
+canister/environment labels and captured child diagnostics escape terminal controls
+for display; file paths in CLI-owned warnings and confirmations use the same
+presentation policy. Target arguments and filesystem paths retain their original
+bytes. Read-only query and canister observations use bounded capture (16 MiB
+stdout, 64 KiB stderr, a 30-second execution deadline).
+
+Fallback discovery reads declared environment inventories from the current
+directory's `icp.yaml`, including YAML lists, quotes and comments. Malformed YAML,
+duplicate mapping keys and invalid inventory shapes refuse instead of inventing
+canister names. ICP owns effective project discovery, defaults, includes and
+recipes; fallback discovery does not resolve them.
+
 Update RPCs, including fixture loads, use the same byte ceilings and a five-minute
 execution deadline with Host-owned process-group cleanup. SIGINT, SIGTERM and
 SIGHUP cancel the local capture. Spawning/setup/cleanup syscalls can exceed the

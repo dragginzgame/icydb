@@ -7,35 +7,97 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects public Shared Tooling **0.28.0**, commit
-`70939d3b6ca335cb718363b47f15cc616c3bed1c`, verified against GitHub and
-the clean supplier checkout. The canonical exporter owns
-148 selected payloads with their hashes/modes. No supplier working-tree changes
-are consumed. Refresh only through the canonical exporter; ordinary integrity
+IcyDB selects the Shared Tooling **0.29.1 development snapshot**, public main
+commit `55960755351c127b8ef2a03a1f08fdeba068f5e4`, verified against a clean
+supplier checkout and the public GitHub revision. Upstream's changelog still
+marks 0.29.1 unreleased and no `v0.29.1` tag was selected; this records
+committed-source adoption, not a finalized
+supplier release. The canonical exporter owns 152 selected payloads with their
+hashes/modes. No supplier working-tree changes are consumed; ordinary integrity
 checks remain offline.
 
-This refresh changes four governance payloads, clarifying that pending sibling
-delivery is reported directly to the user rather than tracked as a waiting issue.
-All 148 payload hashes/modes verify against the independently selected source.
-Entrypoints, executable payloads, catalogs and release gates are unchanged.
-The 0.27.29 adapter, owned-tree and actual tool-admission evidence remains tied
-to those original inputs ([#613](https://github.com/dragginzgame/icydb/issues/613));
-unchanged executable bytes do not require another product test run. No cache
-generations were reclaimed or tools reinstalled. Native macOS and broad product
-checks were not run for this governance refresh.
+The preceding 0.28.2 refresh adopted Shared's baseline/roster observations, strict run-evidence
+verifier and atomic receipt byte custody. IcyDB's opt-in qualification path
+removes its generic event/timing/log parser, while keeping product selection,
+complete source/index inventory, host/compiler/configuration admission and the
+reviewed recipe contract local. Qualification receipts use the new
+`icydb-release-validation-qualification/2` contract and bind an immutable Shared
+proof. Old qualification receipts and historical release commit/candidate
+receipts retain their original meanings; no old proof is upgraded or recreated.
+The default full release gate and native-host obligations remain unchanged.
 
-Host Tools now selects 0.79.0, aligning optional Platform 0.19 / Types 0.18
-identities. Its published Rust sources match 0.78.1. Foundation 0.74.2 and Text
-0.74.1 remain selected. Focused CLI/build lint, 180 CLI unit and 41 process
-controls, nine artifact-helper controls, metadata and dependency policies pass.
-This is Linux native qualification; no new macOS, composed-canister artifact or
-installed-IC qualification is inferred.
+The current refresh adopts failed-sort refusal in grouped release metadata,
+the native PocketIC dependency exception's transfer to Testkit, and consolidated
+direct-edit and fixed-issue-index guidance. The maintainer's 2026-11-03 local
+presentation override keeps fixed-issue links beside outcomes in each group's
+main changelog, including after release; root `CHANGELOG.md` remains navigation
+only. Shared snapshot payloads stay intact. Routine local corrections and tooling
+adoption do not require new issues. Product dependency restrictions remain in force; this
+refresh does not adopt a different Testkit or composition stack.
+
+All 152 payloads verify against the selected commit. The actual root dependency
+boundary caller and CLI grouped release-metadata/order admission pass on the
+unchanged manifests and lock. Shared's focused ordering case qualifies failed
+sort refusal and selected-commit handling. Its focused native-client case covers
+the four allowed Testkit SDK inputs, aliases, retired owners and tighter policies;
+the general matrices stay with Shared.
+ShellCheck with sourced companions passes. Evidence is under
+`target/shared-tooling-0291/`. These are Linux checks, not native Bash 3.2 or
+macOS qualification.
+
+The preceding 0.28.3 cohort retains its UTF-8 caller evidence under
+`target/shared-tooling-0283/`; its 31 rejection/expansion cases used substitute
+stage bodies and did not qualify real full versus selected product plans.
+Earlier adapter and product results retain their original snapshot/graph
+cohorts. No old qualification or release receipt is upgraded by this refresh.
+
+Broad gates and new native macOS qualification were skipped as user-owned
+validation. Rust 1.99.1 remains the declared and installed compiler/Cargo; root
+and isolated-adapter declarations agree. Tool catalogs/selections, dependency
+declarations, lockfiles, compiler pins and product versions are unchanged.
+No network lifecycle action occurred. Product-source checks are reused while
+their relevant source/dependency/tool inputs remain unchanged.
+
+Host Tools now selects published **0.80.0**, aligning its optional Platform
+dependency with 0.20 while retaining Types 0.18. Its official archive checksum
+and source commit `109244b35678e9d89ecec6963ab535c8d65b2f25` are verified;
+the Rust sources match 0.79.0. Foundation 0.74.2 and Text 0.74.1 remain selected.
+The CLI enables the existing `icp-project` capability and consumes bounded
+`icp project show` output for exact environment/network facts. ICP retains parent
+discovery, implicit configuration and recipe resolution; the shared parser owns
+YAML interpretation. Unknown facts skip optional fixture funding, and the old
+raw network scan is removed ([#616](https://github.com/dragginzgame/icydb/issues/616)).
+The separate raw inventory fallback retains Host FS regular-file admission
+([#615](https://github.com/dragginzgame/icydb/issues/615)).
+
+Focused strict CLI/build lint, 179 CLI unit and 46 process controls, nine
+artifact-helper controls and selected CLI/Core graph policies pass. A real
+disposable ICP project queried from a nested directory resolves through the
+published parser. New YAML dependencies remain outside the database Wasm graph;
+the artifact helper retains `ic-interface`. Incoming Metrics 0.28.2 / Storage
+0.66.1 lock selections and the isolated Canic lock are preserved. Evidence is
+under `target/host-tools-080/` and `target/evidence/cli-effective-project/`.
+This is Linux native qualification; broad gates, new macOS, composed-canister
+artifacts and installed-IC checks were not run. IC cycles/instructions and total
+uncompressed/code-section Wasm deltas remain unmeasured. No network lifecycle,
+commit, push or release action occurred.
 
 Private path-only release helpers remain as delivered in 0.295.1
 ([#602](https://github.com/dragginzgame/icydb/issues/602)); their prior archive
 qualification is separate from the new snapshot's consumer checks.
 
-The current pending root graph selects published Platform 0.20.0, Runtime
+The pending root graph selects published Platform 0.21.0, with official archive
+checksum `e87f01cbae3cc6cbd5b0ffc705c9086618817e4f0045ce67821e3fcbbc338670`
+and release source `9d5b6c6d0e9a88010a22d0267aa8395e7a7f6b93` verified. The
+selected BLAKE3 source is unchanged; the supplier removes only its unselected
+PocketIC facade surface. Runtime 0.19.0, Types 0.18.0 and all unrelated lock
+selections are retained. Root locked metadata passes with one Platform version.
+The separately retained Canic adapter manifest/lock remain unchanged; its
+qualification and locally unavailable `canic-icydb` source stay outside root
+release gates under the existing adapter exception and
+[#373 — Move generated endpoints into the Canic adapter](https://github.com/dragginzgame/icydb/issues/373).
+
+The released root graph selects published Platform 0.20.0, Runtime
 0.19.0, Types 0.18.0, Metrics 0.28.0, Storage 0.66.0 and Wire/Derive 0.16.0.
 The official registry archive checksums and source identities are verified:
 Metrics `54a92f45c1008a56599ee42786d84553ca950215`, Platform
@@ -819,7 +881,7 @@ These are retained adoption results, not a fresh full gate for later changes.
 | --- | --- |
 | Selected payload integrity | Shared's verifier through `shared-tooling-check` |
 | Setup ordering and Rust tool selection | `scripts/ci/test-workstation-setup.sh`, `scripts/ci/test-shared-tooling-adapters.sh` |
-| Dependency declarations and grouped release metadata | `scripts/ci/test-cargo-metadata-adoption.sh` |
+| Dependency declarations and grouped release metadata | `scripts/ci/test-cargo-metadata-adoption.sh` (aggregate); `--case ordering` selects only grouped/selected-source ordering |
 | IcyDB workflow selection and execution policy | `scripts/ci/test-ci-workflow-invariants.sh`, `scripts/ci/check-ci-workflow-invariants.sh` |
 | IcyDB structural scanner integration | `scripts/ci/test-invariant-scanners.sh` |
 | Testkit CLI/server integration | `scripts/ci/test-testkit-tooling.sh`, `scripts/ci/test-pocketic-server-wrapper.sh` |

@@ -33,7 +33,7 @@ the independent, non-mutating formatting gate.
   versions, workspace inheritance, comments and selected lockfiles; it is not a
   dependency upgrade or release bump. See the
   [cargo-sort documentation](https://github.com/DevinR528/cargo-sort).
-- Preserve the two comment-headed dependency-role sections with
+- Preserve local release groups first and the external dependency-role blocks with
   `cargo sort --workspace --grouped` for writing and add `--check` for checking.
   Apply the same selection to hooks, CI and selected-source release checks;
   the shared defaults already select grouped mode. Use the

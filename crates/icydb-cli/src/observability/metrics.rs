@@ -5,6 +5,7 @@
 
 mod render;
 
+use ic_host_text::escape::terminal_text;
 use icydb::__macro::RpcMethod;
 
 use crate::{
@@ -45,8 +46,8 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
     )?;
     println!(
         "Reset metrics on canister '{}' in environment '{}'.",
-        target.canister_name(),
-        target.environment(),
+        terminal_text(target.canister_name()),
+        terminal_text(target.environment()),
     );
     Ok(())
 }

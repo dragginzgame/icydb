@@ -15,7 +15,7 @@ fixture_complete=false
 source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$FIXTURE" "Shared adapter fixture retained"' EXIT
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
-for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl \
+for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm \
   run-icydb-validation-targets.sh \
   install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
@@ -135,7 +135,7 @@ printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
 printf '[workspace]\n' > "$native/testing/canic-adapter/Cargo.toml"
 printf 'version = 4\n' > "$native/testing/canic-adapter/Cargo.lock"
-for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl \
+for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm \
   run-icydb-validation-targets.sh \
   run-nonempty-cargo-test.sh wasm-size-report.sh wasm-audit-report.sh \
   wasm-report-common.sh verify-file-checksum.sh; do
