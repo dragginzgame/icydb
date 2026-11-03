@@ -40,7 +40,7 @@ pub(in crate::db) use index_select::{
     residual_query_predicate_after_filtered_access_contract,
 };
 pub(in crate::db::query) use prefix::count_cardinality_index_branch_set_from_and;
-pub(in crate::db::query::plan) use prefix::{collect_prefix_eq_constraints, resolve_index_eq_slot};
+pub(in crate::db::query::plan) use prefix::{collect_prefix_eq_constraints, visit_index_eq_prefix};
 pub(in crate::db::query::plan) use range::validate_range_and_compares;
 pub(in crate::db::query::plan) use ranking::{
     AccessCandidateScore, AndFamilyCandidateScore, AndFamilyPriorityClass,

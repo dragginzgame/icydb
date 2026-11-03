@@ -273,6 +273,12 @@ IcyDB uses Platform's checked constructor before creating the application guard
 context; invalid bytes deny before the guard. This handoff does not require the
 transport adapter and database to select the same Platform package version.
 
+Application guards use `ic-platform-types 0.18` Principal values in
+`ReadAuthorizationContext::caller` and allowlist entries. Select that canonical
+Types version for direct application Principal/Account conversions as well.
+This is a Rust type-identity change in IcyDB 0.296; IcyDB-owned native Account
+bytes, stored keys and None-versus-explicit-zero database identity are preserved.
+
 ## Endpoint Review Checklist
 
 - Authorize before dispatch.

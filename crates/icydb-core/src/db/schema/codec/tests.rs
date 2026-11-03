@@ -1393,7 +1393,33 @@ fn nullable_unique_normalization_preserves_admission_at_the_shared_depth_boundar
 }
 
 fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchemaSnapshot {
-    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+    let fields = vec![
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Ulid,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Ulid),
+        ),
+        PersistedFieldSnapshot::new_initial(
+            FieldId::new(2),
+            "email".to_string(),
+            SchemaFieldSlot::new(1),
+            AcceptedFieldKind::Text { max_len: None },
+            Vec::new(),
+            true,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ),
+    ];
+    let predicate = predicate_sql
+        .map(|sql| crate::db::schema::AcceptedIndexPredicate::bind_test_sql(sql, &fields));
+    PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),
         "entities::NullableUnique".to_string(),
         "NullableUnique".to_string(),
@@ -1402,30 +1428,7 @@ fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchema
             (FieldId::new(1), SchemaFieldSlot::new(0)),
             (FieldId::new(2), SchemaFieldSlot::new(1)),
         ]),
-        vec![
-            PersistedFieldSnapshot::new_initial(
-                FieldId::new(1),
-                "id".to_string(),
-                SchemaFieldSlot::new(0),
-                AcceptedFieldKind::Ulid,
-                Vec::new(),
-                false,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Ulid),
-            ),
-            PersistedFieldSnapshot::new_initial(
-                FieldId::new(2),
-                "email".to_string(),
-                SchemaFieldSlot::new(1),
-                AcceptedFieldKind::Text { max_len: None },
-                Vec::new(),
-                true,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Text),
-            ),
-        ],
+        fields,
         vec![PersistedIndexSnapshot::new(
             SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
@@ -1441,21 +1444,8 @@ fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchema
                     true,
                 ),
             ]),
-            None,
+            predicate,
         )],
-    );
-    let mut indexes = snapshot.indexes().to_vec();
-    indexes[0] = indexes[0].clone_with_predicate_for_tests(predicate_sql.map(|sql| {
-        crate::db::schema::AcceptedIndexPredicate::bind_test_sql(sql, snapshot.fields())
-    }));
-    PersistedSchemaSnapshot::new_with_indexes(
-        snapshot.version(),
-        snapshot.entity_path().into(),
-        snapshot.entity_name().into(),
-        snapshot.primary_key_field_ids().to_vec(),
-        snapshot.row_layout().clone(),
-        snapshot.fields().to_vec(),
-        indexes,
     )
 }
 

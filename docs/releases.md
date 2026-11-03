@@ -17,11 +17,17 @@ select affected approved groups, semantic-version increments and dependency orde
 and execute necessary preparation and delivery without per-command confirmation.
 Preparing code/notes, asking how to deploy or checking readiness does not itself
 authorize execution. Preserve explicit target restrictions and required protections.
+Before execution, disclose the working checkout and branch, remote destination
+and release effects. Direct integration-branch pushes and alternate delivery
+checkouts need explicit authorization under the linked contribution rules; a
+generic deployment request does not silently select either. Preserve unique edits
+under the [durable work contract](../rules/contributions.md#durable-work-and-checkout-location).
 
 The names, version arithmetic and recovery contract are shared across repositories.
 Each repository supplies its canonical version source, metadata file set,
-validation gate, branch, remote and explicit delivery policy. Direct delivery is
-the default; [PR delivery](#pr-delivery) adds review and fresh merged-commit
+validation gate, branch, remote and explicit delivery policy. The runner defaults
+to direct delivery; this is executable behavior, not agent authorization to push.
+[PR delivery](#pr-delivery) adds review and fresh merged-commit
 validation before tagging. A repository
 without package metadata may use a dedicated version file; otherwise it uses
 its latest finalized changelog version. Shared Tooling owns its current local

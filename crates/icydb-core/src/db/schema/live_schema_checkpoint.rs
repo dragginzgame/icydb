@@ -11,7 +11,7 @@ use crate::db::codec::BoundedByteWriter;
 use crate::db::schema::migration_record::SchemaMigrationRecordOp;
 use crate::{
     db::{
-        database_format::crc32c,
+        database_format::{crc32c, verify_crc32c_trailer},
         integrity::DatabaseIncarnationId,
         resource::construction::ConstructionBudget,
         schema::{
@@ -493,19 +493,7 @@ fn decode_checkpoint(
     if bytes.len() < CHECKPOINT_FIXED_BYTES || bytes.len() > MAX_LIVE_SCHEMA_CHECKPOINT_BYTES {
         return Err(InternalError::store_corruption());
     }
-    let checksum_offset = bytes
-        .len()
-        .checked_sub(size_of::<u32>())
-        .ok_or_else(InternalError::store_corruption)?;
-    let (body, checksum_bytes) = bytes.split_at(checksum_offset);
-    let expected_checksum = u32::from_be_bytes(
-        checksum_bytes
-            .try_into()
-            .map_err(|_| InternalError::store_corruption())?,
-    );
-    if crc32c(body) != expected_checksum {
-        return Err(InternalError::store_corruption());
-    }
+    let body = verify_crc32c_trailer(bytes).ok_or_else(InternalError::store_corruption)?;
     let mut reader = CheckpointReader::new(body);
     if reader.read_array::<8>()? != *CHECKPOINT_MAGIC || reader.read_u8()? != CHECKPOINT_VERSION {
         return Err(InternalError::store_corruption());

@@ -17,8 +17,9 @@ use crate::{Principal, PrincipalError, SchemaContractError, Subaccount};
 /// An absent subaccount and an explicit zero subaccount remain distinct database
 /// identities. Explicit conversions to and from [`ic_platform_types::Account`] preserve
 /// those fields; Platform compares both representations as the same ICRC account.
-/// Each type retains its own binary serialization contract. Platform owns the
-/// shared ICRC account text format; database equality remains local.
+/// Both native serializers encode a present subaccount as bytes; equal encoded
+/// fields do not merge their equality semantics. Platform owns the shared ICRC
+/// account text format; database equality remains local.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct Account {

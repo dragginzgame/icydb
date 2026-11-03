@@ -8,10 +8,13 @@ mod admission_tests;
 
 use crate::{
     db::{
-        access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
+        access::{SemanticIndexAccessContract, SemanticIndexExpression, SemanticIndexKeyItemRef},
         predicate::{
-            CoercionId, IndexCompileTargetKind, admit_index_compare_literal_for_kind,
-            lower_index_compare_literal_for_kind,
+            CoercionId, ComparePredicate, IndexCompileTargetKind,
+            admit_index_compare_literal_for_kind, lower_index_compare_literal_for_kind,
+        },
+        query::plan::{
+            access_choice::AccessChoiceRejectedReason, field_key_contract_supports_operator,
         },
         resource::construction::ConstructionBudget,
     },
@@ -77,6 +80,32 @@ pub(in crate::db::query::plan) fn key_item_supports_starts_with_value<'a>(
     // Identity and LOWER both preserve emptiness, including Unicode text.
     matches!(value, Value::Text(prefix) if !prefix.is_empty())
         && key_item_supports_lookup_value(key_item, field, value, coercion, literal_compatible)
+}
+
+/// Classify the ordered-range policy after key/literal lookup admission.
+/// Physical extraction may ignore an unsupported clause; diagnostics retain its
+/// typed cause. Both consume this same field/expression capability decision.
+pub(in crate::db::query::plan) fn ordered_range_key_support(
+    index: &SemanticIndexAccessContract,
+    key: SemanticIndexKeyItemRef<'_>,
+    compare: &ComparePredicate,
+) -> Result<(), AccessChoiceRejectedReason> {
+    match key {
+        SemanticIndexKeyItemRef::Field(_) => {
+            if compare.coercion.id != CoercionId::Strict {
+                return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+            }
+            if !field_key_contract_supports_operator(index, key.field(), compare.op) {
+                return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+            }
+        }
+        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+            if compare.coercion.id != CoercionId::TextCasefold {
+                return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Try to lower one predicate literal into a canonical key-item lookup value.

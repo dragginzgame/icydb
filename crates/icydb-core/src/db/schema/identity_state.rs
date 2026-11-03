@@ -6,7 +6,7 @@
 use crate::{
     db::{
         codec::{ByteDecodeError, ByteReader},
-        database_format::crc32c,
+        database_format::{crc32c, verify_crc32c_trailer},
         integrity::DatabaseIncarnationId,
         schema::{AcceptedFieldKind, FieldId},
     },
@@ -821,20 +821,7 @@ pub(in crate::db::schema) fn decode_identity_state(
     if bytes.len() != IDENTITY_STATE_RECORD_BYTES {
         return Err(InternalError::identity_state_corruption());
     }
-    let body = bytes
-        .get(..IDENTITY_STATE_BODY_BYTES)
-        .ok_or_else(InternalError::identity_state_corruption)?;
-    let checksum_bytes = bytes
-        .get(IDENTITY_STATE_BODY_BYTES..)
-        .ok_or_else(InternalError::identity_state_corruption)?;
-    let expected_checksum = u32::from_be_bytes(
-        checksum_bytes
-            .try_into()
-            .map_err(|_| InternalError::identity_state_corruption())?,
-    );
-    if crc32c(body) != expected_checksum {
-        return Err(InternalError::identity_state_corruption());
-    }
+    let body = verify_crc32c_trailer(bytes).ok_or_else(InternalError::identity_state_corruption)?;
 
     let mut reader = ByteReader::new(body);
     if reader.read_array::<8>().map_err(primitive_decode_error)? != *IDENTITY_STATE_MAGIC

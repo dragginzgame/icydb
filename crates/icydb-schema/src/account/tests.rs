@@ -147,7 +147,18 @@ fn platform_conversions_preserve_raw_fields_and_native_wire() {
             assert_eq!(restored.subaccount, subaccount);
             assert_eq!(Account::from(restored), database);
 
+            // Postcard contract: bounded owner bytes, option tag, then exactly
+            // 32 subaccount bytes with their one-byte length. No encoder oracle.
+            let mut expected = vec![u8::try_from(owner_len).unwrap()];
+            expected.extend_from_slice(&owner_bytes[..owner_len]);
+            if let Some(bytes) = subaccount {
+                expected.extend_from_slice(&[1, 32]);
+                expected.extend_from_slice(&bytes);
+            } else {
+                expected.push(0);
+            }
             let database_wire = crate::wire::encode_one(database).unwrap();
+            assert_eq!(database_wire, expected);
             assert_eq!(
                 database_wire,
                 crate::wire::encode_one((database.owner(), database.subaccount())).unwrap()
@@ -159,16 +170,19 @@ fn platform_conversions_preserve_raw_fields_and_native_wire() {
             let database_decoded: Account = crate::wire::decode_one(&database_wire).unwrap();
             assert_eq!(database_decoded, database);
             let platform_wire = crate::wire::encode_one(platform).unwrap();
+            assert_eq!(platform_wire, expected);
             assert_eq!(crate::wire::encode_one(restored).unwrap(), platform_wire);
             let platform_decoded: ic_platform_types::Account =
                 crate::wire::decode_one(&platform_wire).unwrap();
             assert_eq!(platform_decoded.owner, platform.owner);
             assert_eq!(platform_decoded.subaccount, subaccount);
             assert_eq!(Account::from(platform_decoded), database);
-            if subaccount.is_some() {
-                // Optional byte strings and optional fixed arrays are distinct
-                // native protocols: conversion crosses values, never raw bytes.
-                assert_ne!(database_wire, platform_wire);
+            for length in 0..expected.len() {
+                assert!(crate::wire::decode_one::<Account>(&expected[..length]).is_err());
+                assert!(
+                    crate::wire::decode_one::<ic_platform_types::Account>(&expected[..length])
+                        .is_err()
+                );
             }
         }
     }

@@ -13,7 +13,7 @@ use icydb_schema::{
 
 use crate::{
     db::{
-        database_format::crc32c,
+        database_format::{crc32c, verify_crc32c_trailer},
         schema::{
             AcceptedSchemaRevisionBundle, SchemaChangeOutcome, migration_record::encode_head,
             wire::SchemaWireReader,
@@ -338,20 +338,7 @@ pub(in crate::db::schema) fn decode_entity_source_lineage_catalog(
     {
         return Err(InternalError::store_corruption());
     }
-    let checksum_offset = bytes
-        .len()
-        .checked_sub(LINEAGE_CHECKSUM_BYTES)
-        .ok_or_else(InternalError::store_corruption)?;
-    let (body, checksum) = bytes.split_at(checksum_offset);
-    if crc32c(body)
-        != u32::from_be_bytes(
-            checksum
-                .try_into()
-                .map_err(|_| InternalError::store_corruption())?,
-        )
-    {
-        return Err(InternalError::store_corruption());
-    }
+    let body = verify_crc32c_trailer(bytes).ok_or_else(InternalError::store_corruption)?;
     let mut reader = LineageReader::new(body);
     if reader.read_array::<8>()? != *LINEAGE_MAGIC || reader.read_u8()? != LINEAGE_VERSION {
         return Err(InternalError::store_corruption());

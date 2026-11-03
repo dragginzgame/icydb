@@ -97,7 +97,10 @@ pub(super) fn registry() -> Result<SchemaRegistry> {
     register!(icydb_schema::ExpectedAcceptedHead, "ExpectedAcceptedHead");
     register!(icydb_core::db::IndexState, "IndexState");
     register!(icydb_core::db::IndexStoreSnapshot, "IndexStoreSnapshot");
-    register!(ic_metrics::MeasurementAggregate, "MeasurementAggregate");
+    register!(
+        icydb_core::metrics::InstructionMetrics,
+        "MeasurementAggregate"
+    );
     register!(
         icydb_core::db::IntegrityAbortReceipt,
         "IntegrityAbortReceipt"

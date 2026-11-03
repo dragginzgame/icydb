@@ -7,7 +7,7 @@ use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
-        database_format::crc32c,
+        database_format::{crc32c, verify_crc32c_trailer},
         schema::{
             AcceptedSchemaFingerprint, AcceptedTargetPath, AcceptedTargetPathComponent,
             ConstraintActivationFingerprint, ConstraintActivationKind,
@@ -650,19 +650,7 @@ pub(in crate::db) fn decode_constraint_validation_job(
         return Err(InternalError::store_corruption());
     }
 
-    let checksum_offset = bytes
-        .len()
-        .checked_sub(CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES)
-        .ok_or_else(InternalError::store_corruption)?;
-    let (body, checksum) = bytes.split_at(checksum_offset);
-    let expected_checksum = u32::from_be_bytes(
-        checksum
-            .try_into()
-            .map_err(|_| InternalError::store_corruption())?,
-    );
-    if crc32c(body) != expected_checksum {
-        return Err(InternalError::store_corruption());
-    }
+    let body = verify_crc32c_trailer(bytes).ok_or_else(InternalError::store_corruption)?;
 
     let mut reader = ConstraintValidationJobReader::new(body);
     if reader.read_array::<8>()? != CONSTRAINT_VALIDATION_JOB_MAGIC {

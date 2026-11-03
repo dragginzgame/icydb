@@ -20,8 +20,8 @@ use crate::{
         ConstraintId, ConstraintOrigin, ExistingProposalStore, PersistedFieldSnapshot,
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion, bind_source_check_expr,
-        lower_existing_schema_proposal, lower_migration_field, lower_migration_index,
-        lower_migration_nested_leaves, lower_new_migration_index, lower_relation_source,
+        lower_existing_schema_proposal, lower_migration_index, lower_migration_nested_leaves,
+        lower_new_migration_index, lower_proposed_field, lower_relation_source,
         migration_lineage::{
             AcceptedEntitySourceLineageCatalog, AcceptedEntitySourceLineageState,
             AcceptedEntitySourceVersion,
@@ -985,7 +985,7 @@ fn rebuild_fields(
                 }
                 fields[position] = if target {
                     let introduced_in_layout = fields[position].introduced_in_layout();
-                    lower_migration_field(
+                    lower_proposed_field(
                         proposed,
                         id,
                         fields[position].slot(),
@@ -1017,7 +1017,7 @@ fn rebuild_fields(
                     .insert_migration_field(binding.entity_tag, proposed.source_key().clone(), id)
                     .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)?;
                 fields.push(
-                    lower_migration_field(
+                    lower_proposed_field(
                         proposed,
                         id,
                         slot,

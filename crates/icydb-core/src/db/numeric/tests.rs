@@ -82,7 +82,7 @@ fn numeric_order_preserves_decimal_coercion_outside_native_numeric_pairs() {
                         expected.map(Ordering::is_eq)
                     );
                     assert_eq!(
-                        value_ordering::lt(left, right),
+                        value_ordering::order(left, right).map(Ordering::is_lt),
                         expected.map(Ordering::is_lt)
                     );
                 }
@@ -99,7 +99,10 @@ fn mixed_float_pairs_keep_the_value_local_fallback_separate_from_database_wideni
     assert_eq!(large.cmp_numeric(&small), Some(Ordering::Greater));
     assert_eq!(compare_numeric_order(&small, &large), None);
     assert_eq!(compare_numeric_order(&large, &small), None);
-    assert_eq!(value_ordering::lt(&small, &large), None);
+    assert_eq!(
+        value_ordering::order(&small, &large).map(Ordering::is_lt),
+        None
+    );
     assert_eq!(value_ordering::eq(&small, &large), None);
 }
 
@@ -114,7 +117,10 @@ fn nat128_comparison_uses_the_complete_unsigned_domain_without_widening_arithmet
             assert_eq!(compare_numeric_order(&left, &right), Some(expected));
             assert_eq!(compare_numeric_eq(&left, &right), Some(expected.is_eq()));
             assert_eq!(value_ordering::eq(&left, &right), Some(expected.is_eq()));
-            assert_eq!(value_ordering::lt(&left, &right), Some(expected.is_lt()));
+            assert_eq!(
+                value_ordering::order(&left, &right).map(Ordering::is_lt),
+                Some(expected.is_lt())
+            );
             assert_eq!(canonical_value_compare(&left, &right), expected);
         }
     }
@@ -173,11 +179,26 @@ fn same_width_float_comparisons_preserve_the_complete_finite_domain() {
                 assert_eq!(compare_numeric_order(left, right), Some(expected));
                 assert_eq!(compare_numeric_eq(left, right), Some(expected.is_eq()));
                 assert_eq!(value_ordering::eq(left, right), Some(expected.is_eq()));
-                assert_eq!(value_ordering::ne(left, right), Some(!expected.is_eq()));
-                assert_eq!(value_ordering::lt(left, right), Some(expected.is_lt()));
-                assert_eq!(value_ordering::lte(left, right), Some(!expected.is_gt()));
-                assert_eq!(value_ordering::gt(left, right), Some(expected.is_gt()));
-                assert_eq!(value_ordering::gte(left, right), Some(!expected.is_lt()));
+                assert_eq!(
+                    value_ordering::eq(left, right).map(|equal| !equal),
+                    Some(!expected.is_eq())
+                );
+                assert_eq!(
+                    value_ordering::order(left, right).map(Ordering::is_lt),
+                    Some(expected.is_lt())
+                );
+                assert_eq!(
+                    value_ordering::order(left, right).map(Ordering::is_le),
+                    Some(!expected.is_gt())
+                );
+                assert_eq!(
+                    value_ordering::order(left, right).map(Ordering::is_gt),
+                    Some(expected.is_gt())
+                );
+                assert_eq!(
+                    value_ordering::order(left, right).map(Ordering::is_ge),
+                    Some(!expected.is_lt())
+                );
                 assert_eq!(canonical_value_compare(left, right), expected);
             }
         }

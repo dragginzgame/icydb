@@ -18,23 +18,17 @@ mod tests;
 use crate::{
     db::{
         QueryError,
-        numeric::{
-            NumericEvalError, apply_value_arithmetic_checked, coerce_numeric_decimal,
-            compare_numeric_eq, compare_numeric_or_strict_order,
-        },
+        numeric::{NumericEvalError, coerce_numeric_decimal},
         query::plan::expr::{
             BinaryOp, CompiledExprValueReader, Expr, Function, ScalarEvalFunctionShape,
-            compiled_expr::compile_builder_preview_expr,
+            compiled_expr::compile_builder_preview_expr, operators,
         },
         resource::budget::{ExecutionBudgetChargeError, charge_current_execution_budget_typed},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, QueryProjectionCode};
-use std::{
-    borrow::{Borrow, Cow},
-    cmp::Ordering,
-};
+use std::borrow::{Borrow, Cow};
 
 const PREVIEW_VALUE_SLOT: usize = 0;
 
@@ -296,7 +290,7 @@ fn eval_nullif_function_call(
         return Err(ProjectionFunctionEvalError::InvalidCall);
     }
 
-    let equals = eval_preview_binary_expr(BinaryOp::Eq, left, right)?;
+    let equals = eval_preview_compare_binary_expr(BinaryOp::Eq, left, right)?;
 
     Ok(function.eval_nullif_values(left, right, matches!(equals, Value::Bool(true))))
 }
@@ -481,72 +475,7 @@ fn eval_membership_function_call(
     })
 }
 
-fn eval_preview_binary_expr(
-    op: BinaryOp,
-    left: &Value,
-    right: &Value,
-) -> Result<Value, ProjectionFunctionEvalError> {
-    match op {
-        BinaryOp::Or | BinaryOp::And => eval_preview_boolean_binary_expr(op, left, right),
-        BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => eval_preview_compare_binary_expr(op, left, right),
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-            if matches!(left, Value::Null) || matches!(right, Value::Null) {
-                return Ok(Value::Null);
-            }
-
-            eval_preview_numeric_binary_expr(op, left, right)
-        }
-    }
-}
-
-const fn eval_preview_boolean_binary_expr(
-    op: BinaryOp,
-    left: &Value,
-    right: &Value,
-) -> Result<Value, ProjectionFunctionEvalError> {
-    match op {
-        BinaryOp::And => match (left, right) {
-            (Value::Bool(false), _) | (_, Value::Bool(false)) => Ok(Value::Bool(false)),
-            (Value::Bool(true), Value::Bool(true)) => Ok(Value::Bool(true)),
-            (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
-                Ok(Value::Null)
-            }
-            _ => Err(invalid_binary_operands()),
-        },
-        BinaryOp::Or => match (left, right) {
-            (Value::Bool(true), _) | (_, Value::Bool(true)) => Ok(Value::Bool(true)),
-            (Value::Bool(false), Value::Bool(false)) => Ok(Value::Bool(false)),
-            (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
-                Ok(Value::Null)
-            }
-            _ => Err(invalid_binary_operands()),
-        },
-        _ => Err(ProjectionFunctionEvalError::InvalidCall),
-    }
-}
-
-fn eval_preview_numeric_binary_expr(
-    op: BinaryOp,
-    left: &Value,
-    right: &Value,
-) -> Result<Value, ProjectionFunctionEvalError> {
-    let Some(arithmetic_op) = op.numeric_arithmetic_op() else {
-        return Err(ProjectionFunctionEvalError::InvalidCall);
-    };
-    let Some(result) = apply_value_arithmetic_checked(arithmetic_op, left, right)
-        .map_err(ProjectionFunctionEvalError::from)?
-    else {
-        return Err(invalid_binary_operands());
-    };
-
-    Ok(result)
-}
-
+// Function helpers retain their existing NULL and InvalidCall projection.
 fn eval_preview_compare_binary_expr(
     op: BinaryOp,
     left: &Value,
@@ -555,48 +484,9 @@ fn eval_preview_compare_binary_expr(
     if matches!(left, Value::Null) || matches!(right, Value::Null) {
         return Ok(Value::Null);
     }
-
-    let numeric_widen_enabled =
-        left.supports_numeric_coercion() || right.supports_numeric_coercion();
-    let value = match op {
-        BinaryOp::Eq => {
-            if let Some(are_equal) = compare_numeric_eq(left, right) {
-                are_equal
-            } else if !numeric_widen_enabled {
-                left == right
-            } else {
-                return Err(invalid_binary_operands());
-            }
-        }
-        BinaryOp::Ne => {
-            if let Some(are_equal) = compare_numeric_eq(left, right) {
-                !are_equal
-            } else if !numeric_widen_enabled {
-                left != right
-            } else {
-                return Err(invalid_binary_operands());
-            }
-        }
-        BinaryOp::Lt => eval_order_comparison(left, right, Ordering::is_lt)?,
-        BinaryOp::Lte => eval_order_comparison(left, right, Ordering::is_le)?,
-        BinaryOp::Gt => eval_order_comparison(left, right, Ordering::is_gt)?,
-        BinaryOp::Gte => eval_order_comparison(left, right, Ordering::is_ge)?,
-        _ => return Err(ProjectionFunctionEvalError::InvalidCall),
-    };
-
-    Ok(Value::Bool(value))
-}
-
-fn eval_order_comparison(
-    left: &Value,
-    right: &Value,
-    predicate: impl FnOnce(Ordering) -> bool,
-) -> Result<bool, ProjectionFunctionEvalError> {
-    let Some(ordering) = compare_numeric_or_strict_order(left, right) else {
-        return Err(invalid_binary_operands());
-    };
-
-    Ok(predicate(ordering))
+    operators::compare_query(op, left, right)
+        .map(Value::Bool)
+        .ok_or_else(invalid_binary_operands)
 }
 
 const fn text_input_error() -> ProjectionFunctionEvalError {

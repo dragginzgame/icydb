@@ -532,7 +532,7 @@ pub(in crate::db::query::plan) fn collect_prefix_eq_constraints<'a>(
 
 // One key-slot owner decides matching/coercion, incompatible literals and
 // conflicting equalities. Consumers separately project diagnostics or retain keys.
-pub(in crate::db::query::plan) fn resolve_index_eq_slot<'a>(
+fn resolve_index_eq_slot<'a>(
     key_item: SemanticIndexKeyItemRef<'_>,
     field_values: &[CachedEqLiteral<'a>],
     budget: &dyn ConstructionBudget,
@@ -576,27 +576,8 @@ fn build_index_eq_prefix(
     field_values: &[CachedEqLiteral<'_>],
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<Vec<Value>>, InternalError> {
-    // Bound key/literal visits up front, including slots after a possible gap.
-    // Payload comparisons remain distinct from these structural visit units.
-    budget.charge(
-        Resource::PredicateExpressionSteps,
-        (key_items.len() as u64).saturating_mul((field_values.len() as u64).saturating_add(1)),
-    )?;
     let mut prefix = Vec::new();
-    for key_item in key_items {
-        let matched = match resolve_index_eq_slot(key_item.as_ref(), field_values, budget)? {
-            Ok(matched) => matched,
-            // A nonmatching slot ends the usable prefix. Diagnostics retain
-            // the reason, while planning can still use an earlier prefix.
-            Err(AccessChoiceRejectedReason::LiteralIncompatible) => break,
-            Err(_) => return Ok(None),
-        };
-
-        let Some(value) = matched else {
-            break;
-        };
-        // Preserve the last equal literal's representation, as before, but
-        // borrow unchanged duplicates until one value is retained per slot.
+    let (_, refusal) = visit_index_eq_prefix(key_items, field_values, budget, |value| {
         if prefix.is_empty() {
             prefix = budget.vec_with_capacity(key_items.len())?;
         }
@@ -604,9 +585,41 @@ fn build_index_eq_prefix(
             Cow::Borrowed(value) => budget.copy_value(value)?,
             Cow::Owned(value) => value,
         });
+        Ok(())
+    })?;
+    // A later incompatible slot ends a usable physical prefix. Diagnostic
+    // projection retains that refusal instead of treating it as eligibility.
+    if refusal.is_some_and(|reason| reason != AccessChoiceRejectedReason::LiteralIncompatible) {
+        return Ok(None);
     }
-
     Ok(Some(prefix))
+}
+
+/// Walk the admitted equality prefix once, returning its extent and stop cause.
+/// Consumers only retain operands or project facts; neither reclassifies slots.
+/// The last equal literal's representation and exact construction charges are shared.
+pub(in crate::db::query::plan) fn visit_index_eq_prefix<'a>(
+    key_items: &[crate::db::access::SemanticIndexKeyItem],
+    field_values: &[CachedEqLiteral<'a>],
+    budget: &dyn ConstructionBudget,
+    mut retain: impl FnMut(Cow<'a, Value>) -> Result<(), InternalError>,
+) -> Result<(usize, Option<AccessChoiceRejectedReason>), InternalError> {
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        (key_items.len() as u64).saturating_mul((field_values.len() as u64).saturating_add(1)),
+    )?;
+    let mut len = 0;
+    for key_item in key_items {
+        match resolve_index_eq_slot(key_item.as_ref(), field_values, budget)? {
+            Ok(Some(value)) => {
+                retain(value)?;
+                len += 1;
+            }
+            Ok(None) => break,
+            Err(reason) => return Ok((len, Some(reason))),
+        }
+    }
+    Ok((len, None))
 }
 
 fn build_index_branch_values(

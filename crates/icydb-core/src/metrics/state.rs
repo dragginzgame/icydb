@@ -3,7 +3,10 @@
 //! Does not own: endpoint attribution, query identity, or persisted metrics.
 //! Boundary: bounded canonical debt plus one heap-only window of owner observations.
 
-use crate::{metrics::ExecutionMetricsPhase, runtime::now_millis};
+use crate::{
+    metrics::{ExecutionMetricsPhase, InstructionMetrics},
+    runtime::now_millis,
+};
 
 use ic_metrics::{MeasurementAggregate, MeasurementCounter, MeasurementWindow};
 use serde::Deserialize;
@@ -16,43 +19,43 @@ use std::{cell::RefCell, collections::BTreeMap};
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaLifecycleMetrics {
-    lowering: MeasurementAggregate,
-    publication: MeasurementAggregate,
-    runtime_compilation: MeasurementAggregate,
-    cardinality: MeasurementAggregate,
-    startup_recovery: MeasurementAggregate,
+    lowering: InstructionMetrics,
+    publication: InstructionMetrics,
+    runtime_compilation: InstructionMetrics,
+    cardinality: InstructionMetrics,
+    startup_recovery: InstructionMetrics,
 }
 
 impl SchemaLifecycleMetrics {
     /// Candidate lowering/preflight; excludes facade decode and lineage preparation.
     #[must_use]
     pub const fn lowering(&self) -> &MeasurementAggregate {
-        &self.lowering
+        self.lowering.measurement()
     }
 
     /// Ordinary application lineage/publication preparation and compound commit.
     #[must_use]
     pub const fn publication(&self) -> &MeasurementAggregate {
-        &self.publication
+        self.publication.measurement()
     }
 
     /// Cold accepted database-wide runtime-root compilation; excludes cache hits.
     #[must_use]
     pub const fn runtime_compilation(&self) -> &MeasurementAggregate {
-        &self.runtime_compilation
+        self.runtime_compilation.measurement()
     }
 
     /// Startup cardinality driver pages, including authority checks and quiescence.
     #[must_use]
     pub const fn cardinality(&self) -> &MeasurementAggregate {
-        &self.cardinality
+        self.cardinality.measurement()
     }
 
     /// Shared startup recovery pages, including journal folding and failed attempts.
     /// Excludes subsequent schema handoff, runtime compilation and cardinality work.
     #[must_use]
     pub const fn startup_recovery(&self) -> &MeasurementAggregate {
-        &self.startup_recovery
+        self.startup_recovery.measurement()
     }
 }
 
@@ -67,7 +70,7 @@ pub struct ConvergenceMetrics {
     appended: crate::db::ExactBacklogMeasurement,
     retired: crate::db::ExactBacklogMeasurement,
     overflowed: bool,
-    journal_fold: MeasurementAggregate,
+    journal_fold: InstructionMetrics,
 }
 
 impl ConvergenceMetrics {
@@ -89,7 +92,7 @@ impl ConvergenceMetrics {
     /// Actual batch-fold instruction spans, including failed attempts.
     #[must_use]
     pub const fn journal_fold(&self) -> &MeasurementAggregate {
-        &self.journal_fold
+        self.journal_fold.measurement()
     }
 }
 
@@ -122,7 +125,29 @@ impl ConvergenceMeasurements {
             appended,
             retired,
             overflowed,
-            journal_fold: self.journal_fold,
+            journal_fold: self.journal_fold.into(),
+        }
+    }
+}
+
+// Recording stays independent of the serialized frontend snapshot.
+#[derive(Clone, Debug, Default)]
+struct SchemaLifecycleMeasurements {
+    lowering: MeasurementAggregate,
+    publication: MeasurementAggregate,
+    runtime_compilation: MeasurementAggregate,
+    cardinality: MeasurementAggregate,
+    startup_recovery: MeasurementAggregate,
+}
+
+impl SchemaLifecycleMeasurements {
+    fn snapshot(&self) -> SchemaLifecycleMetrics {
+        SchemaLifecycleMetrics {
+            lowering: self.lowering.into(),
+            publication: self.publication.into(),
+            runtime_compilation: self.runtime_compilation.into(),
+            cardinality: self.cardinality.into(),
+            startup_recovery: self.startup_recovery.into(),
         }
     }
 }
@@ -130,7 +155,7 @@ impl ConvergenceMeasurements {
 #[derive(Clone, Debug)]
 struct MetricsState {
     entities: BTreeMap<String, MeasurementAggregate>,
-    schema_lifecycle: SchemaLifecycleMetrics,
+    schema_lifecycle: SchemaLifecycleMeasurements,
     convergence: ConvergenceMeasurements,
     window_start_ms: u64,
 }
@@ -139,7 +164,7 @@ impl Default for MetricsState {
     fn default() -> Self {
         Self {
             entities: BTreeMap::new(),
-            schema_lifecycle: SchemaLifecycleMetrics::default(),
+            schema_lifecycle: SchemaLifecycleMeasurements::default(),
             convergence: ConvergenceMeasurements::default(),
             window_start_ms: now_millis(),
         }
@@ -155,7 +180,7 @@ thread_local! {
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityMetrics {
     path: String,
-    instructions: MeasurementAggregate,
+    instructions: InstructionMetrics,
 }
 
 impl EntityMetrics {
@@ -168,7 +193,7 @@ impl EntityMetrics {
     /// Instruction observations with canonical sample, maximum and overflow quality.
     #[must_use]
     pub const fn instructions(&self) -> &MeasurementAggregate {
-        &self.instructions
+        self.instructions.measurement()
     }
 }
 
@@ -338,19 +363,19 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
             })
             .map(|(path, counter)| EntityMetrics {
                 path: path.clone(),
-                instructions: *counter,
+                instructions: (*counter).into(),
             })
             .collect::<Vec<_>>();
         entities.sort_by(|left, right| {
             right
-                .instructions
+                .instructions()
                 .total()
-                .cmp(&left.instructions.total())
+                .cmp(&left.instructions().total())
                 .then_with(|| {
                     right
-                        .instructions
+                        .instructions()
                         .samples()
-                        .cmp(&left.instructions.samples())
+                        .cmp(&left.instructions().samples())
                 })
                 .then_with(|| left.path.cmp(&right.path))
         });
@@ -361,7 +386,7 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
             window_end_ms: now_millis(),
             total_entities: state.entities.len() as u64,
             entities,
-            schema_lifecycle: state.schema_lifecycle.clone(),
+            schema_lifecycle: state.schema_lifecycle.snapshot(),
             journal_debt,
             convergence: state.convergence.snapshot(),
         }
@@ -382,8 +407,8 @@ pub fn metrics_reset_all() {
 #[cfg(test)]
 mod tests {
     use super::{
-        MetricsReport, STATE, SchemaLifecycleMetrics, metrics_reset_all, metrics_snapshot,
-        record_entity_execution, record_owner_execution,
+        MetricsReport, STATE, SchemaLifecycleMeasurements, SchemaLifecycleMetrics,
+        metrics_reset_all, metrics_snapshot, record_entity_execution, record_owner_execution,
     };
     use crate::metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan};
 
@@ -557,7 +582,7 @@ mod tests {
             STATE.with_borrow_mut(|window| {
                 let state = window.state_mut();
                 state.entities.insert("entity".into(), measurement);
-                state.schema_lifecycle = SchemaLifecycleMetrics {
+                state.schema_lifecycle = SchemaLifecycleMeasurements {
                     lowering: measurement,
                     publication: measurement,
                     runtime_compilation: measurement,

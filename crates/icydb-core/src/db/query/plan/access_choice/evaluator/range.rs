@@ -10,10 +10,9 @@ use crate::{
             access_choice::model::{
                 AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore, RangeCompareKind,
             },
-            field_key_contract_supports_operator,
             key_item_match::{
                 key_item_matches_field_and_coercion, key_item_supports_lookup_value,
-                key_item_supports_starts_with_value,
+                key_item_supports_starts_with_value, ordered_range_key_support,
             },
             planner::{index_literal_matches_schema, validate_range_and_compares},
         },
@@ -247,29 +246,7 @@ fn evaluate_ordered_range_compare_candidate(
         return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
     }
 
-    match leading_key_item {
-        SemanticIndexKeyItemRef::Field(_) => {
-            if cmp.coercion.id != CoercionId::Strict {
-                return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
-            }
-            if !matches!(
-                index_contract.key_item_at(0),
-                Some(SemanticIndexKeyItemRef::Field(field)) if field == cmp.field.as_str()
-            ) {
-                return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
-            }
-            if !field_key_contract_supports_operator(index_contract, cmp.field.as_str(), cmp.op) {
-                return Err(AccessChoiceRejectedReason::OperatorNotSupported);
-            }
-        }
-        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
-            if cmp.coercion.id != CoercionId::TextCasefold {
-                return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
-            }
-        }
-    }
-
-    Ok(())
+    ordered_range_key_support(index_contract, leading_key_item, cmp)
 }
 
 // Prepare the shared single-clause range evaluation context once so starts-with

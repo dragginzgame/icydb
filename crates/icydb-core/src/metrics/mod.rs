@@ -5,11 +5,15 @@
 //! Boundary: one feature, one span, and one heap report.
 
 #[cfg(feature = "metrics")]
+mod report;
+#[cfg(feature = "metrics")]
 mod state;
 
 #[cfg(not(feature = "metrics"))]
 use std::marker::PhantomData;
 
+#[cfg(feature = "metrics")]
+pub use report::InstructionMetrics;
 #[cfg(feature = "metrics")]
 pub use state::{
     ConvergenceMetrics, EntityMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_report,

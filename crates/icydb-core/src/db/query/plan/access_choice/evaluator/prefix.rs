@@ -20,7 +20,7 @@ use crate::{
             planner::{
                 MAX_INDEX_BRANCH_SET_VALUES, coercion_supports_index_lookup,
                 collect_prefix_eq_constraints, index_field_literal_matcher,
-                index_literal_matches_schema, resolve_index_eq_slot,
+                index_literal_matches_schema, visit_index_eq_prefix,
             },
         },
         resource::construction::ConstructionBudget,
@@ -98,21 +98,12 @@ fn evaluate_prefix_and_candidate(
         ));
     }
 
-    // Only the prefix length survives. Borrow unchanged duplicate operands and
-    // admit expression conversion without building an owned prefix value list.
-    // This batch covers slots/constraint visits, not payload comparisons.
-    budget.charge(
-        Resource::PredicateExpressionSteps,
-        (index_contract.key_arity() as u64)
-            .saturating_mul((eq_constraints.len() as u64).saturating_add(1)),
-    )?;
-    let mut prefix_len = 0usize;
-    for item in index_contract.key_items() {
-        match resolve_index_eq_slot(item.as_ref(), &eq_constraints, budget)? {
-            Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
-            Ok(None) => break,
-            Err(reason) => return Ok(CandidateEvaluation::Rejected(reason)),
-        }
+    let (prefix_len, refusal) =
+        visit_index_eq_prefix(index_contract.key_items(), &eq_constraints, budget, |_| {
+            Ok(())
+        })?;
+    if let Some(reason) = refusal {
+        return Ok(CandidateEvaluation::Rejected(reason));
     }
 
     if prefix_len == 0 {

@@ -417,6 +417,18 @@ clippy:
 clippy-cli:
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-cli --all-targets -- -D warnings
 
+# Supplemental group-plan qualification; the authoritative release gate below
+# remains `validate` until source, archive and native-host mappings are qualified.
+.PHONY: check-cli package-cli test-release-validation-plan
+check-cli:
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb-cli --all-targets
+
+package-cli:
+	+$(CARGO_WORK_ENV) cargo package --locked -p icydb-cli
+
+test-release-validation-plan:
+	bash scripts/ci/test-release-validation-plan.sh
+
 clippy-adapter:
 	+$(ADAPTER_VALIDATION_RUNNER) _ci-adapter-workspace-clippy _ci-workspace-integration-clippy _ci-adapter-feature-clippy
 
@@ -520,6 +532,7 @@ check-portable-automation: shared-tooling-check
 	+$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/release/test-standard-release.sh
+	bash scripts/ci/test-release-validation-plan.sh
 	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-release-groups.sh
 	bash scripts/ci/test-tooling-fixture-completion.sh
 	bash scripts/ci/test-publish-workspace.sh

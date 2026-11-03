@@ -182,6 +182,12 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   Keep a cross-repository issue open only for concrete work still owned there;
   name that work explicitly. Respect excluded repositories: retain existing
   links without inspecting or claiming completion of their work.
+- During issue review, retire trackers whose sole remaining purpose is asking
+  for or waiting on a sibling release/publication/deployment. Report the needed
+  supplier/version to the user and close the coordination-only issue as not
+  planned, explaining that delivery is user-coordinated rather than claiming it
+  happened. Preserve existing source/evidence links. Do not close a real defect,
+  substantive migration or unmet required qualification under this shortcut.
 - Consolidate duplicate proposals under one issue, carrying over distinct
   requirements and owner links before closing the duplicate. Do not erase
   unresolved requirements to reduce the count. Downstream automatic closing

@@ -7,36 +7,116 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects public Shared Tooling **0.27.28**, commit
-`8075b3fd4803d560a1be04768f76701ada3ae8fe`, verified against GitHub and
+IcyDB selects public Shared Tooling **0.28.0**, commit
+`70939d3b6ca335cb718363b47f15cc616c3bed1c`, verified against GitHub and
 the clean supplier checkout. The canonical exporter owns
 148 selected payloads with their hashes/modes. No supplier working-tree changes
 are consumed. Refresh only through the canonical exporter; ordinary integrity
 checks remain offline.
 
-This refresh adopts private path-only development dependencies in release-group
-admission and preparation. The SQL generator and SQLite reference helpers retain
-their package versions and group membership, but core archives omit their private
-registry requirements ([#602](https://github.com/dragginzgame/icydb/issues/602)).
-All 148 snapshot payloads verify, database group admission passes and an actual
-core archive packages with both private requirements omitted. Existing release
-groups and full validation gates are unchanged. Native macOS qualification and
-broad product checks were not run for this focused correction.
+This refresh changes four governance payloads, clarifying that pending sibling
+delivery is reported directly to the user rather than tracked as a waiting issue.
+All 148 payload hashes/modes verify against the independently selected source.
+Entrypoints, executable payloads, catalogs and release gates are unchanged.
+The 0.27.29 adapter, owned-tree and actual tool-admission evidence remains tied
+to those original inputs ([#613](https://github.com/dragginzgame/icydb/issues/613));
+unchanged executable bytes do not require another product test run. No cache
+generations were reclaimed or tools reinstalled. Native macOS and broad product
+checks were not run for this governance refresh.
 
-The root now adopts published Platform 0.18.0, Runtime 0.18.0, Types 0.17.0,
-Wire/Derive 0.15.0, Storage 0.65.0 and Metrics 0.27.0. Storage's release resolves
-[Storage #152](https://github.com/dragginzgame/ic-storage/issues/152) by selecting
-Runtime 0.18 directly on Wasm. Metrics 0.27 aligns the public native Wire traits;
-keeping Metrics 0.26 would introduce a second, incompatible Wire generation.
-The root lock contains one Runtime/guard, one Types and one Wire generation.
+Host Tools now selects 0.79.0, aligning optional Platform 0.19 / Types 0.18
+identities. Its published Rust sources match 0.78.1. Foundation 0.74.2 and Text
+0.74.1 remain selected. Focused CLI/build lint, 180 CLI unit and 41 process
+controls, nine artifact-helper controls, metadata and dependency policies pass.
+This is Linux native qualification; no new macOS, composed-canister artifact or
+installed-IC qualification is inferred.
+
+Private path-only release helpers remain as delivered in 0.295.1
+([#602](https://github.com/dragginzgame/icydb/issues/602)); their prior archive
+qualification is separate from the new snapshot's consumer checks.
+
+The current pending root graph selects published Platform 0.20.0, Runtime
+0.19.0, Types 0.18.0, Metrics 0.28.0, Storage 0.66.0 and Wire/Derive 0.16.0.
+The official registry archive checksums and source identities are verified:
+Metrics `54a92f45c1008a56599ee42786d84553ca950215`, Platform
+`cc8214bf6e2a3dcbe1649c1cd4e71d8a44925bdf` and Storage
+`0b10639ed1c876d4eda50ef98241a369faffe4b0`.
+Platform's Rust source matches 0.19.0 and Storage's matches 0.65.5. IcyDB selects
+only Platform BLAKE3 and Runtime raw `ic0`; no PocketIC client, executor, CDK or
+guard capability is introduced. Runtime and Types remain at their latest
+independently published versions.
+
+Metrics 0.28 removes its optional Wire metadata and dependency. The existing
+IcyDB instruction-report DTO retains frontend ownership while Metrics continues
+numeric recording/admission and Serde. Storage 0.66 aligns public codec types
+with Wire 0.16, removing the older Wire/Derive 0.15 pair from the root lock.
+This adoption introduces no new stored-byte format, reset or migration; the
+existing fresh-installation-only Storage contract below remains binding.
+The maintainer authorized Types 0.18 under
+[#611](https://github.com/dragginzgame/icydb/issues/611) in the current 0.296 line.
+Public conversions and guard values use the canonical Rust identity; IcyDB-owned
+Account/Subaccount protocols remain unchanged. See the
+[current tracker](../design/0.296-platform-types/0.296-status.md).
+
+
+The Metrics 0.28 / Platform 0.20 / Storage 0.66 cohort passes strict Core
+library/test, CLI all-target and binding-generator lint; 401 focused Rust tests
+(171 Core storage/metrics/format controls, 180 CLI unit and 41 process controls,
+six facade admission and three bootstrap controls); public/codec Wasm compilation;
+and the unchanged browser baseline (12 methods, 228 native types, 91 exact frames
+and 3,145 truncated frames). Actual native CLI and Wasm graphs contain one current
+Wire pair, one Runtime and one Types identity, with no SDK, executor, guard or
+PocketIC expansion. Dependency policies, notes selection and 27 release-plan
+rejection/expansion cases pass. The database metadata selects its pending 0.296
+notes and the qualification mapping contract is refreshed for that path only.
+Published notes, product versions and independent Canic inputs are preserved.
+Full gates, current native macOS, installed Canic and final release artifacts
+remain unqualified by these focused checks. IC cycles/instructions and total/code
+Wasm-size changes are unmeasured. Evidence is retained under
+`target/dependency-adoption-20261103/`.
+
+The preceding Types 0.18 / Wire 0.15.1 cohort passed selected Schema/Core/facade lint, 128 focused
+conversion/wire/storage/key/guard tests, actual native/Wasm singleton graphs and
+public/codec Wasm compilation. The reviewed browser contract is unchanged across
+all 12 methods and 91 exact frames, including its schemas, identities and budgets.
+Published 0.295 notes and the independent Canic manifest/lock are preserved.
+
+The first direct Wire 0.16 probe failed with seven native Metrics trait errors.
+The existing owner decision in Observability #128 and
+[IcyDB #614](https://github.com/dragginzgame/icydb/issues/614) supplies the repair:
+IcyDB's instruction-report DTO projects canonical public getters into its own
+serialized fields/native schema and delegates decoding to Metrics admission.
+Recording state remains canonical and separate from frontend snapshots; existing
+report getters still return canonical measurements. Metrics' optional native
+metadata is disabled, and the generator registers the service DTO under the
+unchanged client name. No arithmetic, numeric validator or foreign Wire trait
+implementation is copied. That earlier cohort shows Metrics with no features and
+Storage as the only parent of Wire 0.15; IcyDB-owned interfaces use Wire 0.16.
+The initial failed probe remains in `/tmp/icydb-wire016-core-check.log`; subsequent
+qualification has its own Wire 0.16 cohort rather than relabelling earlier tests.
+That cohort passes selected Core/CLI/generator lint, 154 Core report/store/codec
+tests, 23 CLI controls, 18 Schema atom/wire controls, 12 facade guard/envelope
+controls, public/codec Wasm checking
+and the unchanged 12-method/91-frame browser baseline. The optional Platform-types
+module is the only published Rust source difference from Wire 0.15.1 and remains
+disabled in the product graph. Full gates, macOS, installed Canic and cost
+measurements remain outside these focused checks.
+
+The preceding Types 0.17 cohort passed strict Core SQL/migration and
+feature-disabled lint, 1,057 selected query/storage/schema/codec/recovery controls,
+128 feature-disabled controls and three facade bootstrap tests. Locked metadata,
+declaration/graph policies and actual Wasm/native CLI graphs pass, as does public
+SQL/migration/metrics and codec-actor Wasm compilation. These are focused local
+checks, not a full product gate, hosted CI or installed-Canic qualification.
 
 Storage 0.65 replaces the retained map engine with `ICMAP002` B-tree framing.
 This remains a **fresh-installation-only** adoption. Previous map framing rejects
 without reinitializing retained stores or schema-control regions; there is no
 migration, reset, deletion or deployment. Same-contract restart and recovery
 remain required. The independent Canic workspace retains its existing lock and
-supplier cohort; root checks do not qualify that composition. Current adoption
-evidence is retained in `.cache/platform-wire-retry/`. Focused Linux checks pass:
+supplier cohort; root checks do not qualify that composition. Adoption
+evidence for the initial Storage 0.65.0 graph is retained in
+`.cache/platform-wire-retry/`. Its focused Linux checks passed:
 247 Core persistence/schema/metrics tests, nine facade admission/bootstrap tests,
 13 CLI observability controls, strict Core test and Core/facade/CLI library lint,
 selected Wasm compilation and the unchanged browser
@@ -60,6 +140,9 @@ development, lint and release qualification. Shared Tooling owns
 that same published support policy. The inherited declarations, shared floor
 reader and actual Cargo/rustc admission remain the consumer contract; exporting
 a new baseline alone is not new package, archive or native-host qualification.
+The delivered root outcome is complete; #600 is consolidated into the existing
+[#373](https://github.com/dragginzgame/icydb/issues/373) for the remaining actual
+independent Canic compiler/host/artifact qualification, which is not waived.
 
 IcyDB's consumer setup action reuses the host installer and shared floor reader,
 then admits actual Cargo/rustc identities. Isolated public feature/native/Wasm
@@ -138,8 +221,7 @@ placement decisions.
 | Principal/Account identity, text and Serde | IC Platform Types | Database atom conversions retain database-specific identity/encoding |
 | IC0 system calls | IC Platform Runtime | Explicit `ic0` feature; no executor or CDK selected |
 | Cryptographic and external IC adapters | IC Platform | BLAKE3 for database fingerprints; no workspace-owned direct SDK use |
-| Allocation admission and exclusive memory leases | IC Memory | Database keys, host grant declarations and role bindings |
-| Governed collections and stable codec interfaces | IC Storage | Database codecs, indexes, transactions and retained-control admission |
+| Governed allocations, collections and stable codec interfaces | IC Storage | Database keys, host grants, role bindings, codecs, indexes, transactions and retained-control admission |
 | Measurement arithmetic | IC Observability (`ic-metrics`) | Phase/entity attribution, report selection and resets |
 | Cargo/Wasm acquisition and retained caches | IC Build | Actor recipes, optimizer/interface policy and report budgets |
 | File/process/text primitives | IC Host Tooling | Product artifact admission and CLI presentation |
@@ -165,8 +247,8 @@ Types and Runtime have explicit consumer allowlists, including Core's test-only
 identity conversions. The resolved-graph guard refuses duplicate Runtime or
 Types versions. These owned packages do not relax the external SDK inventory;
 direct Candid/CDK/substrate dependencies remain forbidden.
-The current root schema family selects Wire 0.15, Metrics 0.27 and Storage 0.65
-with Platform 0.18 / Types 0.17. All use the pinned Rust 1.99.1. Storage's map
+The current root schema family selects Wire 0.16, Metrics 0.28 and Storage 0.66
+with Platform 0.20, Runtime 0.19 and Types 0.18. All use the pinned Rust 1.99.1. Storage's map
 format changes under the fresh-installation contract above; Wire protocol bytes,
 schemas and budgets retain their published contract.
 Earlier qualification below belongs to its original supplier selection.
@@ -859,8 +941,10 @@ Consumer callbacks project only selected package versions and dependency pins,
 finalize the selected notes and bind receipts to that exact group transition.
 The Canic workspace remains outside the product release file plan.
 
-Release validation still runs the complete existing gate. Group-scoped validation
-has not been adopted. Publication checks the complete package inventory before
+Release validation still runs the complete existing gate. The opt-in
+[group-plan qualification path](release-validation.md) retains source-bound
+evidence; release omissions remain disabled pending #603 qualification.
+Publication checks the complete package inventory before
 selecting the requested group in dependency order. A CLI release requires its
 selected database dependencies to be available in the registry. Updating those
 requirements does not silently publish a new CLI version.

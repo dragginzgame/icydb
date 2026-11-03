@@ -2486,13 +2486,6 @@ mod tests {
                 Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
             )],
         );
-        let catalog = AcceptedConstraintCatalog::initial(
-            snapshot.fields(),
-            snapshot.indexes(),
-            snapshot.relations(),
-        )
-        .expect("fixture constraints should build");
-        let snapshot = snapshot.with_constraint_catalog(catalog);
         let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
             empty_accepted_enum_catalog_for_tests(),
             AcceptedCompositeCatalog::empty(),

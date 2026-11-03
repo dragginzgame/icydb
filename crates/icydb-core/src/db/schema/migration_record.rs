@@ -7,7 +7,7 @@
 use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::{
-        database_format::crc32c,
+        database_format::{crc32c, verify_crc32c_trailer},
         schema::{FieldId, wire::SchemaWireReader},
     },
     error::InternalError,
@@ -976,20 +976,7 @@ pub(in crate::db::schema) fn decode_schema_migration_record(
     {
         return Err(InternalError::store_corruption());
     }
-    let checksum_offset = bytes
-        .len()
-        .checked_sub(MIGRATION_CHECKSUM_BYTES)
-        .ok_or_else(InternalError::store_corruption)?;
-    let (body, checksum) = bytes.split_at(checksum_offset);
-    if crc32c(body)
-        != u32::from_be_bytes(
-            checksum
-                .try_into()
-                .map_err(|_| InternalError::store_corruption())?,
-        )
-    {
-        return Err(InternalError::store_corruption());
-    }
+    let body = verify_crc32c_trailer(bytes).ok_or_else(InternalError::store_corruption)?;
     let mut reader = MigrationReader::new(body);
     if reader.read_array::<8>()? != *MIGRATION_MAGIC || reader.read_u8()? != MIGRATION_VERSION {
         return Err(InternalError::store_corruption());

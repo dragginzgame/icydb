@@ -7,10 +7,10 @@ use crate::{
         index::{TextPrefixBoundMode, admit_text_prefix_bounds, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
         query::plan::{
-            OrderSpec, field_key_contract_supports_operator,
+            OrderSpec,
             key_item_match::{
                 copy_lookup_value_for_key_item, key_item_supports_starts_with_value,
-                lower_lookup_value_for_key_item,
+                lower_lookup_value_for_key_item, ordered_range_key_support,
             },
             order_contract::CandidateOrderContract,
             planner::{
@@ -425,19 +425,8 @@ fn merge_ordered_compare_constraint_for_key_item(
         return Ok(None);
     };
 
-    match key_item {
-        SemanticIndexKeyItemRef::Field(_) => {
-            if cmp.coercion.id != CoercionId::Strict
-                || !field_key_contract_supports_operator(index_contract, key_item.field(), cmp.op)
-            {
-                return Ok(Some(constraint));
-            }
-        }
-        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
-            if cmp.coercion.id != CoercionId::TextCasefold {
-                return Ok(Some(constraint));
-            }
-        }
+    if ordered_range_key_support(index_contract, key_item, cmp).is_err() {
+        return Ok(Some(constraint));
     }
 
     let mut range = match constraint {

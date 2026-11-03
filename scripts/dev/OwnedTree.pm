@@ -21,6 +21,9 @@ sub route {
 }
 sub inventory {
     my ($p,$scratch_links)=@_; my %files;
+    # File::Find otherwise warns and returns an incomplete tree. Neither size
+    # reporting nor removal may accept that partial ownership evidence.
+    local $SIG{__WARN__}=sub { die @_ };
     find({no_chdir=>1,follow=>0,wanted=>sub {
         my @s=lstat($File::Find::name); @s or die "stat $File::Find::name: $!\n";
         $s[4]==$< && (S_ISREG($s[2]) || S_ISDIR($s[2]) || ($scratch_links && S_ISLNK($s[2])))

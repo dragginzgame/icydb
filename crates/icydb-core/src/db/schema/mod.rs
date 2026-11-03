@@ -110,8 +110,8 @@ pub(in crate::db::schema) use application_lowering::{
 };
 #[cfg(feature = "migration")]
 pub(in crate::db::schema) use application_lowering::{
-    lower_migration_field, lower_migration_index, lower_migration_nested_leaves,
-    lower_new_migration_index,
+    lower_migration_index, lower_migration_nested_leaves, lower_new_migration_index,
+    lower_proposed_field,
 };
 #[cfg(feature = "migration")]
 pub(in crate::db::schema) use application_lowering::{

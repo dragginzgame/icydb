@@ -185,3 +185,41 @@ fn incompatible_equality_literals_leave_an_empty_prefix_without_copying() {
         assert_eq!(root.observed(Resource::NestedValueSteps), 0);
     }
 }
+
+#[test]
+fn equality_prefix_facts_preserve_physical_prefix_and_diagnostic_stop_cause() {
+    let keys = [
+        SemanticIndexKeyItem::Field("name".into()),
+        SemanticIndexKeyItem::Field("later".into()),
+    ];
+    let first = Value::Text("kept".into());
+    let invalid = Value::Int64(1);
+    let literals = [
+        CachedEqLiteral {
+            field: "name",
+            value: &first,
+            coercion: CoercionId::Strict,
+            compatible: true,
+        },
+        CachedEqLiteral {
+            field: "later",
+            value: &invalid,
+            coercion: CoercionId::Strict,
+            compatible: false,
+        },
+    ];
+    crate::db::query::preparation::with_preparation_work(|work| -> Result<(), crate::error::InternalError> {
+        let physical = build_index_eq_prefix(&keys, &literals, work)?;
+        let mut visits = 0;
+        let facts = super::visit_index_eq_prefix(&keys, &literals, work, |value| {
+            assert!(matches!(value, std::borrow::Cow::Borrowed(_)));
+            assert_eq!(value.as_ref(), &first);
+            visits += 1;
+            Ok(())
+        })?;
+        assert_eq!(physical, Some(vec![first.clone()]));
+        assert_eq!(facts, (1, Some(crate::db::query::plan::access_choice::AccessChoiceRejectedReason::LiteralIncompatible)));
+        assert_eq!(visits, 1);
+        Ok(())
+    }).unwrap();
+}

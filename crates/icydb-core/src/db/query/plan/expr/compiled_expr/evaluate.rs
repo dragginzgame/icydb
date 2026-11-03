@@ -4,14 +4,10 @@
 //! Boundary: evaluates already-compiled expression nodes through CompiledExprValueReader.
 
 use crate::{
-    db::{
-        numeric::apply_value_arithmetic_checked,
-        query::plan::expr::{
-            BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
-            ProjectionEvalError, ProjectionFunctionEvalError, UnaryOp,
-            admit_true_only_boolean_value, collapse_true_only_boolean_admission,
-            eval_projection_function_call_checked,
-        },
+    db::query::plan::expr::{
+        BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
+        ProjectionEvalError, ProjectionFunctionEvalError, UnaryOp, admit_true_only_boolean_value,
+        collapse_true_only_boolean_admission, eval_projection_function_call_checked, operators,
     },
     value::{Value, ops::ordering as value_ordering},
 };
@@ -508,37 +504,14 @@ fn evaluate_binary_expr(
     }
 }
 
-const fn evaluate_boolean_binary_expr(
+fn evaluate_boolean_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    match op {
-        BinaryOp::And => evaluate_boolean_and(left, right),
-        BinaryOp::Or => evaluate_boolean_or(left, right),
-        _ => Err(invalid_binary_operands(op, left, right)),
-    }
-}
-
-const fn evaluate_boolean_and(left: &Value, right: &Value) -> Result<Value, ProjectionEvalError> {
-    match (left, right) {
-        (Value::Bool(false), _) | (_, Value::Bool(false)) => Ok(Value::Bool(false)),
-        (Value::Bool(true), Value::Bool(true)) => Ok(Value::Bool(true)),
-        (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
-            Ok(Value::Null)
-        }
-        _ => Err(invalid_binary_operands(BinaryOp::And, left, right)),
-    }
-}
-
-const fn evaluate_boolean_or(left: &Value, right: &Value) -> Result<Value, ProjectionEvalError> {
-    match (left, right) {
-        (Value::Bool(true), _) | (_, Value::Bool(true)) => Ok(Value::Bool(true)),
-        (Value::Bool(false), Value::Bool(false)) => Ok(Value::Bool(false)),
-        (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
-            Ok(Value::Null)
-        }
-        _ => Err(invalid_binary_operands(BinaryOp::Or, left, right)),
+    match operators::boolean(op, left, right) {
+        Some(value) => Ok(value),
+        None => Err(invalid_binary_operands(op, left, right)),
     }
 }
 
@@ -547,18 +520,7 @@ fn evaluate_numeric_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
-        return Ok(Value::Null);
-    }
-
-    let Some(arithmetic_op) = op.numeric_arithmetic_op() else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
-    let Some(result) = apply_value_arithmetic_checked(arithmetic_op, left, right)? else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
-
-    Ok(result)
+    operators::arithmetic(op, left, right)?.ok_or_else(|| invalid_binary_operands(op, left, right))
 }
 
 fn evaluate_compare_binary_expr(
@@ -592,25 +554,8 @@ fn evaluate_non_null_comparison(
     left: &Value,
     right: &Value,
 ) -> Result<bool, ProjectionEvalError> {
-    let result = match op {
-        BinaryOp::Eq => value_ordering::eq(left, right),
-        BinaryOp::Ne => value_ordering::ne(left, right),
-        BinaryOp::Lt => value_ordering::lt(left, right),
-        BinaryOp::Lte => value_ordering::lte(left, right),
-        BinaryOp::Gt => value_ordering::gt(left, right),
-        BinaryOp::Gte => value_ordering::gte(left, right),
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Add
-        | BinaryOp::Sub
-        | BinaryOp::Mul
-        | BinaryOp::Div => return Err(invalid_binary_operands(op, left, right)),
-    };
-    let Some(result) = result else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
-
-    Ok(result)
+    operators::compare(op, left, right, value_ordering::eq, value_ordering::order)
+        .ok_or_else(|| invalid_binary_operands(op, left, right))
 }
 
 const fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> ProjectionEvalError {

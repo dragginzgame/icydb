@@ -27,6 +27,11 @@ same approach: mandatory local constraints first, task-specific references after
 - Preserve unrelated dirty work and reread dirty files before editing. Task-relevant
   sibling inspection needs no additional permission. Never edit another
   contributor's sibling working checkout in place.
+- Keep lasting implementation in the requested local checkout. An authorized PR
+  may use a disclosed durable contribution checkout; an issue may record deferred
+  work. Never leave the only copy of code changes in `/tmp`, `target/`, caches or
+  a disposable patch. If those delivery options are unavailable, ask the user
+  before choosing another location. Follow the [durable work contract](rules/contributions.md#durable-work-and-checkout-location).
 - Ordinary fixes authorize local implementation and focused checks. Leave staging,
   commits, package release versions, tags and release execution to the user unless
   delegated. Shared Tooling alone automatically prepares its local `VERSION`
@@ -34,7 +39,11 @@ same approach: mandatory local constraints first, task-specific references after
   A PR request includes its branch, scoped commits, branch push and PR.
   A release/ship/deploy request delegates the corresponding delivery workflow,
   including routine group/version/order choices under
-  [delegated delivery](rules/contributions.md#delegated-delivery). Do not ask again
+  [delegated delivery](rules/contributions.md#delegated-delivery). Direct pushes
+  to `main` or another integration branch and delivery from an alternate checkout
+  require explicit authorization for that path. Disclose local versus remote
+  effects before execution; a configured direct-release default is not consent.
+  Do not ask again
   for each necessary command; guidance and readiness questions do not execute it.
 - Work and delivery stay with the requested repository. A dependency blocker
   does not authorize another repository's release or deployment. Cross-repository
@@ -46,6 +55,11 @@ same approach: mandatory local constraints first, task-specific references after
   authorization; DFINITY contributions remain excluded. Merges, integration-branch
   pushes, history rewrites, releases, publication, deployment and paid effects
   require delivery or specific action authority and retain enforced protections.
+- Do not file issues merely to request or wait for a sibling release, publication
+  or deployment. Tell the user which supplier/group and version or commit is
+  needed, what is available, and what remains blocked; the user coordinates
+  delivery. Track actual defects, missing capabilities and substantive consumer
+  code changes under the [dependency finding rules](rules/engineering-details.md#shared-dependency-findings).
 - Carry established authorization forward. Do not ask again for necessary
   substeps or stop an accepted coherent batch after each small slice. Inspection
   alone does not authorize repair. Resolve actual scope or effect ambiguity,

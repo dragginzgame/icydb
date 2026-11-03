@@ -3,13 +3,10 @@ mod tests;
 
 use crate::{
     db::{
-        numeric::{
-            apply_value_arithmetic_checked, coerce_numeric_decimal, compare_numeric_eq,
-            compare_numeric_or_strict_order,
-        },
+        numeric::coerce_numeric_decimal,
         query::plan::expr::{
             BinaryOp, CaseWhenArm, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
-            collapse_true_only_boolean_admission, projection_eval::admit_replace_text,
+            collapse_true_only_boolean_admission, operators, projection_eval::admit_replace_text,
         },
         resource::construction::ConstructionBudget,
     },
@@ -17,7 +14,6 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
-use std::cmp::Ordering;
 
 ///
 /// NullableTextArg
@@ -190,87 +186,19 @@ fn eval_literal_only_unary_expr(op: UnaryOp, value: &Value) -> Option<Value> {
 // value comparison helpers.
 fn eval_literal_only_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option<Value> {
     match op {
-        BinaryOp::Or | BinaryOp::And => eval_boolean_binary_expr(op, left, right),
-        BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => eval_compare_binary_expr(op, left, right),
+        BinaryOp::And | BinaryOp::Or => operators::boolean(op, left, right),
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-            if matches!(left, Value::Null) || matches!(right, Value::Null) {
-                return Some(Value::Null);
-            }
-
-            let arithmetic_op = op.numeric_arithmetic_op()?;
-
-            apply_value_arithmetic_checked(arithmetic_op, left, right)
-                .ok()
-                .flatten()
+            operators::arithmetic(op, left, right).ok().flatten()
         }
+        _ => eval_compare_binary_expr(op, left, right),
     }
 }
 
-// Evaluate one literal-only boolean AND/OR using the shared three-valued
-// truth table used by scalar projection evaluation.
-const fn eval_boolean_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option<Value> {
-    match op {
-        BinaryOp::And => match (left, right) {
-            (Value::Bool(false), _) | (_, Value::Bool(false)) => Some(Value::Bool(false)),
-            (Value::Bool(true), Value::Bool(true)) => Some(Value::Bool(true)),
-            (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
-                Some(Value::Null)
-            }
-            _ => None,
-        },
-        BinaryOp::Or => match (left, right) {
-            (Value::Bool(true), _) | (_, Value::Bool(true)) => Some(Value::Bool(true)),
-            (Value::Bool(false), Value::Bool(false)) => Some(Value::Bool(false)),
-            (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
-                Some(Value::Null)
-            }
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-// Evaluate one literal-only compare using the same numeric-widen versus strict
-// fallback rule already shared elsewhere in planner/runtime comparison helpers.
 fn eval_compare_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> Option<Value> {
     if matches!(left, Value::Null) || matches!(right, Value::Null) {
         return Some(Value::Null);
     }
-
-    let numeric_widen_enabled =
-        left.supports_numeric_coercion() || right.supports_numeric_coercion();
-    let result = match op {
-        BinaryOp::Eq => {
-            if let Some(equal) = compare_numeric_eq(left, right) {
-                equal
-            } else if !numeric_widen_enabled {
-                left == right
-            } else {
-                return None;
-            }
-        }
-        BinaryOp::Ne => {
-            if let Some(equal) = compare_numeric_eq(left, right) {
-                !equal
-            } else if !numeric_widen_enabled {
-                left != right
-            } else {
-                return None;
-            }
-        }
-        BinaryOp::Lt => compare_numeric_or_strict_order(left, right).map(Ordering::is_lt)?,
-        BinaryOp::Lte => compare_numeric_or_strict_order(left, right).map(Ordering::is_le)?,
-        BinaryOp::Gt => compare_numeric_or_strict_order(left, right).map(Ordering::is_gt)?,
-        BinaryOp::Gte => compare_numeric_or_strict_order(left, right).map(Ordering::is_ge)?,
-        _ => return None,
-    };
-
-    Some(Value::Bool(result))
+    operators::compare_query(op, left, right).map(Value::Bool)
 }
 
 // Evaluate one NULL-test function when its only input is already literal-owned.

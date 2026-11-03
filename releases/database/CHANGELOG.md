@@ -3,6 +3,12 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.296.0]
+
+- Adopt current Platform, Metrics, Storage and Wire contracts while preserving
+  IcyDB-owned bytes; simplify database code and add opt-in release-plan
+  qualification ([details](0.296.md)).
+
 ## [0.295.1] - 2026-11-02
 
 ### 🧹 Cleanup

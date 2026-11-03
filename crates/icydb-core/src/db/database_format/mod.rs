@@ -449,6 +449,14 @@ pub(in crate::db) fn crc32c(bytes: &[u8]) -> u32 {
     !crc
 }
 
+/// Verify a trailing big-endian CRC32C and borrow the checked body.
+/// Record decoders retain their own size, format and semantic checks, and map
+/// refusal to their domain error before exposing any decoded authority.
+pub(in crate::db) fn verify_crc32c_trailer(bytes: &[u8]) -> Option<&[u8]> {
+    let (body, checksum) = bytes.split_last_chunk::<4>()?;
+    (crc32c(body) == u32::from_be_bytes(*checksum)).then_some(body)
+}
+
 fn required_allocation(
     allocation: Option<StoreAllocationIdentity>,
 ) -> Result<StoreAllocationIdentity, InternalError> {
@@ -608,5 +616,27 @@ mod tests {
             }
             assert_eq!(crc32c(&bytes[..len]), !remainder, "length {len}");
         }
+    }
+
+    #[test]
+    fn crc32c_trailer_preserves_borrowing_and_rejects_corruption() {
+        // Independent standard vector; do not construct it with the encoder.
+        let encoded = b"123456789\xe3\x06\x92\x83";
+        let body = verify_crc32c_trailer(encoded).expect("known checksum should verify");
+        assert_eq!(body, b"123456789");
+        assert!(std::ptr::eq(body.as_ptr(), encoded.as_ptr()));
+        for end in 0..encoded.len() {
+            assert_eq!(verify_crc32c_trailer(&encoded[..end]), None);
+        }
+        for offset in 0..encoded.len() {
+            for bit in 0..8 {
+                let mut damaged = *encoded;
+                damaged[offset] ^= 1 << bit;
+                assert_eq!(verify_crc32c_trailer(&damaged), None);
+            }
+        }
+        // An empty checked body is valid for the primitive. Record-specific
+        // minimum lengths still reject it before calling this verifier.
+        assert_eq!(verify_crc32c_trailer(&[0; 4]), Some([].as_slice()));
     }
 }

@@ -39,12 +39,6 @@ pub(crate) fn eq(left: &Value, right: &Value) -> Option<bool> {
     Some(left == right)
 }
 
-/// Compare two values for projection-style inequality.
-#[must_use]
-pub(crate) fn ne(left: &Value, right: &Value) -> Option<bool> {
-    eq(left, right).map(|equal| !equal)
-}
-
 /// Compare two values under projection-style ordering semantics.
 #[must_use]
 pub(crate) fn order(left: &Value, right: &Value) -> Option<Ordering> {
@@ -55,30 +49,6 @@ pub(crate) fn order(left: &Value, right: &Value) -> Option<Ordering> {
     }
 
     strict_order_cmp(left, right)
-}
-
-/// Return whether `left < right` under projection-style ordering semantics.
-#[must_use]
-pub(crate) fn lt(left: &Value, right: &Value) -> Option<bool> {
-    order(left, right).map(Ordering::is_lt)
-}
-
-/// Return whether `left <= right` under projection-style ordering semantics.
-#[must_use]
-pub(crate) fn lte(left: &Value, right: &Value) -> Option<bool> {
-    order(left, right).map(Ordering::is_le)
-}
-
-/// Return whether `left > right` under projection-style ordering semantics.
-#[must_use]
-pub(crate) fn gt(left: &Value, right: &Value) -> Option<bool> {
-    order(left, right).map(Ordering::is_gt)
-}
-
-/// Return whether `left >= right` under projection-style ordering semantics.
-#[must_use]
-pub(crate) fn gte(left: &Value, right: &Value) -> Option<bool> {
-    order(left, right).map(Ordering::is_ge)
 }
 
 impl Value {

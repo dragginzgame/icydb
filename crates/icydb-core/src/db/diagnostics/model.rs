@@ -14,6 +14,90 @@ use crate::db::{
 
 use serde::Deserialize;
 
+// The public store rows retain distinct flat wire fields and role metrics;
+// keep their identical metadata accessors in one mechanical declaration.
+macro_rules! store_role_snapshot_accessors {
+    () => {
+        /// Borrow store path.
+        #[must_use]
+        pub const fn path(&self) -> &str {
+            self.path.as_str()
+        }
+
+        /// Return diagnostic storage mode.
+        #[must_use]
+        pub const fn storage(&self) -> StoreSnapshotStorageMode {
+            self.storage
+        }
+
+        /// Return allocation-identity capability metadata.
+        #[must_use]
+        pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
+            self.allocation
+        }
+
+        /// Return durability capability metadata.
+        #[must_use]
+        pub const fn durability(&self) -> StoreDurability {
+            self.durability
+        }
+
+        /// Return commit participation capability metadata.
+        #[must_use]
+        pub const fn commit(&self) -> StoreCommitParticipation {
+            self.commit
+        }
+
+        /// Return recovery capability metadata.
+        #[must_use]
+        pub const fn recovery(&self) -> StoreRecoveryCapability {
+            self.recovery
+        }
+
+        /// Return schema-metadata persistence capability metadata.
+        #[must_use]
+        pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
+            self.schema_metadata
+        }
+
+        /// Return stable-memory manager ID, when generated wiring supplied it.
+        #[must_use]
+        pub const fn memory_id(&self) -> Option<u64> {
+            self.memory_id
+        }
+
+        /// Return durable stable-memory key, when generated wiring supplied it.
+        #[must_use]
+        pub const fn stable_key(&self) -> Option<&str> {
+            match &self.stable_key {
+                Some(value) => Some(value.as_str()),
+                None => None,
+            }
+        }
+
+        /// Return accepted schema/catalog version, when known.
+        #[must_use]
+        pub const fn schema_version(&self) -> Option<u32> {
+            self.schema_version
+        }
+
+        /// Return accepted schema/catalog fingerprint method version, when known.
+        #[must_use]
+        pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
+            self.schema_fingerprint_method_version
+        }
+
+        /// Return accepted schema/catalog fingerprint, when known.
+        #[must_use]
+        pub const fn schema_fingerprint(&self) -> Option<&str> {
+            match &self.schema_fingerprint {
+                Some(value) => Some(value.as_str()),
+                None => None,
+            }
+        }
+    };
+}
+
 #[cfg_attr(doc, doc = "StorageReport\n\nLive storage snapshot payload.")]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
@@ -300,83 +384,7 @@ impl SchemaStoreSnapshot {
         }
     }
 
-    /// Borrow store path.
-    #[must_use]
-    pub const fn path(&self) -> &str {
-        self.path.as_str()
-    }
-
-    /// Return diagnostic storage mode.
-    #[must_use]
-    pub const fn storage(&self) -> StoreSnapshotStorageMode {
-        self.storage
-    }
-
-    /// Return allocation-identity capability metadata.
-    #[must_use]
-    pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
-        self.allocation
-    }
-
-    /// Return durability capability metadata.
-    #[must_use]
-    pub const fn durability(&self) -> StoreDurability {
-        self.durability
-    }
-
-    /// Return commit participation capability metadata.
-    #[must_use]
-    pub const fn commit(&self) -> StoreCommitParticipation {
-        self.commit
-    }
-
-    /// Return recovery capability metadata.
-    #[must_use]
-    pub const fn recovery(&self) -> StoreRecoveryCapability {
-        self.recovery
-    }
-
-    /// Return schema-metadata persistence capability metadata.
-    #[must_use]
-    pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
-        self.schema_metadata
-    }
-
-    /// Return stable-memory manager ID, when generated wiring supplied it.
-    #[must_use]
-    pub const fn memory_id(&self) -> Option<u64> {
-        self.memory_id
-    }
-
-    /// Return durable stable-memory key, when generated wiring supplied it.
-    #[must_use]
-    pub const fn stable_key(&self) -> Option<&str> {
-        match &self.stable_key {
-            Some(value) => Some(value.as_str()),
-            None => None,
-        }
-    }
-
-    /// Return accepted schema/catalog version, when known.
-    #[must_use]
-    pub const fn schema_version(&self) -> Option<u32> {
-        self.schema_version
-    }
-
-    /// Return accepted schema/catalog fingerprint method version, when known.
-    #[must_use]
-    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
-        self.schema_fingerprint_method_version
-    }
-
-    /// Return accepted schema/catalog fingerprint, when known.
-    #[must_use]
-    pub const fn schema_fingerprint(&self) -> Option<&str> {
-        match &self.schema_fingerprint {
-            Some(value) => Some(value.as_str()),
-            None => None,
-        }
-    }
+    store_role_snapshot_accessors!();
 
     /// Return number of entity schemas represented in this schema catalog.
     #[must_use]
@@ -437,83 +445,7 @@ impl DataStoreSnapshot {
         }
     }
 
-    /// Borrow store path.
-    #[must_use]
-    pub const fn path(&self) -> &str {
-        self.path.as_str()
-    }
-
-    /// Return diagnostic storage mode.
-    #[must_use]
-    pub const fn storage(&self) -> StoreSnapshotStorageMode {
-        self.storage
-    }
-
-    /// Return allocation-identity capability metadata.
-    #[must_use]
-    pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
-        self.allocation
-    }
-
-    /// Return durability capability metadata.
-    #[must_use]
-    pub const fn durability(&self) -> StoreDurability {
-        self.durability
-    }
-
-    /// Return commit participation capability metadata.
-    #[must_use]
-    pub const fn commit(&self) -> StoreCommitParticipation {
-        self.commit
-    }
-
-    /// Return recovery capability metadata.
-    #[must_use]
-    pub const fn recovery(&self) -> StoreRecoveryCapability {
-        self.recovery
-    }
-
-    /// Return schema-metadata persistence capability metadata.
-    #[must_use]
-    pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
-        self.schema_metadata
-    }
-
-    /// Return stable-memory manager ID, when generated wiring supplied it.
-    #[must_use]
-    pub const fn memory_id(&self) -> Option<u64> {
-        self.memory_id
-    }
-
-    /// Return durable stable-memory key, when generated wiring supplied it.
-    #[must_use]
-    pub const fn stable_key(&self) -> Option<&str> {
-        match &self.stable_key {
-            Some(value) => Some(value.as_str()),
-            None => None,
-        }
-    }
-
-    /// Return accepted schema/catalog version, when known.
-    #[must_use]
-    pub const fn schema_version(&self) -> Option<u32> {
-        self.schema_version
-    }
-
-    /// Return accepted schema/catalog fingerprint method version, when known.
-    #[must_use]
-    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
-        self.schema_fingerprint_method_version
-    }
-
-    /// Return accepted schema/catalog fingerprint, when known.
-    #[must_use]
-    pub const fn schema_fingerprint(&self) -> Option<&str> {
-        match &self.schema_fingerprint {
-            Some(value) => Some(value.as_str()),
-            None => None,
-        }
-    }
+    store_role_snapshot_accessors!();
 
     /// Return row count.
     #[must_use]
@@ -585,83 +517,7 @@ impl IndexStoreSnapshot {
         }
     }
 
-    /// Borrow store path.
-    #[must_use]
-    pub const fn path(&self) -> &str {
-        self.path.as_str()
-    }
-
-    /// Return diagnostic storage mode.
-    #[must_use]
-    pub const fn storage(&self) -> StoreSnapshotStorageMode {
-        self.storage
-    }
-
-    /// Return allocation-identity capability metadata.
-    #[must_use]
-    pub const fn allocation(&self) -> StoreAllocationIdentityCapability {
-        self.allocation
-    }
-
-    /// Return durability capability metadata.
-    #[must_use]
-    pub const fn durability(&self) -> StoreDurability {
-        self.durability
-    }
-
-    /// Return commit participation capability metadata.
-    #[must_use]
-    pub const fn commit(&self) -> StoreCommitParticipation {
-        self.commit
-    }
-
-    /// Return recovery capability metadata.
-    #[must_use]
-    pub const fn recovery(&self) -> StoreRecoveryCapability {
-        self.recovery
-    }
-
-    /// Return schema-metadata persistence capability metadata.
-    #[must_use]
-    pub const fn schema_metadata(&self) -> StoreSchemaMetadataCapability {
-        self.schema_metadata
-    }
-
-    /// Return stable-memory manager ID, when generated wiring supplied it.
-    #[must_use]
-    pub const fn memory_id(&self) -> Option<u64> {
-        self.memory_id
-    }
-
-    /// Return durable stable-memory key, when generated wiring supplied it.
-    #[must_use]
-    pub const fn stable_key(&self) -> Option<&str> {
-        match &self.stable_key {
-            Some(value) => Some(value.as_str()),
-            None => None,
-        }
-    }
-
-    /// Return accepted schema/catalog version, when known.
-    #[must_use]
-    pub const fn schema_version(&self) -> Option<u32> {
-        self.schema_version
-    }
-
-    /// Return accepted schema/catalog fingerprint method version, when known.
-    #[must_use]
-    pub const fn schema_fingerprint_method_version(&self) -> Option<u8> {
-        self.schema_fingerprint_method_version
-    }
-
-    /// Return accepted schema/catalog fingerprint, when known.
-    #[must_use]
-    pub const fn schema_fingerprint(&self) -> Option<&str> {
-        match &self.schema_fingerprint {
-            Some(value) => Some(value.as_str()),
-            None => None,
-        }
-    }
+    store_role_snapshot_accessors!();
 
     /// Return total entry count.
     #[must_use]

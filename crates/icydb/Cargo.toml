@@ -40,6 +40,10 @@ name = "storage_bootstrap"
 path = "tests/storage_bootstrap.rs"
 
 [[test]]
+name = "platform_types"
+path = "tests/platform_types.rs"
+
+[[test]]
 name = "memory_admission"
 path = "tests/memory_admission.rs"
 

@@ -71,6 +71,7 @@ mod canonicalize;
 mod cleanup;
 mod compiled_expr;
 mod function_semantics;
+mod operators;
 mod predicate;
 #[cfg(feature = "sql")]
 mod preview;

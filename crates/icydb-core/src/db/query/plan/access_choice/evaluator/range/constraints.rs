@@ -6,10 +6,9 @@ use crate::{
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
             access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
-            field_key_contract_supports_operator,
             key_item_match::{
                 key_item_supports_lookup_value, key_item_supports_starts_with_value,
-                lower_lookup_value_for_key_item,
+                lower_lookup_value_for_key_item, ordered_range_key_support,
             },
             planner::index_literal_matches_schema,
         },
@@ -24,10 +23,6 @@ use std::borrow::Cow;
 // This classifier keeps the full range-family rejection and bound-strength
 // contract in one owner-local function so planner ranking and explain reasons
 // do not drift across separate partial walkers.
-#[expect(
-    clippy::too_many_lines,
-    reason = "range candidate classification keeps one explicit owner for rejection and bound-strength policy"
-)]
 pub(super) fn classify_range_constraints_for_key_item(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
@@ -88,24 +83,10 @@ pub(super) fn classify_range_constraints_for_key_item(
                     continue;
                 }
 
-                match key_item {
-                    SemanticIndexKeyItemRef::Field(_) => {
-                        if cmp.coercion.id != CoercionId::Strict {
-                            continue;
-                        }
-                        if !field_key_contract_supports_operator(
-                            index_contract,
-                            cmp.field.as_str(),
-                            cmp.op,
-                        ) {
-                            return Ok(Err(AccessChoiceRejectedReason::OperatorNotSupported));
-                        }
-                    }
-                    SemanticIndexKeyItemRef::AcceptedExpression(_) => {
-                        if cmp.coercion.id != CoercionId::TextCasefold {
-                            continue;
-                        }
-                    }
+                match ordered_range_key_support(index_contract, key_item, cmp) {
+                    Ok(()) => {}
+                    Err(AccessChoiceRejectedReason::OperatorNotRangeSupported) => continue,
+                    Err(reason) => return Ok(Err(reason)),
                 }
                 if eq_value.is_some() {
                     return Ok(Err(AccessChoiceRejectedReason::EqRangeConflict));
