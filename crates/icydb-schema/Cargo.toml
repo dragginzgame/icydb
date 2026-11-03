@@ -2,7 +2,7 @@
 name = "icydb-schema"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.295.0"
+version = "0.295.1"
 license-file = { workspace = true }
 description = "Bounded public schema proposal contract for IcyDB"
 repository = { workspace = true }

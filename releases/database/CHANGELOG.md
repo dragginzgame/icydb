@@ -3,7 +3,7 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
-## [0.295.1]
+## [0.295.1] - 2026-11-02
 
 ### 🧹 Cleanup
 
