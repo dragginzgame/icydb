@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Disposable Make invocations own their flags and cache selections. In a real
+# release gate, inherited command-line assignments otherwise override fixture
+# environment values (and can select the caller's group instead of its ledger).
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
 export RELEASE_GROUP=database
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
