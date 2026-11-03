@@ -12,6 +12,17 @@ The goal is to keep tests:
 
 ## Test Taxonomy (Authoritative)
 
+For CLI-only development, run `make clippy-cli` before `make test-cli`. Both
+select all targets of `icydb-cli` with the locked dependency graph and the
+repository's Cargo environment. The test target includes native unit tests and
+the actual CLI process controls, using the workspace test concurrency limit.
+Dependencies compile as needed, but their own test suites are not selected.
+
+These focused targets do not establish database, archive, macOS or installed
+Canic qualification. They are available to the future group-validation mapping
+tracked in [#603](https://github.com/dragginzgame/icydb/issues/603); current
+workspace CI and the full release gate retain their existing commands.
+
 Classify tests by the boundary they exercise. Regression coverage is a discipline
 within these categories, rather than a separate execution lane.
 

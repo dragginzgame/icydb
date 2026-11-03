@@ -1,12 +1,12 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help version tags package publish release-clean \
-        test test-unit test-integration-feedback test-durability test-documentation \
+        test test-unit test-cli test-integration-feedback test-durability test-documentation \
         test-canister-artifact-contract test-sql-canister-matrix check-wire-browser test-wire-browser \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-canister-local build-canister-production \
-        build check clippy validate validate-fast clean install install-dev update-dev install-gh install-hooks \
+        build check clippy clippy-cli validate validate-fast clean install install-dev update-dev install-gh install-hooks \
         fetch fetch-adapter test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
@@ -137,6 +137,8 @@ help:
 	@echo "Development:"
 	@echo "  cloc             Report workspace Rust runtime and test source counts"
 	@echo "  test             Run product workspace tests without Canic or PocketIC"
+	@echo "  test-cli         Run CLI native unit and process tests only"
+	@echo "  clippy-cli       Lint all CLI targets only (strict warnings)"
 	@echo "  test-adapter     Run composed Canic tests; prepare install-testkit first"
 	@echo "  validate-adapter  Run explicit adapter formatting, automation, lint and tests"
 	@echo "  fmt-adapter-check  Check root and adapter Rust/manifests explicitly"
@@ -263,6 +265,11 @@ _test-core-no-default:
 
 _test-workspace:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets
+
+# Focused development stages for the CLI package. Release verification retains
+# the complete validate gate until group selection and receipts are qualified.
+test-cli:
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-cli --all-targets
 
 # Composition is an explicit consumer gate, independent of product validation.
 .PHONY: test-adapter validate-adapter clippy-adapter fmt-adapter fmt-adapter-check ci-adapter ci-adapter-sql-tier-a check-adapter-automation _test-adapter-workspace _test-adapter-documentation _ci-adapter-feature-clippy
@@ -406,6 +413,9 @@ check:
 clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
+
+clippy-cli:
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-cli --all-targets -- -D warnings
 
 clippy-adapter:
 	+$(ADAPTER_VALIDATION_RUNNER) _ci-adapter-workspace-clippy _ci-workspace-integration-clippy _ci-adapter-feature-clippy

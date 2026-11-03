@@ -16,6 +16,7 @@ use crate::db::{
     positioned_overlay::{
         JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
     },
+    storage::open_stable_map,
 };
 use crate::types::EntityTag;
 
@@ -97,7 +98,7 @@ pub struct IndexStore {
 pub(super) enum IndexStoreBackend {
     Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
     Journaled {
-        canonical: StableBTreeMap<RawIndexStoreKey, IndexEntryValue, DefaultMemoryImpl>,
+        canonical: Box<StableBTreeMap<RawIndexStoreKey, IndexEntryValue, DefaultMemoryImpl>>,
         live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
         tombstones: BTreeSet<RawIndexStoreKey>,
         positions: PositionedOverlayMetadata<RawIndexStoreKey>,
@@ -147,16 +148,14 @@ impl IndexStore {
     /// Normal writes update only the live materialized projection. The
     /// canonical stable index is updated by future fold/rebuild paths.
     ///
+    /// # Errors
+    /// Returns a store error if creation or retained collection validation fails.
+    /// Invalid retained contents are not replaced.
+    ///
     /// # Panics
-    /// Panics if retained storage has an invalid header or unsupported layout,
-    /// or the backing storage fails. Invalid retained contents are not replaced.
+    /// Propagates backing-storage or codec panics.
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
-        // Retained maps must never be replaced when their header is corrupt.
-        let canonical = if memory.size() == 0 {
-            StableBTreeMap::create(memory).map_err(InternalError::from)?
-        } else {
-            StableBTreeMap::load(memory).map_err(InternalError::from)?
-        };
+        let canonical = open_stable_map(memory).map_err(InternalError::from)?;
         let prefix_cardinality = if canonical.is_empty() {
             IndexPrefixCardinality::synchronized_empty()
         } else {
@@ -164,7 +163,7 @@ impl IndexStore {
         };
         Ok(Self {
             backend: IndexStoreBackend::Journaled {
-                canonical,
+                canonical: Box::new(canonical),
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),

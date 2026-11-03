@@ -55,16 +55,38 @@ pub(in crate::db::executor) fn resolve_value_sibling_paths(
     members: &[&[u8]],
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
-    let parent = resolve_value_field_path(root, prefix)
-        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
     let mut selected = vec![None; members.len()];
+    select_value_sibling_paths(root, prefix, members, &mut selected)
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+    shaped.extend(
+        selected
+            .into_iter()
+            .map(|value| value.cloned().unwrap_or(Value::Null)),
+    );
+    Ok(())
+}
+
+/// Select sibling leaves into caller-admitted backing, retaining row borrows.
+/// First matches, including explicit NULL, win; absent ancestors stay absent.
+pub(in crate::db::executor) fn select_value_sibling_paths<'value>(
+    root: &'value Value,
+    prefix: &[impl AsRef<[u8]>],
+    members: &[&[u8]],
+    selected: &mut [Option<&'value Value>],
+) -> Result<(), ProjectionEvalError> {
+    selected.fill(None);
+    let parent = resolve_value_field_path(root, prefix)?;
     if let Some(parent) = parent.filter(|value| !matches!(value, Value::Null)) {
-        let entries = parent
-            .as_map()
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        let entries = parent.as_map().ok_or_else(|| {
+            let error = InternalError::persisted_row_decode_corruption();
+            ProjectionEvalError::FieldPathEvaluationFailed {
+                class: error.class(),
+                origin: error.origin(),
+            }
+        })?;
         for (key, value) in entries {
             if let Value::Text(key) = key {
-                for (member, result) in members.iter().zip(&mut selected) {
+                for (member, result) in members.iter().zip(selected.iter_mut()) {
                     if result.is_none() && key.as_bytes() == *member {
                         *result = Some(value);
                     }
@@ -72,11 +94,6 @@ pub(in crate::db::executor) fn resolve_value_sibling_paths(
             }
         }
     }
-    shaped.extend(
-        selected
-            .into_iter()
-            .map(|value| value.cloned().unwrap_or(Value::Null)),
-    );
     Ok(())
 }
 

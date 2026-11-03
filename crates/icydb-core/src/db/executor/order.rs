@@ -403,8 +403,9 @@ impl ProjectionOrderValues {
     }
 
     /// Reuse successful evaluations, preserving projection errors for missing
-    /// expression results. Repeated expressions still own distinct output values.
-    pub(in crate::db::executor) fn projection_value(&self, expr: &CompiledExpr) -> Option<Value> {
+    /// expression results. Projection clones only values it emits; eligibility
+    /// checks borrow the same successful result without allocating.
+    pub(in crate::db::executor) fn projection_value(&self, expr: &CompiledExpr) -> Option<&Value> {
         let position =
             self.order
                 .fields()
@@ -418,8 +419,8 @@ impl ProjectionOrderValues {
                     _ => false,
                 })?;
         match self.values.value_at(position)? {
-            Some(value) => Some(value.clone()),
-            None if matches!(expr, CompiledExpr::Slot { .. }) => Some(Value::Null),
+            Some(value) => Some(value),
+            None if matches!(expr, CompiledExpr::Slot { .. }) => Some(&Value::Null),
             None => None,
         }
     }

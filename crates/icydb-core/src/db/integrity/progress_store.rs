@@ -24,6 +24,7 @@ use crate::{
             ResumableJobError, ResumableJobId, ResumableJobRecord, ResumableJobStatus,
             decode_resumable_job_payload, encode_resumable_job_payload,
         },
+        storage::open_stable_map,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -326,14 +327,7 @@ pub(in crate::db) struct InspectionProgressStore {
 impl InspectionProgressStore {
     fn open(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, IntegrityJobError> {
         let mut store = Self {
-            // Only virgin allocations may initialize a new map.
-            map: if memory.size() == 0 {
-                StableBTreeMap::create(memory)
-                    .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
-            } else {
-                StableBTreeMap::load(memory)
-                    .map_err(|_| IntegrityJobError::CorruptProgressRecord)?
-            },
+            map: open_stable_map(memory).map_err(|_| IntegrityJobError::CorruptProgressRecord)?,
         };
         if store.map.is_empty() {
             store
@@ -947,8 +941,10 @@ fn encode_progress_record_payload<E>(
     Ok(bytes)
 }
 
-// All job families use the same envelope. Callers retain payload semantics,
-// family size ceilings and public error mapping; validate framing before decoding.
+// All job families use the same envelope. Mutation before/after bytes also travel
+// in commit markers, outside Storage's checksummed map, and bind exact replay.
+// Callers retain payload semantics, family ceilings and public error mapping;
+// validate application framing before decoding in either context.
 fn decode_progress_record_payload(
     bytes: &[u8],
     magic: [u8; 8],

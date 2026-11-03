@@ -159,7 +159,12 @@ still governs demonstrated integration blockers.
 ### Visible release-group map in Cargo.toml
 
 For a workspace with independent release groups, include every workspace member
-in root `[workspace.dependencies]` with its local path and full current version.
+in root `[workspace.dependencies]` with its local path. Publishable members need
+their full current version. Members with `publish = false` may omit the dependency
+version, so Cargo can omit private path-only dev-dependencies from published packages.
+Publishable members may depend on private members only through these path-only
+development edges; versioned private dependencies and normal/build edges are rejected
+before release preparation.
 This is a complete crate catalog, including private qualification/tooling members
 and crates that no other member currently depends on.
 List release groups once in this manifest, as contiguous blocks in
@@ -206,9 +211,10 @@ values remain actual Cargo requirements, not package-version inheritance. Do not
 copy numeric versions into comments or add a generated summary or shadow catalog.
 
 List each catalog alias in its owning release group's `dependencies` roster so
-release preparation updates it, including unused and renamed aliases. For every
-root path dependency naming a workspace member, spell the full
-current member version. Preserve its existing bare, `^`, `~` or `=` operator; do
+release preparation accounts for it, including unused and renamed aliases.
+Path-only private entries remain unchanged; their package versions still advance
+with their group. For every versioned root path dependency naming a workspace
+member, spell the full current member version. Preserve its existing bare, `^`, `~` or `=` operator; do
 not add exact pins merely for display. Group admission checks this equality for
 all groups, including through the normal dependency checker. It also checks
 complete member coverage, alias ownership and each path's actual member manifest,

@@ -106,20 +106,11 @@ fn project_slot_row_dense_into(
     charge_projection_steps(prepared_projection.compiled_exprs().len())?;
     shaped.clear();
 
-    if project_retained_sibling_paths(prepared_projection.compiled_exprs(), row, shaped)? {
-        return Ok(());
-    }
-
     if project_slot_row_direct_octet_lengths_into(prepared_projection, row, shaped)? {
         return Ok(());
     }
 
-    let mut read_slot = |slot: usize| row.slot_ref(slot);
-    visit_prepared_projection_values_with_required_value_reader_cow(
-        prepared_projection.compiled_exprs(),
-        &mut read_slot,
-        &mut |value| shaped.push(value),
-    )?;
+    project_retained_expressions_into(prepared_projection.compiled_exprs(), row, shaped)?;
 
     Ok(())
 }
@@ -342,24 +333,33 @@ fn project_scalar_data_row_into(
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
 
-    if order_values.is_none()
-        && project_sibling_paths(compiled_fields, shaped, |root, prefix, members, shaped| {
-            crate::db::executor::projection::path::resolve_slot_sibling_paths(
-                &row_fields,
-                root,
-                prefix,
-                members,
-                shaped,
-            )
-            .map_err(|error| InternalError::classified(error.class(), error.origin()))
-        })?
-    {
-        return Ok(());
-    }
-
-    for compiled in compiled_fields {
+    let mut remaining = compiled_fields;
+    while let Some((compiled, tail)) = remaining.split_first() {
+        // Cached evaluations remain authoritative. Split sibling runs at cached
+        // leaves instead of decoding them again or allocating while probing reuse.
         if let Some(value) = order_values.and_then(|values| values.projection_value(compiled)) {
-            shaped.push(value);
+            shaped.push(value.clone());
+            remaining = tail;
+            continue;
+        }
+        let count = sibling_path_prefix_len(remaining, |expr| {
+            order_values.is_none_or(|values| values.projection_value(expr).is_none())
+        });
+        if project_sibling_paths(
+            &remaining[..count],
+            shaped,
+            |root, prefix, members, shaped| {
+                crate::db::executor::projection::path::resolve_slot_sibling_paths(
+                    &row_fields,
+                    root,
+                    prefix,
+                    members,
+                    shaped,
+                )
+                .map_err(|error| InternalError::classified(error.class(), error.origin()))
+            },
+        )? {
+            remaining = &remaining[count..];
             continue;
         }
         let mut record_slot = |_| {};
@@ -369,6 +369,7 @@ fn project_scalar_data_row_into(
             &mut record_slot,
         )?;
         shaped.push(value.into_owned());
+        remaining = tail;
     }
 
     Ok(())
@@ -395,8 +396,35 @@ fn project_retained_sibling_paths(
     )
 }
 
-// Only unconditional sibling paths share a traversal. Mixed expressions keep
-// their authored evaluation order and CASE/COALESCE laziness.
+// Return the leading sibling run, or one ordinary expression. This inspects
+// shape only; value/error evaluation stays at the original projection position.
+fn sibling_path_prefix_len(
+    compiled_fields: &[CompiledExpr],
+    mut include: impl FnMut(&CompiledExpr) -> bool,
+) -> usize {
+    let Some(CompiledExpr::FieldPath {
+        root_slot,
+        segment_bytes,
+        ..
+    }) = compiled_fields.first()
+    else {
+        return usize::from(!compiled_fields.is_empty());
+    };
+    let Some((_, prefix)) = segment_bytes.split_last() else {
+        return 1;
+    };
+    compiled_fields
+        .iter()
+        .take_while(|compiled| {
+            matches!(compiled, CompiledExpr::FieldPath { root_slot: slot, segment_bytes: path, .. }
+            if slot == root_slot && path.split_last().is_some_and(|(_, parent)| parent == prefix))
+                && include(compiled)
+        })
+        .count()
+}
+
+// Only one unconditional sibling run shares a traversal; other expressions
+// remain outside this batch and keep their authored evaluation order.
 fn project_sibling_paths(
     compiled_fields: &[CompiledExpr],
     shaped: &mut Vec<Value>,
@@ -416,18 +444,8 @@ fn project_sibling_paths(
     let Some((_, prefix)) = segment_bytes.split_last() else {
         return Ok(false);
     };
-    for compiled in compiled_fields {
-        let CompiledExpr::FieldPath {
-            root_slot: slot,
-            segment_bytes: path,
-            ..
-        } = compiled
-        else {
-            return Ok(false);
-        };
-        if slot != root_slot || path.split_last().is_none_or(|(_, parent)| parent != prefix) {
-            return Ok(false);
-        }
+    if sibling_path_prefix_len(compiled_fields, |_| true) != compiled_fields.len() {
+        return Ok(false);
     }
     // Admit both borrowed member names and selected slices before allocation.
     // These are row-local scratch; leaf materialization retains its existing owner.
@@ -454,21 +472,27 @@ fn charge_projection_steps(count: usize) -> Result<(), InternalError> {
     )
 }
 
-// Walk one prepared projection plan through one reader that can borrow slot
-// values from retained structural rows until an expression needs ownership.
-fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
-    compiled_exprs: &'a [CompiledExpr],
-    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
-    on_value: &mut dyn FnMut(Value),
+// Evaluate authored expressions in order, sharing only consecutive unconditional
+// sibling paths. Never cross another expression or inspect its lazy branches.
+fn project_retained_expressions_into(
+    mut remaining: &[CompiledExpr],
+    row: &RetainedSlotRow,
+    shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
-    for compiled in compiled_exprs {
-        on_value(
+    while let Some((compiled, tail)) = remaining.split_first() {
+        let count = sibling_path_prefix_len(remaining, |_| true);
+        if project_retained_sibling_paths(&remaining[..count], row, shaped)? {
+            remaining = &remaining[count..];
+            continue;
+        }
+        shaped.push(
             crate::db::executor::projection::eval::eval_compiled_expr_with_value_ref_reader(
-                compiled, read_slot,
+                compiled,
+                &mut |slot| row.slot_ref(slot),
             )
             .map_err(ProjectionEvalError::into_internal_error)?,
         );
+        remaining = tail;
     }
-
     Ok(())
 }

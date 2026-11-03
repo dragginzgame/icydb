@@ -1,7 +1,25 @@
 # IcyDB database changelog
 
 Last coordinated release: [0.294.0](../history.md). Independent database releases
-begin with the pending 0.295.0 entry below.
+begin with 0.295.0 below.
+
+## [0.295.1]
+
+### 🧹 Cleanup
+
+- Unify safe stable-store opening and clarify fallible initialization errors;
+  retained storage and recovery contracts remain unchanged.
+- Simplify six schema fixtures to use the existing IcyDB facade without redundant
+  direct model dependencies ([#601](https://github.com/dragginzgame/icydb/issues/601)).
+- Fix core packaging by keeping private SQL test helpers out of published
+  dependency requirements ([#602](https://github.com/dragginzgame/icydb/issues/602)).
+- Share sibling-map lookups in scalar projections and grouped keys while
+  preserving expression order, lazy evaluation and retained sort-value reuse
+  ([#400](https://github.com/dragginzgame/icydb/issues/400), partial).
+- Accommodate Storage 0.65.1's larger map handles without enlarging heap-store
+  backends or changing retained storage ([#604](https://github.com/dragginzgame/icydb/issues/604)).
+
+[Detailed changes](0.295.md).
 
 ## [0.295.0] - 2026-11-02
 

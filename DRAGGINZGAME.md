@@ -146,7 +146,9 @@ changing or reviewing commands.
 
 **All our Rust crates use `ic-metrics` for metrics and `ic-logging` for logging.**
 Do not maintain custom or competing implementations. Raise capability gaps as
-issues in IC Observability and improve the canonical crates there. Read the
+issues in IC Observability and improve the canonical crates there. Ordinary
+benchmark/statistical calculations stay with their owning tool and do not by
+themselves require a Metrics dependency. Read the
 [observability contract](rules/engineering-details.md#metrics-and-logging)
 when adding, changing or reviewing metrics and logging.
 
@@ -231,7 +233,8 @@ within explicit release groups where unrelated contracts need independent
 releases. Independent groups all use explicit package versions and
 `releases/<group>/CHANGELOG.md`; the root has no shared version and its changelog
 is an index. Require explicit group selection for releases and publication.
-Show every member's version and path in root `Cargo.toml` dependency declarations.
+Show every member's path and every publishable member's version in root
+`Cargo.toml` dependency declarations. Private dev helpers may use path-only entries.
 Group them once, with short titles and separate changelog comments, under the
 [workspace versioning rules](rules/rust-workspaces.md#coordinated-versions-and-workspace-boundaries).
 Dependency adoption must distinguish required compatibility/security changes from

@@ -11,6 +11,7 @@ use crate::{
         positioned_overlay::{
             JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
         },
+        storage::open_stable_map,
     },
     error::InternalError,
     types::EntityTag,
@@ -53,7 +54,7 @@ pub struct DataStore {
 enum DataStoreBackend {
     Heap(HeapBTreeMap<RawDataStoreKey, RawRow>),
     Journaled {
-        canonical: StableBTreeMap<RawDataStoreKey, RawRow, DefaultMemoryImpl>,
+        canonical: Box<StableBTreeMap<RawDataStoreKey, RawRow, DefaultMemoryImpl>>,
         live: HeapBTreeMap<RawDataStoreKey, RawRow>,
         tombstones: BTreeSet<RawDataStoreKey>,
         positions: PositionedOverlayMetadata<RawDataStoreKey>,
@@ -136,16 +137,14 @@ impl DataStore {
     /// is the future fold target and is not mutated by this wrapper's write
     /// methods.
     ///
+    /// # Errors
+    /// Returns a store error if creation or retained collection validation fails.
+    /// Invalid retained contents are not replaced.
+    ///
     /// # Panics
-    /// Panics if retained storage has an invalid header or unsupported layout,
-    /// or the backing storage fails. Invalid retained contents are not replaced.
+    /// Propagates backing-storage or codec panics.
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
-        // Retained maps must never be replaced when their header is corrupt.
-        let canonical = if memory.size() == 0 {
-            StableBTreeMap::create(memory).map_err(InternalError::from)?
-        } else {
-            StableBTreeMap::load(memory).map_err(InternalError::from)?
-        };
+        let canonical = open_stable_map(memory).map_err(InternalError::from)?;
         let entity_cardinality = if canonical.is_empty() {
             EntityCardinality::empty()
         } else {
@@ -153,7 +152,7 @@ impl DataStore {
         };
         Ok(Self {
             backend: DataStoreBackend::Journaled {
-                canonical,
+                canonical: Box::new(canonical),
                 live: HeapBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),

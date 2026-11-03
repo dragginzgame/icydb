@@ -8,20 +8,20 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 ## Ownership and provenance
 
 IcyDB selects public Shared Tooling **0.27.28**, commit
-`8c7fae6605c69a930e3b1f14e1ff5c4c9dafbcb7`, verified against GitHub's
-public main branch and the clean supplier checkout. The canonical exporter owns
+`8075b3fd4803d560a1be04768f76701ada3ae8fe`, verified against GitHub and
+the clean supplier checkout. The canonical exporter owns
 148 selected payloads with their hashes/modes. No supplier working-tree changes
 are consumed. Refresh only through the canonical exporter; ordinary integrity
 checks remain offline.
 
-This refresh fixes the release-group guide's required documentation closure.
-The exporter now includes the validation-runner guide transitively, so the
-consumer no longer selects it as a manual extra entrypoint
-([Shared #345](https://github.com/dragginzgame/shared-tooling/issues/345)).
-All 148 snapshot payloads verify and the two affected guides' local links pass.
-Existing release groups and full validation gates are unchanged. Native macOS
-qualification and broad product checks were not run for this documentation-only
-supplier change.
+This refresh adopts private path-only development dependencies in release-group
+admission and preparation. The SQL generator and SQLite reference helpers retain
+their package versions and group membership, but core archives omit their private
+registry requirements ([#602](https://github.com/dragginzgame/icydb/issues/602)).
+All 148 snapshot payloads verify, database group admission passes and an actual
+core archive packages with both private requirements omitted. Existing release
+groups and full validation gates are unchanged. Native macOS qualification and
+broad product checks were not run for this focused correction.
 
 The root now adopts published Platform 0.18.0, Runtime 0.18.0, Types 0.17.0,
 Wire/Derive 0.15.0, Storage 0.65.0 and Metrics 0.27.0. Storage's release resolves
