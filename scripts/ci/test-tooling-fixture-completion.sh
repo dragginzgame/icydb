@@ -28,7 +28,6 @@ exec "$ICYDB_FIXTURE_REAL_MKTEMP" "$@"
 STUB
 chmod +x "$fixture/bin/mktemp"
 export PATH="$fixture/bin:$PATH"
-FIXTURE_PROBE_TEMPORARY_ROOT="$fixture/requested"
 cases=0
 for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooling.sh \
     scripts/ci/test-ci-workflow-invariants.sh scripts/release/test-standard-release.sh \
@@ -42,6 +41,12 @@ for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooli
   # The shared probe requires explicit caller-owned variable names.
   FIXTURE_PROBE_ROOT_VARIABLE=ROOT
   FIXTURE_PROBE_DIRECTORY_VARIABLE=fixture
+  FIXTURE_PROBE_TEMPORARY_ROOT="$fixture/requested"
+  # Cargo metadata fixtures deliberately belong to the workspace's target tree.
+  # Verify retention at that exact owner rather than the general TMPDIR root.
+  if [[ "$source" == scripts/ci/test-cargo-metadata-adoption.sh ]]; then
+    FIXTURE_PROBE_TEMPORARY_ROOT="$ROOT/target"
+  fi
   case "$source" in
     scripts/release/test-standard-release.sh|scripts/release/test-release-groups.sh|scripts/release/test-finalize-notes.sh|scripts/ci/test-publish-workspace.sh)
       FIXTURE_PROBE_ROOT_VARIABLE=root ;;
