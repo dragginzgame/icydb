@@ -69,7 +69,8 @@ begin with 0.295.0 below.
   selection and current Foundation/Build/Text patch floors.
 
 - Keep release qualification receipts beside Git recovery evidence so cache
-  cleanup cannot erase them; missing evidence still refuses reuse
+  cleanup cannot erase them; missing evidence still refuses reuse. Requalify the
+  unchanged stage mapping for the new database minor-line notes owner
   ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603), partial).
 
 [Detailed changes](0.297.md).
