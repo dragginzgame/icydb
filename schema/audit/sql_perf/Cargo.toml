@@ -3,7 +3,7 @@ name = "icydb-testing-audit-sql-perf-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
 license-file = { workspace = true }
-version = "0.296.1"
+version = "0.297.0"
 publish = false
 description = "Dedicated SQL perf audit schema fixture crate"
 

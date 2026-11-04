@@ -2,7 +2,7 @@
 name = "icydb-testing-model-typed-adapter"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.296.1"
+version = "0.297.0"
 publish = false
 license-file = { workspace = true }
 description = "Renamed-dependency typed-adapter fixture for IcyDB model packages"
