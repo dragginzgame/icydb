@@ -881,9 +881,25 @@ mod tests {
             sql,
             accepted.persisted_snapshot().fields(),
         );
-        // Three non-reducing pairs in each conjunction share one statement's
-        // allowance, including across disjunction branches.
-        for limit in [5, 6, 7] {
+        // Both conjunctions and their enclosing sort share one statement's
+        // complete allowance, including key encoding across disjunction branches.
+        let baseline = MaintenanceConstructionBudget::with_limit_for_tests(
+            Resource::PredicateExpressionSteps,
+            u64::MAX,
+        );
+        let canonical = baseline
+            .run(
+                |work| {
+                    bind_create_index_predicate(Some(sql), &accepted, &schema, work)
+                        .map_err(SqlDdlPrepareError::from)
+                },
+                SqlDdlPrepareError::Construction,
+            )
+            .unwrap();
+        assert_eq!(canonical.as_ref(), Some(&expected));
+        let steps = baseline.observed_for_tests(Resource::PredicateExpressionSteps);
+        assert!(steps > 6, "sort work supplements the six conjunction pairs");
+        for limit in [steps - 1, steps, steps + 1] {
             let work = MaintenanceConstructionBudget::with_limit_for_tests(
                 Resource::PredicateExpressionSteps,
                 limit,
@@ -895,7 +911,7 @@ mod tests {
                 },
                 SqlDdlPrepareError::Construction,
             );
-            if limit < 6 {
+            if limit < steps {
                 let error = crate::db::QueryError::from_sql_ddl_prepare_error(result.unwrap_err());
                 for fact in [
                     (
@@ -903,7 +919,7 @@ mod tests {
                         Resource::PredicateExpressionSteps.raw(),
                     ),
                     (Fact::Limit, limit),
-                    (Fact::Actual, 6),
+                    (Fact::Actual, steps),
                 ] {
                     assert!(error.diagnostic_facts().contains(&fact));
                 }

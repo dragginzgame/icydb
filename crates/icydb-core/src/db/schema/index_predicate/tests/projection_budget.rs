@@ -119,6 +119,32 @@ fn visible(
     })
 }
 
+// Calibrate the predicate owner's complete allowance independently of the
+// projection handoff: pair classification, raw keys and canonical sorting.
+fn normalization_steps(accepted: &AcceptedSchemaSnapshot) -> u64 {
+    let predicate = accepted.persisted_snapshot().indexes()[0]
+        .predicate()
+        .unwrap()
+        .to_predicate(accepted.persisted_snapshot().fields(), &catalog())
+        .unwrap();
+    let budget = MaintenanceConstructionBudget::with_limit_for_tests(
+        Resource::PredicateExpressionSteps,
+        u64::MAX,
+    );
+    budget
+        .run(
+            |work| crate::db::predicate::normalize_with_budget(predicate, work),
+            std::convert::identity,
+        )
+        .unwrap();
+    let steps = budget.observed_for_tests(Resource::PredicateExpressionSteps);
+    assert!(
+        steps > 3,
+        "sort work supplements the three conjunction pairs"
+    );
+    steps
+}
+
 fn assert_resource(facts: &[(DiagnosticFactTag, u64)], limit: u64, actual: u64) {
     for expected in [
         (
@@ -136,30 +162,31 @@ fn assert_resource(facts: &[(DiagnosticFactTag, u64)], limit: u64, actual: u64) 
 fn visible_index_normalization_shares_request_limits_across_both_index_kinds() {
     let accepted = accepted_indexes();
     let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
+    let steps = 2 * normalization_steps(&accepted);
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let root = request_with_limit(Resource::PredicateExpressionSteps, 5);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, steps - 1);
         let facts = visible(&root, lane, &schema)
             .unwrap_err()
             .diagnostic_facts();
-        assert_resource(&facts, 5, 6);
+        assert_resource(&facts, steps - 1, steps);
         assert!(facts.contains(&(DiagnosticFactTag::ExecutionLane, lane.raw())));
         assert_eq!(root.observed(Resource::RowsVisited), 0);
         assert_eq!(root.observed(Resource::KeyIndexEntriesVisited), 0);
 
-        let root = request_with_limit(Resource::PredicateExpressionSteps, 12);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, steps * 2);
         let first = visible(&root, lane, &schema).unwrap();
         let second = visible(&root, lane, &schema).unwrap();
         assert_eq!(
             first.accepted_semantic_index_contracts(),
             second.accepted_semantic_index_contracts()
         );
-        assert_eq!(root.observed(Resource::PredicateExpressionSteps), 12);
+        assert_eq!(root.observed(Resource::PredicateExpressionSteps), steps * 2);
         assert_resource(
             &visible(&root, lane, &schema)
                 .unwrap_err()
                 .diagnostic_facts(),
-            12,
-            13,
+            steps * 2,
+            steps * 2 + 1,
         );
     }
 }
@@ -175,8 +202,9 @@ fn each_index_projection_keeps_its_canonical_predicate_at_the_exact_boundary() {
             .to_predicate(accepted.persisted_snapshot().fields(), &catalog())
             .unwrap(),
     );
+    let steps = normalization_steps(&accepted);
     for expression in [false, true] {
-        for (limit, admitted) in [(2, false), (3, true), (4, true)] {
+        for (limit, admitted) in [(steps - 1, false), (steps, true), (steps + 1, true)] {
             let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
             let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
                 let result = if expression {
@@ -195,7 +223,7 @@ fn each_index_projection_keeps_its_canonical_predicate_at_the_exact_boundary() {
             if admitted {
                 assert_eq!(result.unwrap().predicate_semantics(), Some(&expected));
             } else {
-                assert_resource(&result.unwrap_err().diagnostic_facts(), 2, 3);
+                assert_resource(&result.unwrap_err().diagnostic_facts(), steps - 1, steps);
             }
         }
     }
@@ -204,8 +232,9 @@ fn each_index_projection_keeps_its_canonical_predicate_at_the_exact_boundary() {
 #[test]
 fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
     let (contract, candidates) = candidate_projections();
+    let steps = normalization_steps(&accepted_indexes());
     for index in &candidates {
-        for (limit, admitted) in [(2, false), (3, true), (4, true)] {
+        for (limit, admitted) in [(steps - 1, false), (steps, true), (steps + 1, true)] {
             let budget = MaintenanceConstructionBudget::with_limit_for_tests(
                 Resource::PredicateExpressionSteps,
                 limit,
@@ -226,8 +255,8 @@ fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
             } else {
                 let error = result
                     .err()
-                    .expect("the third comparison exceeds the page budget");
-                assert_resource(&error.diagnostic_facts(), 2, 3);
+                    .expect("complete normalization exceeds the page budget");
+                assert_resource(&error.diagnostic_facts(), steps - 1, steps);
             }
         }
     }
@@ -236,7 +265,8 @@ fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
 #[test]
 fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
     let (contract, candidates) = candidate_projections();
-    for (limit, admitted) in [(5, false), (6, true)] {
+    let steps = 2 * normalization_steps(&accepted_indexes());
+    for (limit, admitted) in [(steps - 1, false), (steps, true)] {
         let budget = MaintenanceConstructionBudget::with_limit_for_tests(
             Resource::PredicateExpressionSteps,
             limit,
@@ -269,7 +299,7 @@ fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
             assert!(result.is_ok());
         } else {
             let error = result.err().expect("both projections share one allowance");
-            assert_resource(&error.diagnostic_facts(), 5, 6);
+            assert_resource(&error.diagnostic_facts(), steps - 1, steps);
             let retained = budget.run(|_| Ok(()), std::convert::identity).unwrap_err();
             assert_eq!(retained.diagnostic_facts(), error.diagnostic_facts());
         }
@@ -280,8 +310,9 @@ fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
 #[test]
 fn migration_candidate_normalization_uses_the_existing_page_budget() {
     let (contract, candidates) = candidate_projections();
+    let steps = normalization_steps(&accepted_indexes());
     for index in &candidates {
-        for (limit, admitted) in [(2, false), (3, true)] {
+        for (limit, admitted) in [(steps - 1, false), (steps, true)] {
             let budget = MaintenanceConstructionBudget::with_limit_for_tests(
                 Resource::PredicateExpressionSteps,
                 limit,
@@ -303,7 +334,7 @@ fn migration_candidate_normalization_uses_the_existing_page_budget() {
                 let error = result
                     .err()
                     .expect("migration must admit predicate work before rows");
-                assert_resource(&error.diagnostic_facts(), 2, 3);
+                assert_resource(&error.diagnostic_facts(), steps - 1, steps);
             }
         }
     }

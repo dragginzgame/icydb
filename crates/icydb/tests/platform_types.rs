@@ -32,13 +32,24 @@ fn canonical_platform_types_interoperate_with_public_conversions_and_guards() {
     };
     let database_absent: Account = absent.into();
     let database_zero: Account = zero.into();
-    assert_ne!(database_absent, database_zero);
+    assert_eq!(database_absent, database_zero);
     assert_eq!(database_absent.subaccount(), None);
-    assert_eq!(database_zero.subaccount(), Some(Subaccount::MIN));
+    assert_eq!(database_zero.subaccount(), None);
     let restored_absent: PlatformAccount = database_absent.into();
     let restored_zero: PlatformAccount = database_zero.into();
     assert_eq!(restored_absent.owner, owner);
     assert_eq!(restored_zero.owner, owner);
     assert_eq!(restored_absent.subaccount, None);
-    assert_eq!(restored_zero.subaccount, Some([0; 32]));
+    assert_eq!(restored_zero.subaccount, None);
+
+    let nonzero = PlatformAccount {
+        owner,
+        subaccount: Some([0xFF; 32]),
+    };
+    let database_nonzero: Account = nonzero.into();
+    assert_ne!(database_nonzero, database_absent);
+    assert_eq!(database_nonzero.subaccount(), Some(Subaccount::MAX));
+    let restored_nonzero: PlatformAccount = database_nonzero.into();
+    assert_eq!(restored_nonzero.owner, owner);
+    assert_eq!(restored_nonzero.subaccount, nonzero.subaccount);
 }

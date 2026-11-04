@@ -83,8 +83,32 @@ fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
         base.fields(),
     );
     // Each before/after projection visits one index and the canonical source,
-    // then classifies three conjunction pairs under the same stage allowance.
+    // then shares the predicate owner's complete normalization/sort allowance.
     let source_steps = 2 * (1 + predicate.canonical_bytes().unwrap().len() as u64);
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
+        empty_accepted_enum_catalog_for_tests(),
+        AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let normalization = MaintenanceConstructionBudget::with_limit_for_tests(
+        Resource::PredicateExpressionSteps,
+        u64::MAX,
+    );
+    normalization
+        .run(
+            |work| {
+                let compiled = predicate.to_predicate(base.fields(), &catalog)?;
+                crate::db::predicate::normalize_with_budget(compiled, work)
+            },
+            std::convert::identity,
+        )
+        .unwrap();
+    let normalization_steps =
+        2 * normalization.observed_for_tests(Resource::PredicateExpressionSteps);
+    assert!(
+        normalization_steps > 6,
+        "key and sort work supplement pair classification"
+    );
     for expression in [false, true] {
         let key = if expression {
             domain_expression_index(1, "by_name", false, None)
@@ -104,8 +128,12 @@ fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
         let contract = accepted_row_contract(&snapshot);
         let store = IndexStore::init_heap();
         let physical_before = index_store_entries(&store);
-        for pair_allowance in [5, 6, 7] {
-            let limit = source_steps + pair_allowance;
+        for allowance in [
+            normalization_steps - 1,
+            normalization_steps,
+            normalization_steps + 1,
+        ] {
+            let limit = source_steps + allowance;
             let result = super::StagedUserIndexDomainReplacementBuilder::new(
                 accepted_identity(&snapshot),
                 &snapshot,
@@ -118,9 +146,9 @@ fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
                     limit,
                 ),
             );
-            if pair_allowance < 6 {
+            if allowance < normalization_steps {
                 let error = match result {
-                    Ok(_) => panic!("the sixth comparison must exceed the shared setup budget"),
+                    Ok(_) => panic!("complete normalization must exceed the shared setup budget"),
                     Err(error) => error.into_internal_error(),
                 };
                 for fact in [
@@ -129,7 +157,10 @@ fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
                         Resource::PredicateExpressionSteps.raw(),
                     ),
                     (DiagnosticFactTag::Limit, limit),
-                    (DiagnosticFactTag::Actual, source_steps + 6),
+                    (
+                        DiagnosticFactTag::Actual,
+                        source_steps + normalization_steps,
+                    ),
                 ] {
                     assert!(error.diagnostic_facts().contains(&fact));
                 }

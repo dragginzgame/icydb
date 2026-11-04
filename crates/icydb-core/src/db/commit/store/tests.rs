@@ -441,14 +441,15 @@ fn marker_layout_controls() -> Vec<DatabaseControlOp> {
 
 #[test]
 fn marker_layout_preserves_control_bytes_capacity_and_appended_batch_ranges() {
-    // Frozen from the pre-consolidation 0.290.0 writer, with each successive
-    // control tag included. Round-tripping alone cannot establish byte identity.
+    // Freeze the current hard-cut control framing, including the optional
+    // captured lineage in application records. Round-tripping alone cannot
+    // establish byte identity.
     const PAYLOAD_HASHES: [&str; 5] = [
         "785a342748f1d6235c52d82f188d7f2809277d44991dff3aafbe74ccf71d6cf8",
-        "481a701658df14f7b7ec08a0b80429f88c9f8273a8bcc01b9d160caa5a7139c8",
-        "5dedbe8b829322639b62f885b20857c5db998fca54d956d22341168d983557fe",
-        "b2279d23ce13131ba325393c30355fca953b9a47a442fabced7d2ec98af6ea09",
-        "0db4f5c8a6c2b37aebdfa7f9654557ca930ae83095f60b515412b974cf0d9d39",
+        "7f935bee6c7716f5d10ce7d959d6088ce28b1fe48e75233e9c2c698c313f85da",
+        "c3a2b206e01a8a47a9bcabc06dee57b99283bc754f1b8f2278b583285b9264fc",
+        "4f8913200c605bdacbcf8b1bacaa5cab18fcf06e32f19312740ce3881156d17b",
+        "3ad832545f94b545653f064426317ca7dedd006fcc781e170c5c4bb78c90b403",
     ];
     let marker_id = [0xAB; 16];
     let batches = [1, 2].map(|id| {
@@ -469,6 +470,7 @@ fn marker_layout_preserves_control_bytes_capacity_and_appended_batch_ranges() {
         .unwrap()
     });
     let controls = marker_layout_controls();
+    let mut payload_hashes = Vec::new();
     for count in 0..=controls.len() {
         let marker = CommitMarker::from_parts_with_database_control(
             marker_id,
@@ -487,7 +489,7 @@ fn marker_layout_preserves_control_bytes_capacity_and_appended_batch_ranges() {
         for (range, batch) in ranges.iter().zip(&batches) {
             assert_eq!(encoded[range.clone()], encode_journal_batch(batch).unwrap());
         }
-        assert_eq!(blake3::hash(payload).to_string(), PAYLOAD_HASHES[count]);
+        payload_hashes.push(blake3::hash(payload).to_string());
         let decoded = decode_commit_marker_payload(payload).unwrap();
         assert_eq!(encode_commit_marker_payload(&decoded).unwrap(), payload);
         if count != 0 {
@@ -498,6 +500,7 @@ fn marker_layout_preserves_control_bytes_capacity_and_appended_batch_ranges() {
             assert_eq!(error.origin(), ErrorOrigin::Store);
         }
     }
+    assert_eq!(payload_hashes, PAYLOAD_HASHES);
 }
 
 #[test]

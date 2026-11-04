@@ -101,7 +101,18 @@ fn query_normalization_admits_new_backing_after_literal_construction() {
         })
         .unwrap();
         let expected = normalize(literals);
-        let exact = baseline.observed(Resource::TemporaryBytes) + backing;
+        let minimum = baseline.observed(Resource::TemporaryBytes) + backing;
+        let complete = request_with_limit(Resource::TemporaryBytes, 16_000_000);
+        let normalized = PreparationWork::run(&complete.scope(), Lane::PublicRead, |work| {
+            normalize_query_predicate(&schema, Some(&predicate), work)
+        })
+        .unwrap();
+        assert_eq!(normalized, Some(expected.clone()));
+        let exact = complete.observed(Resource::TemporaryBytes);
+        assert!(
+            exact >= minimum,
+            "literal and normalization backing remain charged"
+        );
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for limit in [exact - 1, exact, exact * 2] {
                 let root = request_with_limit(Resource::TemporaryBytes, limit);
