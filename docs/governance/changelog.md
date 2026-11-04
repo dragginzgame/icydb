@@ -14,9 +14,9 @@ Root `CHANGELOG.md` only indexes the `database` and `cli` ledgers and the unchan
 coordinated history in `releases/history.md`. For IcyDB, "main changelog" means
 the owning group's `releases/<group>/CHANGELOG.md`: keep every completed fix's
 descriptive issue link beside its outcome there, and preserve those links after
-release. The maintainer approved this presentation override on 2026-11-03;
-it supersedes Shared's root fixed-issue index requirement. Group ledgers remain
-the release/version authority.
+release. The maintainer selected this presentation on 2026-11-03; the current
+Shared group-changelog policy now agrees. Group ledgers remain the release/version
+authority.
 
 It records high-level architectural and behavioral changes per release.
 

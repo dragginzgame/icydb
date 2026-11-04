@@ -149,9 +149,44 @@ fn terminal_handoff_drains_old_journals_before_starting_a_successor() {
 // generation must not retain the first submission's staged target edges.
 fn correct_aborted_submission(staged: bool) {
     let (db, session, first) = initialize(if staged { 2 } else { 99 });
+    let generated = |attempt| {
+        let fragment = icydb_schema::encode_schema_fragment(&first.fragments()[0]).unwrap();
+        let plan = icydb_schema::encode_schema_migration_plan(first.migration().unwrap()).unwrap();
+        let bindings = first
+            .fragments()
+            .iter()
+            .flat_map(icydb_schema::SchemaFragment::entities)
+            .map(|entity| {
+                (
+                    entity.name().as_str(),
+                    MIGRATION_EXECUTION_STORE_PATH,
+                    Some("migration_execution"),
+                )
+            })
+            .collect::<Vec<_>>();
+        SchemaProposal::try_compose(
+            first.capabilities().to_vec(),
+            first.target_database(),
+            SchemaSubmissionKey::try_new(icydb_schema::generated_schema_submission_key(
+                &fragment,
+                Some(&plan),
+                attempt,
+                &bindings,
+            ))
+            .unwrap(),
+            first.expected_head().clone(),
+            first.fragments().to_vec(),
+            first.assignments().to_vec(),
+            first.removals().to_vec(),
+            first.migration().cloned(),
+        )
+        .unwrap()
+    };
+    let first_attempt = generated(0);
+    let first = &first_attempt;
     drive_to(
         &db,
-        &first,
+        first,
         if staged {
             SchemaMigrationPhase::ReadyToRewrite
         } else {
@@ -164,30 +199,23 @@ fn correct_aborted_submission(staged: bool) {
         expected_plan: first.migration().expect("plan should exist").digest(),
     };
     assert_eq!(
-        migrate_schema(&db, &first, abort)
+        migrate_schema(&db, first, abort)
             .expect("pre-rewrite plan should abort")
             .phase(),
         SchemaMigrationPhase::Aborted
     );
     assert_eq!(
-        advance(&db, &first)
+        advance(&db, first)
             .expect("exact aborted retry should remain terminal")
             .phase(),
         SchemaMigrationPhase::Aborted
     );
     let target = if staged { 1 } else { 2 };
     set_backup(&session, target);
-    let corrected = SchemaProposal::try_compose(
-        first.capabilities().to_vec(),
-        first.target_database(),
-        SchemaSubmissionKey::try_new("corrected").expect("submission should admit"),
-        first.expected_head().clone(),
-        first.fragments().to_vec(),
-        first.assignments().to_vec(),
-        first.removals().to_vec(),
-        first.migration().cloned(),
-    )
-    .expect("corrected submission should compose");
+    let corrected = generated(1);
+    assert_ne!(first.submission_key(), corrected.submission_key());
+    assert_eq!(first.fragments(), corrected.fragments());
+    assert_eq!(first.migration(), corrected.migration());
     drive_to(&db, &corrected, SchemaMigrationPhase::Applied);
     assert_edges(&db, &accepted_relations(&db), target);
     forget_recovered_domain_for_tests(&db).expect("recovery should reset");

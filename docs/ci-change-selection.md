@@ -10,8 +10,9 @@ select `full` without fetching. An empty comparison also selects `full`.
 
 Consumers own an exact, reviewed list of Markdown paths that are prose only.
 There are no globs. The classifier reads identical policy bytes from both
-compared commits, never an uncommitted list. Unknown paths, policy/workflow/code
-changes, executable files and symlinks select full CI. Renames are checked as
+compared commits, never an uncommitted list. Apart from the explicit `VERSION`
+exception below, unknown paths select full CI. Policy/workflow/code changes,
+executable files and symlinks always select full CI. Renames are checked as
 both deletion and addition. Do not list Markdown used by `include_str!`, doctests,
 generation, packaging or other executable/build contracts; the extension alone
 is not proof. Keep the classifier and workflow under normal code review: this
@@ -19,6 +20,17 @@ is an optimization, not a security boundary against workflow authors.
 
 Submodule identity changes always select full CI, even when local Git settings
 normally hide them. Relative-diff settings cannot narrow the compared paths.
+
+Shared Tooling opts into `--allow-version-bump` for its root `VERSION` convention.
+Alongside reviewed prose, a changed `VERSION` may use the reduced path only when
+`CHANGELOG.md` is also changed and allowlisted. Both committed endpoints must have
+regular non-executable version/changelog files, canonical stable versions and
+matching first changelog headings; historical headings must be older than their
+own top version. The version must increase. Missing files, mismatches, malformed
+versions, rollbacks and mixed code changes select full CI. Uncommitted repairs
+cannot influence the decision. This option does not admit Cargo manifests or
+other release metadata, and is off by default for consumers. The normal version
+check still runs; release/tag qualification is unchanged.
 
 Use a cheap classification job with complete comparison history. Keep stable
 required job names and run a real documentation check on the docs path. Avoid

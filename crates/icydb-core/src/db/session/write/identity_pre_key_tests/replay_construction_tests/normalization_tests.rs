@@ -92,7 +92,8 @@ fn normal_commit_predicate_preparation_charges_request_pairs() {
 }
 
 #[test]
-fn commit_predicate_pairs_accumulate_across_fresh_contexts_but_not_cache_hits() {
+fn commit_predicate_work_accumulates_across_fresh_contexts_but_not_cache_hits() {
+    let allowance = commit_predicate_steps();
     let initialized = initialize_with_snapshot(partial_index_snapshot(
         "payload != 10 AND payload != 20 AND payload != 30",
     ));
@@ -100,7 +101,7 @@ fn commit_predicate_pairs_accumulate_across_fresh_contexts_but_not_cache_hits() 
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap()
         .fingerprint();
-    let root = request_with_limit(Resource::PredicateExpressionSteps, 3);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, allowance);
     let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
     let entity = session
         .db
@@ -112,35 +113,36 @@ fn commit_predicate_pairs_accumulate_across_fresh_contexts_but_not_cache_hits() 
             entity.prepare_commit_context(&session.db, fingerprint, mode)
         })
         .unwrap();
-    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), allowance);
     contexts
         .get_or_prepare(ENTITY_SOURCE, fingerprint, |_| {
             panic!("a successful operation-local context must be reused")
         })
         .unwrap();
-    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), allowance);
     // A fresh context performs real normalization again against the same root.
     let Err(error) =
         entity.prepare_commit_context(&session.db, fingerprint, CommitPrepareMode::NormalWrite)
     else {
         panic!("a new context cannot reset the request allowance");
     };
+    let actual = root.observed(Resource::PredicateExpressionSteps);
+    assert!(actual > allowance);
     assert!(
         error
             .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::Actual, 4))
+            .contains(&(DiagnosticFactTag::Actual, actual))
     );
     assert!(
         error
             .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::Limit, 3))
+            .contains(&(DiagnosticFactTag::Limit, allowance))
     );
-    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 4);
 }
 
 #[test]
 fn dynamic_insert_refuses_partial_index_work_without_publication_or_identity_gaps() {
-    let limit = unfiltered_insert_predicate_steps() + 2;
+    let limit = insert_predicate_steps(false) + 2;
     let initialized = initialize_with_snapshot(partial_index_snapshot(
         "payload != 10 AND payload != 20 AND payload != 30",
     ));
@@ -210,8 +212,8 @@ fn dynamic_insert_refuses_partial_index_work_without_publication_or_identity_gap
 }
 
 #[test]
-fn dynamic_insert_accepts_the_exact_partial_index_pair_allowance() {
-    let limit = unfiltered_insert_predicate_steps() + 3;
+fn dynamic_insert_accepts_the_exact_partial_index_work_allowance() {
+    let limit = insert_predicate_steps(true);
     initialize_with_snapshot(partial_index_snapshot(
         "payload != 10 AND payload != 20 AND payload != 30",
     ));
@@ -234,14 +236,20 @@ fn dynamic_insert_accepts_the_exact_partial_index_pair_allowance() {
     );
 }
 
-// Account for unchanged input/row staging through an ordinary unfiltered
-// write. The partial predicate contributes three independently specified pairs.
-// A fresh thread also gives this reference its own durable fixture state.
-fn unfiltered_insert_predicate_steps() -> u64 {
+// Measure the complete admitted construction, including canonical sort/key work.
+// These counters qualify exact refusal boundaries, not performance. A fresh
+// thread gives each reference its own durable fixture state.
+fn insert_predicate_steps(filtered: bool) -> u64 {
     std::thread::scope(|scope| {
         scope
             .spawn(|| {
-                initialize();
+                if filtered {
+                    initialize_with_snapshot(partial_index_snapshot(
+                        "payload != 10 AND payload != 20 AND payload != 30",
+                    ));
+                } else {
+                    initialize();
+                }
                 let root = request_with_limit(Resource::PredicateExpressionSteps, u64::MAX);
                 let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
                 let inserted = session
@@ -255,6 +263,39 @@ fn unfiltered_insert_predicate_steps() -> u64 {
                     vec![vec![OutputValue::nat64(1), OutputValue::nat64(40)]]
                 );
                 root.observed(Resource::PredicateExpressionSteps)
+            })
+            .join()
+            .unwrap()
+    })
+}
+
+// Count one fresh normal preparation; cache hits must not repeat any of it.
+fn commit_predicate_steps() -> u64 {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let initialized = initialize_with_snapshot(partial_index_snapshot(
+                    "payload != 10 AND payload != 20 AND payload != 30",
+                ));
+                let fingerprint = initialized
+                    .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+                    .unwrap()
+                    .fingerprint();
+                let root = request_with_limit(Resource::PredicateExpressionSteps, u64::MAX);
+                let session = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
+                session
+                    .db
+                    .accepted_runtime_entity_for_path(ENTITY_SOURCE)
+                    .unwrap()
+                    .prepare_commit_context(
+                        &session.db,
+                        fingerprint,
+                        CommitPrepareMode::NormalWrite,
+                    )
+                    .unwrap();
+                let amount = root.observed(Resource::PredicateExpressionSteps);
+                assert!(amount > 3, "canonical encoding must join pair admission");
+                amount
             })
             .join()
             .unwrap()

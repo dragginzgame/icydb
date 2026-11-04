@@ -186,8 +186,8 @@ startup observation remains `Recovering`. Restore the original store path to
 resume recovery. Repeated polling cannot correct that configuration. This guard
 does not clear older failure receipts that remain terminal under current policy.
 
-Unsupported allocation-registry transitions, such as reintroducing a retired
-store or omitting one with retained journal debt, stop the startup driver once
+Unsupported allocation-registry transitions, such as omitting a store with
+retained journal debt or changing topology during a pending generated application, stop the startup driver once
 reconciliation refuses them. `startup_state()` returns the existing
 `DatabaseControl` failure with `RUNTIME_UNSUPPORTED`. This refusal is retained
 only in the current boot's admission cache; no durable failure receipt is written.

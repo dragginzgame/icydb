@@ -61,8 +61,8 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   `Owning changes` list or a comma-separated issue dump to an omnibus paragraph.
   Prefer one or two links per bullet; when more are needed, split by outcome or
   move the supporting detail into the minor-line notes, retaining every fixed
-  issue's direct link in the root. Keep titles concise and descriptive rather
-  than copying a lengthy diagnostic into the link label.
+  issue's direct link in its owning release changelog. Keep titles concise and
+  descriptive rather than copying a lengthy diagnostic into the link label.
 - Separate unfinished follow-up from delivered changes. Mention it only when
   needed to explain a release limitation, with a clear label and its owning link.
 - When the root entry becomes difficult to scan, retain the release outcome,
@@ -109,12 +109,16 @@ release/deployment admission, as required by the finalization rules below.
 ## Issue links and compatibility
 
 - **Every GitHub issue fixed by the work must have a direct clickable issue link
-  in root `CHANGELOG.md`, beside a concise description of the outcome.** Add it
-  with the fix before handoff, even if issue closure or release is still pending.
-  Links only in detailed notes, a group ledger, a PR, a commit or the final reply
-  do not satisfy this requirement. Link the issue in its owning detailed/group
-  entry too when present. Administrative closure without a fix is not a fixed
-  issue and must not be presented as one.
+  in the owning release changelog, beside a concise description of the outcome.**
+  For a workspace without independent release groups, use root `CHANGELOG.md`.
+  For a workspace with independent release groups, use the owning group's
+  `releases/<group>/CHANGELOG.md`; no duplicate issue entry is required in the
+  workspace root index. A fix spanning groups belongs in each affected group's
+  ledger with that group's outcome. Add links with the fix before handoff, even
+  if issue closure or release is still pending. Links only in detailed notes,
+  a PR, a commit or the final reply do not satisfy this requirement. Link the
+  issue in its detailed entry too when present. Administrative closure without
+  a fix is not a fixed issue and must not be presented as one.
 - Every GitHub issue reference must include its number and title in the clickable
   link text, for example
   `[#123 — Fix release retry failures](https://github.com/OWNER/REPO/issues/123)`.
@@ -125,7 +129,7 @@ release/deployment admission, as required by the finalization rules below.
   descriptive link so readers can identify it and click a useful target.
   Apply this to new and edited pending notes; preserve published history unless
   its correction is explicitly authorized.
-- Mark breaking public API or semantic changes explicitly in the root summary.
+- Mark breaking public API or semantic changes explicitly in the owning ledger's summary.
   State the affected contract and required consumer action, with fuller detail
   in the minor-line notes when needed. Include relevant API, CLI, response/error,
   wire/storage and execution-semantic changes; do not bury them under cleanup.
@@ -186,7 +190,7 @@ repositories retain their existing root changelog and version convention.
 For example, a workspace with Metrics and Logging uses:
 
 ```text
-CHANGELOG.md                       # Group and fixed-issue index
+CHANGELOG.md                       # Group navigation index
 releases/
   metrics/CHANGELOG.md              # Metrics group ledger
   logging/CHANGELOG.md              # Logging group ledger
@@ -195,11 +199,11 @@ releases/
 
 - Root `CHANGELOG.md` is an index linking every group ledger and, when present,
   `releases/history.md`. It contains no numbered release entries or aggregate
-  workspace version. Include a concise fixed-issue index with each issue's direct
-  link, outcome and owning group-entry link under the
-  [issue-link rule](#issue-links-and-compatibility); retain these links after release.
-  This navigation does not duplicate full release notes or create a shared release
-  identity. Former crate-local ledgers may remain short navigation pointers when
+  workspace version. Fixed-issue links and outcomes belong in the owning group
+  ledgers under the [issue-link rule](#issue-links-and-compatibility), not in a
+  mandatory second issue index at the workspace root. This navigation does not
+  duplicate release notes or create a shared release identity.
+  Former crate-local ledgers may remain short navigation pointers when
   useful; update maintained links to the canonical path.
 - Maintain at most one pending numbered entry per group that has changes, based
   on its own latest finalized release. Several groups may have pending entries
@@ -363,6 +367,6 @@ For a latest finalized release of `0.14.7`:
 
 Before handoff, check that the top pending version reflects the complete batch's
 compatibility impact, the current notes cover the completed work, every issue
-fixed in the batch has its direct link in root `CHANGELOG.md`, issue and detail
+fixed in the batch has its direct link in the owning release changelog, issue and detail
 links resolve, both views agree when present, and historical content is preserved.
 This review does not require running a broad validation or release gate.

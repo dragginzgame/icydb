@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::{DataRow, DecodedDataStoreKey, RawRow, StoreVisit},
+        data::{DecodedDataStoreKey, RawRow, ReadDataRow, StoreVisit},
         executor::{
             BoundedOrderWindow, DataRowOrderWindow, OrderedKeyStreamBox, PendingOrderRows,
             ScalarContinuationContext, begin_production_scalar_page_unit,
@@ -128,8 +128,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             let mut read_row = |key| row_runtime.read_data_row_only(consistency, key);
 
             let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
-                row_runtime
-                    .read_borrowed_data_row(key.clone(), row, None)
+                ScalarRowRuntimeHandle::read_borrowed_data_row(key.clone(), row)
                     .map(|row| row.map(KernelRow::new_data_row_only))
             };
 
@@ -146,13 +145,13 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             let mut read_row = |key| {
                 row_runtime
                     .read_data_row_with_filter_program(consistency, key, filter_program)
-                    .map(|row| row.map(KernelRow::new_data_row_only))
+                    .map(|row| row.map(KernelRow::new_read_data_row))
             };
 
             let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
                 row_runtime
-                    .read_borrowed_data_row(key.clone(), row, Some(filter_program))
-                    .map(|row| row.map(KernelRow::new_data_row_only))
+                    .read_borrowed_filtered_data_row(key.clone(), row, filter_program)
+                    .map(|row| row.map(KernelRow::new_read_data_row))
             };
 
             execute_kernel_row_scan_with_readers(
@@ -717,13 +716,20 @@ fn scan_data_rows_direct(
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
+) -> Result<RowScanResult<Vec<ReadDataRow>>, InternalError> {
     scan_data_rows_direct_with_reader(
         key_stream,
         row_keep_cap,
         row_skip_count,
-        |key| row_runtime.read_data_row(consistency, key),
-        |key, row| row_runtime.read_borrowed_data_row(key, row, None),
+        |key| {
+            row_runtime
+                .read_data_row(consistency, key)
+                .map(|row| row.map(ReadDataRow::raw))
+        },
+        |key, row| {
+            ScalarRowRuntimeHandle::read_borrowed_data_row(key, row)
+                .map(|row| row.map(ReadDataRow::raw))
+        },
     )
 }
 
@@ -734,12 +740,12 @@ fn scan_data_rows_direct_with_reader(
     key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
-    mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
+    mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<ReadDataRow>, InternalError>,
     mut read_borrowed_row: impl FnMut(
         DecodedDataStoreKey,
         &RawRow,
-    ) -> Result<Option<DataRow>, InternalError>,
-) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
+    ) -> Result<Option<ReadDataRow>, InternalError>,
+) -> Result<RowScanResult<Vec<ReadDataRow>>, InternalError> {
     // Reuse iterator payloads for collection and cursor pages. The existing
     // page coordinator owns envelope stops and the observed stream owns the
     // last consumed key. Unsupported streams fall through without consumption.
@@ -795,13 +801,13 @@ fn scan_data_rows_direct_with_filter_program(
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     filter_program: &EffectiveRuntimeFilterProgram,
-) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
+) -> Result<RowScanResult<Vec<ReadDataRow>>, InternalError> {
     scan_data_rows_direct_with_reader(
         key_stream,
         row_keep_cap,
         row_skip_count,
         |key| row_runtime.read_data_row_with_filter_program(consistency, key, filter_program),
-        |key, row| row_runtime.read_borrowed_data_row(key, row, Some(filter_program)),
+        |key, row| row_runtime.read_borrowed_filtered_data_row(key, row, filter_program),
     )
 }
 
@@ -859,7 +865,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     consistency: MissingRowPolicy,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
+) -> Result<RowScanResult<Vec<ReadDataRow>>, InternalError> {
     if row_keep_cap == Some(0) {
         return Ok(RowScanResult {
             rows: Vec::new(),

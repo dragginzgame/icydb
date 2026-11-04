@@ -16,7 +16,6 @@ ic-host-artifacts = { workspace = true, features = ["gzip", "wasm"] }
 ic-host-fs = { workspace = true }
 ic-host-process = { workspace = true }
 ic-host-tools = { workspace = true, features = ["ic-interface"] }
-ic-metrics = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-schema = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

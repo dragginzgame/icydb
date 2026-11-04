@@ -230,7 +230,7 @@ mod tests {
             // Native account projection is the ordered owner/optional-bytes pair.
             assert_eq!(
                 wire,
-                crate::wire::encode_one((account.owner(), subaccount)).unwrap()
+                crate::wire::encode_one((account.owner(), account.subaccount())).unwrap()
             );
             assert_eq!(crate::wire::decode_one::<Account>(&wire).unwrap(), account);
         }

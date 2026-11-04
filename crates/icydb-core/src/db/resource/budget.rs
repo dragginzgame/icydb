@@ -748,6 +748,15 @@ impl MaintenanceConstructionBudget {
         }
     }
 
+    /// Inspect cumulative admission for exact-boundary maintenance controls.
+    #[cfg(test)]
+    pub(in crate::db) fn observed_for_tests(
+        &self,
+        resource: DiagnosticExecutionBudgetResource,
+    ) -> u64 {
+        self.tracker.borrow().observed(resource)
+    }
+
     /// Reuse the engine's mutation ceilings without introducing another profile.
     pub(in crate::db) fn new() -> Self {
         Self {
@@ -996,24 +1005,27 @@ pub(in crate::db) fn current_execution_budget_usage() -> Result<ExecutionBudgetU
 
 /// Precharge one full in-memory sort whose entry count is already known.
 pub(in crate::db) fn charge_sort_work<R>(entries: usize) -> Result<(), InternalError> {
-    let comparisons_per_entry = if entries <= 1 {
-        0
-    } else {
-        usize::BITS.saturating_sub(entries.saturating_sub(1).leading_zeros())
-    };
-    let comparisons = entries.saturating_mul(comparisons_per_entry as usize);
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::SortEntries,
         usize_as_u64(entries),
     )?;
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::SortComparisons,
-        usize_as_u64(comparisons),
+        sort_comparison_allowance(entries),
     )?;
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::SortTemporaryBytes,
         usize_as_u64(entries.saturating_mul(std::mem::size_of::<R>())),
     )
+}
+
+/// Return the existing full-sort comparison allowance for an admitted count.
+/// Construction and execution share this policy while retaining their own counters.
+pub(in crate::db) fn sort_comparison_allowance(entries: usize) -> u64 {
+    if entries <= 1 {
+        return 0;
+    }
+    usize_as_u64(entries).saturating_mul(u64::from((entries - 1).bit_width()))
 }
 
 /// Precharge one qualifying grouped heap candidate before retention or comparison.

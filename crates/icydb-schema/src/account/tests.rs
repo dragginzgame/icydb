@@ -36,9 +36,12 @@ fn account_text_matches_icrc_vectors() {
     }
     let default = Account::from_owner_and_subaccount(owner, Some(Subaccount::MIN));
     assert_eq!(default.to_string(), OWNER);
-    // Text omits the default subaccount; the native component remains explicit.
-    assert_ne!(default, Account::from(owner));
-    assert!(Account::from(owner) < default);
+    // Text and the database atom share the canonical default representation.
+    assert_eq!(default, Account::from(owner));
+    assert_eq!(
+        Account::from(owner).cmp(&default),
+        std::cmp::Ordering::Equal
+    );
     let widest = Account::from_owner_and_subaccount(
         Principal::from_slice(&[255; 29]),
         Some(Subaccount::MAX),
@@ -122,80 +125,67 @@ proptest! {
 }
 
 #[test]
-fn platform_conversions_preserve_raw_fields_and_native_wire() {
+fn platform_conversions_canonicalize_default_and_preserve_nonzero_components() {
     let owner_bytes = [0xa5; 29];
     let mut last_byte = [0; 32];
     last_byte[31] = 1;
     for owner_len in 0..=owner_bytes.len() {
-        for subaccount in [
+        for supplied in [
             None,
             Some([0; 32]),
             Some(last_byte),
             Some([1; 32]),
             Some([255; 32]),
         ] {
+            let canonical = supplied.filter(|bytes| *bytes != [0; 32]);
             let platform = ic_platform_types::Account {
                 owner: ic_platform_types::Principal::from_slice(&owner_bytes[..owner_len]),
-                subaccount,
+                subaccount: supplied,
             };
             let database = Account::from(platform);
             assert_eq!(database.owner().as_slice(), platform.owner.as_slice());
-            assert_eq!(database.subaccount().map(Subaccount::to_bytes), subaccount);
+            assert_eq!(database.subaccount().map(Subaccount::to_bytes), canonical);
             let restored = ic_platform_types::Account::from(database);
-            // Platform Account equality would hide a lost explicit-zero field.
             assert_eq!(restored.owner, platform.owner);
-            assert_eq!(restored.subaccount, subaccount);
-            assert_eq!(Account::from(restored), database);
-
-            // Postcard contract: bounded owner bytes, option tag, then exactly
-            // 32 subaccount bytes with their one-byte length. No encoder oracle.
+            assert_eq!(restored.subaccount, canonical);
+            assert_eq!(restored, platform);
+            // Independent canonical Postcard frame: owner bytes, option, then
+            // bounded fixed bytes only for a nonzero subaccount.
             let mut expected = vec![u8::try_from(owner_len).unwrap()];
             expected.extend_from_slice(&owner_bytes[..owner_len]);
-            if let Some(bytes) = subaccount {
+            if let Some(bytes) = canonical {
                 expected.extend_from_slice(&[1, 32]);
                 expected.extend_from_slice(&bytes);
             } else {
                 expected.push(0);
             }
-            let database_wire = crate::wire::encode_one(database).unwrap();
-            assert_eq!(database_wire, expected);
+            let wire = crate::wire::encode_one(database).unwrap();
+            assert_eq!(wire, expected);
+            assert_eq!(wire, crate::wire::encode_one(restored).unwrap());
+            assert_eq!(crate::wire::decode_one::<Account>(&wire).unwrap(), database);
+            let supplied_wire = crate::wire::encode_one(platform).unwrap();
             assert_eq!(
-                database_wire,
-                crate::wire::encode_one((database.owner(), database.subaccount())).unwrap()
+                crate::wire::decode_one::<Account>(&supplied_wire).unwrap(),
+                database
             );
-            assert_eq!(
-                crate::wire::encode_one(Account::from(restored)).unwrap(),
-                database_wire
-            );
-            let database_decoded: Account = crate::wire::decode_one(&database_wire).unwrap();
-            assert_eq!(database_decoded, database);
-            let platform_wire = crate::wire::encode_one(platform).unwrap();
-            assert_eq!(platform_wire, expected);
-            assert_eq!(crate::wire::encode_one(restored).unwrap(), platform_wire);
-            let platform_decoded: ic_platform_types::Account =
-                crate::wire::decode_one(&platform_wire).unwrap();
-            assert_eq!(platform_decoded.owner, platform.owner);
-            assert_eq!(platform_decoded.subaccount, subaccount);
-            assert_eq!(Account::from(platform_decoded), database);
-            for length in 0..expected.len() {
-                assert!(crate::wire::decode_one::<Account>(&expected[..length]).is_err());
-                assert!(
-                    crate::wire::decode_one::<ic_platform_types::Account>(&expected[..length])
-                        .is_err()
-                );
+            let json = serde_json::to_value(platform).unwrap();
+            assert_eq!(serde_json::from_value::<Account>(json).unwrap(), database);
+            assert_eq!(database.to_string().parse::<Account>().unwrap(), database);
+            for length in 0..wire.len() {
+                assert!(crate::wire::decode_one::<Account>(&wire[..length]).is_err());
             }
         }
     }
 }
 
 #[test]
-fn platform_conversion_keeps_database_and_application_equality_separate() {
+fn database_and_platform_share_default_account_identity() {
     let owner = OWNER.parse::<Principal>().unwrap();
     let absent = Account::from(owner);
     let zero = Account::from_owner_and_subaccount(owner, Some(Subaccount::MIN));
     let accounts = [absent, zero];
-    assert_eq!(accounts.into_iter().collect::<HashSet<_>>().len(), 2);
-    assert_eq!(accounts.into_iter().collect::<BTreeSet<_>>().len(), 2);
+    assert_eq!(accounts.into_iter().collect::<HashSet<_>>().len(), 1);
+    assert_eq!(accounts.into_iter().collect::<BTreeSet<_>>().len(), 1);
     let platform = accounts.map(ic_platform_types::Account::from);
     assert_eq!(platform.into_iter().collect::<HashSet<_>>().len(), 1);
     assert_eq!(platform.into_iter().collect::<BTreeSet<_>>().len(), 1);

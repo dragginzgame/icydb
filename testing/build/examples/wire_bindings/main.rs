@@ -80,9 +80,18 @@ impl Generator {
         R: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
         E: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
     {
-        let (_, requests) = self.tracer.trace_type::<Q>(&self.samples)?;
-        let (_, responses) = self.tracer.trace_type::<R>(&self.samples)?;
-        let (_, errors) = self.tracer.trace_type::<E>(&self.samples)?;
+        let (_, requests) = self
+            .tracer
+            .trace_type::<Q>(&self.samples)
+            .map_err(|error| format!("{endpoint:?} request reflection failed: {error}"))?;
+        let (_, responses) = self
+            .tracer
+            .trace_type::<R>(&self.samples)
+            .map_err(|error| format!("{endpoint:?} response reflection failed: {error}"))?;
+        let (_, errors) = self
+            .tracer
+            .trace_type::<E>(&self.samples)
+            .map_err(|error| format!("{endpoint:?} error reflection failed: {error}"))?;
         let mode = match endpoint {
             RpcMethod::Query
             | RpcMethod::Metrics

@@ -3,6 +3,21 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.295.2]
+
+### 🛠️ Tooling
+
+- Adopt Host Tools 0.81 and the committed Shared Tooling 0.29.4 snapshot.
+  Remove the CLI's Metrics dependency; preserve report decoding, exact overflow
+  quality and floor-rounded averages using IcyDB's report contract
+  ([Observability #130 — Instrumentation-only Metrics](https://github.com/dragginzgame/ic-observability/issues/130)).
+
+- Keep release qualification receipts beside Git recovery evidence so cache
+  cleanup cannot erase them; missing evidence still refuses reuse
+  ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603), partial).
+
+[Detailed changes](0.295.md).
+
 ## [0.295.1] - 2026-11-03
 
 ### 🩹 Fixed

@@ -15,7 +15,7 @@ use crate::{
     db::{
         database_format::{crc32c, verify_crc32c_trailer},
         schema::{
-            AcceptedSchemaRevisionBundle, SchemaChangeOutcome, migration_record::encode_head,
+            AcceptedSchemaRevisionBundle, SchemaChangeActivation, migration_record::encode_head,
             wire::SchemaWireReader,
         },
     },
@@ -48,6 +48,42 @@ impl AcceptedEntitySourceVersion {
     #[must_use]
     pub(in crate::db::schema) const fn get(self) -> u32 {
         self.0
+    }
+}
+
+/// Source meaning captured when one generated activation is admitted.
+/// The enclosing application record binds its single store/entity activation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct PendingEntitySourceLineage {
+    version: AcceptedEntitySourceVersion,
+    prior_digest: EntitySourceDigest,
+    proposed_digest: EntitySourceDigest,
+}
+
+impl PendingEntitySourceLineage {
+    pub(in crate::db::schema) fn new(
+        version: AcceptedEntitySourceVersion,
+        prior_digest: EntitySourceDigest,
+        proposed_digest: EntitySourceDigest,
+    ) -> Result<Self, InternalError> {
+        if prior_digest.to_bytes() == [0; 32] || proposed_digest.to_bytes() == [0; 32] {
+            return Err(InternalError::store_corruption());
+        }
+        Ok(Self {
+            version,
+            prior_digest,
+            proposed_digest,
+        })
+    }
+
+    pub(in crate::db::schema) const fn version(&self) -> AcceptedEntitySourceVersion {
+        self.version
+    }
+    pub(in crate::db::schema) const fn prior_digest(&self) -> EntitySourceDigest {
+        self.prior_digest
+    }
+    pub(in crate::db::schema) const fn proposed_digest(&self) -> EntitySourceDigest {
+        self.proposed_digest
     }
 }
 
@@ -190,7 +226,6 @@ impl AcceptedEntitySourceLineageCatalog {
     }
 
     #[must_use]
-    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn get(
         &self,
         store: TargetStoreIdentity,
@@ -219,15 +254,23 @@ impl AcceptedEntitySourceLineageCatalog {
 /// Refresh only existing adopted sources after ordinary lowering has admitted
 /// their complete proposed contract. Source versions require a plan even when
 /// validation is deferred. Pending validation keeps the prior digest because it
-/// can still abort; only completed edits publish the new digest.
-pub(in crate::db::schema) fn refresh_ordinary_source_lineage(
+/// can still abort; only that entity waits while other completed edits refresh.
+/// Return its admitted source binding for the enclosing application record.
+pub(in crate::db::schema) fn prepare_ordinary_source_lineage(
     before: AcceptedEntitySourceLineageCatalog,
     proposal: &SchemaProposal,
     current: &[Option<AcceptedSchemaRevisionBundle>],
     head: &ExpectedAcceptedHead,
-    outcome: &SchemaChangeOutcome,
-) -> Result<AcceptedEntitySourceLineageCatalog, InternalError> {
+    deferred: Option<&SchemaChangeActivation>,
+) -> Result<
+    (
+        AcceptedEntitySourceLineageCatalog,
+        Option<PendingEntitySourceLineage>,
+    ),
+    InternalError,
+> {
     let mut entries = before.entries;
+    let mut pending = None;
     for assignment in proposal.assignments() {
         let Some(tag) = current
             .iter()
@@ -242,9 +285,15 @@ pub(in crate::db::schema) fn refresh_ordinary_source_lineage(
         let Some(entry) = entries.get(&key) else {
             continue;
         };
-        let AcceptedEntitySourceLineageState::Adopted { version, .. } = entry.state() else {
+        let AcceptedEntitySourceLineageState::Adopted {
+            version,
+            source_digest,
+        } = entry.state()
+        else {
             continue;
         };
+        let version = *version;
+        let prior_digest = *source_digest;
         let entity = proposal
             .fragments()
             .iter()
@@ -256,18 +305,74 @@ pub(in crate::db::schema) fn refresh_ordinary_source_lineage(
                 icydb_diagnostic_code::SchemaMigrationCode::MissingMigration,
             ));
         }
-        if !matches!(
-            outcome,
-            SchemaChangeOutcome::Applied { .. } | SchemaChangeOutcome::NoOp { .. }
-        ) {
-            continue;
-        }
         let digest = proposal
             .entity_source_digest(assignment.entity())
             .map_err(|_| InternalError::store_unsupported())?;
-        let next = AcceptedEntitySourceLineage::adopted(head.clone(), *version, digest)?;
-        entries.insert(key, next);
+        if deferred.is_some_and(|activation| {
+            activation.store() == key.0 && activation.entity_tag() == tag.value()
+        }) {
+            pending = Some(PendingEntitySourceLineage::new(
+                version,
+                prior_digest,
+                digest,
+            )?);
+        } else {
+            let next = AcceptedEntitySourceLineage::adopted(head.clone(), version, digest)?;
+            entries.insert(key, next);
+        }
     }
+    Ok((
+        AcceptedEntitySourceLineageCatalog::try_new(entries)?,
+        pending,
+    ))
+}
+
+/// Refuse missing or superseded retained source authority before advancement.
+/// Unadopted entities remain unadopted; completion never invents a source digest.
+pub(in crate::db::schema) fn require_pending_source_lineage(
+    catalog: Option<&AcceptedEntitySourceLineageCatalog>,
+    activation: &SchemaChangeActivation,
+    pending: Option<&PendingEntitySourceLineage>,
+) -> Result<(), InternalError> {
+    let entry = catalog.and_then(|catalog| {
+        catalog.get(activation.store(), EntityTag::new(activation.entity_tag()))
+    });
+    match (pending, entry.map(AcceptedEntitySourceLineage::state)) {
+        (None, None | Some(AcceptedEntitySourceLineageState::Unadopted)) => Ok(()),
+        (
+            Some(pending),
+            Some(AcceptedEntitySourceLineageState::Adopted {
+                version,
+                source_digest,
+            }),
+        ) if *version == pending.version
+            && (*source_digest == pending.prior_digest
+                || *source_digest == pending.proposed_digest) =>
+        {
+            Ok(())
+        }
+        _ => Err(InternalError::store_corruption()),
+    }
+}
+
+/// Apply only the admitted entity's source meaning after its activation proved.
+/// Other entities and intervening publication provenance retain their owners.
+pub(in crate::db::schema) fn complete_pending_source_lineage(
+    before: &AcceptedEntitySourceLineageCatalog,
+    activation: &SchemaChangeActivation,
+    pending: &PendingEntitySourceLineage,
+    head: &ExpectedAcceptedHead,
+) -> Result<AcceptedEntitySourceLineageCatalog, InternalError> {
+    require_pending_source_lineage(Some(before), activation, Some(pending))?;
+    let mut entries = before.entries.clone();
+    entries.insert(
+        (activation.store(), EntityTag::new(activation.entity_tag())),
+        AcceptedEntitySourceLineage::adopted(
+            head.clone(),
+            pending.version,
+            pending.proposed_digest,
+        )?,
+    );
     AcceptedEntitySourceLineageCatalog::try_new(entries)
 }
 

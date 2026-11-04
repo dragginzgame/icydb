@@ -2,6 +2,7 @@ mod admission;
 mod backing;
 mod owned_membership;
 mod signed_lookup;
+mod sort;
 
 use crate::{
     db::predicate::{
@@ -711,8 +712,18 @@ fn normalization_pair_budget_is_exact_cumulative_and_typed() {
             .collect(),
     );
     let expected = normalize(predicate.clone());
+    let baseline = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+        32_000_000,
+        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+    ));
+    PreparationWork::run(&baseline.scope(), Lane::PublicRead, |work| {
+        normalize_with_budget(predicate.clone(), work).map_err(QueryError::execute)
+    })
+    .unwrap();
+    let steps = baseline.observed(Resource::PredicateExpressionSteps);
+    assert!(steps >= 3, "three conjunction pairs remain charged");
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        for limit in [0, 2, 3, 6] {
+        for limit in [0, steps - 1, steps, steps * 2] {
             let root = RequestExecutionRoot::new_for_tests(
                 HardExecutionBudget::uniform_for_tests(
                     32_000_000,
@@ -724,7 +735,7 @@ fn normalization_pair_budget_is_exact_cumulative_and_typed() {
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     normalize_with_budget(predicate.clone(), work).map_err(QueryError::execute)
                 });
-                if attempt * 3 <= limit {
+                if attempt * steps <= limit {
                     assert_eq!(result.unwrap(), expected);
                 } else {
                     let error = result.unwrap_err();

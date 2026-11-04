@@ -121,19 +121,23 @@ fn assert_rejected_without_control_publication(fixture: &StandaloneCanisterFixtu
 }
 
 #[test]
-fn empty_omitted_store_retires_without_relocating_survivors() {
+fn empty_omitted_store_restores_without_relocating_survivors() {
     let fixture = install();
     let _: Vec<u8> = fixture
         .pocket_ic()
         .update_wire(fixture.canister_id(), "insert_keep", ())
         .unwrap();
+    fixture
+        .pocket_ic()
+        .update_wire::<(), _>(fixture.canister_id(), "insert_retiring", ())
+        .unwrap();
     settle(&fixture);
-    let before: Vec<(String, u8)> = fixture
+    let before: Vec<(String, u64)> = fixture
         .pocket_ic()
         .query_wire(fixture.canister_id(), "allocations", ())
         .unwrap();
     upgrade(&fixture, &artifacts().1);
-    let after: Vec<(String, u8)> = fixture
+    let after: Vec<(String, u64)> = fixture
         .pocket_ic()
         .query_wire(fixture.canister_id(), "allocations", ())
         .unwrap();
@@ -152,11 +156,20 @@ fn empty_omitted_store_retires_without_relocating_survivors() {
     settle(&fixture);
     assert_kept_row(&fixture);
 
-    // Retired database identities cannot return, even though the allocator
-    // still retains their original slots. This is the current lifecycle rule.
-    let retired = control(&fixture);
+    // Exact dormant quartets restore their retained authority and slots.
     upgrade(&fixture, &artifacts().0);
-    assert_rejected_without_control_publication(&fixture, &retired);
+    settle(&fixture);
+    let restored: Vec<(String, u64)> = fixture
+        .pocket_ic()
+        .query_wire(fixture.canister_id(), "allocations", ())
+        .unwrap();
+    assert_eq!(restored, before);
+    let retained: Result<bool, String> = fixture
+        .pocket_ic()
+        .query_wire(fixture.canister_id(), "retiring_row_exists", ())
+        .unwrap();
+    assert!(retained.unwrap());
+    assert_kept_row(&fixture);
 }
 
 #[test]

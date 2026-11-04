@@ -75,6 +75,7 @@ pub struct Canister {
     memory_namespace: &'static str,
     #[serde(skip)]
     migration_plan: Option<MigrationPlanConstructor>,
+    migration_attempt: u64,
 }
 
 impl Canister {
@@ -88,7 +89,21 @@ impl Canister {
             def,
             memory_namespace,
             migration_plan,
+            migration_attempt: 0,
         }
+    }
+
+    /// Set the explicit retry identity for this declaration's migration.
+    #[must_use]
+    pub const fn with_migration_attempt(mut self, attempt: u64) -> Self {
+        self.migration_attempt = attempt;
+        self
+    }
+
+    /// Return the operator-selected migration attempt; zero is the first attempt.
+    #[must_use]
+    pub const fn migration_attempt(&self) -> u64 {
+        self.migration_attempt
     }
 
     #[must_use]
@@ -139,6 +154,10 @@ impl MacroNode for Canister {
 impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
+        if self.migration_attempt != 0 && self.migration_plan.is_none() {
+            err!(errs, "migration_attempt requires a declared migration plan");
+        }
+
         validate_stable_key_segment(
             &mut errs,
             "canister memory_namespace",

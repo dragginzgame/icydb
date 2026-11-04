@@ -60,6 +60,7 @@ pub(in crate::db) use progress_store::{
 };
 pub use progress_store::{
     ProgressJobFamily, ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle,
+    ProgressRetirementRecord,
 };
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use progress_store::{

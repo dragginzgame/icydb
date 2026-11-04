@@ -111,9 +111,9 @@ pub(super) fn observe<C: CanisterKind>(
 
     let reconciled = match schema_observation {
         Some(reconciled) => reconciled,
-        None => generated_schema_is_reconciled(stores, incarnation, submission_key).map_err(
-            |error| StartupFailure::from_internal(StartupFailureKind::SchemaReconciliation, &error),
-        )?,
+        None => generated_schema_is_reconciled(incarnation, submission_key).map_err(|error| {
+            StartupFailure::from_internal(StartupFailureKind::SchemaReconciliation, &error)
+        })?,
     };
     Ok(if reconciled {
         DatabaseStartupState::Ready

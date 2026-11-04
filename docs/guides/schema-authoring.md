@@ -88,27 +88,25 @@ token must generate and manage that token independently of the row's key.
 text in JSON. Its calendar domain remains years 0000–9999. `Subaccount` uses an
 exact 32-byte byte string in Wire/binary Serde and a 32-element byte array in JSON.
 Account database payloads still reserve their existing fixed 62-byte width.
-IC Platform Types owns bounded ICRC-1 Account text formatting, parsing and checksums without
-a ledger dependency. IcyDB preserves its existing parse-error boundary and
-representation-sensitive database identity around that shared text codec.
-Use explicit value conversion for application DTOs that carry canonical accounts:
+IC Platform Types owns bounded ICRC-1 Account text formatting, parsing and
+checksums without a ledger dependency. IcyDB normalizes absent and all-zero
+subaccounts to the same database identity at construction, deserialization and
+DTO conversion. Equality, hashing, uniqueness, stored/index bytes and text all
+use that canonical default representation. Nonzero subaccounts retain all bytes.
 
 ```rust
 let dto_account: ic_platform_types::Account = database_account.into();
 let database_account = icydb::types::Account::from(dto_account);
 ```
 
-Both directions preserve owner bytes and the exact optional subaccount, including
-an explicit zero. IcyDB's database identity distinguishes absent and explicit-zero
-subaccounts; canonical Types' `Eq`, `Ord` and `Hash` treat them as the same ICRC account.
-Choose map/set keys and database uniqueness rules with that distinction in mind.
-The conversion does not change stored rows, indexes, account text or database
-identity semantics. The text representation still omits an explicit zero.
-
-The types retain different binary Serde/Wire contracts: IcyDB's subaccount is a
-byte string, while canonical Types' is a fixed array. Convert decoded values rather
-than reusing one type's encoded bytes or schema for the other. New application
-ICRC DTOs may use `ic_platform_types::Account` through a direct Types dependency.
+Conversion preserves owner and nonzero subaccount bytes; an explicit zero becomes
+absence. Platform may retain an explicit zero in its own DTO even though its
+ICRC equality treats it as the default. Both current native codecs encode a
+present subaccount as a bounded byte string. IcyDB still owns its schema/codec
+contract: decode the declared DTO and convert the value. Stored account frames
+with an explicit zero flag are noncanonical and refuse under the new installation
+contract. New application ICRC DTOs may use `ic_platform_types::Account` through
+a direct Types dependency.
 IC Wire owns the optional `platform-types` schema integration. A host schema
 producer must select a published Wire adapter for the same canonical Platform
 Types generation as its DTO; enabling the feature for another Types generation
@@ -584,10 +582,17 @@ before replay with `RUNTIME_UNSUPPORTED`, without persisting a terminal failure
 receipt; restore the original path to resume recovery. Keeping the allocation
 key alone does not make a store rename supported. Heap stores have no stable
 key. Changing a store key removes one identity and adds another: it
-does not rename the store or transfer its rows. Existing retirement checks still
-require an empty journal and reject registry changes with a pending marker;
-an empty journal does not mean the old store has no data. Retired identities
-cannot be reintroduced. Removing an existing database namespace rejects before
+does not rename the store or transfer its rows. Omitted journaled stores become
+dormant, retaining every allocation and accepted catalog. Exact quartets may be
+restored without clearing, reinitializing or transferring their rows. Generated
+reconciliation and exact-submission replay retain their existing owners;
+restoration never reconstructs accepted catalogs from declarations.
+This allows correction after a failed deployment, including removing and later
+restoring an added store with the same keys. Removal/restoration require an empty
+journal. Registry changes refuse with a pending marker or pending generated
+schema application, so the original registry remains usable. An empty journal
+does not mean the old store has no data. All active and dormant quartets continue
+to count toward the bounded registry capacity. Removing an existing database namespace rejects before
 allocation commitment, even when a new namespace has a valid grant.
 
 Persisted databases must use the current logical-memory identity contract.

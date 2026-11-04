@@ -7,12 +7,69 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the Shared Tooling **0.29.1 development snapshot**, public main
+IcyDB now selects the **0.29.4 committed development snapshot** at
+`628ccc75d813bfd9bae777bfbaef55838d25b1b2`, independently verified against public
+GitHub and the canonical exporter. All 153 payloads match the committed source
+and modes. Upstream still marks this version unreleased; no supplier tag or
+release is implied. The snapshot adds revision-selected export, bounded retained
+release-state admission, group changelog alignment and the instrumentation-only
+Metrics scope. The existing receipt-custody fixes and complete default release
+gate remain in place. The actual release/publication/retired-checkout roots pass
+the new read-only admission; this adoption deletes no retained evidence.
+
+The root catalog adopts published **Host Tools 0.81.0** and **Metrics 0.29.0**.
+Their official archive checksums and exact VCS sources are verified: Tools
+`8ac12cf92fe04c6f4aec0ce4aad80fcd13df07f0`, Metrics
+`0ead785d2f0c7eafa05c9f9a05a2a609f320af0d`. Tools' Rust sources match 0.80.0;
+its Platform 0.21 contract matches IcyDB's existing selection. Foundation/Build
+0.74.2 and Text 0.74.1 floors now match the already-locked patch releases. The
+incoming TOML lock changes are preserved. The isolated Canic qualification stack
+retains its separate manifest and lock; no Testkit, Canic or server adoption is
+implied.
+
+Metrics stays with Core's application instrumentation. IcyDB's instruction
+report now owns its five immutable fields and numeric admission; report getters
+return `InstructionMetrics` rather than a recorder. Frontend field names, order,
+widths and bytes remain unchanged. CLI floor averages and build-report percentage
+arithmetic stay with those reporters. CLI and build/binding tooling no longer
+declare Metrics, and the existing dependency-boundary checker admits direct
+Metrics declarations only in Core. Recorder restoration is used only in Core
+instrumentation tests, never frontend decoding. This is the consumer repair for
+[Observability #130 — Instrumentation-only Metrics](https://github.com/dragginzgame/ic-observability/issues/130);
+it does not remove or migrate an existing composed endpoint.
+
+Focused Linux qualification passes on the declared/pinned Rust 1.99.1: strict
+Schema/Core/CLI/build-generator and Wasm library lint; 42 selected Rust controls
+for report admission, reset/overflow quality, display arithmetic, Account codecs,
+reflection and actual CLI/Host Tools process boundaries; dependency declaration
+and resolved-graph admission; and the unchanged browser contract baseline. The
+browser check passes all 91 frames across twelve endpoints and 3,112 truncated
+frames plus malformed/value/budget controls. The previous 3,145 count belongs
+to the older Account sample: the authorized canonical default-account cut removes
+its explicit 32-byte subaccount payload. Metrics report fields and bytes retain
+their existing contract.
+
+Native qualification exposed Account reflection fallout from that earlier hard
+cut: the custom deserializer's container name differed from serialization, and
+an all-zero sample no longer represented the optional nonzero subaccount. Keep
+both directions named Account, seed the maintained nonzero option and retain a
+focused query-response reflection regression. No retired form or relaxed byte
+width was introduced. Logs and archive provenance are under
+`target/evidence/tooling-metrics-20261104/`.
+
+Full repository/release gates, new native macOS and installed Canic/PocketIC
+qualification were skipped as user-owned validation. No network lifecycle,
+staging, commit, push, package version change, retained-data deletion or supplier
+working-tree edit occurred. IC cycles/instructions and total/code-section Wasm
+changes remain unmeasured. Prior issue fixes and historical evidence below keep
+their separate input cohorts; this adoption does not upgrade old release receipts.
+
+The prior cohort selected the Shared Tooling **0.29.1 development snapshot**, public main
 commit `55960755351c127b8ef2a03a1f08fdeba068f5e4`, verified against a clean
 supplier checkout and the public GitHub revision. Upstream's changelog still
 marks 0.29.1 unreleased and no `v0.29.1` tag was selected; this records
 committed-source adoption, not a finalized
-supplier release. The canonical exporter owns 152 selected payloads with their
+supplier release. That canonical export owned 152 selected payloads with their
 hashes/modes. No supplier working-tree changes are consumed; ordinary integrity
 checks remain offline.
 
@@ -26,7 +83,7 @@ proof. Old qualification receipts and historical release commit/candidate
 receipts retain their original meanings; no old proof is upgraded or recreated.
 The default full release gate and native-host obligations remain unchanged.
 
-The current refresh adopts failed-sort refusal in grouped release metadata,
+That 0.29.1 refresh adopted failed-sort refusal in grouped release metadata,
 the native PocketIC dependency exception's transfer to Testkit, and consolidated
 direct-edit and fixed-issue-index guidance. The maintainer's 2026-11-03 local
 presentation override keeps fixed-issue links beside outcomes in each group's
@@ -35,7 +92,7 @@ only. Shared snapshot payloads stay intact. Routine local corrections and toolin
 adoption do not require new issues. Product dependency restrictions remain in force; this
 refresh does not adopt a different Testkit or composition stack.
 
-All 152 payloads verify against the selected commit. The actual root dependency
+For that 0.29.1 cohort, all 152 payloads verified against its selected commit. The actual root dependency
 boundary caller and CLI grouped release-metadata/order admission pass on the
 unchanged manifests and lock. Shared's focused ordering case qualifies failed
 sort refusal and selected-commit handling. Its focused native-client case covers
@@ -58,7 +115,7 @@ declarations, lockfiles, compiler pins and product versions are unchanged.
 No network lifecycle action occurred. Product-source checks are reused while
 their relevant source/dependency/tool inputs remain unchanged.
 
-Host Tools now selects published **0.80.0**, aligning its optional Platform
+The earlier Host Tools adoption selected published **0.80.0**, aligning its optional Platform
 dependency with 0.20 while retaining Types 0.18. Its official archive checksum
 and source commit `109244b35678e9d89ecec6963ab535c8d65b2f25` are verified;
 the Rust sources match 0.79.0. Foundation 0.74.2 and Text 0.74.1 remain selected.
@@ -97,7 +154,7 @@ qualification and locally unavailable `canic-icydb` source stay outside root
 release gates under the existing adapter exception and
 [#373 — Move generated endpoints into the Canic adapter](https://github.com/dragginzgame/icydb/issues/373).
 
-The released root graph selects published Platform 0.20.0, Runtime
+The 0.296.0 adoption selected published Platform 0.20.0, Runtime
 0.19.0, Types 0.18.0, Metrics 0.28.0, Storage 0.66.0 and Wire/Derive 0.16.0.
 The official registry archive checksums and source identities are verified:
 Metrics `54a92f45c1008a56599ee42786d84553ca950215`, Platform
@@ -284,7 +341,7 @@ placement decisions.
 | IC0 system calls | IC Platform Runtime | Explicit `ic0` feature; no executor or CDK selected |
 | Cryptographic and external IC adapters | IC Platform | BLAKE3 for database fingerprints; no workspace-owned direct SDK use |
 | Governed allocations, collections and stable codec interfaces | IC Storage | Database keys, host grants, role bindings, codecs, indexes, transactions and retained-control admission |
-| Measurement arithmetic | IC Observability (`ic-metrics`) | Phase/entity attribution, report selection and resets |
+| Application instrumentation | IC Observability (`ic-metrics`) | Phase/entity attribution and resets; IcyDB owns its report validation and display arithmetic |
 | Cargo/Wasm acquisition and retained caches | IC Build | Actor recipes, optimizer/interface policy and report budgets |
 | File/process/text primitives | IC Host Tooling | Product artifact admission and CLI presentation |
 | PocketIC setup, admission, gateway and lifecycle | IC Testkit | Fixture topology, scenarios and native Wire calls |
@@ -309,8 +366,8 @@ Types and Runtime have explicit consumer allowlists, including Core's test-only
 identity conversions. The resolved-graph guard refuses duplicate Runtime or
 Types versions. These owned packages do not relax the external SDK inventory;
 direct Candid/CDK/substrate dependencies remain forbidden.
-The current root schema family selects Wire 0.16, Metrics 0.28 and Storage 0.66
-with Platform 0.20, Runtime 0.19 and Types 0.18. All use the pinned Rust 1.99.1. Storage's map
+The current root schema family selects Wire 0.16, Metrics 0.29 and Storage 0.66
+with Platform 0.21, Runtime 0.19 and Types 0.18. All use the pinned Rust 1.99.1. Storage's map
 format changes under the fresh-installation contract above; Wire protocol bytes,
 schemas and budgets retain their published contract.
 Earlier qualification below belongs to its original supplier selection.

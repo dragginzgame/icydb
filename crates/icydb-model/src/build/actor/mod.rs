@@ -15,7 +15,6 @@ use crate::{
 use icydb_schema::{SchemaMigrationPlan, encode_schema_fragment, encode_schema_migration_plan};
 use proc_macro2::TokenStream;
 use quote::quote;
-use sha2::{Digest, Sha256};
 
 /// Generate private canister actor code for the given authored schema path.
 ///
@@ -75,6 +74,11 @@ pub(crate) struct ActorBuilder {
 
 impl ActorBuilder {
     /// Create an actor builder for a specific canister.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a sealed fragment/plan cannot encode, the plan does not match
+    /// its target, or validated entity metadata has lost its declared store.
     #[must_use]
     pub fn new(
         schema: Arc<Schema>,
@@ -92,27 +96,42 @@ impl ActorBuilder {
         let schema_migration_plan_bytes = migration_plan.as_ref().map(|plan| {
             encode_schema_migration_plan(plan).expect("sealed migration plan must encode")
         });
-        let mut hasher = Sha256::new();
-        hasher.update(b"icydb.generated-schema-submission.v1");
-        hasher.update((schema_fragment_bytes.len() as u64).to_be_bytes());
-        hasher.update(schema_fragment_bytes.as_slice());
-        if let Some(bytes) = &schema_migration_plan_bytes {
-            hasher.update((bytes.len() as u64).to_be_bytes());
-            hasher.update(bytes);
-        } else {
-            hasher.update(0_u64.to_be_bytes());
-        }
-        let digest = hasher.finalize();
-        let schema_submission_key = format!("generated/{}", hex_bytes(digest.as_slice()));
-
-        Self {
+        let mut builder = Self {
             icydb,
             schema,
             canister,
             schema_fragment_bytes,
             schema_migration_plan_bytes,
-            schema_submission_key,
-        }
+            schema_submission_key: String::new(),
+        };
+        let assignments = builder
+            .get_entities()
+            .into_iter()
+            .map(|(_, entity)| {
+                let store = builder
+                    .schema
+                    .cast_node::<Store>(entity.store())
+                    .expect("validated entity must retain its declared store");
+                (
+                    entity.name().to_owned(),
+                    entity.store().to_owned(),
+                    store
+                        .journaled_memory_config()
+                        .map(|config| config.key().to_owned()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let assignments = assignments
+            .iter()
+            .map(|(entity, store, key)| (entity.as_str(), store.as_str(), key.as_deref()))
+            .collect::<Vec<_>>();
+        builder.schema_submission_key = icydb_schema::generated_schema_submission_key(
+            &builder.schema_fragment_bytes,
+            builder.schema_migration_plan_bytes.as_deref(),
+            builder.canister.migration_attempt(),
+            &assignments,
+        );
+        builder
     }
 
     /// Generate the full actor module (db/metrics/query glue).
@@ -164,18 +183,6 @@ impl ActorBuilder {
     }
 }
 
-fn hex_bytes(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
-}
-
-/// Render private operational capabilities and authorization policies used by
-/// source-declared endpoint wrappers.
 fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
     quote! {
         #[allow(
@@ -412,6 +419,89 @@ mod tests {
             ))
             .is_err()
         );
+    }
+
+    #[test]
+    fn generated_readiness_binds_assignments_and_modes_but_not_unused_stores() {
+        use crate::node::{
+            Entity, FieldList, PrimaryKey, PrimaryKeySource, SchemaNode, Store, StoreHeapConfig,
+            StoreJournaledMemoryConfig, Type,
+        };
+        let key = |path: &'static str, journal: bool, unused: bool| {
+            let mut schema = Schema::new();
+            let store = if journal {
+                Store::new_journaled(
+                    Def::new("test", "A"),
+                    "test::Canister",
+                    StoreJournaledMemoryConfig::new("a"),
+                )
+            } else {
+                Store::new_heap(
+                    Def::new("test", "A"),
+                    "test::Canister",
+                    StoreHeapConfig::new(),
+                )
+            };
+            schema.insert_node(SchemaNode::Store(store));
+            schema.insert_node(SchemaNode::Store(Store::new_heap(
+                Def::new("test", "B"),
+                "test::Canister",
+                StoreHeapConfig::new(),
+            )));
+            if unused {
+                schema.insert_node(SchemaNode::Store(Store::new_heap(
+                    Def::new("test", "Unused"),
+                    "test::Canister",
+                    StoreHeapConfig::new(),
+                )));
+            }
+            schema.insert_node(SchemaNode::Entity(Entity::new(
+                Def::new("test", "Item"),
+                path,
+                1,
+                PrimaryKey::new(&["id"], PrimaryKeySource::Internal),
+                &[],
+                &[],
+                &[],
+                FieldList::new(&[]),
+                Type::new(&[], &[], &[]),
+            )));
+            ActorBuilder::new(
+                Arc::new(schema),
+                Canister::new(Def::new("test", "Canister"), "test", None),
+                migration_target_fragment(1),
+                None,
+                quote::quote!(::icydb),
+            )
+            .schema_submission_key
+        };
+        let original = key("test::A", true, false);
+        assert_eq!(original, key("test::A", true, true));
+        assert_ne!(original, key("test::B", true, false));
+        assert_ne!(original, key("test::A", false, false));
+    }
+
+    #[test]
+    fn migration_attempt_changes_only_generated_submission_identity() {
+        let original = actor_builder_with_migration();
+        let next = ActorBuilder::new(
+            original.schema.clone(),
+            original.canister.clone().with_migration_attempt(1),
+            icydb_schema::decode_schema_fragment(&original.schema_fragment_bytes).unwrap(),
+            original
+                .schema_migration_plan_bytes
+                .as_ref()
+                .map(|bytes| icydb_schema::decode_schema_migration_plan(bytes).unwrap()),
+            original.icydb.clone(),
+        );
+        assert_ne!(original.schema_submission_key, next.schema_submission_key);
+        assert_eq!(original.schema_fragment_bytes, next.schema_fragment_bytes);
+        assert_eq!(
+            original.schema_migration_plan_bytes,
+            next.schema_migration_plan_bytes
+        );
+        let expected = next.schema_submission_key.clone();
+        assert!(compact_tokens(next.generate()).contains(&expected));
     }
 
     #[test]

@@ -167,8 +167,11 @@ an unqualified deploy has the defined fleet scope.
 
 ## Metrics and logging
 
-- **Use `ic-metrics` for metrics and `ic-logging` for logging in all our Rust
-  crates**, including libraries, canisters, native tools, tests and examples.
+- **`ic-metrics` serves only operational instrumentation of the Canic application
+  tree**, including Canic, IcyDB, Backup and Blob Storage. Participating crates
+  record what they are doing; Canic's metrics adapter owns their shared reporting
+  endpoint. Library instrumentation must not introduce a dependency back on Canic.
+  Use `ic-logging` for logging.
   [IC Observability](https://github.com/dragginzgame/ic-observability) owns both
   canonical crates. Select the capabilities a crate uses; this does not require
   otherwise unused dependencies or instrumentation in every crate.
@@ -179,16 +182,15 @@ an unqualified deploy has the defined fleet scope.
   crates rather than copying their implementations or hiding duplicates behind
   wrappers. Existing bespoke implementations are migration work, not precedent
   for new ones.
-- Ordinary benchmark/statistical calculations over caller-owned samples belong
-  to the consuming tool. Averages, ratios, rounding and checked arithmetic alone
-  do not require `ic-metrics`; this includes Testkit's private benchmark-average
-  calculation. Consumers retain their numeric and error contracts when removing
-  that dependency. Keep such helpers private and narrowly scoped; this does not
-  permit a competing metrics instrumentation or recording engine. Do not create
-  another published arithmetic
-  crate for one formula or make general test tooling depend on Observability
-  solely for that calculation. Actual use of Metrics or Logging facilities still
-  selects their canonical owners.
+- Metrics is not a general math, statistics, numeric-validation or benchmark
+  utility library. Do not use it for averages, rounding, ratios, checked
+  arithmetic, unrelated profiler reports or domain/DTO validation merely because
+  similar calculations exist inside its recorder. Do not export or re-export
+  those implementation helpers as reusable mathematical APIs. Keep ordinary
+  calculations with their semantic owner; do not create another published crate
+  for one formula. Preserve numeric/error contracts when removing accidental
+  coupling. Tests of actual application instrumentation may use Metrics; generic
+  tests and benchmarks must not acquire it just to calculate results.
 - If a required Metrics or Logging capability is missing or unsuitable, search for an existing
   issue or open one in
   [IC Observability](https://github.com/dragginzgame/ic-observability/issues).
@@ -198,11 +200,12 @@ an unqualified deploy has the defined fleet scope.
   dependency through the normal dependency workflow; an issue alone does not
   establish that the capability exists.
 - Consumers retain measurement attribution, units, labels, platform sampling,
-  clocks, budgets, authorization, lifecycle, endpoints and export formats.
-  Thin adapters may translate these application contracts or integrate governed
-  persistence; they must delegate metrics-engine arithmetic, recording, retention
-  and paging to their canonical owners. IC Persistence continues to own
-  `ic-metrics-stable` and its governed Memory/Storage integration. Preserve
+  clocks, budgets and lifecycle. Metrics owns recording and its internal
+  arithmetic; Canic's metrics adapter owns endpoint authorization, transport DTOs,
+  Wire/TypeScript projection and aggregation across the application tree.
+  A report consumer must not depend on the recording engine merely to decode or
+  validate a report. Metrics itself must not depend on Canic or Wire for export.
+  Governed persistence belongs to Storage's `ic-metrics-storage` adapter. Preserve
   supported consumer behavior and stored formats when replacing an existing
   engine, then delete the replaced copy.
 
@@ -552,6 +555,31 @@ contracts; ordinary development does not require rereading these mechanics.
   Adopt shared mechanics rather than adding consumer-specific deletion scripts.
   Legacy stores, unknown ownership and unrelated files require explicit migration;
   a policy update alone does not authorize a one-off machine cleanup.
+- **Git administrative directories are not build, scratch or checkout-archive
+  storage.** This covers both the Git directory and common directory, including
+  `.git/release-state` and `.git/publication-state`. Keep compact recovery journals,
+  receipts and necessary metadata there; put reproducible source extracts and
+  compiler outputs under the owning workspace's `target/`. A copied source tree
+  must not accidentally build into a nested `target/` beneath `.git`.
+- Retiring a checkout must reclaim its redundant source/build storage, not move
+  it into `.git/retired-checkouts` or an equivalent hidden archive. Preserve only
+  verified unique work and required evidence through the durable-work contract.
+  If a full archive is genuinely required, disclose its measured size, approved
+  destination, owner and expiry before creating it; cleanup authority does not
+  implicitly authorize a new hidden bulk archive.
+- Writers of agent/tool-owned Git-side state must define and enforce an aggregate
+  byte budget and retention lifetime, report retained size and reclaimable bytes,
+  and refuse additional bulk retention when the budget would be exceeded. Keep
+  active recovery pins explicit and bounded by an owner/review date. Failed or
+  completed attempts must not accumulate complete source/build copies forever.
+  Missing retention controls are an implementation gap, not a reason to add
+  another bespoke cleanup script or silently delete evidence.
+- Git storage audits distinguish Git objects from tool-owned files, inspect the
+  actual Git/common directories and report large retained roots. `git gc` does
+  not reclaim arbitrary release directories, and `cargo clean` does not clean
+  `.git`. Never prune refs/reflogs, rewrite history or delete active recovery
+  state merely to reduce a reported size. Legacy cleanup requires scoped review
+  of active users, unique source and evidence before removal.
 - Explicit workspace cleanup is the disk-reclamation boundary. With no operator
   overrides or package/profile/target selection, `cargo clean` must remove the
   owning workspace's entire `target/`, including nested compiler outputs, generated

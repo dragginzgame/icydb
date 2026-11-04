@@ -76,7 +76,9 @@ for group in database cli; do
     cd "$fixture/$group"
     export RELEASE_GROUP="$group" RELEASE_PREVIOUS=0.294.0 RELEASE_VERSION=0.295.0 RELEASE_DATE=2026-11-02 RELEASE_KIND=minor
     RELEASE_SOURCE="$(git rev-parse HEAD)"
-    export RELEASE_SOURCE RELEASE_RECEIPT_DIR="$fixture/$group-receipts"
+    export RELEASE_SOURCE
+    unset RELEASE_RECEIPT_DIR
+    receipts="$(git rev-parse --absolute-git-dir)/release-state/receipts"
     other=cli; [[ "$group" != cli ]] || other=database
     bash scripts/ci/cargo-release-group.sh plan "$group" > "$fixture/$group-plan.json"
     jq -e --arg other "$other" '.files | all(.[]; startswith("releases/"+$other+"/") | not)' "$fixture/$group-plan.json" >/dev/null
@@ -91,6 +93,7 @@ EDITOR
     expect_failure env CARGO_RELEASE_METADATA_EDITOR="$fixture/failing-editor" bash scripts/release/prepare.sh
     git diff --exit-code > "$fixture/$group-rollback.log"
     bash scripts/release/prepare.sh > "$fixture/$group-prepare.log" 2>&1
+    [[ -f "$receipts/$group-v0.295.0.candidate" ]]
     cmp "$fixture/base/releases/$other/CHANGELOG.md" "releases/$other/CHANGELOG.md"
     cmp "$fixture/base/releases/$other/0.295.md" "releases/$other/0.295.md"
     [[ "$(RELEASE_GROUP="$other" bash scripts/release/version.sh)" == 0.294.0 ]]
@@ -110,7 +113,18 @@ EDITOR
     bash scripts/ci/release-candidate-receipt.sh verify-commit
     git tag -a "$group-v0.295.0" -m 'fixture release'
     bash scripts/ci/record-release-gate-receipt.sh
+    [[ -f "$receipts/$group-v0.295.0.commit" ]]
+    # Cache cleanup in this disposable fixture must not erase qualification.
+    mkdir -p .cache/release-receipts
+    rm -rf .cache
     bash scripts/ci/verify-release-gate-receipt.sh "$RELEASE_COMMIT"
+    # A missing canonical receipt cannot be replaced by a cache lookalike.
+    mv "$receipts/$group-v0.295.0.commit" "$fixture/$group-saved.commit"
+    mkdir -p .cache/release-receipts
+    cp "$fixture/$group-saved.commit" ".cache/release-receipts/$group-v0.295.0.commit"
+    expect_failure bash scripts/ci/verify-release-gate-receipt.sh "$RELEASE_COMMIT"
+    mv "$fixture/$group-saved.commit" "$receipts/$group-v0.295.0.commit"
+    rm -rf .cache
     expect_failure env RELEASE_GROUP="$other" bash scripts/ci/verify-release-gate-receipt.sh "$RELEASE_COMMIT"
     # Recovery reads the selected commit even when HEAD has newer source.
     printf '// later source\n' >> crates/icydb/src/lib.rs

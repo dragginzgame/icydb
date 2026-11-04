@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
 EXPECTED_COMMIT="${1:-}"
 
 if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
@@ -11,6 +10,7 @@ if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 source "$ROOT_DIR/scripts/release/group.sh"
+RELEASE_RECEIPT_DIR="$(release_receipt_directory)" || exit
 shopt -s nullglob
 for receipt in "$RELEASE_RECEIPT_DIR"/"$RELEASE_GROUP"-v*.commit; do
     receipt_commit="$(sed -n '1p' "$receipt")"

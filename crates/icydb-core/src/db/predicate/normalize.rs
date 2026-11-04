@@ -4,6 +4,7 @@
 //! Boundary: normalize before validation/planning/fingerprinting.
 
 mod admission;
+mod sort;
 
 use crate::{
     db::{
@@ -56,28 +57,41 @@ pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
 
 /// Normalize under the caller's existing construction authority. Charge visited
 /// conjunction pairs and new flattening/membership backing before work. Reusing
-/// owned backing is free; sort scratch and key encoding remain separately scoped.
+/// owned backing is free; sort scratch and key encoding share this authority.
 pub(in crate::db) fn normalize_with_budget(
     predicate: Predicate,
     work: &dyn ConstructionBudget,
 ) -> Result<Predicate, InternalError> {
-    normalize_with_charge(predicate, &mut |resource, amount| {
-        work.charge(resource, amount)
-    })
+    normalize_with_work(
+        predicate,
+        &mut |resource, amount| work.charge(resource, amount),
+        &mut |children| sort::canonicalize_with_budget(children, work),
+    )
 }
 
 fn normalize_with_charge<E>(
     predicate: Predicate,
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Predicate, E> {
+    normalize_with_work(predicate, charge, &mut |children| {
+        canonicalize_predicate_children_for_eval(children);
+        Ok(())
+    })
+}
+
+fn normalize_with_work<E>(
+    predicate: Predicate,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+    canonicalize: &mut impl FnMut(&mut Vec<Predicate>) -> Result<(), E>,
+) -> Result<Predicate, E> {
     // Normalize recursively while preserving logical equivalence.
     Ok(match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
 
-        Predicate::And(children) => normalize_and(children, charge)?,
-        Predicate::Or(children) => normalize_or(children, charge)?,
-        Predicate::Not(inner) => normalize_not(inner, charge)?,
+        Predicate::And(children) => normalize_and(children, charge, canonicalize)?,
+        Predicate::Or(children) => normalize_or(children, charge, canonicalize)?,
+        Predicate::Not(inner) => normalize_not(inner, charge, canonicalize)?,
 
         Predicate::Compare(cmp) => Predicate::Compare(cmp),
         Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
@@ -615,10 +629,11 @@ fn normalize_numeric_value_for_target(
 fn normalize_not<E>(
     mut inner: Box<Predicate>,
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+    canonicalize: &mut impl FnMut(&mut Vec<Predicate>) -> Result<(), E>,
 ) -> Result<Predicate, E> {
     // Keep the owned shell when NOT survives. Moving its child through the
     // normalizer must not require allocating a replacement box.
-    *inner = normalize_with_charge(*inner, charge)?;
+    *inner = normalize_with_work(*inner, charge, canonicalize)?;
     if let Predicate::Not(double) = *inner {
         // The inner subtree is already canonical; removing both NOT nodes
         // must not traverse, sort or rebuild it a second time.
@@ -641,8 +656,9 @@ fn normalize_not<E>(
 fn normalize_and<E>(
     children: Vec<Predicate>,
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+    canonicalize: &mut impl FnMut(&mut Vec<Predicate>) -> Result<(), E>,
 ) -> Result<Predicate, E> {
-    let Some(out) = normalize_boolean_children(children, true, charge)? else {
+    let Some(out) = normalize_boolean_children(children, true, charge, canonicalize)? else {
         return Ok(Predicate::False);
     };
 
@@ -661,7 +677,7 @@ fn normalize_and<E>(
 
     // Canonicalize after simplification because compare folding can replace or
     // remove children and therefore change deterministic evaluation order.
-    canonicalize_predicate_children_for_eval(&mut out);
+    canonicalize(&mut out)?;
 
     if out.len() == 1 {
         return Ok(out.remove(0));
@@ -684,8 +700,9 @@ fn normalize_and<E>(
 fn normalize_or<E>(
     children: Vec<Predicate>,
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+    canonicalize: &mut impl FnMut(&mut Vec<Predicate>) -> Result<(), E>,
 ) -> Result<Predicate, E> {
-    let Some(mut out) = normalize_boolean_children(children, false, charge)? else {
+    let Some(mut out) = normalize_boolean_children(children, false, charge, canonicalize)? else {
         return Ok(Predicate::True);
     };
 
@@ -699,7 +716,7 @@ fn normalize_or<E>(
         return Ok(collapsed);
     }
 
-    canonicalize_predicate_children_for_eval(&mut out);
+    canonicalize(&mut out)?;
 
     if out.len() == 1 {
         return Ok(out.remove(0));
@@ -715,6 +732,7 @@ fn normalize_boolean_children<E>(
     mut children: Vec<Predicate>,
     conjunction: bool,
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+    canonicalize: &mut impl FnMut(&mut Vec<Predicate>) -> Result<(), E>,
 ) -> Result<Option<Vec<Predicate>>, E> {
     let mut failure = None;
     let mut absorbed = false;
@@ -723,7 +741,11 @@ fn normalize_boolean_children<E>(
         if absorbed || failure.is_some() {
             return false;
         }
-        match normalize_with_charge(std::mem::replace(child, Predicate::True), charge) {
+        match normalize_with_work(
+            std::mem::replace(child, Predicate::True),
+            charge,
+            canonicalize,
+        ) {
             Ok(normalized) => *child = normalized,
             Err(error) => {
                 failure = Some(error);
@@ -894,6 +916,16 @@ fn canonicalize_predicate_children_for_eval(out: &mut Vec<Predicate>) {
     // or retained keys for every child. Different ranks need no encoded keys.
     let mut left_key = Vec::new();
     let mut right_key = Vec::new();
+    canonicalize_predicate_children_with_scratch(out, &mut left_key, &mut right_key);
+}
+
+// Both authority paths share the same stable ordering and deduplication rule.
+// Budgeted callers preallocate the two buffers before entering this infallible sort.
+fn canonicalize_predicate_children_with_scratch(
+    out: &mut Vec<Predicate>,
+    left_key: &mut Vec<u8>,
+    right_key: &mut Vec<u8>,
+) {
     out.sort_by(|left, right| {
         let rank = predicate_eval_cost_rank(left).cmp(&predicate_eval_cost_rank(right));
         if rank != std::cmp::Ordering::Equal {
@@ -902,8 +934,8 @@ fn canonicalize_predicate_children_for_eval(out: &mut Vec<Predicate>) {
 
         left_key.clear();
         right_key.clear();
-        write_predicate_sort_key(&mut left_key, left);
-        write_predicate_sort_key(&mut right_key, right);
+        write_predicate_sort_key(left_key, left);
+        write_predicate_sort_key(right_key, right);
         left_key.cmp(&right_key)
     });
     out.dedup();

@@ -3,9 +3,7 @@
 use crate::{
     db::{
         QueryError,
-        predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, normalize, normalize_with_budget,
-        },
+        predicate::{ComparePredicate, Predicate, normalize, normalize_with_budget},
         query::preparation::PreparationWork,
         test_support::request_with_limit,
     },
@@ -45,8 +43,15 @@ fn normalization_new_backing_is_exact_cumulative_and_typed() {
         ),
         (membership(), 3 * size_of::<Value>() as u64),
     ];
-    for (predicate, bytes) in cases {
+    for (predicate, vector_bytes) in cases {
         let expected = normalize(predicate.clone());
+        let baseline = request_with_limit(Resource::TemporaryBytes, u64::MAX);
+        PreparationWork::run(&baseline.scope(), Lane::PublicRead, |work| {
+            normalize_with_budget(predicate.clone(), work).map_err(QueryError::execute)
+        })
+        .unwrap();
+        let bytes = baseline.observed(Resource::TemporaryBytes);
+        assert!(bytes >= vector_bytes);
         for lane in [
             Lane::PublicRead,
             Lane::TrustedRead,
@@ -60,9 +65,9 @@ fn normalization_new_backing_is_exact_cumulative_and_typed() {
                     let result = PreparationWork::run(&root.scope(), lane, |work| {
                         normalize_with_budget(input, work).map_err(QueryError::execute)
                     });
-                    assert_eq!(root.observed(Resource::TemporaryBytes), attempt * bytes);
                     if attempt * bytes <= limit {
                         assert_eq!(result.unwrap(), expected);
+                        assert_eq!(root.observed(Resource::TemporaryBytes), attempt * bytes);
                     } else {
                         let error = result.unwrap_err();
                         assert!(error.diagnostic_facts().contains(&(
@@ -76,7 +81,10 @@ fn normalization_new_backing_is_exact_cumulative_and_typed() {
                         );
                         for fact in [
                             (DiagnosticFactTag::Limit, limit),
-                            (DiagnosticFactTag::Actual, attempt * bytes),
+                            (
+                                DiagnosticFactTag::Actual,
+                                root.observed(Resource::TemporaryBytes),
+                            ),
                         ] {
                             assert!(error.diagnostic_facts().contains(&fact));
                         }
@@ -89,23 +97,13 @@ fn normalization_new_backing_is_exact_cumulative_and_typed() {
 }
 
 #[test]
-fn normalization_reused_backing_and_absorbed_branches_need_no_new_vector() {
+fn normalization_unsorted_owned_and_absorbed_branches_need_no_new_vector() {
     let equal = Predicate::Compare(ComparePredicate::eq("tag".into(), Value::Nat64(1)));
-    let ineligible = Predicate::Or(vec![
-        equal.clone(),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "tag",
-            CompareOp::Ne,
-            Value::Nat64(2),
-            CoercionId::Strict,
-        )),
-    ]);
     for predicate in [
-        Predicate::And(vec![leaf("b"), leaf("a")]),
-        Predicate::Or(vec![leaf("b"), leaf("a")]),
+        Predicate::And(vec![leaf("a")]),
+        Predicate::Or(vec![leaf("a")]),
         Predicate::Not(Box::new(leaf("a"))),
         Predicate::Or(vec![equal; 3]),
-        ineligible,
         Predicate::And(vec![Predicate::False, membership()]),
         Predicate::Or(vec![Predicate::True, membership()]),
     ] {
@@ -154,4 +152,18 @@ fn membership_backing_refusal_preserves_owned_operands() {
     );
     assert_eq!(result, Err(17));
     assert_eq!(children, before);
+}
+
+#[test]
+fn normalization_sort_keys_refuse_without_construction_backing() {
+    let predicate = Predicate::Or(vec![leaf("second"), leaf("first")]);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
+    let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+        normalize_with_budget(predicate, work).map_err(QueryError::execute)
+    });
+    let error = result.expect_err("ordering keys need admitted backing");
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw(),
+    )));
 }

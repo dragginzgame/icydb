@@ -11,3 +11,15 @@ release_selection="$(jq -er -L "$release_root/scripts/ci" --arg group "$RELEASE_
     else error("unknown RELEASE_GROUP") end' "$release_root/ci/cargo-release-groups.json")" || exit 2
 IFS=$'\t' read -r RELEASE_PRIMARY RELEASE_CHANGELOG <<< "$release_selection"
 export RELEASE_GROUP RELEASE_PRIMARY RELEASE_CHANGELOG
+
+# Release qualification belongs beside the Git recovery journal, not in Cargo
+# or executable caches. Explicit fixture/operator selections retain their owner.
+release_receipt_directory() {
+    if [[ -n "${RELEASE_RECEIPT_DIR:-}" ]]; then
+        printf '%s\n' "$RELEASE_RECEIPT_DIR"
+    else
+        local git_directory
+        git_directory="$(git -C "$release_root" rev-parse --absolute-git-dir)" || return
+        printf '%s/release-state/receipts\n' "$git_directory"
+    fi
+}

@@ -126,7 +126,7 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   alongside issue recommendations. If nothing is actionable, report that and
   stop; do not invent tasks, poll indefinitely or create a local issue ledger.
 - For an explicit repair request, complete the selected coherent fix, focused
-  checks and [root changelog issue link](changelogs.md#issue-links-and-compatibility)
+  checks and [owning changelog issue link](changelogs.md#issue-links-and-compatibility)
   directly in the current repository's working
   tree, preserving unrelated edits. A detached patch is supporting evidence,
   not completion of an authorized local repair. Broad gates retain their existing

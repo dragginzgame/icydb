@@ -14,7 +14,7 @@ use crate::{
 use crate::{
     db::{
         data::CanonicalSlotReader,
-        executor::projection::path::{resolve_slot_field_path, resolve_value_field_path},
+        executor::projection::path::{PathCache, PathError, PathSource, PathValue},
     },
     error::InternalError,
     value::Value,
@@ -53,6 +53,13 @@ fn materialize_missing_field_path(
     }
 }
 
+fn materialize_path(value: PathValue<'_>, missing_is_null: bool) -> Option<Cow<'_, Value>> {
+    match value {
+        PathValue::MissingRoot => None,
+        PathValue::Leaf(value) => materialize_missing_field_path(value, missing_is_null),
+    }
+}
+
 ///
 /// ValueRefSlotReader
 ///
@@ -62,9 +69,32 @@ fn materialize_missing_field_path(
 /// hot row-local reads borrowed while still sharing `CompiledExpr::evaluate`.
 ///
 
-struct ValueRefSlotReader<'reader, 'value> {
+pub(in crate::db::executor::projection) struct ValueRefSlotReader<'reader, 'value> {
     read_slot: RefCell<&'reader mut dyn FnMut(usize) -> Option<&'value Value>>,
     field_path_missing_is_null: bool,
+    paths: RefCell<PathCache<'reader, 'value>>,
+}
+
+impl<'reader, 'value> ValueRefSlotReader<'reader, 'value> {
+    /// Keep path selection across one row's authored output expressions.
+    pub(in crate::db::executor::projection) fn new(
+        expressions: &'reader [CompiledExpr],
+        read_slot: &'reader mut dyn FnMut(usize) -> Option<&'value Value>,
+    ) -> Self {
+        Self {
+            read_slot: RefCell::new(read_slot),
+            field_path_missing_is_null: true,
+            paths: RefCell::new(PathCache::new(expressions)),
+        }
+    }
+
+    /// Evaluate through the existing compiled-expression owner.
+    pub(in crate::db::executor::projection) fn evaluate(
+        &self,
+        expr: &CompiledExpr,
+    ) -> Result<Value, ProjectionEvalError> {
+        expr.evaluate(self).map(Cow::into_owned)
+    }
 }
 
 impl CompiledExprValueReader for ValueRefSlotReader<'_, '_> {
@@ -83,18 +113,26 @@ impl CompiledExprValueReader for ValueRefSlotReader<'_, '_> {
     fn read_field_path(
         &self,
         root_slot: usize,
-        segments: &[String],
-        _segment_bytes: &[Box<[u8]>],
+        _segments: &[String],
+        segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
-        let Some(root) = (self.read_slot.borrow_mut())(root_slot) else {
-            return Ok(None);
-        };
-        let value = resolve_value_field_path(root, segments)?;
-
-        Ok(materialize_missing_field_path(
-            value.map(Cow::Borrowed),
-            self.field_path_missing_is_null,
-        ))
+        let value = self
+            .paths
+            .try_borrow_mut()
+            .map_err(|_| field_path_error(InternalError::query_executor_invariant()))?
+            .resolve(root_slot, segment_bytes, || {
+                let root = (self
+                    .read_slot
+                    .try_borrow_mut()
+                    .map_err(|_| InternalError::query_executor_invariant())?)(
+                    root_slot
+                );
+                Ok(root.map_or(PathSource::Missing, |root| {
+                    PathSource::Value(Cow::Borrowed(root))
+                }))
+            })
+            .map_err(PathError::into_projection_error)?;
+        Ok(materialize_path(value, self.field_path_missing_is_null))
     }
 }
 
@@ -110,6 +148,7 @@ impl CompiledExprValueReader for ValueRefSlotReader<'_, '_> {
 struct ValueCowSlotReader<'reader, 'value> {
     read_slot: RefCell<&'reader mut dyn FnMut(usize) -> Option<Cow<'value, Value>>>,
     field_path_missing_is_null: bool,
+    paths: RefCell<PathCache<'reader, 'value>>,
 }
 
 impl CompiledExprValueReader for ValueCowSlotReader<'_, '_> {
@@ -131,30 +170,24 @@ impl CompiledExprValueReader for ValueCowSlotReader<'_, '_> {
     fn read_field_path(
         &self,
         root_slot: usize,
-        segments: &[String],
-        _segment_bytes: &[Box<[u8]>],
+        _segments: &[String],
+        segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
-        let Some(root) = (self.read_slot.borrow_mut())(root_slot) else {
-            return Ok(None);
-        };
-        match root {
-            Cow::Borrowed(root) => {
-                let value = resolve_value_field_path(root, segments)?;
-
-                Ok(materialize_missing_field_path(
-                    value.map(Cow::Borrowed),
-                    self.field_path_missing_is_null,
-                ))
-            }
-            Cow::Owned(root) => {
-                let value = resolve_value_field_path(&root, segments)?.cloned();
-
-                Ok(materialize_missing_field_path(
-                    value.map(Cow::Owned),
-                    self.field_path_missing_is_null,
-                ))
-            }
-        }
+        let value = self
+            .paths
+            .try_borrow_mut()
+            .map_err(|_| field_path_error(InternalError::query_executor_invariant()))?
+            .resolve(root_slot, segment_bytes, || {
+                let root = (self
+                    .read_slot
+                    .try_borrow_mut()
+                    .map_err(|_| InternalError::query_executor_invariant())?)(
+                    root_slot
+                );
+                Ok(root.map_or(PathSource::Missing, PathSource::Value))
+            })
+            .map_err(PathError::into_projection_error)?;
+        Ok(materialize_path(value, self.field_path_missing_is_null))
     }
 }
 
@@ -167,10 +200,50 @@ impl CompiledExprValueReader for ValueCowSlotReader<'_, '_> {
 /// row-access detail, while `CompiledExpr` owns only the expression dispatch.
 ///
 
-struct CanonicalSlotExprReader<'reader, 'record> {
+pub(in crate::db::executor::projection) struct CanonicalSlotExprReader<'reader, 'record> {
     slots: &'reader dyn CanonicalSlotReader,
     record_slot: RefCell<&'record mut dyn FnMut(usize)>,
     field_path_missing_is_null: bool,
+    paths: RefCell<PathCache<'reader, 'reader>>,
+}
+
+impl<'reader, 'record> CanonicalSlotExprReader<'reader, 'record> {
+    /// Retain selection across expressions while the same raw row is borrowed.
+    pub(in crate::db::executor::projection) fn new(
+        expressions: &'reader [CompiledExpr],
+        slots: &'reader dyn CanonicalSlotReader,
+        record_slot: &'record mut dyn FnMut(usize),
+        field_path_missing_is_null: bool,
+    ) -> Self {
+        Self {
+            slots,
+            record_slot: RefCell::new(record_slot),
+            field_path_missing_is_null,
+            paths: RefCell::new(PathCache::new(expressions)),
+        }
+    }
+
+    /// Preserve scalar byte-length specialization before general evaluation.
+    pub(in crate::db::executor::projection) fn evaluate_projection(
+        &self,
+        expr: &CompiledExpr,
+    ) -> Result<Value, InternalError> {
+        if let Some(slot) = expr.direct_octet_length_slot()
+            && let Some(value) = eval_direct_scalar_octet_length(
+                self.slots,
+                &mut **self
+                    .record_slot
+                    .try_borrow_mut()
+                    .map_err(|_| InternalError::query_executor_invariant())?,
+                slot,
+            )?
+        {
+            return Ok(value);
+        }
+        expr.evaluate(self)
+            .map(Cow::into_owned)
+            .map_err(ProjectionEvalError::into_internal_error)
+    }
 }
 
 impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
@@ -205,12 +278,21 @@ impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
         segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
         (self.record_slot.borrow_mut())(root_slot);
-        let value = resolve_slot_field_path(self.slots, root_slot, segment_bytes)
-            .map_err(field_path_error)?;
-        Ok(materialize_missing_field_path(
-            value.map(Cow::Owned),
-            self.field_path_missing_is_null,
-        ))
+        let value = self
+            .paths
+            .try_borrow_mut()
+            .map_err(|_| field_path_error(InternalError::query_executor_invariant()))?
+            .resolve(root_slot, segment_bytes, || {
+                if self.slots.get_bytes(root_slot).is_some() {
+                    Ok(PathSource::Raw(self.slots.required_bytes(root_slot)?))
+                } else {
+                    self.slots
+                        .required_value_by_contract_cow(root_slot)
+                        .map(PathSource::Value)
+                }
+            })
+            .map_err(PathError::into_projection_error)?;
+        Ok(materialize_path(value, self.field_path_missing_is_null))
     }
 }
 
@@ -222,6 +304,7 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_value_cow_reader<'a>(
     let reader = ValueCowSlotReader {
         read_slot: RefCell::new(read_slot),
         field_path_missing_is_null: true,
+        paths: RefCell::new(PathCache::new(std::slice::from_ref(expr))),
     };
 
     expr.evaluate(&reader).map(Cow::into_owned)
@@ -232,36 +315,19 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_value_ref_reader<'a>(
     expr: &CompiledExpr,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Value, ProjectionEvalError> {
-    let reader = ValueRefSlotReader {
-        read_slot: RefCell::new(read_slot),
-        field_path_missing_is_null: true,
-    };
-
-    expr.evaluate(&reader).map(Cow::into_owned)
+    ValueRefSlotReader::new(std::slice::from_ref(expr), read_slot).evaluate(expr)
 }
 
 /// Evaluate one compiled expression through a canonical raw-row slot reader.
+#[cfg(test)]
 pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<'a>(
     expr: &'a CompiledExpr,
     slots: &'a dyn CanonicalSlotReader,
     record_slot: &'a mut dyn FnMut(usize),
 ) -> Result<Cow<'a, Value>, InternalError> {
-    if let Some(slot) = expr.direct_octet_length_slot()
-        && let Some(value) = eval_direct_scalar_octet_length(slots, record_slot, slot)?
-    {
-        return Ok(Cow::Owned(value));
-    }
-
-    let reader = CanonicalSlotExprReader {
-        slots,
-        record_slot: RefCell::new(record_slot),
-        field_path_missing_is_null: true,
-    };
-
-    expr.evaluate(&reader)
-        .map(Cow::into_owned)
+    CanonicalSlotExprReader::new(std::slice::from_ref(expr), slots, record_slot, true)
+        .evaluate_projection(expr)
         .map(Cow::Owned)
-        .map_err(ProjectionEvalError::into_internal_error)
 }
 
 // Evaluate direct `OCTET_LENGTH(field)` over scalar text/blob slots without
@@ -304,11 +370,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, InternalError> {
     let mut noop = |_| {};
-    let reader = CanonicalSlotExprReader {
-        slots,
-        record_slot: RefCell::new(&mut noop),
-        field_path_missing_is_null: false,
-    };
+    let reader = CanonicalSlotExprReader::new(std::slice::from_ref(expr), slots, &mut noop, false);
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
         Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
@@ -328,6 +390,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
     let reader = ValueCowSlotReader {
         read_slot: RefCell::new(read_slot),
         field_path_missing_is_null: false,
+        paths: RefCell::new(PathCache::new(std::slice::from_ref(expr))),
     };
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
@@ -349,7 +412,9 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{CompiledExpr, CompiledExprValueReader, ValueCowSlotReader, ValueRefSlotReader};
+    use super::{
+        CompiledExpr, CompiledExprValueReader, PathCache, ValueCowSlotReader, ValueRefSlotReader,
+    };
     use crate::{db::query::plan::expr::BinaryOp, value::Value};
     use std::{borrow::Cow, cell::RefCell};
 
@@ -392,14 +457,17 @@ mod tests {
                 &ValueRefSlotReader {
                     read_slot: RefCell::new(&mut borrowed),
                     field_path_missing_is_null: true,
+                    paths: RefCell::new(PathCache::new(std::slice::from_ref(&expr))),
                 },
                 &ValueCowSlotReader {
                     read_slot: RefCell::new(&mut cow),
                     field_path_missing_is_null: true,
+                    paths: RefCell::new(PathCache::new(std::slice::from_ref(&expr))),
                 },
                 &ValueCowSlotReader {
                     read_slot: RefCell::new(&mut owned),
                     field_path_missing_is_null: true,
+                    paths: RefCell::new(PathCache::new(std::slice::from_ref(&expr))),
                 },
             ];
             for reader in readers {

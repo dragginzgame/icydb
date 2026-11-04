@@ -7,6 +7,7 @@ use crate::db::codec::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
     write_hash_u64,
 };
+use crate::db::schema::migration_lineage::PendingEntitySourceLineage;
 use crate::error::{ConstraintValidationFindingOutput, InternalError};
 
 use icydb_schema::{
@@ -17,7 +18,7 @@ use serde::Deserialize;
 use sha2::Digest;
 
 const SCHEMA_CHANGE_JOB_ID_PROFILE: &[u8] = b"icydb.schema-application.job-id.v1";
-pub(in crate::db::schema) const MAX_SCHEMA_CHANGE_ACTIVATIONS: usize = 512;
+pub(in crate::db::schema) const MAX_SCHEMA_CHANGE_ACTIVATIONS: usize = 1;
 
 ///
 /// SchemaChangeJobId
@@ -376,6 +377,7 @@ impl SchemaChangeActivation {
 pub(in crate::db) struct SchemaApplicationRecord {
     receipt: SchemaChangeReceipt,
     activations: Vec<SchemaChangeActivation>,
+    pending_source_lineage: Option<PendingEntitySourceLineage>,
 }
 
 impl SchemaApplicationRecord {
@@ -386,6 +388,7 @@ impl SchemaApplicationRecord {
         let record = Self {
             receipt,
             activations,
+            pending_source_lineage: None,
         };
         record.validate()?;
         Ok(record)
@@ -399,13 +402,24 @@ impl SchemaApplicationRecord {
         self.activations.as_slice()
     }
 
+    pub(in crate::db::schema) fn with_pending_source_lineage(
+        mut self,
+        pending: Option<PendingEntitySourceLineage>,
+    ) -> Result<Self, InternalError> {
+        self.pending_source_lineage = pending;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub(in crate::db::schema) const fn pending_source_lineage(
+        &self,
+    ) -> Option<&PendingEntitySourceLineage> {
+        self.pending_source_lineage.as_ref()
+    }
+
     pub(in crate::db) fn validate(&self) -> Result<(), InternalError> {
         self.receipt.validate()?;
         if self.activations.len() > MAX_SCHEMA_CHANGE_ACTIVATIONS
-            || self.activations.windows(2).any(|pair| {
-                (pair[0].store, pair[0].entity_tag, pair[0].constraint_id)
-                    >= (pair[1].store, pair[1].entity_tag, pair[1].constraint_id)
-            })
             || self
                 .activations
                 .iter()
@@ -415,7 +429,9 @@ impl SchemaApplicationRecord {
         }
 
         let pending = matches!(self.receipt.outcome(), SchemaChangeOutcome::Pending { .. });
-        if pending == self.activations.is_empty() {
+        if pending == self.activations.is_empty()
+            || (!pending && self.pending_source_lineage.is_some())
+        {
             return Err(InternalError::store_corruption());
         }
         Ok(())

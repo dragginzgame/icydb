@@ -6,6 +6,7 @@
 use crate::{
     db::{
         DbSession, MutationJobError, MutationJobId, MutationJobState, ProgressJobInventory,
+        ProgressRetirementRecord,
         integrity::with_mutation_progress_store,
         resource::budget::{ExecutionBudgetExceeded, HardExecutionContext},
     },
@@ -178,6 +179,44 @@ impl<C: CanisterKind> DbSession<C> {
             PROGRESS_JOB_INVENTORY_SHAPE,
         )?;
         with_mutation_progress_store::<C, _>(|store| store.inventory())
+    }
+
+    /// Inspect bounded raw progress records for explicit administrative retirement.
+    ///
+    /// Applications must enforce controller or equivalent administration authority.
+    /// Unlike the validated job inventory this also identifies corrupt records,
+    /// without exposing payloads. It never advances or deletes retained work.
+    pub fn admin_progress_retirement_inventory(
+        &self,
+    ) -> Result<Vec<ProgressRetirementRecord>, MutationJobError> {
+        self.admit_mutation_job_operation(
+            DiagnosticExecutionLane::TrustedRead,
+            PROGRESS_JOB_INVENTORY_SHAPE,
+        )?;
+        with_mutation_progress_store::<C, _>(|store| store.retirement_inventory())
+    }
+
+    /// Explicitly abandon one exact retained progress record of any family.
+    ///
+    /// Applications must enforce controller or equivalent administration authority.
+    /// This permanently discards progress, outstanding receipts and replay evidence;
+    /// it does not undo committed mutations or application effects. Allocate fresh
+    /// job identities afterward. Normal owner acknowledgement remains preferable.
+    ///
+    /// # Errors
+    ///
+    /// Recovery must already be complete. Returns `IdentityConflict` if inspection
+    /// evidence is stale, or `InvalidJobId` for the protected header. Absence is
+    /// idempotent and returns false. Corrupt payloads can be explicitly retired.
+    pub fn admin_retire_progress_record(
+        &self,
+        record: &ProgressRetirementRecord,
+    ) -> Result<bool, MutationJobError> {
+        self.admit_mutation_job_operation(
+            DiagnosticExecutionLane::Mutation,
+            PROGRESS_JOB_INVENTORY_SHAPE,
+        )?;
+        with_mutation_progress_store::<C, _>(|store| store.retire_exact(record))
     }
 
     fn admit_mutation_job_operation(

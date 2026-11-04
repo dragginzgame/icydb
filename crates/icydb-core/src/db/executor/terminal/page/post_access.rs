@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn compact_page_window_propagates_data_row_swap_refusal_without_truncation() {
-        let mut rows = ProjectionDataRows::raw(Vec::new());
+        let mut rows = ProjectionDataRows::read(Vec::new());
         let error = apply_compact_page_window(
             &mut rows,
             2,

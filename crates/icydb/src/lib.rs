@@ -94,7 +94,8 @@ pub mod value {
 #[cfg(feature = "metrics")]
 pub mod metrics {
     pub use icydb_core::metrics::{
-        ConvergenceMetrics, EntityMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_reset_all,
+        ConvergenceMetrics, EntityMetrics, InstructionMetrics, MetricsReport,
+        SchemaLifecycleMetrics, metrics_reset_all,
     };
 
     /// Read the current metrics window and exact bounded journal debt.

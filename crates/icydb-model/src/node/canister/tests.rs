@@ -181,3 +181,16 @@ fn stable_memory_identity_ignores_schema_metadata() {
 fn stable_keys_reject_canic_prefix() {
     assert!(!stable_key_is_canonical("canic.test.users.data.v1"));
 }
+
+#[test]
+fn migration_attempt_requires_a_plan_and_preserves_memory_authority() {
+    let original = Canister::new(Def::new("retry_attempt", "Canister"), "test_retry", None);
+    let retry = original.clone().with_migration_attempt(1);
+    assert_eq!(retry.migration_attempt(), 1);
+    assert_eq!(retry.commit_stable_key(), original.commit_stable_key());
+    assert_eq!(
+        retry.integrity_progress_stable_key(),
+        original.integrity_progress_stable_key()
+    );
+    assert!(retry.validate().is_err());
+}

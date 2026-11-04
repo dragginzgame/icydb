@@ -1,44 +1,72 @@
-//! Service-owned instruction report shape; Metrics retains numeric authority.
+//! IcyDB-owned report admission; recorders remain internal instrumentation.
 
 use ic_metrics::MeasurementAggregate;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Read-only instruction observations at IcyDB's frontend boundary.
 ///
-/// Canonical Metrics values own validation and arithmetic. IcyDB owns this
-/// report's field order and native schema independently of Metrics metadata.
+/// IcyDB admits this report's numeric consistency and owns its transport fields.
+/// Canonical Metrics recorders own instrumentation, never report decoding.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct InstructionMetrics(MeasurementAggregate);
+pub struct InstructionMetrics(AggregateFields);
 
 impl InstructionMetrics {
-    /// Borrow the admitted canonical observation without reconstructing it.
-    pub(crate) const fn measurement(&self) -> &MeasurementAggregate {
-        &self.0
+    /// Recorded sample count; inspect its overflow flag before comparisons.
+    #[must_use]
+    pub const fn samples(&self) -> u64 {
+        self.0.samples
+    }
+
+    /// Recorded instruction total; inspect its overflow flag before comparisons.
+    #[must_use]
+    pub const fn total(&self) -> u128 {
+        self.0.total
+    }
+
+    /// Largest individual observation, absent only for an empty report.
+    #[must_use]
+    pub const fn maximum(&self) -> Option<u64> {
+        self.0.maximum
+    }
+
+    /// Whether the producer actually overflowed its sample count.
+    #[must_use]
+    pub const fn samples_overflowed(&self) -> bool {
+        self.0.samples_overflowed
+    }
+
+    /// Whether the producer actually overflowed its instruction total.
+    #[must_use]
+    pub const fn total_overflowed(&self) -> bool {
+        self.0.total_overflowed
     }
 }
 
 impl<'de> Deserialize<'de> for InstructionMetrics {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        MeasurementAggregate::deserialize(deserializer).map(Self)
+        let fields = AggregateFields::deserialize(deserializer)?;
+        if !fields.valid() {
+            return Err(serde::de::Error::custom("invalid IcyDB instruction report"));
+        }
+        Ok(Self(fields))
     }
 }
 
 impl From<MeasurementAggregate> for InstructionMetrics {
     fn from(value: MeasurementAggregate) -> Self {
-        Self(value)
+        Self(AggregateFields {
+            samples: value.samples(),
+            total: value.total(),
+            maximum: value.maximum(),
+            samples_overflowed: value.samples_overflowed(),
+            total_overflowed: value.total_overflowed(),
+        })
     }
 }
 
 impl Serialize for InstructionMetrics {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        AggregateFields {
-            samples: self.0.samples(),
-            total: self.0.total(),
-            maximum: self.0.maximum(),
-            samples_overflowed: self.0.samples_overflowed(),
-            total_overflowed: self.0.total_overflowed(),
-        }
-        .serialize(serializer)
+        self.0.serialize(serializer)
     }
 }
 
@@ -51,9 +79,9 @@ impl ic_wire::typescript::Wire for InstructionMetrics {
     }
 }
 
-// Preserve the existing native/reflection name as well as the five field bytes.
-// Deserialization delegates to Metrics instead of duplicating its admission.
-#[derive(Serialize)]
+// Preserve the existing reflection name, field order and bytes. These are
+// report facts, not a mutable recorder or a governed persistence adapter.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 struct AggregateFields {
     samples: u64,
@@ -63,33 +91,30 @@ struct AggregateFields {
     total_overflowed: bool,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::InstructionMetrics;
-    use ic_metrics::MeasurementAggregate;
-    use icydb_schema::wire::{decode_one, encode_one};
-
-    #[test]
-    fn service_report_preserves_canonical_bytes_and_complete_numeric_admission() {
-        for fields in [
-            (0, 0, None, false, false),
-            (1, 0, Some(0), false, false),
-            (u64::MAX, 0, Some(0), false, false),
-            (u64::MAX, u128::MAX, Some(u64::MAX), true, true),
-        ] {
-            let canonical =
-                MeasurementAggregate::from_parts(fields.0, fields.1, fields.2, fields.3, fields.4)
-                    .unwrap();
-            let report = InstructionMetrics::from(canonical);
-            let bytes = encode_one(&report).unwrap();
-            assert_eq!(bytes, encode_one(fields).unwrap());
-            assert_eq!(bytes, encode_one(canonical).unwrap());
-            let decoded: InstructionMetrics = decode_one(&bytes).unwrap();
-            assert_eq!(decoded, report);
-            assert_eq!(decoded.measurement(), &canonical);
-            for end in 0..bytes.len() {
-                assert!(decode_one::<InstructionMetrics>(&bytes[..end]).is_err());
-            }
+impl AggregateFields {
+    // u64 count times u64 maximum fits in u128. Exact caps remain distinct from
+    // actual overflow; a clipped count cannot establish an upper total bound.
+    fn valid(&self) -> bool {
+        if self.samples == 0 {
+            return self.total == 0
+                && self.maximum.is_none()
+                && !self.samples_overflowed
+                && !self.total_overflowed;
         }
+        let Some(maximum) = self.maximum else {
+            return false;
+        };
+        if (self.samples_overflowed && self.samples != u64::MAX)
+            || (self.total_overflowed && (self.total != u128::MAX || !self.samples_overflowed))
+        {
+            return false;
+        }
+        self.total >= u128::from(maximum)
+            && (maximum != 0 || self.total == 0)
+            && (self.samples_overflowed
+                || self.total <= u128::from(self.samples) * u128::from(maximum))
     }
 }
+
+#[cfg(test)]
+mod tests;

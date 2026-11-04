@@ -213,7 +213,11 @@ Once drained, a marker-bound exact terminal-to-`Prepared` replacement installs
 the successor with fresh progress. Recovery accepts either the prior record or
 the exact already-applied replacement. Exact retries of the current terminal
 submission remain terminal; retrying a corrected aborted plan requires a new
-submission identity. Active records cannot be superseded this way.
+submission identity. Generated declarations select that identity with the
+explicit canister `migration_attempt` number (default zero); increment it and
+redeploy the same source/plan after abort and data correction. An unchanged
+attempt retains exact terminal replay. Active records cannot be superseded this
+way.
 
 Every nonterminal migration reserves its exact predecessor accepted head.
 `Prepared` permits ordinary row reads and writes, but not unrelated schema
@@ -230,7 +234,7 @@ pages reserved for bounded commit control. A fixed key prefix separates
 application and checkpoint records; lineage and migration retain their
 reserved checkpoint keys. One checksummed version-1 `ICYSCMAP` header owns
 the tree, with no fixed partition between record families. The current
-`ICYDBCTL` version-1 boot identity requires database recreation when replacing
+`ICYDBRT\0` version-1 boot identity requires database recreation when replacing
 an incompatible layout; there is no conversion or compatibility reader.
 The marker and metadata regions cannot overlap. The current version-1 marker carries at most four
 canonically ordered exact before/after database-control effects. Normal apply

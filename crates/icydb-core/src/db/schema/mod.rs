@@ -125,8 +125,9 @@ pub use application_receipt::{
 };
 pub(in crate::db) use application_store::{
     ApplicationRecordKey, SchemaApplicationRecordOp, apply_schema_application_record_op,
-    load_schema_application_record_read_only, preflight_schema_application_record_op,
-    verify_schema_application_record_op, with_schema_application_store,
+    load_schema_application_record_read_only, pending_application_blocks_registry_change,
+    preflight_schema_application_record_op, verify_schema_application_record_op,
+    with_schema_application_store,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities_with_enum_catalog};

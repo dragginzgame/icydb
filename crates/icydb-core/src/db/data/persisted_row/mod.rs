@@ -43,7 +43,7 @@ pub(in crate::db) use patch::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use patch::{AcceptedFixedUpdatePatch, managed_timestamp_progression_regresses};
-pub(in crate::db) use reader::StructuralSlotReader;
+pub(in crate::db) use reader::{ReadDataRow, StructuralSlotReader};
 pub(in crate::db) use reader::{
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,

@@ -251,8 +251,9 @@ Before deploying durable IcyDB data:
 
 - use `storage(journaled(...))` for durable stores;
 - keep `heap()` stores limited to intentionally volatile state;
-- keep `memory_namespace` and journaled store keys permanent; never reuse a
-  retired identity or remap the committed `ic-storage` allocation identities;
+- keep `memory_namespace` and journaled store keys permanent; restore dormant
+  quartets only with their exact retained allocation identities and accepted
+  catalogs; never remap a key to different data or assume removal clears it;
 - use generated/session APIs instead of direct raw-store access;
 - use `execute_trusted_structural_mutation_batch` for bounded same-store
   all-or-nothing changes and its insert-only convenience shape for same-entity
@@ -269,3 +270,22 @@ Before deploying durable IcyDB data:
 - do not claim raw backup/import support;
 - do not claim checksum-backed corruption detection;
 - do not claim production recovery-size guarantees beyond published evidence.
+
+## Explicit Progress Retirement
+
+Applications can expose `admin_progress_retirement_inventory` and
+`admin_retire_progress_record` behind controller-equivalent authorization.
+The bounded inventory returns opaque storage keys, complete-record digests and
+encoded sizes, including corrupt records; it exposes no retained payloads.
+Submit the exact observed entry to retire it. Changed evidence refuses, an
+already absent record returns false, and the shared header is always protected.
+The write requires completed recovery so a pending commit cannot lose its
+progress successor. Inspection never drives recovery or deletes records.
+
+Retirement is explicit abandonment for all progress families, including records
+whose original owner is unavailable. It discards outstanding receipts, cursors
+and replay evidence. It does not reverse already committed database writes or
+application effects. Use new job identities afterward. Normal owner completion
+and acknowledgement remain the ordinary retention path; no automatic expiry or
+corruption-based deletion was added. This administration surface is a Rust
+session API; applications own any remote wrapper and its authorization.

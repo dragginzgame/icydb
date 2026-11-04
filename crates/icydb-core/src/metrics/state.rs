@@ -29,33 +29,33 @@ pub struct SchemaLifecycleMetrics {
 impl SchemaLifecycleMetrics {
     /// Candidate lowering/preflight; excludes facade decode and lineage preparation.
     #[must_use]
-    pub const fn lowering(&self) -> &MeasurementAggregate {
-        self.lowering.measurement()
+    pub const fn lowering(&self) -> &InstructionMetrics {
+        &self.lowering
     }
 
     /// Ordinary application lineage/publication preparation and compound commit.
     #[must_use]
-    pub const fn publication(&self) -> &MeasurementAggregate {
-        self.publication.measurement()
+    pub const fn publication(&self) -> &InstructionMetrics {
+        &self.publication
     }
 
     /// Cold accepted database-wide runtime-root compilation; excludes cache hits.
     #[must_use]
-    pub const fn runtime_compilation(&self) -> &MeasurementAggregate {
-        self.runtime_compilation.measurement()
+    pub const fn runtime_compilation(&self) -> &InstructionMetrics {
+        &self.runtime_compilation
     }
 
     /// Startup cardinality driver pages, including authority checks and quiescence.
     #[must_use]
-    pub const fn cardinality(&self) -> &MeasurementAggregate {
-        self.cardinality.measurement()
+    pub const fn cardinality(&self) -> &InstructionMetrics {
+        &self.cardinality
     }
 
     /// Shared startup recovery pages, including journal folding and failed attempts.
     /// Excludes subsequent schema handoff, runtime compilation and cardinality work.
     #[must_use]
-    pub const fn startup_recovery(&self) -> &MeasurementAggregate {
-        self.startup_recovery.measurement()
+    pub const fn startup_recovery(&self) -> &InstructionMetrics {
+        &self.startup_recovery
     }
 }
 
@@ -91,8 +91,8 @@ impl ConvergenceMetrics {
     }
     /// Actual batch-fold instruction spans, including failed attempts.
     #[must_use]
-    pub const fn journal_fold(&self) -> &MeasurementAggregate {
-        self.journal_fold.measurement()
+    pub const fn journal_fold(&self) -> &InstructionMetrics {
+        &self.journal_fold
     }
 }
 
@@ -192,8 +192,8 @@ impl EntityMetrics {
 
     /// Instruction observations with canonical sample, maximum and overflow quality.
     #[must_use]
-    pub const fn instructions(&self) -> &MeasurementAggregate {
-        self.instructions.measurement()
+    pub const fn instructions(&self) -> &InstructionMetrics {
+        &self.instructions
     }
 }
 
@@ -554,29 +554,34 @@ mod tests {
     }
 
     #[test]
-    fn tracked_quality_and_exact_means_survive_every_report_boundary() {
+    fn tracked_quality_survives_every_report_boundary() {
         use super::ConvergenceMeasurements;
         use ic_metrics::MeasurementAggregate;
 
         let exact_count =
-            MeasurementAggregate::from_parts(u64::MAX, 0, Some(0), false, false).unwrap();
+            ic_metrics::persistence::restore_aggregate(u64::MAX, 0, Some(0), false, false).unwrap();
         let mut overflowed_count = exact_count;
         overflowed_count.record(0);
-        let mut exact_total =
-            MeasurementAggregate::from_parts(u64::MAX, u128::MAX - 1, Some(u64::MAX), true, false)
-                .unwrap();
+        let mut exact_total = ic_metrics::persistence::restore_aggregate(
+            u64::MAX,
+            u128::MAX - 1,
+            Some(u64::MAX),
+            true,
+            false,
+        )
+        .unwrap();
         exact_total.record(1);
         let mut overflowed_total = exact_total;
         overflowed_total.record(1);
         let mut measured_zero = MeasurementAggregate::EMPTY;
         measured_zero.record(0);
-        for (measurement, samples_saturated, total_saturated, mean) in [
-            (MeasurementAggregate::EMPTY, false, false, None),
-            (measured_zero, false, false, Some(0)),
-            (exact_count, false, false, Some(0)),
-            (overflowed_count, true, false, None),
-            (exact_total, true, false, None),
-            (overflowed_total, true, true, None),
+        for (measurement, samples_saturated, total_saturated) in [
+            (MeasurementAggregate::EMPTY, false, false),
+            (measured_zero, false, false),
+            (exact_count, false, false),
+            (overflowed_count, true, false),
+            (exact_total, true, false),
+            (overflowed_total, true, true),
         ] {
             metrics_reset_all();
             STATE.with_borrow_mut(|window| {
@@ -604,7 +609,6 @@ mod tests {
                 samples_saturated
             );
             assert_eq!(entity.instructions().total_overflowed(), total_saturated);
-            assert_eq!(entity.instructions().mean().ok().flatten(), mean);
             let lifecycle = decoded.schema_lifecycle();
             for owner in [
                 lifecycle.lowering(),
@@ -622,7 +626,6 @@ mod tests {
                 );
                 assert_eq!(owner.samples_overflowed(), samples_saturated);
                 assert_eq!(owner.total_overflowed(), total_saturated);
-                assert_eq!(owner.mean().ok().flatten(), mean);
             }
         }
         metrics_reset_all();

@@ -4,6 +4,10 @@
 //! persisted row bytes. It is the slot-reader boundary, not a generic row
 //! reader core.
 
+mod owned;
+
+pub(in crate::db) use owned::ReadDataRow;
+
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
@@ -333,6 +337,16 @@ impl<'a> StructuralSlotReader<'a> {
         &mut self,
         slot: usize,
     ) -> Result<Value, InternalError> {
+        // Filtering may already own this accepted value. Move it before the
+        // value-storage shortcut can decode and allocate the same payload again.
+        if self
+            .cached_values
+            .get()
+            .and_then(|values| values.get(slot))
+            .is_some_and(|cached| cached.materialized.get().is_some())
+        {
+            return self.take_required_value(slot);
+        }
         // Phase 1: value-storage scalar fields can project directly from the
         // validated byte view when the persisted tag matches the declared
         // scalar kind. Mismatches fall through to preserve the existing
@@ -603,6 +617,7 @@ mod tests {
     mod direct_projection;
     mod full_row;
     mod historical_scalar;
+    mod owned_handoff;
     mod primary_key_cache;
 
     use super::{CachedSlotValue, StructuralSlotReader};

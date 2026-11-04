@@ -89,8 +89,29 @@ their own urgency and actual caller qualification.
 Run `scripts/distribution/refresh-consumer.sh --impact --source /reviewed/shared-checkout
 --consumer /consumer` before adopting a clean committed Shared revision. This
 implies `--preview`; it never publishes or retires consumer files. The source
-checkout's HEAD is the explicit target revision; dirty source is still refused.
+checkout's HEAD is the target revision unless `--revision FULL_COMMIT` is supplied.
 Custom manifests and entrypoints use the existing exporter options.
+
+Use `--revision` to export a reviewed commit already present in the local object
+database while leaving unrelated source work in place. Payloads, modes, companion
+closure and display version come only from that commit. Full commit IDs are
+required; branches, tags, abbreviated IDs and unavailable objects refuse. Git
+replacement refs cannot substitute another tree. No fetch, stash, branch switch,
+index update or source checkout is performed.
+
+The executing exporter and its three helpers must match their own committed
+HEAD in bytes and executable mode. Dirty execution files refuse before helpers
+run or consumer files change; unrelated dirty source files are allowed. Admitted
+helpers run from private committed copies, independently of the payload revision.
+A newer committed exporter can therefore export older payloads. Preview/impact
+use the same admission. Consumer conflict, ownership and concurrent-change checks
+still apply, and a changed source origin refuses before publication. Concurrent
+source working edits do not change the pinned payload. After refresh, the admitted
+verifier independently compares the manifest and files against the selected commit.
+
+Producer validation can select `test-snapshot-distribution.sh --case revision`,
+`--case core` or `--case transactions`. The full entrypoint retains all cases and
+the broader exported-consumer fixtures.
 
 The normal ADD/UPDATE/KEEP/REMOVE roster is followed by `AFFECTS` records mapping
 changed payloads to current entrypoints through their transitive companions.

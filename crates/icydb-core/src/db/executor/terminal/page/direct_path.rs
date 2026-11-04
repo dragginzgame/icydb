@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::DataRow,
+        data::ReadDataRow,
         executor::{
             ExecutionKernel, OrderedKeyStreamBox, ProjectionDataRows, ScalarContinuationContext,
             pipeline::contracts::{ScalarPageMaterialization, StructuralCursorPage},
@@ -62,7 +62,7 @@ pub(super) fn execute_direct_data_row_path(
             rows_scanned,
             rows_matched,
         }) => (
-            ProjectionDataRows::raw(rows),
+            ProjectionDataRows::read(rows),
             rows_scanned,
             rows_matched,
             true,
@@ -94,7 +94,7 @@ pub(super) fn execute_direct_data_row_path(
 }
 
 enum DirectDataRowScanOutcome<'a> {
-    PageRows(RowScanResult<Vec<DataRow>>),
+    PageRows(RowScanResult<Vec<ReadDataRow>>),
     OrderWindow(DataRowOrderScanResult<'a>),
 }
 

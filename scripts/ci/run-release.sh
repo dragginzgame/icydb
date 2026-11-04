@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl scripts/ci/cargo-release-group.sh
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl scripts/ci/cargo-release-group.sh scripts/ci/check-retained-state.pl
 set -euo pipefail
 
 # Canonical ordering and Git effects; consumer targets own metadata and gates.
@@ -62,6 +62,12 @@ assert_destination() {
 state_root="$(git rev-parse --git-path release-state)"
 if [[ "$delivery" == pr ]]; then state_root="$(git rev-parse --git-common-dir)/release-state"; fi
 [[ ! -L "$state_root" ]] || fail 'release state directory is symlinked'
+check_retention() {
+    perl "$runner_dir/check-retained-state.pl" --root "$state_root" \
+        --root "$(dirname "$state_root")/publication-state" \
+        --root "$(dirname "$state_root")/retired-checkouts"
+}
+check_retention || fail 'retained state requires review before release'
 mkdir -p "$state_root"
 if mkdir "$state_root/lock"; then
     :
@@ -81,13 +87,21 @@ printf '%s\n' "$$" > "$state_root/lock/owner"
 trap 'rm -f "$state_root/lock/owner"; rmdir "$state_root/lock"' EXIT
 
 hook() (
+    check_retention || exit 1
     if [[ -n "${release_worktree:-}" ]]; then cd "$release_worktree"; fi
+    hook_status=0
     "$make_bin" --no-print-directory "$@" \
         "RELEASE_KIND=$kind" "RELEASE_PREVIOUS=$previous" \
         "RELEASE_VERSION=$candidate" "RELEASE_DATE=$release_date" \
         "RELEASE_REMOTE=$remote" "RELEASE_BRANCH=$branch" "RELEASE_SOURCE=${validation_source:-$source}" \
         "RELEASE_COMMIT=${release_commit:-}" "RELEASE_DELIVERY=$delivery" "RELEASE_GROUP=$release_group" \
-        "RELEASE_PREPARATION_SOURCE=$source" "RELEASE_PREPARED_COMMIT=${prepared_commit:-}"
+        "RELEASE_PREPARATION_SOURCE=$source" "RELEASE_PREPARED_COMMIT=${prepared_commit:-}" || hook_status=$?
+    cd "$root"
+    retention_status=0
+    check_retention || retention_status=$?
+    # Preserve the adapter's original failure and evidence when both checks fail.
+    [[ "$hook_status" == 0 ]] || exit "$hook_status"
+    exit "$retention_status"
 )
 read_plan() {
     [[ -f "$1" && ! -L "$1" ]] || fail 'release plan is missing or symlinked'

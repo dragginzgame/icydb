@@ -196,47 +196,57 @@ fn commit_metadata_shares_predicate_pairs_across_field_and_expression_indexes() 
         &accepted,
         contract.accepted_value_catalog_handle().clone(),
     );
-    // Each family's three non-reducing conjunction pairs share one allowance.
-    for limit in [5, 6] {
+    // Both families share all normalization work, including sort/key admission.
+    let prepare = |work: &MaintenanceConstructionBudget| {
+        PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), |predicate| {
+            normalize_with_budget(predicate, work)
+        })
+    };
+    let baseline = MaintenanceConstructionBudget::with_limit_for_tests(
+        Resource::PredicateExpressionSteps,
+        u64::MAX,
+    );
+    prepare(&baseline).unwrap();
+    let exact = baseline.observed_for_tests(Resource::PredicateExpressionSteps);
+    assert!(exact > 6);
+    for limit in [exact - 1, exact] {
         let work = MaintenanceConstructionBudget::with_limit_for_tests(
             Resource::PredicateExpressionSteps,
             limit,
         );
-        let result =
-            PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), |predicate| {
-                normalize_with_budget(predicate, &work)
-            });
-        if limit == 5 {
-            let Err(error) = result else {
-                panic!("the second index must charge its final pair");
-            };
-            for fact in [
-                (
-                    DiagnosticFactTag::BudgetResource,
-                    Resource::PredicateExpressionSteps.raw(),
-                ),
-                (DiagnosticFactTag::Limit, 5),
-                (DiagnosticFactTag::Actual, 6),
-            ] {
-                assert!(error.diagnostic_facts().contains(&fact), "{error:?}");
-            }
-        } else {
+        let result = prepare(&work);
+        if limit == exact {
             assert!(
                 result.is_ok(),
                 "exact allowance must admit both index families"
             );
-            let Err(error) =
-                PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), |predicate| {
-                    normalize_with_budget(predicate, &work)
-                })
-            else {
-                panic!("repeated metadata preparation cannot reset its owner");
-            };
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::Actual, 7))
+            assert_eq!(
+                work.observed_for_tests(Resource::PredicateExpressionSteps),
+                exact
             );
+        }
+        let error = if limit < exact {
+            match result {
+                Err(error) => error,
+                Ok(_) => panic!("the second index must admit its complete canonical work"),
+            }
+        } else {
+            match prepare(&work) {
+                Err(error) => error,
+                Ok(_) => panic!("repeated metadata preparation cannot reset its owner"),
+            }
+        };
+        let actual = work.observed_for_tests(Resource::PredicateExpressionSteps);
+        assert!(actual > limit);
+        for fact in [
+            (
+                DiagnosticFactTag::BudgetResource,
+                Resource::PredicateExpressionSteps.raw(),
+            ),
+            (DiagnosticFactTag::Limit, limit),
+            (DiagnosticFactTag::Actual, actual),
+        ] {
+            assert!(error.diagnostic_facts().contains(&fact), "{error:?}");
         }
     }
 }

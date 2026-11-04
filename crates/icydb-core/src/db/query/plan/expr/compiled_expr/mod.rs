@@ -522,103 +522,139 @@ impl CompiledExpr {
         enter: &mut impl FnMut() -> Result<(), E>,
         visit: &mut impl FnMut(usize) -> Result<(), E>,
     ) -> Result<(), E> {
-        enter()?;
-        match self {
-            Self::Slot { slot, .. }
-            | Self::FieldPath {
-                root_slot: slot, ..
+        self.try_for_each_node(&mut |node| {
+            enter()?;
+            match node {
+                Self::Slot { slot, .. }
+                | Self::FieldPath {
+                    root_slot: slot, ..
+                }
+                | Self::BinarySlotLiteral { slot, .. } => visit(*slot)?,
+                Self::CaseSlotLiteral { slot, .. } | Self::CaseSlotBool { slot, .. } => {
+                    visit(*slot)?;
+                }
+                Self::Add {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Sub {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Mul {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Div {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Eq {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Ne {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Lt {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Lte {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Gt {
+                    left_slot,
+                    right_slot,
+                    ..
+                }
+                | Self::Gte {
+                    left_slot,
+                    right_slot,
+                    ..
+                } => {
+                    visit(*left_slot)?;
+                    visit(*right_slot)?;
+                }
+                Self::FunctionCall { .. }
+                | Self::Unary { .. }
+                | Self::Case { .. }
+                | Self::Binary { .. }
+                | Self::GroupKey { .. }
+                | Self::Aggregate { .. }
+                | Self::Literal(_) => {}
             }
-            | Self::BinarySlotLiteral { slot, .. } => visit(*slot)?,
+            Ok(())
+        })
+    }
+
+    /// Inspect compiled syntax in authored order without evaluating its branches.
+    /// The callback admits each node before its children are inspected.
+    pub(in crate::db) fn try_for_each_node<'expr, E>(
+        &'expr self,
+        visit: &mut impl FnMut(&'expr Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        visit(self)?;
+        match self {
             Self::CaseSlotLiteral {
-                slot,
                 then_expr,
                 else_expr,
                 ..
             }
             | Self::CaseSlotBool {
-                slot,
                 then_expr,
                 else_expr,
                 ..
             } => {
-                visit(*slot)?;
-                then_expr.try_for_each_referenced_slot(enter, visit)?;
-                else_expr.try_for_each_referenced_slot(enter, visit)?;
-            }
-            Self::Add {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Sub {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Mul {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Div {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Eq {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Ne {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Lt {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Lte {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Gt {
-                left_slot,
-                right_slot,
-                ..
-            }
-            | Self::Gte {
-                left_slot,
-                right_slot,
-                ..
-            } => {
-                visit(*left_slot)?;
-                visit(*right_slot)?;
+                then_expr.try_for_each_node(visit)?;
+                else_expr.try_for_each_node(visit)?;
             }
             Self::FunctionCall { args, .. } => {
                 for arg in args {
-                    arg.try_for_each_referenced_slot(enter, visit)?;
+                    arg.try_for_each_node(visit)?;
                 }
             }
-            Self::Unary { expr, .. } => expr.try_for_each_referenced_slot(enter, visit)?,
+            Self::Unary { expr, .. } => expr.try_for_each_node(visit)?,
             Self::Case {
                 when_then_arms,
                 else_expr,
             } => {
                 for arm in when_then_arms {
-                    arm.condition.try_for_each_referenced_slot(enter, visit)?;
-                    arm.result.try_for_each_referenced_slot(enter, visit)?;
+                    arm.condition.try_for_each_node(visit)?;
+                    arm.result.try_for_each_node(visit)?;
                 }
-                else_expr.try_for_each_referenced_slot(enter, visit)?;
+                else_expr.try_for_each_node(visit)?;
             }
             Self::Binary { left, right, .. } => {
-                left.try_for_each_referenced_slot(enter, visit)?;
-                right.try_for_each_referenced_slot(enter, visit)?;
+                left.try_for_each_node(visit)?;
+                right.try_for_each_node(visit)?;
             }
-            Self::GroupKey { .. } | Self::Aggregate { .. } | Self::Literal(_) => {}
+            Self::Slot { .. }
+            | Self::GroupKey { .. }
+            | Self::Aggregate { .. }
+            | Self::Literal(_)
+            | Self::Add { .. }
+            | Self::Sub { .. }
+            | Self::Mul { .. }
+            | Self::Div { .. }
+            | Self::Eq { .. }
+            | Self::Ne { .. }
+            | Self::Lt { .. }
+            | Self::Lte { .. }
+            | Self::Gt { .. }
+            | Self::Gte { .. }
+            | Self::BinarySlotLiteral { .. }
+            | Self::FieldPath { .. } => {}
         }
         Ok(())
     }

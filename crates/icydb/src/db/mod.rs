@@ -35,11 +35,12 @@ pub use icydb_core::db::{
     MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError, MutationJobId,
     MutationJobIdempotencyKey, MutationJobPayloadKind, MutationJobPhase, MutationJobRestartReason,
     MutationJobState, MutationJobStatus, MutationJobTargetFailureReason, ProgressJobFamily,
-    ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle, ReadSetRevisionError,
-    ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance,
-    ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest, ResumableJobAdvanceStatus,
-    ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey, ResumableJobState,
-    ResumableJobStatus, RowProjectionOutput, ScalarPageWork, TypedBindingContext,
+    ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle,
+    ProgressRetirementRecord, ReadSetRevisionError, ReadSetRevisionProof, ReadSetStoreIdentity,
+    ReadSetStoreRevision, ResumableJobAdvance, ResumableJobAdvanceReceipt,
+    ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
+    ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus, RowProjectionOutput,
+    ScalarPageWork, TypedBindingContext,
 };
 pub use icydb_core::db::{MemoryRuntimeBindingError, bind_memory_runtime, memory_runtime};
 #[cfg(feature = "migration")]

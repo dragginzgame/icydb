@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::{DataRow, DecodedDataStoreKey, RawRow},
+        data::{DataRow, DecodedDataStoreKey, RawRow, ReadDataRow},
         executor::{
             projection::eval_effective_runtime_filter_program_with_slot_reader,
             terminal::{RowDecoder, RowLayout},
@@ -131,15 +131,14 @@ impl ScalarRowRuntimeState {
         consistency: MissingRowPolicy,
         key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
-    ) -> Result<Option<DataRow>, InternalError> {
+    ) -> Result<Option<ReadDataRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        if !self.raw_row_matches_filter_program(&row, filter_program)? {
-            return Ok(None);
-        }
-
-        Ok(Some((key, row)))
+        charge_decoded_row(row.len(), 1)?;
+        ReadDataRow::filter((key, row), self.row_layout.contract(), |slots| {
+            eval_effective_runtime_filter_program_with_slot_reader(filter_program, slots)
+        })
     }
 
     // Decode one full structural row while retaining only one caller-declared
@@ -294,20 +293,6 @@ impl ScalarRowRuntimeState {
             RowDecoder::decode_indexed_slot_values_from_reader(row_fields, retained_slot_layout)?,
         )))
     }
-
-    // Evaluate one scan-time filter while the raw row is still available.
-    // This is the only scan lane that can resolve expression-owned field paths
-    // without first materializing root fields into retained `Value` slots.
-    fn raw_row_matches_filter_program(
-        &self,
-        row: &RawRow,
-        filter_program: &EffectiveRuntimeFilterProgram,
-    ) -> Result<bool, InternalError> {
-        charge_decoded_row(row.len(), 1)?;
-        let slots = self.row_layout.open_raw_row_with_contract(row)?;
-
-        eval_effective_runtime_filter_program_with_slot_reader(filter_program, &slots)
-    }
 }
 
 fn charge_borrowed_traversal_row(row: &RawRow) -> Result<(), InternalError> {
@@ -367,21 +352,27 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
 
     /// Retain a primary-iterator payload under the ordinary owned-row charges.
     pub(in crate::db::executor) fn read_borrowed_data_row(
-        &self,
         key: DecodedDataStoreKey,
         row: &RawRow,
-        filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Result<Option<DataRow>, InternalError> {
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         charge_materialized_data_row(row.len())?;
-        if let Some(filter_program) = filter_program
-            && !self
-                .state
-                .raw_row_matches_filter_program(row, filter_program)?
-        {
-            return Ok(None);
-        }
         Ok(Some((key, row.clone())))
+    }
+
+    /// Keep filter reader admission with accepted iterator bytes for projection.
+    pub(in crate::db::executor) fn read_borrowed_filtered_data_row(
+        &self,
+        key: DecodedDataStoreKey,
+        row: &RawRow,
+        filter_program: &EffectiveRuntimeFilterProgram,
+    ) -> Result<Option<ReadDataRow>, InternalError> {
+        charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+        charge_materialized_data_row(row.len())?;
+        charge_decoded_row(row.len(), 1)?;
+        ReadDataRow::filter_borrowed(key, row, self.state.row_layout.contract(), |slots| {
+            eval_effective_runtime_filter_program_with_slot_reader(filter_program, slots)
+        })
     }
 
     /// Retain an iterator payload through the canonical full-row slot decoder.
@@ -424,7 +415,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         consistency: MissingRowPolicy,
         key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
-    ) -> Result<Option<DataRow>, InternalError> {
+    ) -> Result<Option<ReadDataRow>, InternalError> {
         self.state
             .read_data_row_with_filter_program(consistency, key, filter_program)
     }

@@ -239,6 +239,14 @@ page commits its observed hard-budget delta and releases unused conservative
 reservation. The fixed output-row allowance remains a compile-time constant;
 page receipts and hard request/execution limits retain their separate roles.
 
+Filtered raw cursor pages carry their immutable row, frozen accepted contract,
+admitted envelope offsets and touched-slot state into projection. New saved-state
+and restored-cache backing charges the active temporary-byte authority before
+allocation. Untouched fields remain lazy; a partial cache is never represented
+as fully materialized order slots. Retained window accounting includes owned
+handoff backing. These admission counters do not establish an IC-cost saving
+([#410](https://github.com/dragginzgame/icydb/issues/410)).
+
 ### Preparation Accounting And Coverage
 
 Construction charges apply before the maintained allocation/copy boundaries,
@@ -292,8 +300,13 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   comparison pairs under the existing caller. Reused child/NOT backing and
   duplicate-only OR collapse add no vector charge. Failure returns no partial
   predicate and skips later normalization work. The pure entrypoint retains
-  canonical recovery behavior without a fresh ceiling; sort scratch/key encoding
-  and complete normalization accounting remain separate obligations
+  canonical recovery behavior without a fresh ceiling. Budgeted child ordering
+  now charges the existing sort-entry/comparison/scratch resources, admits
+  repeated raw-key encoding through the existing encoding owner, and reserves
+  two bounded reusable key buffers before the infallible sort. Admission is
+  conservative cumulative construction, not measured instructions or live heap.
+  Complete normalization/payload-comparison and recovery accounting remain
+  separate obligations
   ([#76](https://github.com/dragginzgame/icydb/issues/76)).
 - Cold accepted-runtime and inspection-plan construction has its own admitted
   boundaries. A shared request profile is not proof of complete schema compilation,

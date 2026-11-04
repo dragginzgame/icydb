@@ -354,9 +354,9 @@ pub(in crate::db) fn current_database_backlog() -> Result<ExactBacklogMeasuremen
         allocations
             .iter()
             .map(|allocation| match allocation.state() {
-                PersistedStoreAllocationState::Retired => {
+                PersistedStoreAllocationState::Dormant => {
                     let control =
-                        crate::db::database_format::retired_journal_tail_control(allocation)?;
+                        crate::db::database_format::dormant_journal_tail_control(allocation)?;
                     if !control.is_empty() {
                         return Err(InternalError::store_corruption());
                     }

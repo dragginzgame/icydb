@@ -99,7 +99,8 @@ pub use integrity::{
     IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityPendingTerminal,
     IntegrityPhase, IntegrityResourceDiagnostic, IntegritySeverity, IntegritySubmissionKey,
     IntegrityTerminalOutcome, IntegrityVerifierFamily, ProgressJobFamily, ProgressJobInventory,
-    ProgressJobInventoryRecord, ProgressJobLifecycle, QuickIntegrityResult, QuickIntegrityStatus,
+    ProgressJobInventoryRecord, ProgressJobLifecycle, ProgressRetirementRecord,
+    QuickIntegrityResult, QuickIntegrityStatus,
 };
 #[doc(hidden)]
 pub use journal::JournalTailStore;

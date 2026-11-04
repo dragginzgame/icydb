@@ -521,7 +521,6 @@ fn store_wiring_tokens(
                 #icydb::__macro::InternalError,
             > {
                 #icydb::__macro::generated_schema_application_record_key(
-                    &STORE_REGISTRY,
                     ICYDB_SCHEMA_SUBMISSION_KEY,
                 ).map(::std::option::Option::Some)
             }

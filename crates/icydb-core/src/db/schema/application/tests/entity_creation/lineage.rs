@@ -295,6 +295,56 @@ fn deferred_check_and_abort_preserve_the_prior_source_digest() {
 }
 
 #[test]
+fn deferred_completion_updates_only_its_admitted_source_with_or_without_authoring() {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = prepare(&root);
+    populate_quests(&db, &root, 257);
+    let changed = compose(
+        &db,
+        vec![declaration("Item", 1), quest_with_upper_check(1)],
+        "finish-lineage",
+        None,
+    );
+    let receipt = apply_schema(&db, &changed).unwrap();
+    let SchemaChangeOutcome::Pending { job, .. } = receipt.outcome() else {
+        panic!("bounded validation required")
+    };
+    let target = schema_application_target(&db).unwrap();
+    let item_tag = db
+        .accepted_runtime_entity_for_path("Item")
+        .unwrap()
+        .entity_tag();
+    let admitted = load_entity_source_lineage_catalog().unwrap().unwrap();
+    let item = admitted.entries()[&(target.stores()[0].identity(), item_tag)].clone();
+    forget_recovered_domain_for_tests(&db).unwrap();
+    drive_startup_recovery_to_completion(&db);
+    let mut applied = false;
+    for _ in 0..12 {
+        let progress = continue_schema_application(&db, job.id(), None).unwrap();
+        if progress.status() == &crate::db::schema::SchemaChangeProgressStatus::Applied {
+            applied = true;
+            break;
+        }
+    }
+    assert!(applied);
+    assert_quest_lineage(&db, &changed);
+    let after = load_entity_source_lineage_catalog().unwrap().unwrap();
+    assert_eq!(
+        after.entries()[&(target.stores()[0].identity(), item_tag)],
+        item
+    );
+    assert_eq!(
+        apply_schema(&db, &changed).unwrap().outcome(),
+        &SchemaChangeOutcome::Applied {
+            accepted_head: schema_application_target(&db)
+                .unwrap()
+                .accepted_head()
+                .clone(),
+        }
+    );
+}
+
+#[test]
 fn ordinary_version_changes_refuse_without_rewriting_lineage_or_rows() {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = prepare(&root);

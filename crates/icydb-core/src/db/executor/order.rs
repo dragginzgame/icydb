@@ -9,7 +9,7 @@ mod filter_tests;
 use crate::{
     db::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
-        data::{CanonicalSlotReader, DataRow, StructuralSlotReader},
+        data::{CanonicalSlotReader, DataRow, ReadDataRow, StructuralSlotReader},
         executor::{
             projection::{
                 eval_compiled_expr_with_value_cow_reader,
@@ -152,15 +152,15 @@ impl CachedOrderValues {
     }
 }
 
-/// Raw page rows keep the window's existing tuple vector until projection.
-/// Uncached pages retain their compact raw vector without per-row cache space.
+/// Page rows retain either partial filter-reader state or admitted ordering
+/// tuples until projection. Plain rows allocate no reader state.
 pub(in crate::db) struct ProjectionDataRows {
     storage: ProjectionDataRowStorage,
 }
 
 // Only ordering constructs cached tuples, preserving their source contract.
 enum ProjectionDataRowStorage {
-    Raw(Vec<DataRow>),
+    Raw(Vec<ReadDataRow>),
     Ordered {
         order: ResolvedOrder,
         rows: Vec<(DataRow, CachedOrderValues)>,
@@ -168,8 +168,8 @@ enum ProjectionDataRowStorage {
 }
 
 impl ProjectionDataRows {
-    /// Wrap plain rows without allocation or per-row metadata.
-    pub(in crate::db) const fn raw(rows: Vec<DataRow>) -> Self {
+    /// Wrap the existing owned row vector without another allocation.
+    pub(in crate::db) const fn read(rows: Vec<ReadDataRow>) -> Self {
         Self {
             storage: ProjectionDataRowStorage::Raw(rows),
         }
@@ -189,7 +189,7 @@ impl ProjectionDataRows {
                 .into_iter()
                 .map(KernelRow::into_data_row)
                 .collect::<Result<Vec<_>, _>>()
-                .map(Self::raw);
+                .map(Self::read);
         };
         // Admit the complete destination before allocation; the input kernel
         // rows stay live while ownership moves into the wider page tuples.
@@ -204,7 +204,7 @@ impl ProjectionDataRows {
                 return Err(InternalError::query_executor_invariant());
             }
             let values = cache_order_values_from_kernel_row(&mut row, order)?;
-            output.push((row.into_data_row()?, values));
+            output.push((row.into_data_row()?.into_data_row(), values));
         }
         Ok(Self {
             storage: ProjectionDataRowStorage::Ordered {
@@ -256,7 +256,7 @@ impl ProjectionDataRows {
         match &self.storage {
             ProjectionDataRowStorage::Raw(rows) => rows
                 .get(index)
-                .map(|row| cursor_boundary_from_data_row(row, layout, expected))
+                .map(|row| cursor_boundary_from_data_row(row.data_row(), layout, expected))
                 .transpose(),
             ProjectionDataRowStorage::Ordered { order, rows } => rows
                 .get(index)
@@ -273,11 +273,11 @@ impl ProjectionDataRows {
         };
         raw.into_iter()
             .flatten()
-            .map(ProjectionDataRow::raw)
+            .map(ProjectionDataRow::read)
             .chain(ordered.into_iter().flat_map(|(order, rows)| {
                 rows.into_iter()
                     .map(move |(row, values)| ProjectionDataRow {
-                        row,
+                        row: ReadDataRow::raw(row),
                         cached_order: Some(ProjectionOrderValues {
                             order: order.clone(),
                             values,
@@ -347,13 +347,13 @@ fn cached_cursor_boundary(
 /// A projected raw row retains the order values already admitted by its window.
 /// The frozen contract stays paired with those values; plain rows carry none.
 pub(in crate::db) struct ProjectionDataRow {
-    row: DataRow,
+    row: ReadDataRow,
     cached_order: Option<ProjectionOrderValues>,
 }
 
 impl ProjectionDataRow {
-    /// Wrap an unordered or route-ordered raw row.
-    pub(in crate::db) const fn raw(row: DataRow) -> Self {
+    /// Wrap an unordered or route-ordered row with its read state.
+    pub(in crate::db) const fn read(row: ReadDataRow) -> Self {
         Self {
             row,
             cached_order: None,
@@ -363,11 +363,13 @@ impl ProjectionDataRow {
     /// Borrow the canonical row without discarding its ordering evidence.
     #[cfg(test)]
     pub(in crate::db::executor) const fn data_row(&self) -> &DataRow {
-        &self.row
+        self.row.data_row()
     }
 
     /// Split row storage from its owned values before borrowing raw field bytes.
-    pub(in crate::db::executor) fn into_parts(self) -> (DataRow, Option<ProjectionOrderValues>) {
+    pub(in crate::db::executor) fn into_parts(
+        self,
+    ) -> (ReadDataRow, Option<ProjectionOrderValues>) {
         (self.row, self.cached_order)
     }
 
@@ -378,7 +380,7 @@ impl ProjectionDataRow {
         resolved_order: &ResolvedOrder,
     ) -> Result<CursorBoundary, InternalError> {
         let Some(cache) = self.cached_order.as_ref() else {
-            return cursor_boundary_from_data_row(&self.row, row_layout, resolved_order);
+            return cursor_boundary_from_data_row(self.row.data_row(), row_layout, resolved_order);
         };
         cached_cursor_boundary(&cache.order, &cache.values, resolved_order)
     }

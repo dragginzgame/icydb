@@ -2,7 +2,7 @@
 //! Responsibility: render canonical journal debt and one execution-cost window.
 //! Does not own: endpoint calls, Wire decoding, or endpoint publication.
 
-use icydb::metrics::{EntityMetrics, MetricsReport};
+use icydb::metrics::{EntityMetrics, InstructionMetrics, MetricsReport};
 
 use crate::table::{ColumnAlign, append_indented_table};
 
@@ -83,11 +83,7 @@ pub(super) fn render_metrics_report(report: &MetricsReport) -> String {
 fn entity_row(entity: &EntityMetrics) -> MetricsEntityRow {
     // The producer preserves actual overflow quality; raw cap values cannot
     // distinguish clipped observations from exact caps and cannot rebuild it.
-    let average = entity
-        .instructions()
-        .mean()
-        .ok()
-        .flatten()
+    let average = average(entity.instructions())
         .map_or_else(|| "unavailable".to_string(), |value| value.to_string());
     [
         entity.path().to_string(),
@@ -106,9 +102,19 @@ fn entity_row(entity: &EntityMetrics) -> MetricsEntityRow {
     ]
 }
 
+// Rendering owns floor arithmetic. Clipped source quality is not an exact mean.
+const fn average(instructions: &InstructionMetrics) -> Option<u128> {
+    if instructions.samples_overflowed() || instructions.total_overflowed() {
+        return None;
+    }
+    instructions
+        .total()
+        .checked_div(instructions.samples() as u128)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{entity_row, render_metrics_report};
+    use super::{average, entity_row, render_metrics_report};
     use icydb::metrics::{EntityMetrics, MetricsReport};
 
     #[test]
@@ -136,24 +142,33 @@ mod tests {
         #[derive(serde::Serialize)]
         struct ReportEntity {
             path: &'static str,
-            instructions: ic_metrics::MeasurementAggregate,
+            instructions: ReportInstructions,
+        }
+        #[derive(serde::Serialize)]
+        struct ReportInstructions {
+            samples: u64,
+            total: u128,
+            maximum: Option<u64>,
+            samples_overflowed: bool,
+            total_overflowed: bool,
         }
         let maximum = (hits != 0).then_some(u64::try_from(total).unwrap_or(u64::MAX));
-        let instructions = ic_metrics::MeasurementAggregate::from_parts(
-            hits,
+        let instructions = ReportInstructions {
+            samples: hits,
             total,
             maximum,
-            samples_saturated,
-            total_saturated,
-        )
-        .expect("admitted measurement fixture");
-        assert_eq!(instructions.mean().ok().flatten(), mean);
+            samples_overflowed: samples_saturated,
+            total_overflowed: total_saturated,
+        };
         let encoded = icydb_schema::wire::encode_one(ReportEntity {
             path: "app.Entity",
             instructions,
         })
         .expect("encode report entity");
-        icydb_schema::wire::decode_one(&encoded).expect("decode report entity")
+        let decoded: EntityMetrics =
+            icydb_schema::wire::decode_one(&encoded).expect("decode report entity");
+        assert_eq!(average(decoded.instructions()), mean);
+        decoded
     }
 
     #[test]

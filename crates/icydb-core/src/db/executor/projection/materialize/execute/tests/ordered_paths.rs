@@ -48,17 +48,20 @@ fn ordered_sibling_paths_batch_around_cached_leaves() {
                 .unwrap();
             let (raw, cached) = ordered.into_parts();
             let cached = cached.expect("expression ordering retains its value");
-            let expected = project_scalar_data_row(&expressions, &raw, &layout, None).unwrap();
+            let expected =
+                project_scalar_data_row(&expressions, raw.data_row(), &layout, None).unwrap();
             let expected_cached = (!matches!(payload, Value::Null)).then_some(&expected[0]);
             assert_eq!(cached.projection_value(&expressions[0]), expected_cached);
             assert_eq!(
-                project_scalar_data_row(&expressions, &raw, &layout, Some(&cached)).unwrap(),
+                project_scalar_data_row(&expressions, raw.data_row(), &layout, Some(&cached))
+                    .unwrap(),
                 expected
             );
             // Repeated projection borrows the same ordering result; it does not
             // consume it or hand distinct output columns shared ownership.
             assert_eq!(
-                project_scalar_data_row(&expressions, &raw, &layout, Some(&cached)).unwrap(),
+                project_scalar_data_row(&expressions, raw.data_row(), &layout, Some(&cached))
+                    .unwrap(),
                 expected
             );
             assert_eq!(cached.projection_value(&expressions[0]), expected_cached);
@@ -72,7 +75,7 @@ fn ordered_sibling_paths_batch_around_cached_leaves() {
                 RetainedSlotRow::from_indexed_values(&slots, vec![Some(payload.clone())]);
             assert_mixed_projection_scratch_refusal(
                 &expressions,
-                &raw,
+                raw.data_row(),
                 &layout,
                 &retained,
                 &expected,

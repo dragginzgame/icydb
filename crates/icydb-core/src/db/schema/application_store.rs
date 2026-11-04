@@ -16,14 +16,16 @@ use crate::{
                 control_memory,
             },
             derive_schema_change_job_id,
+            migration_lineage::{AcceptedEntitySourceVersion, PendingEntitySourceLineage},
             wire::SchemaWireReader,
         },
     },
     error::InternalError,
 };
 use icydb_schema::{
-    ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
-    SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
+    EntitySourceDigest, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
+    MAX_SCHEMA_SUBMISSION_KEY_BYTES, SchemaProposalDigest, SchemaSubmissionKey,
+    TargetDatabaseIdentity, TargetStoreIdentity,
 };
 use sha2::{Digest, Sha256};
 
@@ -327,6 +329,25 @@ impl SchemaApplicationStore {
         Ok(ApplicationRecordKey::from_receipt(record.receipt())? == key && raw.0 == expected)
     }
 
+    /// Return the bounded set of generated activations still owned by receipts.
+    pub(in crate::db::schema) fn pending_activations(
+        &self,
+    ) -> Result<Vec<SchemaChangeActivation>, InternalError> {
+        if self.record_count()? > MAX_SCHEMA_APPLICATION_RECORDS {
+            return Err(InternalError::store_corruption());
+        }
+        let mut pending = Vec::new();
+        for key in self.map.keys()? {
+            let raw = self
+                .map
+                .get(&key)?
+                .ok_or_else(InternalError::store_corruption)?;
+            let record = decode_application_record(&raw.0, key)?;
+            pending.extend_from_slice(record.activations());
+        }
+        Ok(pending)
+    }
+
     fn record_count(&self) -> Result<u64, InternalError> {
         self.map.len()
     }
@@ -428,6 +449,15 @@ fn encode_application_record_payload(
         writer.push_u64(activation.entity_tag());
         writer.push_u32(activation.constraint_id());
     }
+    match record.pending_source_lineage() {
+        None => writer.push_u8(0),
+        Some(pending) => {
+            writer.push_u8(1);
+            writer.push_u32(pending.version().get());
+            writer.push_bytes(&pending.prior_digest().to_bytes());
+            writer.push_bytes(&pending.proposed_digest().to_bytes());
+        }
+    }
     writer.finish()
 }
 
@@ -457,6 +487,16 @@ fn decode_application_record_payload(
             .map_err(|_| InternalError::store_corruption())?,
         );
     }
+    let pending_source_lineage = match reader.read_u8()? {
+        0 => None,
+        1 => Some(PendingEntitySourceLineage::new(
+            AcceptedEntitySourceVersion::try_new(reader.read_u32()?)
+                .map_err(|_| InternalError::store_corruption())?,
+            EntitySourceDigest::from_bytes(reader.read_array()?),
+            EntitySourceDigest::from_bytes(reader.read_array()?),
+        )?),
+        _ => return Err(InternalError::store_corruption()),
+    };
     reader.finish()?;
 
     let receipt = SchemaChangeReceipt::new(
@@ -466,7 +506,8 @@ fn decode_application_record_payload(
         prior_head,
         outcome,
     )?;
-    SchemaApplicationRecord::new(receipt, activations)
+    SchemaApplicationRecord::new(receipt, activations)?
+        .with_pending_source_lineage(pending_source_lineage)
 }
 
 fn encode_expected_head(writer: &mut ApplicationRecordWriter, head: &ExpectedAcceptedHead) {
@@ -545,6 +586,19 @@ fn decode_schema_change_outcome(
     }
 }
 
+// Registry preflight is read-only and uses the exact control allocation being
+// reconciled, including before the shared map exists on a fresh installation.
+pub(in crate::db) fn pending_application_blocks_registry_change(
+    memory: ControlMemory,
+) -> Result<bool, InternalError> {
+    let Some(store) = SchemaApplicationStore::open_existing(memory)? else {
+        return Ok(false);
+    };
+    store
+        .pending_activations()
+        .map(|pending| !pending.is_empty())
+}
+
 pub(in crate::db) fn with_schema_application_store<R>(
     f: impl FnOnce(&mut SchemaApplicationStore) -> Result<R, InternalError>,
 ) -> Result<R, InternalError> {
@@ -594,6 +648,9 @@ mod tests {
         SchemaApplicationStore, SchemaControlBytes, crc32c, decode_application_record,
         encode_application_record,
     };
+    use crate::db::schema::migration_lineage::{
+        AcceptedEntitySourceVersion, PendingEntitySourceLineage,
+    };
     use crate::{
         db::schema::migration_lineage::{
             AcceptedEntitySourceLineage, AcceptedEntitySourceLineageCatalog,
@@ -613,8 +670,9 @@ mod tests {
         types::EntityTag,
     };
     use icydb_schema::{
-        ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
-        SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
+        EntitySourceDigest, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
+        MAX_SCHEMA_SUBMISSION_KEY_BYTES, SchemaProposalDigest, SchemaSubmissionKey,
+        TargetDatabaseIdentity, TargetStoreIdentity,
     };
 
     fn submission_key(value: &str) -> SchemaSubmissionKey {
@@ -769,6 +827,49 @@ mod tests {
     }
 
     #[test]
+    fn pending_lineage_record_is_bounded_and_terminal_cannot_retain_it() {
+        let binding = PendingEntitySourceLineage::new(
+            AcceptedEntitySourceVersion::try_new(1).unwrap(),
+            EntitySourceDigest::from_bytes([3; 32]),
+            EntitySourceDigest::from_bytes([4; 32]),
+        )
+        .unwrap();
+        let record = pending_record("source-proof")
+            .with_pending_source_lineage(Some(binding.clone()))
+            .unwrap();
+        let key = ApplicationRecordKey::from_receipt(record.receipt()).unwrap();
+        let bytes = encode_application_record(&record).unwrap();
+        assert_eq!(decode_application_record(&bytes, key).unwrap(), record);
+        for len in 0..bytes.len() {
+            assert!(decode_application_record(&bytes[..len], key).is_err());
+        }
+        for offset in [68, 64, 32, 0] {
+            let corrupt = rewrite_application_payload(&bytes, |payload| {
+                let start = payload.len() - 1 - offset;
+                match offset {
+                    68 => payload[start] = 2,
+                    64 => payload[start - 3..=start].fill(0),
+                    32 | 0 => payload[start - 31..=start].fill(0),
+                    _ => unreachable!(),
+                }
+            });
+            assert!(decode_application_record(&corrupt, key).is_err());
+        }
+        assert!(
+            applied_record(&record)
+                .with_pending_source_lineage(Some(binding))
+                .is_err()
+        );
+        assert!(
+            SchemaApplicationRecord::new(
+                record.receipt().clone(),
+                vec![record.activations()[0].clone(); 2]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn application_record_v1_golden_bytes_remain_stable() {
         let pending = pending_record("golden");
         let record = applied_record(&pending);
@@ -784,6 +885,7 @@ mod tests {
         payload.extend_from_slice(&1_u64.to_be_bytes());
         payload.extend_from_slice(&[0x33; 32]);
         payload.extend_from_slice(&0_u32.to_be_bytes());
+        payload.push(0); // terminal receipts retain no pending source binding
         let mut expected = b"ICYSAR01".to_vec();
         expected.push(1);
         expected.extend_from_slice(

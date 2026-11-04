@@ -45,7 +45,7 @@ fn retained_sibling_paths_preserve_values_and_error_ownership() {
     ] {
         let row = RetainedSlotRow::from_indexed_values(&layout, vec![Some(root.clone())]);
         let mut shaped = Vec::new();
-        assert!(project_retained_sibling_paths(&expressions, &row, &mut shaped).unwrap());
+        project_retained_expressions_into(&expressions, &row, &mut shaped).unwrap();
         assert_eq!(shaped, expected);
         let general: Vec<_> = expressions
             .iter()
@@ -67,7 +67,7 @@ fn retained_sibling_paths_preserve_values_and_error_ownership() {
     ] {
         let row = RetainedSlotRow::from_indexed_values(&layout, vec![root]);
         let mut shaped = Vec::new();
-        let error = project_retained_sibling_paths(&expressions, &row, &mut shaped).unwrap_err();
+        let error = project_retained_expressions_into(&expressions, &row, &mut shaped).unwrap_err();
         let general = eval_compiled_expr_with_value_ref_reader(&expressions[0], &mut |slot| {
             row.slot_ref(slot)
         })

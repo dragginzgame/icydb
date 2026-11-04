@@ -361,6 +361,14 @@ pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
     table: &'a [u8],
 }
 
+// Pointer-free envelope admission. Only the row owner carries it between
+// reader lifetimes; immutable bytes and the frozen contract stay inseparable.
+pub(in crate::db::data) struct StructuralRowFieldOffsets {
+    layout_version: RowLayoutVersion,
+    table: std::ops::Range<usize>,
+    payload: std::ops::Range<usize>,
+}
+
 impl<'a> StructuralRowFieldBytes<'a> {
     /// Decode one raw row payload into contract slot-aligned encoded field spans.
     fn from_row_bytes_with_contract(
@@ -397,6 +405,31 @@ impl<'a> StructuralRowFieldBytes<'a> {
         self.row_bytes
     }
 
+    pub(in crate::db::data) fn offsets(&self) -> Result<StructuralRowFieldOffsets, InternalError> {
+        Ok(StructuralRowFieldOffsets {
+            layout_version: self.layout_version,
+            table: admitted_subslice_range(self.row_bytes, self.table)?,
+            payload: admitted_subslice_range(self.row_bytes, self.payload)?,
+        })
+    }
+
+    // The owned row boundary supplies the same immutable bytes admitted above.
+    pub(in crate::db::data) fn from_offsets(
+        row_bytes: &'a [u8],
+        offsets: StructuralRowFieldOffsets,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
+            row_bytes,
+            layout_version: offsets.layout_version,
+            table: row_bytes
+                .get(offsets.table)
+                .ok_or_else(InternalError::query_executor_invariant)?,
+            payload: row_bytes
+                .get(offsets.payload)
+                .ok_or_else(InternalError::query_executor_invariant)?,
+        })
+    }
+
     /// Borrow one encoded persisted field payload by stable slot index.
     #[must_use]
     pub(in crate::db::data) fn field(&self, slot: usize) -> Option<&'a [u8]> {
@@ -411,6 +444,22 @@ impl<'a> StructuralRowFieldBytes<'a> {
     pub(in crate::db::data) const fn layout_version(&self) -> RowLayoutVersion {
         self.layout_version
     }
+}
+
+// Convert an already-borrowed subslice to checked offsets without retaining
+// pointers across a row move. This never admits bytes from another allocation.
+pub(in crate::db::data) fn admitted_subslice_range(
+    bytes: &[u8],
+    part: &[u8],
+) -> Result<std::ops::Range<usize>, InternalError> {
+    let start = (part.as_ptr() as usize)
+        .checked_sub(bytes.as_ptr() as usize)
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let end = start
+        .checked_add(part.len())
+        .filter(|end| *end <= bytes.len())
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    Ok(start..end)
 }
 
 ///

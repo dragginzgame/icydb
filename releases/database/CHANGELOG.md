@@ -3,6 +3,77 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.297.0]
+
+### ⚠️ Breaking
+
+- Adopt Metrics 0.29 and return IcyDB-owned instruction report values instead of
+  recorder types. Preserve report fields, bytes and numeric refusal while keeping
+  recording separate from report validation and arithmetic
+  ([Observability #130 — Instrumentation-only Metrics](https://github.com/dragginzgame/ic-observability/issues/130)).
+
+- Restore omitted journaled stores from their exact dormant allocation quartets,
+  preserving retained bytes after a failed deployment. Refuse topology changes
+  while generated applications are pending
+  ([#31 — Recover rejected store topology changes](https://github.com/dragginzgame/icydb/issues/31)).
+
+- Start a fresh-installation database contract. Earlier database boot identities
+  refuse before recovery; old-format orphan-index and Unicode-provenance repair
+  requests are retired from this line
+  ([#38 — Retired orphaned index generations](https://github.com/dragginzgame/icydb/issues/38),
+  [#111 — Retired Unicode index provenance](https://github.com/dragginzgame/icydb/issues/111)).
+
+- Canonicalize the default Account subaccount across construction, decoding,
+  text and database/index identity; explicit zero becomes absence. Preserve
+  native binding reflection of nonzero optional subaccounts
+  ([#70 — Canonical default Account identity](https://github.com/dragginzgame/icydb/issues/70)).
+- Bind database identity to its durable incarnation so unrelated store topology
+  no longer re-keys lineage or pending application receipts
+  ([#32 — Stable identity across store changes](https://github.com/dragginzgame/icydb/issues/32),
+  [#90 — Finish pending applications after intervening changes](https://github.com/dragginzgame/icydb/issues/90)).
+
+### 🩹 Fixed
+
+- Allow generated migrations to retry corrected source data after abort through
+  an explicit declared attempt number, preserving exact-attempt replay and
+  bounded retained rejection findings
+  ([#96 — Retry an aborted migration](https://github.com/dragginzgame/icydb/issues/96)).
+
+- Add explicit administrative retirement for abandoned or corrupt shared progress
+  records, using exact observed evidence and completed recovery; preserve normal
+  receipt acknowledgement and already committed effects
+  ([#169 — Recover abandoned progress capacity](https://github.com/dragginzgame/icydb/issues/169)).
+
+- Retain admitted source lineage with pending generated validation and publish it
+  atomically on completion after restart or unrelated schema changes; abort
+  preserves the prior digest
+  ([#94 — Maintain pending source lineage](https://github.com/dragginzgame/icydb/issues/94)).
+
+- Share lazy sibling-map selection across separated projection columns and
+  paths inside expressions, preserving authored errors, missing/null values
+  and complete-root corruption checks
+  ([#400 — Reuse nested map selection across projections](https://github.com/dragginzgame/icydb/issues/400)).
+
+- Carry accepted filter-reader state into cursor-page projection, preserving
+  lazy untouched fields, corruption refusal and typed resource limits
+  ([#410 — Reuse filtered rows through projection](https://github.com/dragginzgame/icydb/issues/410)).
+
+- Admit predicate-ordering scratch and encoded sort keys against existing caller
+  budgets before sorting, preserving canonical output and retained recovery
+  ([#76 — Budget predicate simplification and normalization](https://github.com/dragginzgame/icydb/issues/76), partial).
+
+### 🛠️ Tooling
+
+- Adopt the committed Shared Tooling 0.29.4 snapshot and its bounded retained
+  release-state admission. Align Host Tools 0.81 with the existing Platform 0.21
+  selection and current Foundation/Build/Text patch floors.
+
+- Keep release qualification receipts beside Git recovery evidence so cache
+  cleanup cannot erase them; missing evidence still refuses reuse
+  ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603), partial).
+
+[Detailed changes](0.297.md).
+
 ## [0.296.1] - 2026-11-03
 
 ### 🩹 Fixed

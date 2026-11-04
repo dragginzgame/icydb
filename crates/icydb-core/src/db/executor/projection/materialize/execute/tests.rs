@@ -4,6 +4,7 @@ mod ordered_paths;
 mod retained_output;
 
 use super::*;
+use crate::db::executor::projection::eval::eval_compiled_expr_with_required_slot_reader_cow;
 use crate::{
     db::{
         data::{
@@ -100,17 +101,7 @@ fn sibling_projection_preserves_values_order_duplicates_and_missing() {
                 DiagnosticExecutionLane::PublicRead,
                 1,
             ),
-            || {
-                project_sibling_paths(
-                    &expressions,
-                    &mut shaped,
-                    |root, prefix, members, shaped| {
-                        crate::db::executor::projection::path::resolve_slot_sibling_paths(
-                            &reader, root, prefix, members, shaped,
-                        )
-                    },
-                )
-            },
+            || project_scalar_data_row_into(&expressions, &row, &layout, &mut shaped, None),
         )
         .unwrap_err();
         assert!(error.diagnostic_facts().contains(&(
@@ -415,7 +406,8 @@ fn ordered_projection_reuses_values_for_identity_and_repeated_columns() {
         let row = ordered_projection_row(&layout, &payload);
         let (raw, mut cached) = row.into_parts();
         assert_eq!(
-            project_data_row_from_direct_slots(&layout, &raw, &slots, cached.as_mut()).unwrap(),
+            project_data_row_from_direct_slots(&layout, raw.data_row(), &slots, cached.as_mut())
+                .unwrap(),
             vec![payload.clone(), Value::Nat64(7), payload.clone()]
         );
         assert_eq!(

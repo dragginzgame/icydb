@@ -274,6 +274,26 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.progress_job_inventory()
     }
 
+    /// Inspect raw progress records, including corrupt entries, for admin retirement.
+    /// Applications must authorize this operation as controller-equivalent work.
+    pub fn admin_progress_retirement_inventory(
+        &self,
+    ) -> Result<Vec<crate::db::ProgressRetirementRecord>, crate::db::MutationJobError> {
+        self.inner.admin_progress_retirement_inventory()
+    }
+
+    /// Permanently abandon exact retained progress after administrative authorization.
+    ///
+    /// This discards receipts and replay evidence without undoing committed effects.
+    /// Fresh job identities are required for later work. Recovery must already be
+    /// complete; changed records refuse and an already absent record returns false.
+    pub fn admin_retire_progress_record(
+        &self,
+        record: &crate::db::ProgressRetirementRecord,
+    ) -> Result<bool, crate::db::MutationJobError> {
+        self.inner.admin_retire_progress_record(record)
+    }
+
     /// Create one durable application-owned progress job.
     pub fn start_resumable_job(
         &self,

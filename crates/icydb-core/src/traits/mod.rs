@@ -57,7 +57,7 @@ pub trait CanisterKind: Path + 'static {
 
     /// Resolve the current generated receipt that must survive terminal retention.
     ///
-    /// Generated canisters bind this to their immutable submission and registry.
+    /// Generated canisters bind this to their immutable source/store submission.
     /// Canisters without generated readiness have no receipt to protect. The
     /// control allocation is selected before this read-only hook is invoked.
     #[doc(hidden)]

@@ -135,6 +135,24 @@ consumer library; compatible internal tooling adoption uses patch notes.
 
 ## Artifact retention and exact push scope
 
+The shared release runner checks retained state before starting and before/after
+each adapter hook with `scripts/ci/check-retained-state.pl`. It checks the selected
+Git `release-state` plus adjacent `publication-state` and `retired-checkouts`:
+512 MiB aggregate logical file bytes, 32 MiB per file, and a 30-day maximum age
+for bulk files of at least 1 MiB. Small recovery plans and receipts do not expire.
+Hardlinked files count once. Symlinks and nested `target`, `.tools`, `node_modules`
+or `.git` directories are refused. Git objects, refs and reflogs are not scanned.
+
+Refusal preserves all evidence and stops further release steps. Review active
+recovery and unique evidence before explicitly reclaiming reproducible data,
+then resume the saved attempt. These are boundary checks, not a live disk quota:
+one running adapter can still exceed the budget before it returns. Custom writers
+must adopt the same helper around their work, passing only their retained-state
+roots with repeated `--root` arguments, never an ordinary build-output directory.
+The helper accepts explicit byte/age limits for approved local retention policies;
+the shared runner uses the defaults above. Existing large archives or old bulk
+logs require review before adoption, not automatic removal.
+
 Successful push does not authorize cleanup. Retain consumer-owned build outputs,
 validation logs, release receipts and recovery plans on success, failure and
 retry. Remove automatic post-push cleanup from consumer targets and adapters;

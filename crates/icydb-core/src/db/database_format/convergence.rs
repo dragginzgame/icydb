@@ -145,14 +145,26 @@ fn reconcile_current_registry(
                 require_active_current_tail(proposal.handle)?;
             }
             (PersistedStoreAllocationState::Active, None) => {
-                require_retirable_tail(entry)?;
-                *entry = entry.clone().retired();
+                require_suspendable_tail(entry)?;
+                *entry = entry.clone().dormant();
             }
-            (PersistedStoreAllocationState::Retired, Some(_)) => {
-                return Err(InternalError::store_unsupported());
+            (PersistedStoreAllocationState::Dormant, Some(proposal)) => {
+                // Exact quartet restoration reuses retained authority. Never
+                // initialise, clear or reinterpret any of its physical roots.
+                let tail = proposal
+                    .handle
+                    .journal_tail_store()
+                    .ok_or_else(InternalError::store_invariant)?;
+                if !tail
+                    .with_borrow(JournalTailStore::validate_current_tail_authority)?
+                    .is_empty()
+                {
+                    return Err(InternalError::store_unsupported());
+                }
+                *entry = entry.clone().reactivated();
             }
-            (PersistedStoreAllocationState::Retired, None) => {
-                require_retirable_tail(entry)?;
+            (PersistedStoreAllocationState::Dormant, None) => {
+                require_suspendable_tail(entry)?;
             }
         }
     }
@@ -174,7 +186,12 @@ fn reconcile_current_registry(
     if registry == persisted_registry {
         return Ok(());
     }
-    if marker_present {
+    // A pending generated application owns a store/entity activation. Keep its
+    // topology available until the receipt is terminal; no orphaned record can
+    // result from removal, addition, or an unrelated failed reconciliation.
+    if marker_present
+        || crate::db::schema::pending_application_blocks_registry_change(control_memory.clone())?
+    {
         return Err(InternalError::store_unsupported());
     }
     let initialize = initialize
@@ -307,16 +324,16 @@ fn require_active_current_tail(handle: StoreHandle) -> Result<(), InternalError>
         .with_borrow(|tail| tail.validate_current_tail_authority().map(|_| ()))
 }
 
-fn require_retirable_tail(entry: &PersistedStoreAllocation) -> Result<(), InternalError> {
-    if !retired_journal_tail_control(entry)?.is_empty() {
+fn require_suspendable_tail(entry: &PersistedStoreAllocation) -> Result<(), InternalError> {
+    if !dormant_journal_tail_control(entry)?.is_empty() {
         return Err(InternalError::store_unsupported());
     }
     Ok(())
 }
 
-// Retired allocations have no generated tree owner in the current installation.
+// Dormant allocations have no generated tree owner in the current installation.
 // Open, validate and release their sole lease; never infer an empty tail from state.
-pub(in crate::db) fn retired_journal_tail_control(
+pub(in crate::db) fn dormant_journal_tail_control(
     entry: &PersistedStoreAllocation,
 ) -> Result<crate::db::journal::JournalTailControl, InternalError> {
     let journal = entry.journal();
@@ -820,7 +837,7 @@ mod tests {
             tail.apply_prepared_batch_retirement(retirement)
                 .expect("fixture storage operation should succeed");
             // Simulate restart without the generated owner: release the actual
-            // journal lease before the retired-allocation reader opens it.
+            // journal lease before the dormant-allocation reader opens it.
             *tail = JournalTailStore::init(test_memory(254))
                 .expect("fixture storage should initialize");
         });
@@ -832,7 +849,7 @@ mod tests {
             panic!("retirement must retain current control authority");
         };
         assert_eq!(registry.len(), 1);
-        assert_eq!(registry[0].state(), PersistedStoreAllocationState::Retired);
+        assert_eq!(registry[0].state(), PersistedStoreAllocationState::Dormant);
         assert_eq!(
             current_database_backlog().unwrap(),
             ExactBacklogMeasurement::EMPTY
@@ -899,16 +916,25 @@ mod tests {
             else {
                 panic!("fresh controls must be current");
             };
-            let retired = registry
+            let debt = JournalBatch::new_with_database_commit_sequence(
+                [0x31; 16],
+                [0x32; 16],
+                JournalSequence::new(1),
+                DatabaseCommitSequence::new(1),
+                Vec::new(),
+            )
+            .unwrap();
+            LIFE_A_JOURNAL.with_borrow_mut(|tail| tail.append_batch(&debt).unwrap());
+            let dormant = registry
                 .into_iter()
-                .map(PersistedStoreAllocation::retired)
+                .map(PersistedStoreAllocation::dormant)
                 .collect::<Vec<_>>();
             let replacement = prepare_commit_control_replacement(
                 control.clone(),
                 incarnation,
                 cursor_authentication_key,
                 database_commit_sequence,
-                &retired,
+                &dormant,
             )
             .unwrap();
             apply_prepared_commit_control_replacement(replacement);
@@ -957,7 +983,112 @@ mod tests {
     }
 
     #[test]
-    fn current_registry_rejects_debt_retirement_and_never_reuses_retired_quartets() {
+    fn pending_application_blocks_topology_before_any_registry_publication() {
+        use crate::db::schema::{
+            SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeActivation,
+            SchemaChangeJob, SchemaChangeOutcome, SchemaChangeReceipt,
+            apply_schema_application_record_op, derive_schema_change_job_id,
+        };
+        use icydb_schema::{
+            ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest,
+            SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
+        };
+        crate::testing::run_isolated(|| {
+            select_commit_memory_allocation(100, ConvergenceCanister::COMMIT_STABLE_KEY);
+            let control =
+                commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+            let (_root, active) = database(&LIFE_A_REGISTRY);
+            ensure_current_convergence_format(&active, &control, true, [0x17; 32]).unwrap();
+            let key = SchemaSubmissionKey::try_new("pending-registry").unwrap();
+            let identity = TargetDatabaseIdentity::from_bytes([3; 32]);
+            let digest = SchemaProposalDigest::from_bytes([4; 32]);
+            let head = ExpectedAcceptedHead::Exact {
+                revision: 2,
+                fingerprint: ExpectedSchemaFingerprint::from_bytes([5; 32]),
+            };
+            let receipt = SchemaChangeReceipt::new(
+                identity,
+                key.clone(),
+                digest,
+                ExpectedAcceptedHead::Empty,
+                SchemaChangeOutcome::Pending {
+                    job: SchemaChangeJob::new(
+                        derive_schema_change_job_id(
+                            identity,
+                            &key,
+                            digest,
+                            &ExpectedAcceptedHead::Empty,
+                        )
+                        .unwrap(),
+                    ),
+                    candidate_head: head.clone(),
+                },
+            )
+            .unwrap();
+            let record = SchemaApplicationRecord::new(
+                receipt,
+                vec![
+                    SchemaChangeActivation::new(TargetStoreIdentity::from_bytes([6; 32]), 1, 1)
+                        .unwrap(),
+                ],
+            )
+            .unwrap();
+            apply_schema_application_record_op(
+                &SchemaApplicationRecordOp::insert(&record).unwrap(),
+            )
+            .unwrap();
+            let mut before =
+                vec![0; usize::try_from(control.size() * super::super::WASM_PAGE_BYTES).unwrap()];
+            control.read(0, &mut before);
+            // An added quartet is physically virgin; rejection must not initialise it.
+            let (_root, added) = database(&LIFE_AB_REGISTRY);
+            assert!(
+                ensure_current_convergence_format(&added, &control, false, [0x17; 32]).is_err()
+            );
+            let mut after = vec![0; before.len()];
+            assert_eq!(
+                control.size() * super::super::WASM_PAGE_BYTES,
+                before.len() as u64
+            );
+            control.read(0, &mut after);
+            assert_eq!(after, before);
+            assert_eq!(
+                allocation_pages(
+                    added
+                        .store_handle(LIFE_B_PATH)
+                        .unwrap()
+                        .journal_allocation()
+                        .unwrap()
+                )
+                .unwrap(),
+                0
+            );
+            // Restoring the original declaration can resume the pending job.
+            ensure_current_convergence_format(&active, &control, false, [0x17; 32]).unwrap();
+            let terminal = SchemaApplicationRecord::new(
+                SchemaChangeReceipt::new(
+                    identity,
+                    key,
+                    digest,
+                    ExpectedAcceptedHead::Empty,
+                    SchemaChangeOutcome::Aborted {
+                        accepted_head: head,
+                    },
+                )
+                .unwrap(),
+                Vec::new(),
+            )
+            .unwrap();
+            apply_schema_application_record_op(
+                &SchemaApplicationRecordOp::replace(&record, &terminal).unwrap(),
+            )
+            .unwrap();
+            ensure_current_convergence_format(&added, &control, false, [0x17; 32]).unwrap();
+        });
+    }
+
+    #[test]
+    fn current_registry_rejects_debt_and_restores_exact_dormant_quartets() {
         let control = std::rc::Rc::new(test_memory(126));
         let (_root, life_a) = database(&LIFE_A_REGISTRY);
         ensure_current_convergence_format(&life_a, &control, true, [0x17; 32]).unwrap();
@@ -974,7 +1105,7 @@ mod tests {
             .expect("current startup must admit a bounded nonempty tail");
 
         // Simulate removal of the generated store on restart: release its tree
-        // before the retired-allocation reader opens that physical lease.
+        // before the dormant-allocation reader opens that physical lease.
         let release_a = || {
             LIFE_A_JOURNAL.with_borrow_mut(|tail| {
                 *tail = JournalTailStore::init(test_memory(254))
@@ -998,7 +1129,7 @@ mod tests {
         release_a();
         ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
 
-        // A retired registry row must still validate its physical tail on retry.
+        // A dormant registry row must still validate its physical tail on retry.
         let unexpected = JournalBatch::new_with_database_commit_sequence(
             [0x73; 16],
             [0x74; 16],
@@ -1034,21 +1165,32 @@ mod tests {
             panic!("lifecycle reconciliation must remain current");
         };
         assert_eq!(registry.len(), 2);
-        assert_eq!(registry[0].state(), PersistedStoreAllocationState::Retired);
+        assert_eq!(registry[0].state(), PersistedStoreAllocationState::Dormant);
         assert_eq!(registry[1].state(), PersistedStoreAllocationState::Active);
 
         let (_root, combined_database) = database(&LIFE_AB_REGISTRY);
-        assert!(
-            ensure_current_convergence_format(&combined_database, &control, false, [0x17; 32])
-                .is_err()
-        );
+        LIFE_A_JOURNAL.with_borrow_mut(|tail| {
+            *tail = JournalTailStore::init(
+                store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
+            )
+            .unwrap();
+        });
+        ensure_current_convergence_format(&combined_database, &control, false, [0x17; 32]).unwrap();
         let PersistedCommitControlObservation::Current {
             registry: unchanged,
             ..
         } = inspect_persisted_commit_control(control).unwrap()
         else {
-            panic!("rejected reuse must retain current authority");
+            panic!("restoration must retain current authority");
         };
-        assert_eq!(unchanged, registry);
+        assert_eq!(unchanged.len(), registry.len());
+        assert!(
+            unchanged
+                .iter()
+                .all(|entry| entry.state() == PersistedStoreAllocationState::Active)
+        );
+        for (restored, prior) in unchanged.iter().zip(&registry) {
+            assert_eq!(restored.roles(), prior.roles());
+        }
     }
 }

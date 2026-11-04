@@ -19,7 +19,7 @@ use crate::db::executor::pipeline::contracts::{
 };
 use crate::{
     db::{
-        data::DataRow,
+        data::{DataRow, ReadDataRow},
         executor::{
             OrderReadableRow, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{KernelPageMaterializationRequest, ScalarPageMaterialization},
@@ -63,7 +63,7 @@ pub(in crate::db::executor) use scan::{RowScanResult, execute_kernel_row_scan};
 ///
 
 pub(in crate::db) struct KernelRow {
-    data_row: Option<DataRow>,
+    data_row: Option<ReadDataRow>,
     slots: KernelRowSlots,
 }
 
@@ -76,6 +76,14 @@ impl KernelRow {
     /// Build one structural kernel row that keeps only the canonical data row.
     #[must_use]
     pub(in crate::db::executor) const fn new_data_row_only(data_row: DataRow) -> Self {
+        Self {
+            data_row: Some(ReadDataRow::raw(data_row)),
+            slots: KernelRowSlots::NotMaterialized,
+        }
+    }
+
+    /// Preserve a filtered row's partial reader state without claiming full slots.
+    pub(in crate::db::executor) const fn new_read_data_row(data_row: ReadDataRow) -> Self {
         Self {
             data_row: Some(data_row),
             slots: KernelRowSlots::NotMaterialized,
@@ -90,7 +98,7 @@ impl KernelRow {
         slots: RetainedSlotRow,
     ) -> Self {
         Self {
-            data_row: Some(data_row),
+            data_row: Some(ReadDataRow::raw(data_row)),
             slots: KernelRowSlots::Retained(slots),
         }
     }
@@ -134,7 +142,7 @@ impl KernelRow {
         self.slot_ref(slot).cloned()
     }
 
-    pub(in crate::db) fn into_data_row(self) -> Result<DataRow, InternalError> {
+    pub(in crate::db) fn into_data_row(self) -> Result<ReadDataRow, InternalError> {
         self.data_row
             .ok_or_else(InternalError::query_executor_invariant)
     }
@@ -167,7 +175,7 @@ impl OrderReadableRow for KernelRow {
         let data_row = self
             .data_row
             .as_ref()
-            .map_or(0, |row| u64::try_from(row.1.len()).unwrap_or(u64::MAX));
+            .map_or(0, ReadDataRow::retained_backing_bytes);
         let slots = match &self.slots {
             KernelRowSlots::NotMaterialized => 0,
             KernelRowSlots::Retained(slots) => slots.estimated_backing_bytes(),

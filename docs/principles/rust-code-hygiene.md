@@ -37,9 +37,10 @@ Use the library's existing capabilities before adding custom argument handling.
 
 ## Metrics and logging
 
-Follow the mandatory [observability contract](../../rules/engineering-details.md#metrics-and-logging):
-use `ic-metrics` and `ic-logging`, keep application adapters thin, and resolve
-capability gaps through issues and improvements in IC Observability.
+Follow the [observability contract](../../rules/engineering-details.md#metrics-and-logging)
+for application-tree instrumentation and logging. Metrics does not own general
+math, benchmark calculations or report decoding; Canic's adapter owns metrics
+transport and endpoint projection.
 
 ## Documentation and comments
 
@@ -125,7 +126,24 @@ or section banners.
 
 ## Tests
 
-- Keep owner-local tests near the owning code.
+- **Place Rust test bodies and test-only helpers in `tests.rs` or a `tests/`
+  directory wherever practical**, near the code they exercise. Prefer external
+  test modules over large inline `#[cfg(test)] mod tests { ... }` blocks so
+  file-based tools such as `cloc` can distinguish test source from production
+  source. Keep only small wiring declarations such as `#[cfg(test)] mod tests;`
+  in production files.
+- Use ordinary module discovery: `foo.rs` can declare tests in `foo/tests.rs`
+  or `foo/tests/mod.rs`; a directory module can use its own `tests.rs` or
+  `tests/mod.rs`. Keep integration tests under the crate's `tests/` directory.
+  Put test-only fixtures and support modules beneath the corresponding test
+  directory where practical. Do not widen production visibility, introduce
+  `#[path]` attributes or change test semantics just to relocate tests.
+- Keep executable documentation examples beside their API docs. Retain other
+  inline tests only for a concrete technical reason, documented briefly at the
+  owner. Adopt this layout for new tests and when substantially changing an
+  existing test module; unrelated work does not require a bulk test relocation.
+  File-based test LOC remains an approximation: report doctests, generated
+  fixtures and other exceptions separately when they matter to a requested count.
 - Put cross-module behavior tests at the subsystem boundary they exercise.
 - Add negative coverage for public validation and trust boundaries.
 - Test maintained contracts rather than private implementation layout.

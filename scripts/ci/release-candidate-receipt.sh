@@ -7,7 +7,7 @@ export PATH="$ROOT_DIR/.tools/host/bin:$PATH"
 # shellcheck source=scripts/release/group.sh
 source "$SCRIPT_DIR/../release/group.sh"
 VERSION_READER="$SCRIPT_DIR/../release/version.sh"
-RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
+RELEASE_RECEIPT_DIR="$(release_receipt_directory)" || exit
 
 usage() {
     echo "Usage: $0 verify-tested-tree <tested-commit> | record <patch|minor|major> <tested-commit> | verify-staged | verify-commit" >&2

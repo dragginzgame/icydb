@@ -23,7 +23,7 @@ use crate::{
 };
 use std::ops::Range;
 
-/// Maximum active-plus-retired store allocation quartets in one incarnation.
+/// Maximum active-plus-dormant store allocation quartets in one incarnation.
 pub(in crate::db) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 16;
 const STORE_ALLOCATION_ROLES: usize = 4;
 const MAX_STABLE_KEY_BYTES: usize = 128;
@@ -88,7 +88,7 @@ impl EncodedCommitControlSlot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PersistedStoreAllocationState {
     Active,
-    Retired,
+    Dormant,
 }
 
 /// Owned stable-memory allocation identity retained after generated removal.
@@ -158,8 +158,13 @@ impl PersistedStoreAllocation {
         &self.roles[3]
     }
 
-    pub(in crate::db) const fn retired(mut self) -> Self {
-        self.state = PersistedStoreAllocationState::Retired;
+    pub(in crate::db) const fn reactivated(mut self) -> Self {
+        self.state = PersistedStoreAllocationState::Active;
+        self
+    }
+
+    pub(in crate::db) const fn dormant(mut self) -> Self {
+        self.state = PersistedStoreAllocationState::Dormant;
         self
     }
 }
@@ -463,7 +468,7 @@ fn write_current_control_prefix(
     for entry in registry {
         out.push(match entry.state {
             PersistedStoreAllocationState::Active => 1,
-            PersistedStoreAllocationState::Retired => 2,
+            PersistedStoreAllocationState::Dormant => 2,
         });
         for role in &entry.roles {
             out.extend_from_slice(&role.memory_id.to_le_bytes());
@@ -482,7 +487,7 @@ fn read_registry_entry<'a>(
 ) -> Result<StoreAllocationRef<'a>, InternalError> {
     let state = match reader.read_u8().map_err(primitive_decode_error)? {
         1 => PersistedStoreAllocationState::Active,
-        2 => PersistedStoreAllocationState::Retired,
+        2 => PersistedStoreAllocationState::Dormant,
         _ => return Err(control_slot_canonical_envelope_required()),
     };
     let mut roles = [(0, ""); STORE_ALLOCATION_ROLES];

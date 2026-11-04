@@ -35,6 +35,8 @@ pub enum AccountDecodeError {
     NonZeroPrincipalPadding,
     /// A missing subaccount carries nonzero bytes.
     NonZeroSubaccountWithoutFlag,
+    /// An explicit zero subaccount violates the canonical default representation.
+    NonCanonicalZeroSubaccount,
 }
 
 impl From<PrincipalEncodeError> for AccountEncodeError {
@@ -133,6 +135,9 @@ impl AccountStorageCodec for Account {
         subaccount
             .copy_from_slice(&bytes[principal_region_end..principal_region_end + SUBACCOUNT_LEN]);
         let subaccount = if has_subaccount {
+            if subaccount.iter().all(|byte| *byte == 0) {
+                return Err(AccountDecodeError::NonCanonicalZeroSubaccount);
+            }
             Some(Subaccount::from_array(subaccount))
         } else if subaccount.iter().any(|byte| *byte != 0) {
             return Err(AccountDecodeError::NonZeroSubaccountWithoutFlag);

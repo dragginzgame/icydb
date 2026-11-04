@@ -39,7 +39,7 @@ pub(super) fn interrupt_publication(
         &authorities,
         &lowered.current_bundles,
         &lowered.candidates,
-        &record,
+        record,
     )
     .unwrap();
     let candidate = &lowered.candidates[0];

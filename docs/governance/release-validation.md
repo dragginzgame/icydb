@@ -1,5 +1,22 @@
 # Release validation qualification
 
+## Receipt custody
+
+Candidate-transition and completed-release receipts default to
+`release-state/receipts/` beneath the checkout's actual Git directory, beside
+the shared runner's recovery journal. Cargo and executable caches are not their
+owner. `RELEASE_RECEIPT_DIR` remains an explicit caller-owned selection for
+isolated fixtures or recovery; every candidate, commit and publication consumer
+uses the same selected directory.
+
+Missing qualification still refuses receipt reuse. Earlier cache receipts are
+not discovered, copied or recreated automatically. Keep their original bytes
+and select their owning directory explicitly for an admitted recovery attempt.
+Publication without an admitted completed-release receipt retains Cargo package
+verification; it cannot infer a pass from a cache file or a release tag alone.
+
+## Qualification boundary
+
 [#603](https://github.com/dragginzgame/icydb/issues/603) owns qualification and
 activation. `release-verify` still executes the full `validate` gate. The new
 consumer selector and receipts are an opt-in qualification path, not permission

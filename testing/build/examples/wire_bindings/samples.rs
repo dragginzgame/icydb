@@ -1,5 +1,8 @@
 //! Concrete native contracts and valid scalar samples; never infer arbitrary Serde bounds.
 
+#[cfg(test)]
+mod tests;
+
 use std::error::Error;
 
 use icydb::{
@@ -40,21 +43,23 @@ pub(super) fn values() -> Result<Vec<V>, Box<dyn Error>> {
 }
 
 pub(super) fn seed(tracer: &mut Tracer, samples: &mut Samples) -> Result<(), Box<dyn Error>> {
-    // Numeric transport validates restoration; reflection must use admitted states.
-    let mut measured_zero = ic_metrics::MeasurementAggregate::EMPTY;
-    measured_zero.record(0);
-    tracer.trace_value(
-        samples,
-        &icydb_core::metrics::InstructionMetrics::from(measured_zero),
+    // Trace both report option shapes through report-owned decoding; the
+    // browser fixture does not need an instrumentation recorder to make data.
+    let measured_zero: icydb_core::metrics::InstructionMetrics = icydb_schema::wire::decode_one(
+        &icydb_schema::wire::encode_one((1_u64, 0_u128, Some(0_u64), false, false))?,
     )?;
-    tracer.trace_value(
-        samples,
-        &icydb_core::metrics::InstructionMetrics::from(ic_metrics::MeasurementAggregate::EMPTY),
-    )?;
+    tracer.trace_value(samples, &measured_zero)?;
+    tracer.trace_value(samples, &icydb_core::metrics::InstructionMetrics::default())?;
     let values = values()?;
     for value in &values {
         tracer.trace_value(samples, value)?;
     }
+    // Explicit zero now canonicalizes to None. Seed a maintained nonzero
+    // account so the optional fixed-byte shape remains represented.
+    tracer.trace_value(
+        samples,
+        &Account::from_owner_and_subaccount(Principal::anonymous(), Some(Subaccount::MAX)),
+    )?;
     // Retain the complete Some-byte metadata, then use a None sample because
     // reflection's sample deserializer does not adapt byte strings to sequences.
     tracer.trace_value(

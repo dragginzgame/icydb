@@ -42,7 +42,10 @@ use crate::{
             live_schema_checkpoint::load_entity_source_lineage_catalog,
             load_schema_application_record_read_only, lower_existing_schema_proposal,
             lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
-            migration_lineage::{EntitySourceLineageCatalogOp, refresh_ordinary_source_lineage},
+            migration_lineage::{
+                EntitySourceLineageCatalogOp, complete_pending_source_lineage,
+                prepare_ordinary_source_lineage, require_pending_source_lineage,
+            },
             prove_empty_user_index_domain, validate_unpublished_row_local_candidate_bounded,
             with_schema_application_store,
         },
@@ -98,7 +101,7 @@ use icydb_diagnostic_code::SchemaMigrationCode;
 #[cfg(feature = "migration")]
 use icydb_schema::{EntitySourceKey, SchemaMigrationPlanDigest};
 
-const DATABASE_TARGET_FINGERPRINT_PROFILE: &[u8] = b"icydb.schema-target.database.v1";
+const DATABASE_TARGET_FINGERPRINT_PROFILE: &[u8] = b"icydb.schema-target.incarnation.v1";
 const STORE_TARGET_FINGERPRINT_PROFILE: &[u8] = b"icydb.schema-target.store.v1";
 const ACCEPTED_DATABASE_HEAD_FINGERPRINT_PROFILE: &[u8] = b"icydb.accepted-schema.database-head.v1";
 #[cfg(feature = "migration")]
@@ -106,15 +109,13 @@ const SCHEMA_MIGRATION_SUBMISSION_PROFILE: &[u8] = b"icydb.schema-migration.subm
 
 #[derive(Clone, Copy)]
 struct GeneratedDatabaseIdentityCacheEntry {
-    registry: usize,
     incarnation: DatabaseIncarnationId,
     identity: TargetDatabaseIdentity,
 }
 
 thread_local! {
-    // Generated store registration is immutable after wiring. This heap-only
-    // derivation cache is replaced when the database incarnation changes; it
-    // never caches readiness, receipts, or mutable accepted-schema authority.
+    // Database identity belongs to the durable incarnation, not its current
+    // store topology. This cache holds no readiness or accepted-schema facts.
     static GENERATED_DATABASE_IDENTITY: Cell<Option<GeneratedDatabaseIdentityCacheEntry>> =
         const { Cell::new(None) };
 }
@@ -255,7 +256,7 @@ pub(in crate::db) fn schema_application_target<C: CanisterKind>(
     });
     icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path));
 
-    let database_identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
+    let database_identity = derive_database_identity(incarnation.to_bytes());
     let mut accepted_heads = Vec::with_capacity(stores.len());
     let mut application_stores = Vec::with_capacity(stores.len());
     for store in &stores {
@@ -351,6 +352,11 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     let [activation] = record.activations() else {
         return Err(InternalError::store_corruption());
     };
+    require_pending_source_lineage(
+        load_entity_source_lineage_catalog()?.as_ref(),
+        activation,
+        record.pending_source_lineage(),
+    )?;
     let authorities = application_authorities(db);
     let authority = authorities
         .iter()
@@ -454,6 +460,14 @@ pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
     }
 
     let authorities = application_authorities(db);
+    let [activation] = record.activations() else {
+        return Err(InternalError::store_corruption());
+    };
+    require_pending_source_lineage(
+        load_entity_source_lineage_catalog()?.as_ref(),
+        activation,
+        record.pending_source_lineage(),
+    )?;
     let abort = prepare_pending_application_abort(
         target.database_identity(),
         &record,
@@ -680,6 +694,12 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
         candidates,
         pending,
     } = lower_application_candidates::<ALLOW_REMOVALS>(&target, proposal, authorities.as_slice())?;
+    require_pending_application_source_ownership(
+        proposal,
+        &authorities,
+        &current_bundles,
+        &candidates,
+    )?;
     validate_database_identity_state_capacity(
         authorities.as_slice(),
         candidates.as_slice(),
@@ -694,7 +714,11 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
     } else {
         accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?
     };
-    let outcome_head = accepted_head.clone();
+    // Completed entities publish at the actual admitted head, not the future
+    // prediction retained for the deferred activation's eventual promotion.
+    let lineage_head =
+        accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?;
+    let outcome_head = accepted_head;
     let outcome = if pending.is_some() {
         let job_id = derive_schema_change_job_id(
             target.database_identity(),
@@ -742,11 +766,11 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
     let database_control = attach_ordinary_lineage_publication(
         proposal,
         target.accepted_head(),
-        &accepted_head,
+        &lineage_head,
         authorities.as_slice(),
         &current_bundles,
         candidates.as_slice(),
-        &record,
+        record,
     )?;
     let publications =
         application_publications(authorities.as_slice(), &current_bundles, &candidates)?;
@@ -1469,6 +1493,55 @@ fn publish_migration_record_replacement(
     )
 }
 
+// Exact replay returns before lowering. A new source application cannot
+// supersede a pending entity or its shared type catalogs before the original
+// activation has published its captured lineage and terminal receipt.
+fn require_pending_application_source_ownership(
+    proposal: &SchemaProposal,
+    authorities: &[StoreApplicationAuthority],
+    current: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    let pending = with_schema_application_store(|store| store.pending_activations())?;
+    for activation in pending {
+        let authority = authorities
+            .iter()
+            .find(|authority| {
+                derive_store_identity(proposal.target_database(), authority) == activation.store()
+            })
+            .ok_or_else(InternalError::store_unsupported)?;
+        let before = current
+            .iter()
+            .flatten()
+            .find(|bundle| bundle.store_path() == authority.path)
+            .ok_or_else(InternalError::store_corruption)?;
+        let tag = EntityTag::new(activation.entity_tag());
+        let before_entity = before
+            .entity_snapshots()
+            .get(&tag)
+            .ok_or_else(InternalError::store_corruption)?;
+        if proposal.assignments().iter().any(|assignment| {
+            assignment.store() == activation.store()
+                && before.source_bindings().entity(assignment.entity()) == Some(tag)
+        }) {
+            return Err(InternalError::schema_application_conflict());
+        }
+        if let Some(candidate) = candidates
+            .iter()
+            .find(|candidate| candidate.store_path() == authority.path)
+        {
+            let after = candidate.bundle();
+            if Some(before_entity) != after.entity_snapshots().get(&tag)
+                || before.enum_catalog() != after.enum_catalog()
+                || before.composite_catalog() != after.composite_catalog()
+            {
+                return Err(InternalError::schema_application_conflict());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn attach_ordinary_lineage_publication(
     proposal: &SchemaProposal,
     prior_head: &ExpectedAcceptedHead,
@@ -1476,11 +1549,8 @@ fn attach_ordinary_lineage_publication(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
-    record: &SchemaApplicationRecord,
+    record: SchemaApplicationRecord,
 ) -> Result<Vec<DatabaseControlOp>, InternalError> {
-    let mut operations = vec![DatabaseControlOp::SchemaApplication(
-        SchemaApplicationRecordOp::insert(record)?,
-    )];
     let stored_before = load_entity_source_lineage_catalog()?;
     #[cfg(feature = "migration")]
     let planned = plan_new_entity_source_lineage(proposal, current_bundles, candidates)
@@ -1513,14 +1583,14 @@ fn attach_ordinary_lineage_publication(
         }
     }
     #[cfg(feature = "migration")]
-    if planned.is_empty() && stored_before.is_none() {
-        return Ok(operations);
-    }
-    // Disabling migration authoring must not strand lineage retained from a
-    // prior binary. It still cannot initialise or adopt lineage implicitly.
+    let needs_lineage = !planned.is_empty() || stored_before.is_some();
+    // Disabling authoring must not strand adopted lineage from a prior binary.
     #[cfg(not(feature = "migration"))]
-    if stored_before.is_none() {
-        return Ok(operations);
+    let needs_lineage = stored_before.is_some();
+    if !needs_lineage {
+        return Ok(vec![DatabaseControlOp::SchemaApplication(
+            SchemaApplicationRecordOp::insert(&record)?,
+        )]);
     }
     let before = stored_before.clone().unwrap_or_default();
     #[cfg(feature = "migration")]
@@ -1530,15 +1600,19 @@ fn attach_ordinary_lineage_publication(
         let _ = (prior_head, authorities, candidates);
         before.clone()
     };
-    // Version admission applies before any publication, including a pending
-    // activation. The lineage owner refreshes digests only for completed edits.
-    let after = refresh_ordinary_source_lineage(
+    // Only this entity waits for its deferred validation. Other completed
+    // source edits and the retained binding publish in this same marker.
+    let (after, pending_lineage) = prepare_ordinary_source_lineage(
         after,
         proposal,
         current_bundles,
         accepted_head,
-        record.receipt().outcome(),
+        record.activations().first(),
     )?;
+    let record = record.with_pending_source_lineage(pending_lineage)?;
+    let mut operations = vec![DatabaseControlOp::SchemaApplication(
+        SchemaApplicationRecordOp::insert(&record)?,
+    )];
     if before == after {
         return Ok(operations);
     }
@@ -2915,11 +2989,27 @@ fn finalize_schema_application<C: CanisterKind>(
         record.receipt().submission_key().clone(),
         record.receipt().proposal_digest(),
         record.receipt().prior_head().clone(),
-        SchemaChangeOutcome::Applied { accepted_head },
+        SchemaChangeOutcome::Applied {
+            accepted_head: accepted_head.clone(),
+        },
     )?;
     let terminal = SchemaApplicationRecord::new(receipt.clone(), Vec::new())?;
     let operation = SchemaApplicationRecordOp::replace(record, &terminal)?;
-    publish_accepted_schema_candidates_with_application_record(Vec::new(), operation)?;
+    let mut operations = vec![DatabaseControlOp::SchemaApplication(operation)];
+    if let Some(pending) = record.pending_source_lineage() {
+        let [activation] = record.activations() else {
+            return Err(InternalError::store_corruption());
+        };
+        let before =
+            load_entity_source_lineage_catalog()?.ok_or_else(InternalError::store_corruption)?;
+        let after = complete_pending_source_lineage(&before, activation, pending, &accepted_head)?;
+        if before != after {
+            operations.push(DatabaseControlOp::EntitySourceLineage(
+                EntitySourceLineageCatalogOp::replace(Some(&before), &after)?,
+            ));
+        }
+    }
+    publish_accepted_schema_candidates_with_database_control(Vec::new(), operations)?;
     Ok(SchemaChangeProgress::new(receipt, status))
 }
 
@@ -2992,16 +3082,11 @@ fn accepted_head_after_candidates(
     Ok(derive_accepted_head(heads.as_slice()))
 }
 
-fn derive_database_identity(
-    incarnation: [u8; 16],
-    stores: &[StoreApplicationAuthority],
-) -> TargetDatabaseIdentity {
+// Unrelated store additions/removals must not re-key every lineage, job or
+// receipt. The incarnation already changes on explicit database recreation.
+fn derive_database_identity(incarnation: [u8; 16]) -> TargetDatabaseIdentity {
     let mut hasher = new_hash_sha256_prefixed(DATABASE_TARGET_FINGERPRINT_PROFILE);
     hasher.update(incarnation);
-    write_hash_len_u32(&mut hasher, stores.len());
-    for store in stores {
-        write_store_authority(&mut hasher, store);
-    }
     TargetDatabaseIdentity::from_bytes(finalize_hash_sha256(hasher))
 }
 
@@ -3046,16 +3131,15 @@ fn derive_accepted_head(stores: &[(&str, Option<AcceptedStoreHead>)]) -> Expecte
 
 /// Resolve the exact generated receipt using the current database incarnation.
 ///
-/// Generated `CanisterKind` wiring supplies the immutable registry and submission;
-/// callers must select its commit allocation before invoking this helper.
+/// Generated `CanisterKind` wiring supplies its immutable submission; callers
+/// must select its commit allocation before invoking this helper.
 #[doc(hidden)]
 pub fn generated_schema_application_record_key(
-    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
     submission_key: &str,
 ) -> Result<[u8; 32], InternalError> {
     let submission_key = SchemaSubmissionKey::try_new(submission_key.to_owned())
         .map_err(|_| InternalError::store_invariant())?;
-    let identity = generated_database_identity(registry, database_incarnation_id()?);
+    let identity = generated_database_identity(database_incarnation_id()?);
     ApplicationRecordKey::new(identity, &submission_key).map(ApplicationRecordKey::to_bytes)
 }
 
@@ -3072,13 +3156,12 @@ pub(in crate::db) fn generated_schema_reconciled(
 }
 
 pub(in crate::db) fn generated_schema_is_reconciled(
-    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
     incarnation: DatabaseIncarnationId,
     submission_key: &str,
 ) -> Result<bool, InternalError> {
     let submission_key = SchemaSubmissionKey::try_new(submission_key.to_string())
         .map_err(|_| InternalError::store_invariant())?;
-    let database_identity = generated_database_identity(registry, incarnation);
+    let database_identity = generated_database_identity(incarnation);
     generated_submission_is_reconciled(database_identity, &submission_key)
 }
 
@@ -3090,7 +3173,8 @@ fn generated_submission_is_reconciled(
         load_schema_application_record_read_only(database_identity, submission_key)?.is_some_and(
             |record| match record.receipt().outcome() {
                 // The generated submission key is derived from the complete
-                // generated fragment and migration plan. A terminal receipt proves
+                // fragment, migration plan, attempt and entity/store bindings.
+                // A terminal receipt proves
                 // that exact source was applied in this database incarnation.
                 // Compatible SQL DDL may subsequently advance the accepted head
                 // while intentionally preserving generated-owned identities and
@@ -3107,7 +3191,7 @@ pub(in crate::db) fn generated_schema_authority(
     registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
     incarnation: DatabaseIncarnationId,
 ) -> Result<(TargetDatabaseIdentity, ExpectedAcceptedHead), InternalError> {
-    let database_identity = generated_database_identity(registry, incarnation);
+    let database_identity = generated_database_identity(incarnation);
     let mut stores = store_application_authorities(registry);
     icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path));
     let heads = stores
@@ -3127,26 +3211,15 @@ pub(in crate::db) fn generated_schema_authority(
     Ok((database_identity, accepted_head))
 }
 
-fn generated_database_identity(
-    registry: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
-    incarnation: DatabaseIncarnationId,
-) -> TargetDatabaseIdentity {
-    let registry_key = std::ptr::from_ref(registry).cast::<()>() as usize;
+fn generated_database_identity(incarnation: DatabaseIncarnationId) -> TargetDatabaseIdentity {
     let cached = GENERATED_DATABASE_IDENTITY
         .with(Cell::get)
-        .and_then(|entry| {
-            (entry.registry == registry_key && entry.incarnation == incarnation)
-                .then_some(entry.identity)
-        });
+        .and_then(|entry| (entry.incarnation == incarnation).then_some(entry.identity));
     if let Some(identity) = cached {
         return identity;
     }
-
-    let mut stores = store_application_authorities(registry);
-    icydb_schema::compact_sort_unstable_by(&mut stores, |left, right| left.path.cmp(right.path));
-    let identity = derive_database_identity(incarnation.to_bytes(), stores.as_slice());
+    let identity = derive_database_identity(incarnation.to_bytes());
     GENERATED_DATABASE_IDENTITY.set(Some(GeneratedDatabaseIdentityCacheEntry {
-        registry: registry_key,
         incarnation,
         identity,
     }));
@@ -3257,6 +3330,27 @@ mod tests {
     mod sql_activations;
 
     mod row_presence;
+    mod topology;
+
+    // Forced pending fixtures retain the same source proof as real admission.
+    fn bind_pending_lineage(
+        proposal: &SchemaProposal,
+        current: &AcceptedSchemaRevisionBundle,
+        record: SchemaApplicationRecord,
+    ) -> SchemaApplicationRecord {
+        let before = super::load_entity_source_lineage_catalog()
+            .unwrap()
+            .unwrap_or_default();
+        let (_, pending) = super::prepare_ordinary_source_lineage(
+            before,
+            proposal,
+            &[Some(current.clone())],
+            proposal.expected_head(),
+            record.activations().first(),
+        )
+        .unwrap();
+        record.with_pending_source_lineage(pending).unwrap()
+    }
 
     mod entity_creation;
 
@@ -3418,17 +3512,11 @@ mod tests {
     fn generated_database_identity_cache_is_bound_to_the_incarnation() {
         let first_incarnation = crate::db::DatabaseIncarnationId::for_tests(0x41);
         let second_incarnation = crate::db::DatabaseIncarnationId::for_tests(0x42);
-        let first = generated_database_identity(&ABORT_REGISTRY, first_incarnation);
-        assert_eq!(
-            generated_database_identity(&ABORT_REGISTRY, first_incarnation),
-            first,
-        );
-        let second = generated_database_identity(&ABORT_REGISTRY, second_incarnation);
+        let first = generated_database_identity(first_incarnation);
+        assert_eq!(generated_database_identity(first_incarnation), first,);
+        let second = generated_database_identity(second_incarnation);
         assert_ne!(second, first);
-        assert_eq!(
-            generated_database_identity(&ABORT_REGISTRY, first_incarnation),
-            first,
-        );
+        assert_eq!(generated_database_identity(first_incarnation), first,);
     }
 
     thread_local! {
@@ -4452,6 +4540,7 @@ mod tests {
             ],
         )
         .expect("pending replacement record should admit");
+        let record = bind_pending_lineage(&edited, &current, record);
         let operation =
             SchemaApplicationRecordOp::insert(&record).expect("pending insert should prepare");
         publish_accepted_schema_candidates_with_application_record(
@@ -4822,6 +4911,7 @@ mod tests {
             ],
         )
         .expect("pending application record should admit");
+        let record = bind_pending_lineage(&with_check, &current, record);
         let operation =
             SchemaApplicationRecordOp::insert(&record).expect("pending insert should prepare");
         publish_accepted_schema_candidates_with_application_record(

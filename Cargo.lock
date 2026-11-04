@@ -580,9 +580,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.80.0"
+version = "0.81.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7b48116e227027e4900fa259809348ac0b1b1273e0b8bed175dfa9aa0ec245d"
+checksum = "ee771a4ff3f92dae8f46e42d038865a0294be8502587a4bd07a36c0738c6ca33"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-text",
@@ -593,12 +593,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.28.2"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d8cbfc169c0266b813ca6f604088fae2a7065ba004603855ca90df71a47ea97"
-dependencies = [
- "serde",
-]
+checksum = "0e6e2af9b83339bc8377c659a4106e3dafc3446181dea974d3e8ac0974490060"
 
 [[package]]
 name = "ic-platform"
@@ -632,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.66.1"
+version = "0.66.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35d187e67fc27cc56f9ab6b3d9b125f6e8d73c538c55578888b27edd86dd8938"
+checksum = "515db546502c638fb0d94c6d6fdce394e2aad2786df86cda822dcb888209555e"
 dependencies = [
  "ic-platform-runtime",
  "ic-wire",
@@ -705,7 +702,6 @@ dependencies = [
  "ic-host-process",
  "ic-host-text",
  "ic-host-tools",
- "ic-metrics",
  "icydb",
  "icydb-schema",
  "libc",
@@ -854,7 +850,6 @@ dependencies = [
  "ic-host-fs",
  "ic-host-process",
  "ic-host-tools",
- "ic-metrics",
  "ic-wire",
  "icydb",
  "icydb-core",
@@ -1523,9 +1518,9 @@ checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
 name = "toml"
-version = "1.1.8+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
+checksum = "c5ffcdf8f50436dbbfd675c1fe1b8e0854f42b7defea8584bdebe1aee900e561"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -1547,9 +1542,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.25.17+spec-1.1.0"
+version = "0.25.18+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
+checksum = "1ec6e78bd70db9420d8d212fa9dc97f116448a1ceff5d00eabb991d407e21396"
 dependencies = [
  "indexmap",
  "toml_datetime",
@@ -1569,9 +1564,9 @@ dependencies = [
 
 [[package]]
 name = "toml_writer"
-version = "1.1.3+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "trybuild"

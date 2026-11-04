@@ -25,6 +25,15 @@ fn direct_projection_take_moves_heap_backing_and_keeps_later_reads_valid() {
     for (contract, payload) in [
         (selective_payload_contract(), Value::Blob(vec![9; 4096])),
         (
+            payload_contract_with_storage(
+                AcceptedFieldKind::Blob { max_len: None },
+                LeafCodec::Structural,
+                false,
+                FieldStorageDecode::CatalogValue,
+            ),
+            Value::Blob(vec![9; 4096]),
+        ),
+        (
             nested,
             Value::List(vec![Value::Text("payload".repeat(128))]),
         ),

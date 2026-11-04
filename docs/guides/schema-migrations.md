@@ -103,8 +103,13 @@ To repair a digest left stale by an older ordinary publication, reapply the
 current declaration with the current accepted head and a fresh submission key.
 The normal lowerer must admit the complete declaration. A no-op publication can
 then refresh its lineage without rewriting rows. Deferred generated activations
-retain their prior digest while pending or aborted; completion/abort lineage
-propagation remains tracked in [#94](https://github.com/dragginzgame/icydb/issues/94).
+retain their prior digest while pending or aborted. Admission durably captures
+one activation's source version and prior/proposed digests. Completion publishes
+the captured proposed digest and actual accepted head atomically with its
+terminal receipt, including after restart. Other completed entity edits retain
+their own lineage. A new source submission assigning the pending entity, or
+changing its store's shared type catalogs, must wait for completion or abort;
+exact replay and unrelated SQL DDL retain their existing contracts.
 
 ## Add An Entity To An Existing Store
 
@@ -280,6 +285,21 @@ becoming quiescent. The rename rehearsal qualifies retained preparation after
 publication and restart; it does not promise warm caches before the callback
 or after every later schema change. See the
 [current measurement and lifecycle costs](../design/0.261-entity-rename/c37-runtime-preparation.md).
+
+### Retrying Corrected Data
+
+The canister authoring attribute accepts `migration_attempt = 1` alongside
+`migrations(...)`; its default is zero. Increment it deliberately after a
+pre-rewrite rejection has been aborted and the retained source data corrected.
+Redeploy the same successor with that new attempt, inspect status, and advance
+explicitly. No fake source edit or migration transform is required. Keep the
+chosen attempt unchanged across response loss, restart and ordinary continuation.
+An active migration refuses a different submission; an exact aborted submission
+remains terminal. Attempts affect proposal identity only, never entity source
+meaning, accepted schema IDs, memory allocations or plan digest. Generated
+submission identity also binds declared entity/store assignments and storage
+mode, so restoring database identity cannot reuse a receipt for a different
+assignment. Unused store membership does not invalidate source readiness.
 
 ### Controller workflow
 
@@ -468,9 +488,13 @@ lifecycle or production rows.
    starts, resume the exact plan rather than deploying the source as a rollback.
    Rejection retains only the first bounded batch of at most 64 findings;
    `Advance` replays it without scanning further. There is no finding-page
-   acknowledgement or continuation. Fixing data alone also does not create a
-   new generated submission identity after abort; that retry limitation remains
-   tracked in [#96](https://github.com/dragginzgame/icydb/issues/96).
+   acknowledgement or continuation. After abort and data correction, increment
+   the canister's `migration_attempt` and redeploy the same successor declaration
+   and plan. Then explicitly advance again. The new attempt changes only the
+   generated submission identity; replay of an unchanged attempt stays terminal.
+   Repeat bounded repair/abort/new-attempt cycles if more than 64 bad rows exist;
+   there is no hidden page of retained findings or automatic retry. Never change
+   attempts to escape an irreversible rewrite: resume that exact plan instead.
    Finite host advancement-limit exhaustion
    means incomplete qualification, not success or permission to raise runtime
    limits.

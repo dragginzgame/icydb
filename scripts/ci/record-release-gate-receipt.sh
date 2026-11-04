@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
+# shellcheck source=scripts/release/group.sh
+source "$ROOT_DIR/scripts/release/group.sh"
+RELEASE_RECEIPT_DIR="$(release_receipt_directory)" || exit
 
 release_commit="${RELEASE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse --verify HEAD)}"
 [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid selected release commit" >&2; exit 1; }

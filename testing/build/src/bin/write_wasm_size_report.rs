@@ -24,7 +24,6 @@ use ic_host_process::tool::{
     format_failure_evidence,
 };
 use ic_host_tools::interface::exported_methods;
-use ic_metrics::checked_scaled_ratio;
 use icydb::__macro::RpcMethod;
 use icydb_testing_build::{
     BuiltCanisterArtifacts, CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode,
@@ -679,8 +678,9 @@ fn reduction_basis_points(before: &FileMeta, after: &FileMeta) -> Result<u16, St
         ));
     }
     let reduction = before.bytes - after.bytes;
-    let basis_points = checked_scaled_ratio(u128::from(reduction), before.bytes, 10_000)
-        .map_err(|err| format!("post-link reduction basis-point arithmetic failed: {err}"))?;
+    // A u64 byte delta times 10,000 fits in u128. The nonzero baseline above
+    // preserves exact floor rounding without a general metrics arithmetic API.
+    let basis_points = u128::from(reduction) * 10_000 / u128::from(before.bytes);
     u16::try_from(basis_points)
         .map_err(|_| format!("post-link reduction basis points exceed u16: {basis_points}"))
 }

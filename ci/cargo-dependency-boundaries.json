@@ -16,6 +16,12 @@
     "allowed_packages": []
   },
   {
+    "dependency": "ic-metrics",
+    "allowed_packages": [
+      "icydb-core"
+    ]
+  },
+  {
     "dependency": "ic-platform",
     "allowed_packages": [
       "icydb-core",

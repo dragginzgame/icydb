@@ -28,6 +28,9 @@ The [contribution rules](rules/contributions.md) own detailed action authority;
 local overlays must not duplicate it or add routine permission gates.
 
 - Prefer direct edits in the normal authorized checkout when a PR is optional.
+  Use branches there when needed; coordinate or wait when another session owns
+  the inputs. Separate checkouts are explicit exceptions, not the default for
+  isolation, PRs or deployment.
   Ordinary fixes include focused checks and pending notes, not staging, commits
   or delivery. Shared alone also prepares its pending `VERSION`.
 - A PR request includes its topic branch, scoped commits, branch push and PR.
@@ -42,8 +45,11 @@ local overlays must not duplicate it or add routine permission gates.
 - Preserve unrelated dirty work and reread files before editing. Sibling inspection
   is read-only; source contributions need scoped authority. Coordinate active
   sessions before changing their inputs or preparing an authorized fleet release.
-- Additional checkouts require approval of their location. Never leave the only
-  copy of lasting work in `/tmp`, `target/`, caches or a disposable patch.
+- Do not create new directories directly under `~/projects`; only an explicit
+  user exception for that exact directory permits it. Ordinary fix, PR and deploy
+  authority does not. Additional checkouts require approval of their location.
+  Never leave the only copy of lasting work in `/tmp`, `target/`, caches or a
+  disposable patch.
   Follow the [checkout contract](rules/contributions.md#durable-work-and-checkout-location).
 - Carry authorization forward without repeated approval. Inspection and readiness
   questions alone do not authorize repair or delivery. Ask only for a genuinely
@@ -150,11 +156,11 @@ changing or reviewing commands.
 
 ## Metrics and logging
 
-**All our Rust crates use `ic-metrics` for metrics and `ic-logging` for logging.**
-Do not maintain custom or competing implementations. Raise capability gaps as
-issues in IC Observability and improve the canonical crates there. Ordinary
-benchmark/statistical calculations stay with their owning tool and do not by
-themselves require a Metrics dependency. Read the
+**`ic-metrics` is only for operational instrumentation of the Canic application
+tree, reported through the shared endpoint owned by Canic's metrics adapter.**
+It is not a general math, statistics or validation library; do not depend on it
+or re-export its helpers for those purposes. Use `ic-logging` for logging.
+Read the
 [observability contract](rules/engineering-details.md#metrics-and-logging)
 when adding, changing or reviewing metrics and logging.
 
@@ -204,10 +210,12 @@ the existing full gate. Repository-wide CI remains separate and unchanged.
 
 ## Changelogs and artifact preservation
 
-Use IcyDB-style emoji category sections in root release notes; read the
+Use IcyDB-style emoji category sections in the owning release changelog; read the
 [changelog rules](rules/changelogs.md) when updating them. Every issue fixed must
-have a direct link in root `CHANGELOG.md` before handoff, including when detailed
-or release-group notes hold the full explanation. Preserve selected
+have a direct link in that changelog before handoff: root `CHANGELOG.md` for a
+workspace without independent release groups, or `releases/<group>/CHANGELOG.md`
+for the owning group. A grouped workspace's root remains a navigation index;
+it does not need duplicate issue links. Preserve selected
 deliverables and required provenance/recovery evidence. Regenerable tool-build
 scratch and obsolete cache generations need bounded retention; they are not
 permanent evidence. Consumer release artifacts remain protected from implicit
@@ -217,6 +225,9 @@ Keep plain `cargo clean` able to remove the owning workspace's entire `target/`
 directory. Put workspace build/test scratch and generated fixtures beneath
 `target/`; use `.tmp/` or other outside-target scratch only for a documented
 technical need. Artifact retention must not narrow explicit cleanup.
+Keep `.git` free of build trees and bulk retired-checkout archives. Git-side
+tool state needs explicit size/retention limits under the artifact contract;
+preserving evidence must not silently preserve every compiler output.
 
 ## IC stable-memory governance
 
@@ -225,6 +236,10 @@ Production stable stores use `ic-storage`-issued checked allocation handles. Rea
 storage allocation, admission, backing access or persistence integrations.
 
 ## Rust workspaces and portable tooling
+
+Keep Rust tests and test-only helpers in `tests.rs` or a `tests/` directory
+wherever practical, so file-based LOC tools can distinguish test source.
+Follow the [test layout rule](docs/principles/rust-code-hygiene.md#tests).
 
 Use ordinary Rust module discovery. `#[path]` module attributes, including
 conditional path overrides, are prohibited. Follow the

@@ -12,15 +12,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Principal, PrincipalError, SchemaContractError, Subaccount};
 
-/// IcyDB account atom with representation-preserving identity.
+/// Canonical ICRC account atom for database identity.
 ///
-/// An absent subaccount and an explicit zero subaccount remain distinct database
-/// identities. Explicit conversions to and from [`ic_platform_types::Account`] preserve
-/// those fields; Platform compares both representations as the same ICRC account.
-/// Both native serializers encode a present subaccount as bytes; equal encoded
-/// fields do not merge their equality semantics. Platform owns the shared ICRC
-/// account text format; database equality remains local.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+/// An absent and an explicit all-zero subaccount denote the same account and
+/// are stored as absence. Constructors, deserialization and Platform conversion
+/// share that normalization; nonzero subaccounts retain all 32 bytes. Platform
+/// owns the shared account text grammar.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct Account {
     owner: Principal,
@@ -33,10 +31,7 @@ impl Account {
 
     /// Construct from convertible owner and optional subaccount values.
     pub fn new<P: Into<Principal>, S: Into<Subaccount>>(owner: P, subaccount: Option<S>) -> Self {
-        Self {
-            owner: owner.into(),
-            subaccount: subaccount.map(Into::into),
-        }
+        Self::from_owner_and_subaccount(owner.into(), subaccount.map(Into::into))
     }
 
     /// Construct from canonical components.
@@ -45,7 +40,27 @@ impl Account {
         owner: Principal,
         subaccount: Option<Subaccount>,
     ) -> Self {
-        Self { owner, subaccount }
+        Self {
+            owner,
+            subaccount: Self::canonical_subaccount(subaccount),
+        }
+    }
+
+    // Keep one representation for the ICRC default account without allocating
+    // or making const construction depend on non-const trait comparison.
+    const fn canonical_subaccount(subaccount: Option<Subaccount>) -> Option<Subaccount> {
+        let Some(value) = subaccount else {
+            return None;
+        };
+        let bytes = value.to_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] != 0 {
+                return Some(value);
+            }
+            index += 1;
+        }
+        None
     }
 
     /// Return the owner.
@@ -70,13 +85,34 @@ impl Account {
     }
 }
 
+// Decode the same two fields as the derived serializer. Normalization belongs
+// to construction, so a decoder cannot create a second default identity.
+impl<'de> Deserialize<'de> for Account {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename = "Account")]
+        struct Fields {
+            owner: Principal,
+            subaccount: Option<Subaccount>,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        Ok(Self::from_owner_and_subaccount(
+            fields.owner,
+            fields.subaccount,
+        ))
+    }
+}
+
 impl Display for Account {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&ic_platform_types::Account::from(*self), formatter)
     }
 }
 
-// Preserve the optional field itself, not Platform's effective subaccount.
+// Normalize Platform's explicit default representation at the database boundary.
 impl From<ic_platform_types::Account> for Account {
     fn from(value: ic_platform_types::Account) -> Self {
         Self::from_owner_and_subaccount(

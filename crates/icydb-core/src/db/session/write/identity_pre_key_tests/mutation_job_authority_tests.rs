@@ -288,7 +288,7 @@ fn missing_entity_terminalizes_forward_and_verify() {
 }
 
 #[test]
-fn pending_marker_prevents_unadvanced_cancellation() {
+fn pending_marker_prevents_unadvanced_cancellation_and_admin_retirement() {
     let (session, _root) = initialize_journaled_with_root();
     assert_eq!(insert_exact_key_fixture(&session, 41), 1);
     let job_id = MutationJobId::try_from_bytes([71; 32]).unwrap();
@@ -301,6 +301,10 @@ fn pending_marker_prevents_unadvanced_cancellation() {
         MutationJobIdempotencyKey::new("interrupted-first-page").unwrap(),
     );
     let before = retained_job(job_id);
+    let evidence = session
+        .admin_progress_retirement_inventory()
+        .unwrap()
+        .remove(0);
     interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::MarkerPersisted);
     assert!(session.advance_trusted_mutation_job(&request).is_err());
     assert_eq!(retained_job(job_id), before);
@@ -311,11 +315,33 @@ fn pending_marker_prevents_unadvanced_cancellation() {
     );
     assert_eq!(retained_job(job_id), before);
 
+    assert_eq!(
+        session.admin_retire_progress_record(&evidence),
+        Err(MutationJobError::TargetQueryFailed)
+    );
+    assert_eq!(retained_job(job_id), before);
+
     drive_journaled_recovery_to_completion(&session);
     let receipt = session.advance_trusted_mutation_job(&request).unwrap();
     assert_eq!(receipt.committed_sequence, 1);
     assert_eq!(receipt.rows_updated, 1);
     assert_eq!(receipt.phase, MutationJobPhase::Verify);
+    assert_dynamic_payload(&session, 1, 42);
+    assert_eq!(
+        session.admin_retire_progress_record(&evidence),
+        Err(MutationJobError::IdentityConflict)
+    );
+    let current = session
+        .admin_progress_retirement_inventory()
+        .unwrap()
+        .remove(0);
+    assert_eq!(session.admin_retire_progress_record(&current), Ok(true));
+    assert_eq!(session.admin_retire_progress_record(&current), Ok(false));
+    assert_eq!(
+        session.mutation_job_state(job_id),
+        Err(MutationJobError::NotFound)
+    );
+    drive_journaled_recovery_to_completion(&session);
     assert_dynamic_payload(&session, 1, 42);
 }
 

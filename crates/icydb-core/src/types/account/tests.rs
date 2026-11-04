@@ -105,15 +105,17 @@ fn to_bytes_with_none_subaccount_encodes_zero_bytes() {
 }
 
 #[test]
-fn to_bytes_distinguishes_none_and_zero_subaccount() {
+fn stored_bytes_canonicalize_none_and_zero_subaccount() {
     let p = principal();
     let none = Account::new(p, None::<Subaccount>);
     let zero = Account::new(p, Some(Subaccount::from_array([0u8; 32])));
 
-    assert_ne!(
-        none.to_bytes().expect("account encode"),
-        zero.to_bytes().expect("account encode"),
-        "None and zero subaccount must serialize differently"
+    assert_eq!(none.to_bytes().unwrap(), zero.to_bytes().unwrap());
+    let mut noncanonical = none.to_stored_bytes().unwrap();
+    noncanonical[0] |= TAG_SUBACCOUNT;
+    assert_eq!(
+        Account::try_from_bytes(&noncanonical),
+        Err(AccountDecodeError::NonCanonicalZeroSubaccount)
     );
     for original in [none, zero] {
         let platform = ic_platform_types::Account::from(original);

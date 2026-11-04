@@ -120,6 +120,20 @@ pub struct ProgressJobInventory {
     pub records: Vec<ProgressJobInventoryRecord>,
 }
 
+/// Exact raw-record authority for explicitly abandoning retained progress.
+///
+/// No payload or owner data is exposed. The opaque storage key is not a family
+/// job ID. Authorization must be enforced by the application's admin boundary.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+pub struct ProgressRetirementRecord {
+    /// Exact shared-store key; the reserved header is never exposed or writable.
+    pub record_key: [u8; 32],
+    /// Domain-separated digest of this key and its complete retained bytes.
+    pub record_digest: [u8; 32],
+    /// Encoded bytes that this retirement would remove.
+    pub encoded_bytes: u64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct ProgressRecordKey([u8; 32]);
 
@@ -680,6 +694,62 @@ impl InspectionProgressStore {
         Ok(())
     }
 
+    // Raw inspection deliberately does not decode a family's payload: corrupt
+    // and unavailable-owner records must remain addressable for explicit repair.
+    pub(in crate::db) fn retirement_inventory(
+        &self,
+    ) -> Result<Vec<ProgressRetirementRecord>, MutationJobError> {
+        let mut records = Vec::new();
+        for key in self.map.keys() {
+            let key = key.map_err(|_| MutationJobError::CorruptProgressStore)?;
+            if key == PROGRESS_HEADER_KEY {
+                continue;
+            }
+            if records.len() as u64 >= MAX_PROGRESS_JOBS_GLOBAL {
+                return Err(MutationJobError::CorruptProgressStore);
+            }
+            let bytes = self
+                .map
+                .get(&key)
+                .map_err(|_| MutationJobError::CorruptProgressStore)?
+                .ok_or(MutationJobError::CorruptProgressStore)?;
+            records.push(ProgressRetirementRecord {
+                record_key: key.0,
+                record_digest: retirement_digest(key, &bytes.0),
+                encoded_bytes: bytes.0.len() as u64,
+            });
+        }
+        Ok(records)
+    }
+
+    // Recovery admission is owned by the session before this compare-and-delete.
+    // A changed record is never deleted using stale operator evidence.
+    pub(in crate::db) fn retire_exact(
+        &mut self,
+        record: &ProgressRetirementRecord,
+    ) -> Result<bool, MutationJobError> {
+        let key = ProgressRecordKey(record.record_key);
+        if key == PROGRESS_HEADER_KEY {
+            return Err(MutationJobError::InvalidJobId);
+        }
+        let Some(bytes) = self
+            .map
+            .get(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?
+        else {
+            return Ok(false);
+        };
+        if bytes.0.len() as u64 != record.encoded_bytes
+            || retirement_digest(key, &bytes.0) != record.record_digest
+        {
+            return Err(MutationJobError::IdentityConflict);
+        }
+        self.map
+            .remove(&key)
+            .map_err(|_| MutationJobError::CorruptProgressStore)?;
+        Ok(true)
+    }
+
     /// Decode every retained slot before returning one complete bounded inventory.
     pub(in crate::db) fn inventory(&self) -> Result<ProgressJobInventory, MutationJobError> {
         let retained_count = self.job_count().map_err(map_mutation_store_error)?;
@@ -877,6 +947,14 @@ impl InspectionProgressStore {
         }
         Ok(count)
     }
+}
+
+fn retirement_digest(key: ProgressRecordKey, bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = new_hash_sha256_prefixed(b"icydb.progress.retirement.v1");
+    hasher.update(key.0);
+    hasher.update((bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
+    finalize_hash_sha256(hasher)
 }
 
 fn encode_progress_header() -> Vec<u8> {
@@ -2054,6 +2132,95 @@ mod tests {
             Ok(malformed_continuation),
             "failed validation must retain the record",
         );
+    }
+
+    #[test]
+    fn admin_retirement_preserves_exact_evidence_and_recovers_shared_capacity() {
+        let memory = crate::testing::test_memory_owner(242);
+        let mut store = InspectionProgressStore::open(memory.open()).unwrap();
+        for byte in 1..=56 {
+            store
+                .insert_mutation(&current_mutation_record(byte))
+                .unwrap();
+        }
+        for byte in 200..=207 {
+            store.insert_new(&current_integrity_record(byte)).unwrap();
+        }
+        let before = store.retirement_inventory().unwrap();
+        assert_eq!(before.len(), 64);
+        let key = ProgressRecordKey::from_job_id(current_integrity_record(200).id);
+        let evidence = before
+            .iter()
+            .find(|entry| entry.record_key == key.0)
+            .unwrap()
+            .clone();
+        assert!(matches!(
+            store.insert_mutation(&current_mutation_record(57)),
+            Err(MutationJobError::CapacityExceeded)
+        ));
+        let header = store.map.get(&PROGRESS_HEADER_KEY).unwrap().unwrap();
+        let header_claim = ProgressRetirementRecord {
+            record_key: PROGRESS_HEADER_KEY.0,
+            record_digest: retirement_digest(PROGRESS_HEADER_KEY, &header.0),
+            encoded_bytes: header.0.len() as u64,
+        };
+        assert_eq!(
+            store.retire_exact(&header_claim),
+            Err(MutationJobError::InvalidJobId)
+        );
+        store
+            .map
+            .insert(
+                key,
+                ProgressRecordBytes(b"corrupt retained payload".to_vec()),
+            )
+            .unwrap();
+        assert_eq!(
+            store.retire_exact(&evidence),
+            Err(MutationJobError::IdentityConflict)
+        );
+        assert_eq!(store.retirement_inventory().unwrap().len(), 64);
+        drop(store);
+        let mut store = InspectionProgressStore::open(memory.open()).unwrap();
+        let current = store.retirement_inventory().unwrap();
+        let corrupt = current
+            .iter()
+            .find(|entry| entry.record_key == key.0)
+            .unwrap();
+        assert!(store.retire_exact(corrupt).unwrap());
+        assert!(!store.retire_exact(corrupt).unwrap());
+        // Return below the non-integrity reservation, then admit fresh work.
+        for record in current
+            .iter()
+            .filter(|record| record.record_key != key.0)
+            .take(8)
+        {
+            assert!(store.retire_exact(record).unwrap());
+        }
+        assert_eq!(store.retirement_inventory().unwrap().len(), 55);
+        assert!(matches!(
+            store.insert_mutation(&current_mutation_record(57)),
+            Ok(InsertMutationJobResult::Inserted)
+        ));
+        assert_eq!(
+            store.map.get(&PROGRESS_HEADER_KEY).unwrap().unwrap(),
+            header
+        );
+    }
+
+    #[test]
+    fn admin_retirement_uses_raw_keys_for_all_progress_families() {
+        let mut store = InspectionProgressStore::open(test_memory(241)).unwrap();
+        store.insert_new(&current_integrity_record(201)).unwrap();
+        store.insert_resumable(&current_resumable_record()).unwrap();
+        store.insert_mutation(&current_mutation_record(35)).unwrap();
+        let records = store.retirement_inventory().unwrap();
+        assert_eq!(records.len(), 3);
+        for record in records {
+            assert!(store.retire_exact(&record).unwrap());
+        }
+        assert_eq!(store.job_count().unwrap(), 0);
+        assert_eq!(store.inventory().unwrap().retained_count, 0);
     }
 
     #[test]

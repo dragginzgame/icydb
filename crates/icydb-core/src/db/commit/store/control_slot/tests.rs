@@ -9,7 +9,7 @@ fn registry(count: usize) -> Vec<PersistedStoreAllocation> {
             state: if entry % 2 == 0 {
                 PersistedStoreAllocationState::Active
             } else {
-                PersistedStoreAllocationState::Retired
+                PersistedStoreAllocationState::Dormant
             },
             roles: std::array::from_fn(|role| PersistedStoreAllocationIdentity {
                 memory_id: 1_000 + u64::try_from(entry * STORE_ALLOCATION_ROLES + role).unwrap(),
@@ -30,7 +30,7 @@ fn wire_registry(registry: &[PersistedStoreAllocation], marker: &[u8]) -> Vec<u8
     for entry in registry {
         bytes.push(match entry.state {
             PersistedStoreAllocationState::Active => 1,
-            PersistedStoreAllocationState::Retired => 2,
+            PersistedStoreAllocationState::Dormant => 2,
         });
         for role in &entry.roles {
             bytes.extend_from_slice(&role.memory_id.to_le_bytes());
