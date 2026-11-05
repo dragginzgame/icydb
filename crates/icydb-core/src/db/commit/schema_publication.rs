@@ -1070,13 +1070,17 @@ fn apply_user_index_domain_replacement(
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 mod helper_tests;
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 pub(in crate::db) use helper_tests::interrupt_next_schema_publication_for_tests;
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 use helper_tests::interrupt_schema_publication_at;
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 pub(in crate::db) use helper_tests::SchemaPublicationInterruption;
