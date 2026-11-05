@@ -215,10 +215,15 @@ for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter ci-adapter-sql-tier-a;
     "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'check default' 'check default' 'check default' 'clippy default' 'test 8' \
-  'clippy default' 'clippy default' 'test 2' 'test default' 'test default' \
+  'clippy default' 'clippy default' 'clippy default' 'test 2' 'test default' 'test default' \
   'clippy default' 'clippy default' 'clippy default' 'test 2' 'test 2' 'test default' \
   'test 2' 'test 2' 'test 2' 'test default' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+# The native workspace keeps explicit testing and generation feature lint lanes.
+grep -Fx -- 'clippy --locked -p icydb --all-targets --features testing -- -D warnings' \
+  "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
+grep -Fx -- 'clippy --locked -p icydb-model --all-targets --features build -- -D warnings' \
+  "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 # Adapter CI must select the complete artifact binary, including the fleet test.
 grep -Fx -- "test --manifest-path $native/testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --test canister_artifact_contract -- --include-ignored --nocapture" \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
@@ -354,7 +359,8 @@ MAKE
 PATH="$native/bin:$PATH" ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
   make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
   > "$native/deployment-build.log" 2>&1
-printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'run default' \
+printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
+  'clippy default' 'clippy default' 'clippy default' 'run default' \
   > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cmp "$native/.icp/local/canisters/default_empty/default_empty.wasm" "$native/staged.wasm"
@@ -392,10 +398,10 @@ for lane in fetch build check clippy test-documentation check-feature-matrix cle
     > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'run default' 'run default' 'fetch default' 'build default' \
-  'check default' 'clippy default' 'clippy default' 'clippy default' \
+  'check default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
   'test default' 'test default' 'test default' \
   'test default' 'test default' 'test default' 'test default' \
-  'check default' 'check default' 'check default' 'check default' 'check default' \
+  'check default' 'check default' 'check default' 'check default' 'check default' 'check default' \
   'clean default' 'watch default' \
   > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
@@ -661,11 +667,13 @@ for script in "$ROOT/scripts/ci/"{check-,test-}*.sh "$ROOT/scripts/release/test-
 done
 mkdir -p "$native/scripts/dev"
 for script in scripts/dev/delete-github-tags-up-to.pl \
-  scripts/ci/test-documentation.pl scripts/ci/check-documentation.pl; do
+  scripts/ci/test-documentation.pl scripts/ci/check-documentation.pl \
+  scripts/ci/test-database-validation.pl scripts/ci/check-candid-boundary.pl; do
   printf 'exit 0;\n' > "$native/$script"
 done
 for script in check-make-execution.sh invariant-common.sh check-dependency-graph-invariants.sh \
-  check-executor-no-production-panics.sh test-invariant-scanners.sh; do
+  check-executor-no-production-panics.sh test-invariant-scanners.sh \
+  check-generated-endpoint-invariants.sh check-schema-model-boundary-invariants.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
 cp "$ROOT/"{Cargo.toml,Cargo.lock,.shared-tooling.snapshot} "$native/"
@@ -700,7 +708,10 @@ for command in build locate-project run; do
   else printf '%s default\n' "$command" > "$native/expected-trace"; fi
   cmp "$native/expected-trace" "$CI_CARGO_TRACE"
   # Later probes select graph/runtime checks without running scanner semantics.
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/test-invariant-scanners.sh"
+  for script in test-invariant-scanners.sh check-generated-endpoint-invariants.sh \
+    check-schema-model-boundary-invariants.sh; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/$script"
+  done
 done
 
 # Static CI enters invariants without a release callback's inherited editor.
