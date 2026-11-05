@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "ic-platform-runtime",
  "ic-platform-types",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "base64",
  "getrandom 0.4.3",
@@ -1353,14 +1353,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "convert_case",
  "ctor",
@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "convert_case",
  "darling",
@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "ethnum",
  "ic-platform-types",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-group-path-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
@@ -1436,7 +1436,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
@@ -1453,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-build"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "clap",
  "ic-build",
@@ -1473,14 +1473,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-codec-query"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "ic-platform-runtime",
 ]
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1489,14 +1489,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-source-checks"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "clap",
  "proc-macro2",
@@ -1513,7 +1513,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "ic-platform",
  "serde",
@@ -1522,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "ic-platform",
  "icydb-testing-sql-generator",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1539,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.297.0"
+version = "0.298.0"
 dependencies = [
  "ic-wire",
  "icydb",
