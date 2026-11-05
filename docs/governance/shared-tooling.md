@@ -7,17 +7,208 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB now selects the **0.29.4 committed development snapshot** at
-`628ccc75d813bfd9bae777bfbaef55838d25b1b2`, independently verified against public
-GitHub and the canonical exporter. All 153 payloads match the committed source
-and modes. Upstream still marks this version unreleased; no supplier tag or
-release is implied. The snapshot adds revision-selected export, bounded retained
-release-state admission, group changelog alignment and the instrumentation-only
-Metrics scope. The existing receipt-custody fixes and complete default release
-gate remain in place. The actual release/publication/retired-checkout roots pass
-the new read-only admission; this adoption deletes no retained evidence.
+IcyDB selects the **0.30.4 committed snapshot** at
+`2aa41c7394300302fe802b69b31b855bdc89b671`. The canonical revision-selected
+exporter installed it without modifying supplier files; all **156 payloads**
+verify against the selected commit and modes. This is a source-snapshot adoption,
+not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
+minimum in the two workspace manifests and the pinned development compiler.
+No IcyDB package versions or release state change in this adoption; the incoming
+dirty candidate is preserved. Dependency selections are recorded below.
 
-The root catalog adopts published **Host Tools 0.81.0** and **Metrics 0.29.0**.
+The 0.30.4 refresh adopts the macOS Bash 3.2 LOC-array correction, the shared
+lexical Candid source check and bounded experimental-evidence retention.
+`check-candid-boundary` scans all first-party Rust roots through the existing
+invariant owner, with an empty exact-declaration allowance policy; macro/type
+resolution remains a review obligation. Historical report compaction preserves
+selected conclusions and original Git references, while new Wasm captures
+default to `target/evidence/`. Release/recovery records, saved review inputs,
+package versions and dependency selections are preserved. See the
+[report retention policy](../reports/README.md).
+
+### Current published dependency cohort (2026-11-05)
+
+The root catalog adopts Storage **0.67.1**, Testkit **0.87.0**, Wire **0.17.2**,
+Platform **0.23.0**, Runtime **0.19.2**, Types **0.18.1** and Host Tools **0.83.0**.
+Host Artifacts/FS/Process and Build floors are **0.74.3**, with Text **0.74.2**.
+The root lock selects Foundation/Build **0.74.4** and Text **0.74.2**.
+The Testkit and Host Tools archives match their official registry SHA-256
+checksums and record supplier source identities
+`e3b8a88539c54cb1da3ae471954fa234beabdecf` and
+`094b7787166fd968f512518c1a0722c73cd86122`, respectively. Both require Rust 1.99.1.
+The initial cohort's 13 archive checks and the preceding Platform 0.23.0 archive
+check remain historical evidence; the latter records source
+`7d2230c585b1a91c11ff12d0fcfce24bda424550`.
+
+Testkit 0.87 removes its blocking client and private runtimes. The pending public
+startup helper and polling fixture now use its async client and lending async
+observation callbacks. Callers own the runtime and explicitly await instance
+closure. Tokio is a native-only development dependency, not a product runtime
+dependency. Testkit retains all provisioning, admission and lifecycle ownership;
+IcyDB adds no blocking bridge or server selector. Host Tools 0.83 removes its
+certificate module; IcyDB's selected project/interface APIs are unchanged.
+
+Both packages now select Platform 0.23, removing Platform 0.22.3 from the root
+lock. Runtime/Types and Wire identities remain shared. The product Wasm graph
+selects Platform with BLAKE3 only; native Testkit capabilities do not leak into it.
+Storage layouts, codec bytes and budgets are unchanged. No storage reset or
+compatibility fallback is introduced. The isolated Canic manifest/lock retain
+their separately qualified stack.
+
+The Testkit/Host follow-up passes **43 focused Rust tests**: two typed observation
+controls, one real PocketIC polling test covering six round/error cases, 17 CLI
+transport/projection controls, 14 CLI inventory/funding process controls and nine
+build-artifact/interface controls. Strict facade/startup-fixture, CLI and build
+library lint pass. Public SQL/migration Wasm compilation also passes with the
+`testing` feature enabled; its normal/build graph excludes Testkit, Tokio and
+native HTTP/Host tooling. Dependency declarations, resolved graph invariants and
+selected documentation checks pass on Rust 1.99.1.
+
+Testkit 0.87 admitted the existing prepared server bundle. The sandbox initially
+refused its loopback bind; the focused test then passed with local socket access.
+Testkit owned server startup and explicit instance/server teardown. Observations
+are scripted typed states, not an installed generated IcyDB canister: fresh-install
+and same-release-upgrade application acceptance remain open in
+[#315 — Published typed startup driver](https://github.com/dragginzgame/icydb/issues/315).
+Broad product/release gates and macOS qualification were not selected. IC cycles,
+instructions and total/code-section Wasm-size deltas remain unmeasured.
+
+The preceding Platform 0.23.0 follow-up passed 110 focused predicate/checkpoint/query
+fingerprint tests, strict Core SQL/migration library/test lint, facade lint with
+native Testkit enabled, and public SQL/migration Wasm compilation on Rust 1.99.1.
+Dependency graph/boundary and selected documentation checks passed. That follow-up
+required no authored Rust source changes. Its raw working evidence was written
+under `target/evidence/platform-adoption-20261105/`; scratch retention is not a
+permanent archive or a current qualification claim.
+These are focused Linux checks; broad release, macOS and installed-IC gates were
+not selected. IC cycles/instructions and total/code-section Wasm-size changes
+remain unmeasured.
+
+Shared 0.30.1 adds owning-target scratch defaults, bounded LOC scanner memory,
+complete partial-export documentation companions and numbered-draft release
+projection repairs. Its 154 payloads are refreshed through the canonical exporter.
+The previous `4d09618` LOC presentation adoption remains included.
+
+The initial 0.22.1 cohort's focused Linux qualification passes 232 Rust tests
+across storage reopening, row/index stores, accepted predicates and recovery, public Wire envelopes and
+schema metadata, startup/Testkit helper contracts, real CLI process controls
+and build artifact/bin behavior. Strict affected-package lint covers SQL,
+migration, generation, Wire metadata and optional testing; minimal Core/facade
+lint also passes. The public SQL/migration facade compiles for Wasm. Dependency
+boundaries, grouped draft ordering, all snapshot payloads and documentation pass.
+Shared's LOC, formatting-evidence and release-changelog fixtures pass. Old/new LOC
+reports agree on counts, classifications, hashes and diagnostic contents; the
+queued traversal reorders diagnostic notes. This is focused adoption evidence,
+not full product/release, macOS or installed-canister qualification. IC cycles,
+instruction counts and total/code-section Wasm-size changes are unmeasured.
+
+The isolated Canic qualification manifest/lock retain their separately recorded
+candidate. Published `canic-icydb 0.115.0` is now available and selects Platform
+0.22, but its official archive still exposes Wire **0.16.1** requirements for
+endpoint limits. It cannot establish composition with this root's Wire 0.17
+identity. Neither availability nor root checks qualify that separate stack;
+[#373](https://github.com/dragginzgame/icydb/issues/373) retains its acceptance.
+The Testkit server runner intentionally follows the isolated adapter lock, as do
+its integration clients; root Testkit adoption does not silently replace that
+server selection or claim installed qualification.
+
+The preceding `4d09618` LOC presentation update labels unclassified code as `???`, widens
+name-to-count spacing, uses lowercase `n/a` and puts diagnostic guidance in
+`cloc.sh --help`. JSON category names and totals remain unchanged. That refresh changed only the
+reporter and classifier payloads from the preceding `b37a882` selection.
+The actual workspace JSON is byte-for-byte identical before and after adoption.
+The normal Make report, committed sibling-report regression (alignment, missing
+workspaces and partial failures), script lint, snapshot integrity and documentation
+checks pass. No product test suite or runtime measurement was selected.
+
+The documentation correction adopts the committed fix for
+[Shared #355 — exported documentation links](https://github.com/dragginzgame/shared-tooling/issues/355).
+Four exported guides now reference the revision-bound central LOC/audit guide;
+consumers do not need a local fleet guide or scheduler. All 397 local references
+across 58 exported documents pass, as does the ordinary documentation gate
+(1,038 references across 111 documents). The accompanying LOC table correction
+keeps one workspace summary row; schema-2 JSON and category totals are unchanged.
+The earlier audit below was performed on `08cd1724`; its product evidence is
+unchanged by this documentation/presentation refresh.
+
+### 0.30.0 consumer audit (2026-11-05)
+
+This audit applies the revision-bound Shared baseline, engineering details,
+Rust hygiene, workspace/dependency, contribution, changelog, host and snapshot
+adoption rules, using the [Shared code-hygiene method](../../audits/code-hygiene.md).
+It compares the working tree at task entry, not HEAD: the checkout already
+contained substantial issue and release-qualification work.
+
+| Rule family | Consumer action and evidence | Qualification boundary |
+| --- | --- | --- |
+| Snapshot and compiler | Canonical export, 154 checksum/mode matches; both manifests and the toolchain pin select 1.99.1. | Linux compiler/lint evidence; no new macOS qualification. |
+| Directory and test ownership | Hard cut to `canisters/tests` and `schema/tests`, with live Cargo/script/documentation references updated. Extract 340 inline test modules plus the documentation example, 275 helper methods/functions and their test state/types. Use normal module discovery. | No package identities, approved workspace boundaries or product features change. |
+| LOC roles | Declare 47 fixture, example and build-tooling package roles; run the new reporter for the root and explicit Canic workspace. | Both reports have zero unclassified source. Macro expansion and conditional-attribute diagnostics remain visible; LOC is not generated-code or performance evidence. |
+| Lint policy | Audit source, generated attributes, fixtures, Cargo tables and command-line settings. Convert stable suppressions to expectations; remove stale expectations and a blanket fixture cfg allowance. Enable unfulfilled expectations in both workspaces. | Product and root fixture gates qualify the checked feature configurations. Canic-specific conversions await the graph repair below. |
+| Source inspection | Generated-endpoint and schema/model scans now propagate search failures. Source guards share test-file classification and refuse metadata failures. Negative fixtures cover missing inputs and unreadable entries; Cargo adoption fixtures mirror renamed targets and retired manifests. | Focused scanner fixtures and affected source guards; no claim of a general Rust parser in text guards. |
+| Canonical owners and native APIs | Dependency-boundary checks retain Platform/Storage/Wire, Observability, Testkit and Host ownership. Std-capable code and generated paths use `std`; CLI/build entrypoints use Clap. Build gzip encoding uses the Host artifact owner. | No supplier or server adoption is implied. Handwritten computed/typed diagnostic projections stay intact; the minimal build error does not gain a new dependency just for a derive. |
+| Documentation and repository identity | Update the local overlay, hygiene example, live paths, README Storage link and GitHub description; record outcomes in both owning group ledgers. | Published notes, historical source paths and tags are preserved. |
+| Delivery, hosts and retained evidence | Preserve independent release groups, full-gate fallback and receipt custody. No tracked Git symlinks were found. | No commits, pushes, release execution, broad product suite, installed-IC acceptance or network lifecycle changes. |
+
+Test-only fields, enum variants and interruption/counter call sites remain at
+the runtime layout or control-flow edge they observe. Each affected owner explains
+that constraint; fixture implementations and state live in external test files.
+Diagnostic macros retain generated test lookup tables beside their single
+production declaration roster to avoid a second inventory. Executable tests are
+external. This does not authorize wider production visibility or `#[path]` wiring.
+
+Remaining `allow` attributes have configuration-specific reasons: generated
+imports/dead code and async bodies vary across consumer expansions; deliberate
+compile-fail inputs can stop before the suppressed lint runs. Cargo has no
+`expect` level, so reviewed workspace-wide style choices stay in its lint table.
+Parser fixtures containing an authored `allow` are input data, not suppressions.
+
+Canic qualification remains blocked by the already tracked
+[#373 — canonical Canic adapter adoption](https://github.com/dragginzgame/icydb/issues/373):
+its locked Storage/Platform selection mixes incompatible IC executor `links`
+owners. Locked metadata and the independent LOC inventory work, but adapter
+compilation does not. A locked fetch reproduced that conflict; no unlocked
+resolution or supplier override was attempted. Root checks do not qualify this
+separate graph. Native macOS, installed-IC checks and full product/release gates
+remain user-owned validation. IC cycles, instruction counts and total/code-section
+Wasm changes are unmeasured.
+
+Focused validation passed **379 Rust tests**, five source-input scanner cases,
+strict lint selections for the seven product packages and root fixtures, the
+minimal Core feature selection, the runtime panic scan, dependency boundaries,
+shell lint, Cargo inheritance/grouped-ordering adoption fixtures and 118 local
+documentation references. Generated token expectations
+were updated with the standard-library paths; feature-conditioned imports retain
+their original SQL gate. Full repository tests were not selected.
+
+The same 0.30 classifier was run against the task-entry source and the completed
+root workspace. Counts are Rust code lines (excluding comments/blanks), not
+physical diff lines. Role declarations and test extraction change categories;
+the application reduction below does **not** mean deleting that many feature lines.
+
+| Root workspace category | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Library/application | 268,980 | 246,573 | -22,407 |
+| Tests | 215,354 | 232,179 | +16,825 |
+| Examples | 711 | 865 | +154 |
+| Build/tooling | 6 | 4,856 | +4,850 |
+| Total | 485,051 | 484,473 | -578 |
+
+The independent Canic inventory reports 34,338 test and 125 example code lines,
+with zero application or unclassified lines. A separate source inventory retains
+all 5,198 existing test bodies and adds two scanner regressions; it is an inventory
+check, not a claim that every body was executed. Diagnostic macro/conditional
+classification notices are retained in the LOC output. Non-test code (application,
+examples and tooling combined) changes by -17,403 lines; tests change by +16,825,
+for a total of -578 code lines.
+
+The previous 0.29.4 snapshot selected
+`628ccc75d813bfd9bae777bfbaef55838d25b1b2` and verified 153 payloads. Its retained
+release-state, group-changelog and instrumentation-only Metrics contracts remain
+in force; earlier cohort evidence below is historical, not new qualification.
+
+The earlier 0.29.4 cohort adopted published **Host Tools 0.81.0** and
+**Metrics 0.29.0**.
 Their official archive checksums and exact VCS sources are verified: Tools
 `8ac12cf92fe04c6f4aec0ce4aad80fcd13df07f0`, Metrics
 `0ead785d2f0c7eafa05c9f9a05a2a609f320af0d`. Tools' Rust sources match 0.80.0;

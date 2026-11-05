@@ -83,7 +83,7 @@ evidence paths.
 
 Write one dated result file for each run:
 
-- `docs/reports/recurring/YYYY/MM/DD/resource-model-compliance/<run>/report.md`
+- `docs/reports/recurring/resource-model-compliance.md`
 
 Result must include:
 

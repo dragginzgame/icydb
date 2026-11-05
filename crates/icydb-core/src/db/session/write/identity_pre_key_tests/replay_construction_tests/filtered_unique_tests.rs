@@ -159,7 +159,20 @@ fn assert_owner(session: &DbSession<JournaledTestCanister>, owner: u64) {
     });
 }
 
-fn assert_transfer(expression: bool, restart: bool, entering_first: bool) {
+fn filtered_payload_patch(payload: &str, active: bool) -> DynamicStructuralPatch {
+    DynamicStructuralPatch::new(vec![
+        (
+            "payload".into(),
+            DynamicWriteCell::Value(InputValue::text(payload.into())),
+        ),
+        (
+            "active".into(),
+            DynamicWriteCell::Value(InputValue::boolean(active)),
+        ),
+    ])
+}
+
+fn seeded_filtered(expression: bool) -> DbSession<JournaledTestCanister> {
     let session = initialize_filtered(expression);
     session
         .execute_trusted_dynamic_insert_batch(
@@ -167,23 +180,14 @@ fn assert_transfer(expression: bool, restart: bool, entering_first: bool) {
             [true, false]
                 .into_iter()
                 .map(|active| {
-                    DynamicStructuralPatch::new(vec![
-                        (
-                            "payload".into(),
-                            DynamicWriteCell::Value(InputValue::text(
-                                if expression && !active {
-                                    "shared"
-                                } else {
-                                    "Shared"
-                                }
-                                .into(),
-                            )),
-                        ),
-                        (
-                            "active".into(),
-                            DynamicWriteCell::Value(InputValue::boolean(active)),
-                        ),
-                    ])
+                    filtered_payload_patch(
+                        if expression && !active {
+                            "shared"
+                        } else {
+                            "Shared"
+                        },
+                        active,
+                    )
                 })
                 .collect(),
         )
@@ -191,6 +195,11 @@ fn assert_transfer(expression: bool, restart: bool, entering_first: bool) {
     drive_journaled_recovery_to_completion(&session);
     assert_owner(&session, 1);
 
+    session
+}
+
+fn assert_transfer(expression: bool, restart: bool, entering_first: bool) {
+    let session = seeded_filtered(expression);
     let mut transfer = vec![set_active(1, false), set_active(2, true)];
     if entering_first {
         transfer.reverse();
@@ -263,3 +272,5 @@ fn filtered_unique_expression_transfer_folds_online() {
 fn filtered_unique_expression_transfer_recovers_after_restart() {
     assert_both_orders(true, true);
 }
+
+mod decode_tests;

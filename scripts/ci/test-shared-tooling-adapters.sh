@@ -121,8 +121,10 @@ fi
 # gates. Cargo substitutes inspect live descriptors, cache roots and libtest
 # concurrency; the real consumer Makefile and shared dispatch remain in use.
 native="$FIXTURE/native"
-mkdir -p "$native/make" "$native/scripts/ci" "$native/bin"
+mkdir -p "$native/make" "$native/scripts/ci" "$native/scripts/release" "$native/ci" "$native/bin"
 cp "$ROOT/Makefile" "$native/"
+cp "$ROOT/scripts/release/validation-stages.pl" "$native/scripts/release/"
+cp "$ROOT/ci/"{release-validation.json,release-validation-contract.json,cargo-release-groups.json} "$native/ci/"
 cp "$ROOT/make/"*.mk "$native/make/"
 # Formatting now consumes the canonical catalog reader. Copy its declared
 # companion closure so fixture setup follows the selected shared Make contract.
@@ -213,7 +215,7 @@ for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter ci-adapter-sql-tier-a;
     "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'check default' 'check default' 'check default' 'clippy default' 'test 8' \
-  'clippy default' 'test 2' 'test default' 'test default' \
+  'clippy default' 'clippy default' 'test 2' 'test default' 'test default' \
   'clippy default' 'clippy default' 'clippy default' 'test 2' 'test 2' 'test default' \
   'test 2' 'test 2' 'test 2' 'test default' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
@@ -352,7 +354,7 @@ MAKE
 PATH="$native/bin:$PATH" ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
   make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
   > "$native/deployment-build.log" 2>&1
-printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'run default' \
+printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'run default' \
   > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cmp "$native/.icp/local/canisters/default_empty/default_empty.wasm" "$native/staged.wasm"
@@ -390,7 +392,7 @@ for lane in fetch build check clippy test-documentation check-feature-matrix cle
     > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'run default' 'run default' 'fetch default' 'build default' \
-  'check default' 'clippy default' 'clippy default' \
+  'check default' 'clippy default' 'clippy default' 'clippy default' \
   'test default' 'test default' 'test default' \
   'test default' 'test default' 'test default' 'test default' \
   'check default' 'check default' 'check default' 'check default' 'check default' \
@@ -730,6 +732,12 @@ tools-check fmt-check lint-workflows shellcheck check-dependency-pins:
 check-invariants check check-feature-matrix test:
 	@echo unexpected-later-stage >&2; exit 99
 MAKE
+# Admit only the explicitly substituted fixture recipes. Product fingerprint
+# drift must still stop the real validate entry point before Cargo dispatch.
+fixture_make_sha="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$native/Makefile")"
+jq -cS --arg hash "$fixture_make_sha" '.files.Makefile = $hash' \
+  "$native/ci/release-validation-contract.json" > "$native/fixture-contract.json"
+mv "$native/fixture-contract.json" "$native/ci/release-validation-contract.json"
 : > "$CI_CARGO_TRACE"
 status=0
 PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=clippy \
@@ -740,6 +748,14 @@ PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=clippy \
 printf '%s\n' 'clippy default' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 if rg -F unexpected-later-stage "$native/release-lint-failure.log" >/dev/null; then exit 1; fi
+
+printf '\n' >> "$native/ci/release-validation.json"
+: > "$CI_CARGO_TRACE"
+status=0
+PATH="$native/bin:$PATH" ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/release-admission-logs" \
+  make --no-print-directory -C "$native" -j2 validate \
+  > "$native/release-admission-failure.log" 2>&1 || status=$?
+[[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
 
 echo "shared-tooling adapter regressions passed"
 fixture_complete=true

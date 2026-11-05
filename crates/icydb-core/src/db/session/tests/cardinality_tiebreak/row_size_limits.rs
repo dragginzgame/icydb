@@ -23,7 +23,7 @@ fn blob_row(id: u64, field_bytes: usize) -> DynamicStructuralPatch {
 
 #[test]
 fn aggregate_row_limit_rejects_individually_valid_fields_without_batch_effects() {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "first", 1, AcceptedFieldKind::Blob { max_len: None }),

@@ -8,7 +8,7 @@ mod tests;
 
 use crate::{imp::*, prelude::*};
 use darling::ast::NestedMeta;
-use icydb_schema::{MAX_INDEX_FIELDS, MAX_SCHEMA_NAME_BYTES};
+use icydb_schema::MAX_INDEX_FIELDS;
 use std::collections::HashSet;
 
 //
@@ -196,18 +196,33 @@ impl Entity {
         paths: &CratePaths,
     ) -> Result<Vec<Vec<String>>, DarlingError> {
         let mut canonical_index_terms = Vec::with_capacity(self.indexes.len());
-        let mut generated_names = HashSet::with_capacity(self.indexes.len());
+        let mut names = HashSet::with_capacity(self.indexes.len());
+        let mut definitions = HashSet::with_capacity(self.indexes.len());
         for index in &self.indexes {
             Self::validate_index_shape(index, def_ident)?;
             self.validate_index_fields(index)?;
             Self::validate_index_name(index, entity_name, def_ident)?;
             self.validate_index_predicate(index, paths)?;
-            if !generated_names.insert(index.generated_name(entity_name)) {
-                return Err(DarlingError::custom(format!(
-                    "duplicate generated index name '{}'",
-                    index.generated_name(entity_name)
-                ))
+            if !definitions.insert((
+                index.unique,
+                index.validated_key_item_terms(),
+                index.canonical_predicate_key()?,
+            )) {
+                return Err(DarlingError::custom(
+                    "duplicate index definition; remove the repeated index declaration",
+                )
                 .with_index_or_def_span(index, def_ident));
+            }
+            let name = index.resolved_name(entity_name)?;
+            if !names.insert(name.clone()) {
+                let error = DarlingError::custom(format!(
+                    "duplicate index name '{name}'; choose a distinct override, for example: index(name = \"users_by_email\", field = \"email\")"
+                ));
+                return Err(if let Some(name) = &index.name {
+                    error.with_span(name)
+                } else {
+                    error.with_index_or_def_span(index, def_ident)
+                });
             }
             canonical_index_terms.push(index.validated_key_item_terms());
         }
@@ -270,13 +285,13 @@ impl Entity {
         Ok(())
     }
 
-    // Validate the generated runtime index name against reserved and length limits.
+    // Validate key terms and resolve the shared bounded naming contract.
     fn validate_index_name(
         index: &Index,
         entity_name: &str,
         def_ident: &Ident,
     ) -> Result<(), DarlingError> {
-        let segments = index.generated_name_segments();
+        let segments = index.validated_key_item_terms();
         validate_index_name_text(index, entity_name, segments.as_slice())
             .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
 
@@ -379,12 +394,7 @@ fn validate_index_name_text(
             )));
         }
     }
-    // Check the exact emitted name, not an independent slug/length estimate.
-    if index.generated_name(entity_name).len() > MAX_SCHEMA_NAME_BYTES {
-        return Err(DarlingError::custom(format!(
-            "derived index name for '{entity_name}' exceeds max length {MAX_SCHEMA_NAME_BYTES}"
-        )));
-    }
+    index.resolved_name(entity_name)?;
     Ok(())
 }
 
@@ -705,7 +715,7 @@ fn composite_primary_key_struct_tokens(
     });
 
     quote! {
-        #[derive(::core::clone::Clone, ::core::marker::Copy, ::core::fmt::Debug, #model::__reexports::serde::Deserialize, ::core::cmp::Eq, ::core::hash::Hash, ::core::cmp::Ord, ::core::cmp::PartialEq, ::core::cmp::PartialOrd, #model::__reexports::serde::Serialize)]
+        #[derive(::std::clone::Clone, ::std::marker::Copy, ::std::fmt::Debug, #model::__reexports::serde::Deserialize, ::std::cmp::Eq, ::std::hash::Hash, ::std::cmp::Ord, ::std::cmp::PartialEq, ::std::cmp::PartialOrd, #model::__reexports::serde::Serialize)]
 
         #[serde(crate = #serde_path)]
         pub struct #key_ident {
@@ -740,7 +750,7 @@ fn composite_primary_key_value_codec_tokens(
     );
 
     quote! {
-        impl ::core::convert::From<#key_ident> for #runtime::value::InputValue {
+        impl ::std::convert::From<#key_ident> for #runtime::value::InputValue {
             fn from(value: #key_ident) -> Self {
                 Self::list(::std::vec![
                     #(#input_value_components),*
@@ -755,15 +765,15 @@ fn composite_primary_key_value_codec_tokens(
                 ])
             }
 
-            fn from_key_value(value: &#runtime::__macro::Value) -> ::core::option::Option<Self> {
+            fn from_key_value(value: &#runtime::__macro::Value) -> ::std::option::Option<Self> {
                 let #runtime::__macro::Value::List(values) = value else {
-                    return ::core::option::Option::None;
+                    return ::std::option::Option::None;
                 };
                 if values.len() != #component_count_lit {
-                    return ::core::option::Option::None;
+                    return ::std::option::Option::None;
                 }
 
-                ::core::option::Option::Some(Self {
+                ::std::option::Option::Some(Self {
                     #(#key_value_decoders),*
                 })
             }
@@ -785,7 +795,7 @@ fn composite_primary_key_encode_tokens(
         impl #runtime::__macro::PrimaryKeyEncode for #key_ident {
             fn to_primary_key_value(
                 &self,
-            ) -> ::core::result::Result<
+            ) -> ::std::result::Result<
                 #runtime::__macro::PrimaryKeyValue,
                 #runtime::__macro::PrimaryKeyEncodeError,
             > {
@@ -797,7 +807,7 @@ fn composite_primary_key_encode_tokens(
                 )
                 .map_err(#runtime::__macro::PrimaryKeyEncodeError::from)?;
 
-                ::core::result::Result::Ok(#runtime::__macro::PrimaryKeyValue::Composite(composite))
+                ::std::result::Result::Ok(#runtime::__macro::PrimaryKeyValue::Composite(composite))
             }
         }
     }
@@ -812,7 +822,7 @@ fn composite_component_encoder(
         match <#field_ty as #runtime::__macro::PrimaryKeyEncode>::to_primary_key_value(&self.#primary_key_field)? {
             #runtime::__macro::PrimaryKeyValue::Scalar(component) => component,
             #runtime::__macro::PrimaryKeyValue::Composite(_) => {
-                return ::core::result::Result::Err(#runtime::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
+                return ::std::result::Result::Err(#runtime::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
                     kind: "CompositePrimaryKeyComponent",
                 });
             }
@@ -842,22 +852,22 @@ fn composite_primary_key_decode_tokens(
         impl #runtime::__macro::PrimaryKeyDecode for #key_ident {
             fn from_primary_key_value(
                 key: &#runtime::__macro::PrimaryKeyValue,
-            ) -> ::core::result::Result<Self, #runtime::__macro::InternalError> {
+            ) -> ::std::result::Result<Self, #runtime::__macro::InternalError> {
                 let #runtime::__macro::PrimaryKeyValue::Composite(composite) = key else {
-                    return ::core::result::Result::Err(#runtime::__macro::InternalError::new(
+                    return ::std::result::Result::Err(#runtime::__macro::InternalError::new(
                         #runtime::__macro::ErrorClass::Corruption,
                         #runtime::__macro::ErrorOrigin::Store
                     ));
                 };
                 if composite.len() != #component_count_lit {
-                    return ::core::result::Result::Err(#runtime::__macro::InternalError::new(
+                    return ::std::result::Result::Err(#runtime::__macro::InternalError::new(
                         #runtime::__macro::ErrorClass::Corruption,
                         #runtime::__macro::ErrorOrigin::Store
                     ));
                 }
                 let components = composite.components();
 
-                ::core::result::Result::Ok(Self {
+                ::std::result::Result::Ok(Self {
                     #(#primary_key_component_decoders),*
                 })
             }
@@ -889,13 +899,13 @@ fn composite_primary_key_bytes_tokens(
             fn write_bytes(
                 &self,
                 out: &mut [u8],
-            ) -> ::core::result::Result<(), #runtime::__macro::EntityKeyBytesError> {
+            ) -> ::std::result::Result<(), #runtime::__macro::EntityKeyBytesError> {
                 #runtime::__macro::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
                 let mut rest = out;
                 #(#byte_writers)*
                 let _ = rest;
 
-                ::core::result::Result::Ok(())
+                ::std::result::Result::Ok(())
             }
         }
     }
@@ -1095,6 +1105,35 @@ fn typed_operation_struct_tokens(
 
         Some(quote!(pub #ident: #runtime::db::WriteCell<#ty>))
     });
+    let entity_ident = entity.def.ident();
+    let row_fields = entity.fields.iter().filter_map(|field| {
+        let key = include_primary_key && field_is_primary_key(entity, field);
+        if !key && !field_is_insert_authorable(field) {
+            return None;
+        }
+        let ident = &field.name;
+        let access = quote!(row.#ident);
+        let value = if key {
+            typed_row_write_value(entity, field, access, paths)
+        } else if field.value.cardinality() == Cardinality::Opt {
+            let value = typed_row_write_value(entity, field, quote!(value), paths);
+            quote! {
+                match #access {
+                    ::std::option::Option::Some(value) => #runtime::db::WriteCell::Value(#value),
+                    ::std::option::Option::None => #runtime::db::WriteCell::Null,
+                }
+            }
+        } else {
+            let value = typed_row_write_value(entity, field, access, paths);
+            quote!(#runtime::db::WriteCell::Value(#value))
+        };
+        Some(quote!(#ident: #value))
+    }).collect::<Vec<_>>();
+    let row_binding = if row_fields.is_empty() {
+        format_ident!("_row")
+    } else {
+        format_ident!("row")
+    };
 
     quote! {
         #[doc = concat!(
@@ -1103,14 +1142,47 @@ fn typed_operation_struct_tokens(
             "`."
         )]
         #[doc = "Generated and managed fields are structurally absent."]
-        #[derive(::core::clone::Clone, ::core::fmt::Debug, #model::__reexports::serde::Deserialize, ::core::cmp::Eq, ::core::cmp::PartialEq, #model::__reexports::serde::Serialize)]
+        #[derive(::std::clone::Clone, ::std::fmt::Debug, #model::__reexports::serde::Deserialize, ::std::cmp::Eq, ::std::cmp::PartialEq, #model::__reexports::serde::Serialize)]
 
         #[serde(crate = #serde_path)]
         pub struct #operation_ident {
             #(#primary_key_fields,)*
             #(#write_fields),*
         }
+
+        impl ::std::convert::From<#entity_ident> for #operation_ident {
+            /// Consume a whole row as explicit authored values, omitting managed fields.
+            /// Nullable absence becomes `WriteCell::Null`, never `Omitted`.
+            /// Application normalization and validation remain caller-owned;
+            /// accepted-schema checks still run during encoding and execution.
+            fn from(#row_binding: #entity_ident) -> Self {
+                Self { #(#row_fields),* }
+            }
+        }
     }
+}
+
+// Row fields retain their raw storage-facing key types. Write inputs use typed
+// identities for scalar keys and relations; both paths share the existing encoder.
+fn typed_row_write_value(
+    entity: &Entity,
+    field: &Field,
+    value: TokenStream,
+    paths: &CratePaths,
+) -> TokenStream {
+    let runtime = &paths.runtime;
+    if entity.primary_key.fields().len() == 1 && field_is_primary_key(entity, field) {
+        return quote!(#runtime::types::Id::from_key(#value));
+    }
+    if field.value.item.relation.is_some() {
+        return match field.value.cardinality() {
+            Cardinality::Many => {
+                quote!(#value.into_iter().map(#runtime::types::Id::from_key).collect())
+            }
+            Cardinality::One | Cardinality::Opt => quote!(#runtime::types::Id::from_key(#value)),
+        };
+    }
+    value
 }
 
 fn typed_primary_key_input_expr(entity: &Entity, paths: &CratePaths) -> TokenStream {
@@ -1196,13 +1268,40 @@ fn typed_write_adapter_impl_tokens(
             fn encode_write(
                 self,
                 binding: &#runtime::db::TypedEntityBinding,
-            ) -> ::core::result::Result<#runtime::db::TypedWrite, #runtime::db::TypedAdapterError> {
+            ) -> ::std::result::Result<#runtime::db::TypedWrite, #runtime::db::TypedAdapterError> {
                 let mut encoder =
                     #runtime::db::BoundWriteEncoder::new(binding, #field_count);
                 #(#fields)*
 
                 #build
             }
+        }
+    }
+}
+
+// Key-only conversion preserves the declared component order without encoding
+// any non-key row values or introducing a separate deletion adapter.
+fn typed_row_key_method_tokens(entity: &Entity, paths: &CratePaths) -> TokenStream {
+    let runtime = &paths.runtime;
+    let ident = entity.def.ident();
+    let row_key = if entity.primary_key.fields().len() == 1 {
+        let field = entity.primary_key.scalar_field();
+        quote!(self.#field)
+    } else {
+        let key_ident = composite_primary_key_ident(&ident);
+        let fields = entity
+            .primary_key
+            .fields()
+            .iter()
+            .map(|field| quote!(#field: self.#field));
+        quote!(#key_ident { #(#fields),* })
+    };
+    quote! {
+        /// Consume this row into its typed key, including every composite component.
+        /// Deletion and exact reads use this key without encoding the other fields.
+        #[must_use]
+        pub fn into_typed_key(self) -> #runtime::types::Id<Self> {
+            #runtime::types::Id::from_key(#row_key)
         }
     }
 }
@@ -1267,6 +1366,7 @@ fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStre
         let key_ident = composite_primary_key_ident(&ident);
         quote!(#key_ident)
     };
+    let row_key_method = typed_row_key_method_tokens(entity, paths);
 
     quote! {
         #insert_struct
@@ -1287,10 +1387,12 @@ fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStre
         }
 
         impl #ident {
+            #row_key_method
+
             /// Bind this generated adapter to current accepted schema authority.
             pub fn typed_binding<C>(
                 session: &#runtime::db::DbSession<C>,
-            ) -> ::core::result::Result<#runtime::db::TypedEntityBinding, #runtime::db::TypedOperationError>
+            ) -> ::std::result::Result<#runtime::db::TypedEntityBinding, #runtime::db::TypedOperationError>
             where
                 C: #runtime::traits::CanisterKind,
             {
@@ -1304,8 +1406,8 @@ fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStre
             fn decode_row(
                 binding: &#runtime::db::TypedEntityBinding,
                 mut row: #runtime::db::OutputRow,
-            ) -> ::core::result::Result<Self::Row, #runtime::db::TypedAdapterError> {
-                ::core::result::Result::Ok(Self {
+            ) -> ::std::result::Result<Self::Row, #runtime::db::TypedAdapterError> {
+                ::std::result::Result::Ok(Self {
                     #(#decoded_fields),*
                 })
             }

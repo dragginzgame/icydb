@@ -6,7 +6,7 @@ use crate::db::{
     QueryError, RequestExecutionRoot,
     predicate::MissingRowPolicy,
     query::{plan::AccessPlannedQuery, preparation::PreparationWork},
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionLane as Lane, DiagnosticFactTag};
 use sha2::Digest;

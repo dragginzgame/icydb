@@ -18,7 +18,9 @@ use crate::{
             route::{RoutePlanRequest, build_execution_route_plan},
         },
         query::{
-            explain::ExplainPlan, plan::grouped_executor_handoff, preparation::PreparationWork,
+            explain::{ExplainPlan, ExplainPublicReadAdmission},
+            plan::grouped_executor_handoff,
+            preparation::PreparationWork,
         },
         resource::construction::ConstructionBudget,
         schema::{enum_catalog::ValueAdmissionBudget, literal_matches_type},
@@ -51,7 +53,13 @@ impl SharedPreparedExecutionPlan {
         &self,
         work: &PreparationWork<'_>,
     ) -> Result<ExplainPlan, QueryError> {
-        let explain = self.logical_plan().project_explain(work)?;
+        let explain = self
+            .logical_plan()
+            .project_explain(work)?
+            .with_public_read_admission(
+                ExplainPublicReadAdmission::from_plan(self.logical_plan())
+                    .map_err(QueryError::execute)?,
+            );
         let route = if self.logical_plan().grouped_plan().is_some() {
             let grouped =
                 grouped_executor_handoff(self.logical_plan()).map_err(QueryError::execute)?;
@@ -71,12 +79,6 @@ impl SharedPreparedExecutionPlan {
                 .secondary_pushdown_applicability
                 .project_explain(work)?,
         ))
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn resident_lifetime_for_tests(&self) -> impl Fn() -> bool + use<> {
-        let residents = Rc::downgrade(&self.core.residents);
-        move || residents.strong_count() != 0
     }
 
     pub(in crate::db) fn cache_retention_available(&self) -> bool {
@@ -235,16 +237,6 @@ impl SharedPreparedExecutionPlan {
             .get_or_init_hybrid_covering_read_plan(&self.authority)
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn has_projection_covering_read_plan_for_tests(&self) -> bool {
-        self.projection_covering_read_execution_plan().is_some()
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn has_hybrid_covering_read_plan_for_tests(&self) -> bool {
-        self.hybrid_covering_read_plan().is_some()
-    }
-
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.
@@ -277,3 +269,6 @@ impl SharedPreparedExecutionPlan {
 crate::retained::retained_fields!(SharedPreparedExecutionPlan {
 Self{authority,core} => [authority,core],
 });
+
+#[cfg(test)]
+mod helper_tests;

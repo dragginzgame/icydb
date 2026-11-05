@@ -118,14 +118,16 @@ Decision rule:
 - The staged Binaryen `-Oz` output is the final artifact. Compiler output and
   any separately experimented shrink output cannot supply a baseline, delta
   verdict, runtime proof, or installed-byte identity.
-- Record deterministic gzip artifacts for transport continuity, but treat them as secondary context rather than the deciding metric for optimization work.
+- Keep gzip identity only for artifact custody; report compressed sizes only when transport measurement is explicitly requested. Report total uncompressed module and code-section bytes; absent measurements remain unmeasured.
 
 ---
 
 ## Execution Contract
 
 Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
-Both normal execution and `--skip-build` write reports and attribution artifacts.
+Both normal execution and `--skip-build` write raw reports and attribution artifacts
+under `target/evidence/`. Maintain one compact Git summary at
+`docs/reports/recurring/wasm-footprint.md` when the investigation warrants it.
 For inspection-only work, read existing reports and artifacts without invoking
 this writer. Authorized capture reserves a new run directory; an existing
 directory, including one supplied with `--report-dir`, must not be reused.
@@ -158,14 +160,14 @@ follow the same rule; future reports never supply a baseline.
 
 Write exactly one summary file for each batch run:
 
-- `docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/report.md`
+- `target/evidence/recurring/YYYY/MM/DD/wasm-footprint/<run>/report.md`
 
 Suffixed report names such as `wasm-footprint-2.md` are prohibited. Same-day
 reruns use the next run directory.
 
 Write artifacts under:
 
-- `docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/artifacts/`
+- `target/evidence/recurring/YYYY/MM/DD/wasm-footprint/<run>/artifacts/`
 
 Required artifacts for each run:
 

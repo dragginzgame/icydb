@@ -289,9 +289,9 @@ impl Field {
                 // callable Rust constructor. Full row values use zero only as
                 // their ordinary Rust Default placeholder; typed inserts omit
                 // the database-owned field structurally.
-                return Some(quote!(::core::default::Default::default()));
+                return Some(quote!(::std::default::Default::default()));
             }
-            return Some(quote!(::core::convert::Into::into(#generator)));
+            return Some(quote!(::std::convert::Into::into(#generator)));
         }
 
         match (&self.default, self.value.cardinality()) {
@@ -299,10 +299,10 @@ impl Field {
                 schema_default_rust_expr(default, self.value.item.primitive, paths).ok()
             }
             (None, Cardinality::One) if self.write_management.is_some() => {
-                Some(quote!(::core::default::Default::default()))
+                Some(quote!(::std::default::Default::default()))
             }
             (None, Cardinality::One) => None,
-            (None, Cardinality::Opt) => Some(quote!(::core::option::Option::None)),
+            (None, Cardinality::Opt) => Some(quote!(::std::option::Option::None)),
             (None, Cardinality::Many) => Some(quote!(::std::vec::Vec::default())),
         }
     }
@@ -563,7 +563,7 @@ pub(crate) fn schema_default_rust_expr(
         }
         _ => quote!(#default),
     };
-    Ok(quote!(::core::convert::Into::into(#expression)))
+    Ok(quote!(::std::convert::Into::into(#expression)))
 }
 
 fn validate_database_default_shape(

@@ -328,7 +328,7 @@ fn compile_predicate(
                 bound.canonical_bytes()?.len() as u64,
             )?;
             let predicate = crate::db::predicate::normalize_with_budget(
-                bound.for_row_contract(row_contract)?,
+                bound.for_row_contract(row_contract, Some(work))?,
                 work,
             )?;
             Ok(PredicateProgram::compile_with_row_contract(

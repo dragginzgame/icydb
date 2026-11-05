@@ -17,7 +17,7 @@
 mod tests;
 
 use crate::MAX_INDEX_FIELDS;
-use icydb_schema::canonical_index_name_slug;
+use icydb_schema::{SchemaName, canonical_index_name, is_engine_reserved_schema_name};
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
@@ -29,14 +29,7 @@ use std::{
 
 const MAX_ENTITY_NAME_LEN: usize = 64;
 const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
-const MAX_INDEX_NAME_PREFIX_LEN: usize = 5;
-const MAX_ENTITY_NAME_SLUG_LEN: usize = (MAX_ENTITY_NAME_LEN * 3) / 2;
-const MAX_INDEX_FIELD_NAME_SLUG_LEN: usize = (MAX_INDEX_FIELD_NAME_LEN * 3) / 2;
-const MAX_INDEX_NAME_LEN: usize = MAX_INDEX_NAME_PREFIX_LEN
-    + MAX_ENTITY_NAME_SLUG_LEN
-    + 2
-    + (MAX_INDEX_FIELDS * MAX_INDEX_FIELD_NAME_SLUG_LEN)
-    + (MAX_INDEX_FIELDS - 1);
+const MAX_INDEX_NAME_LEN: usize = icydb_schema::MAX_SCHEMA_NAME_BYTES;
 const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
 
 /// Decode error for persisted identity bytes.
@@ -45,6 +38,9 @@ const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
 
 #[derive(Debug)]
 pub enum IdentityDecodeError {
+    /// Index label violates the shared schema-name contract.
+    InvalidIndexName,
+
     /// Persisted byte slice has the wrong fixed envelope size.
     InvalidSize,
 
@@ -87,6 +83,12 @@ pub enum EntityNameError {
 
 #[derive(Debug)]
 pub enum IndexNameError {
+    /// Explicit name violates the shared schema-name contract.
+    InvalidName(icydb_schema::SchemaContractError),
+
+    /// Explicit name uses the engine-owned namespace.
+    ReservedName,
+
     /// Index field list exceeds the supported key-width limit.
     TooManyFields { len: usize, max: usize },
 
@@ -104,9 +106,6 @@ pub enum IndexNameError {
 
     /// One index field segment contains the reserved segment delimiter.
     FieldDelimiter { field: String },
-
-    /// Derived index name exceeds the stable identity byte limit.
-    TooLong { len: usize, max: usize },
 }
 
 /// Validated public entity name with a bounded fixed-width representation.
@@ -312,7 +311,6 @@ impl IndexName {
             });
         }
 
-        let mut field_slugs = Vec::with_capacity(fields.len());
         for field in fields {
             let field_len = field.len();
             if field_len == 0 {
@@ -334,46 +332,23 @@ impl IndexName {
                     field: (*field).to_string(),
                 });
             }
-            let slug = index_name_slug(field);
-            if slug.is_empty() {
-                return Err(IndexNameError::FieldEmpty);
-            }
-            field_slugs.push(slug);
         }
+        let name = canonical_index_name(entity.as_str(), fields, prefix == "uniq", None);
+        Self::try_from_str(&name)
+    }
 
-        let entity_slug = index_name_slug(entity.as_str());
-        let total_len = prefix
-            .len()
-            .saturating_add(1)
-            .saturating_add(entity_slug.len())
-            .saturating_add(2)
-            .saturating_add(field_slugs.iter().map(String::len).sum::<usize>())
-            .saturating_add(field_slugs.len().saturating_sub(1));
-        if total_len > MAX_INDEX_NAME_LEN {
-            return Err(IndexNameError::TooLong {
-                len: total_len,
-                max: MAX_INDEX_NAME_LEN,
-            });
+    /// Construct an explicit public index label using the shared schema contract.
+    /// Accepted IndexId, rather than this label, owns physical index identity.
+    pub fn try_from_str(name: &str) -> Result<Self, IndexNameError> {
+        SchemaName::try_new(name).map_err(IndexNameError::InvalidName)?;
+        if is_engine_reserved_schema_name(name) {
+            return Err(IndexNameError::ReservedName);
         }
-
-        // Phase 2: encode canonical `idx_entity__field...` bytes into fixed storage.
-        let mut out = [0u8; MAX_INDEX_NAME_LEN];
-        let mut len = 0usize;
-
-        Self::push_bytes(&mut out, &mut len, prefix.as_bytes());
-        Self::push_bytes(&mut out, &mut len, b"_");
-        Self::push_bytes(&mut out, &mut len, entity_slug.as_bytes());
-        Self::push_bytes(&mut out, &mut len, b"__");
-        for (index, field_slug) in field_slugs.iter().enumerate() {
-            if index > 0 {
-                Self::push_bytes(&mut out, &mut len, b"_");
-            }
-            Self::push_bytes(&mut out, &mut len, field_slug.as_bytes());
-        }
-
+        let mut bytes = [0; MAX_INDEX_NAME_LEN];
+        bytes[..name.len()].copy_from_slice(name.as_bytes());
         Ok(Self {
-            len: len as u16,
-            bytes: out,
+            len: name.len() as u16,
+            bytes,
         })
     }
 
@@ -401,10 +376,9 @@ impl IndexName {
 
     /// Decode one fixed-size persisted index identity payload.
     ///
-    /// This validates the canonical fixed-width byte envelope only. It does not
-    /// reconstruct field segments or prove the bytes were produced by
-    /// `try_from_entity_fields`; callers must ensure persisted bytes originate from a
-    /// previously validated `IndexName`.
+    /// This validates the fixed-width envelope and shared name contract without
+    /// reconstructing an index definition. This lookup-label envelope does not
+    /// replace accepted catalog identity or its independent persisted decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, IdentityDecodeError> {
         // Phase 1: validate layout and payload bounds.
         if bytes.len() != Self::STORED_SIZE_USIZE {
@@ -422,26 +396,10 @@ impl IndexName {
             return Err(IdentityDecodeError::NonZeroPadding);
         }
 
-        // Phase 2: materialize canonical fixed-buffer identity storage.
-        let mut name = [0u8; MAX_INDEX_NAME_LEN];
-        name.copy_from_slice(&bytes[2..]);
-
-        Ok(Self {
-            len: len as u16,
-            bytes: name,
-        })
+        let name =
+            std::str::from_utf8(&bytes[2..2 + len]).map_err(|_| IdentityDecodeError::NonAscii)?;
+        Self::try_from_str(name).map_err(|_| IdentityDecodeError::InvalidIndexName)
     }
-
-    // Append bytes into the fixed-size identity buffer while tracking write offset.
-    fn push_bytes(out: &mut [u8; MAX_INDEX_NAME_LEN], len: &mut usize, bytes: &[u8]) {
-        let end = *len + bytes.len();
-        out[*len..end].copy_from_slice(bytes);
-        *len = end;
-    }
-}
-
-fn index_name_slug(value: &str) -> String {
-    canonical_index_name_slug(value)
 }
 
 impl Ord for IndexName {

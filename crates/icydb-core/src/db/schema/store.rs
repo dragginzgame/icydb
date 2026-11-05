@@ -3,6 +3,8 @@
 //! Does not own: reconciliation policy, typed snapshot encoding, or generated proposal construction.
 //! Boundary: provides the third per-store stable memory alongside row and index stores.
 
+// Test counters and the stop variant remain at the observed runtime edges; helpers live in helper_tests.
+
 use crate::db::schema::identity_state::{
     IdentityAdvanceId, IdentityRangeAdvance, IdentityRangeCommitState, IdentityState,
     IdentityStateInventory, IdentityStateLifecycle, IdentityStateTransition,
@@ -81,23 +83,6 @@ const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST: u8 = 29;
 const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET: u8 = 30;
 const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_MAP: u8 = 31;
 const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE: u8 = 32;
-
-#[cfg(test)]
-thread_local! {
-    static ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
-    static IDENTITY_STATE_INVENTORY_READS: Cell<u64> = const { Cell::new(0) };
-    static CANONICAL_SCHEMA_BUNDLE_LOADS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-fn reset_accepted_schema_bundle_cache_miss_count_for_tests() {
-    ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES.with(|misses| misses.set(0));
-}
-
-#[cfg(test)]
-fn accepted_schema_bundle_cache_miss_count_for_tests() -> u64 {
-    ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES.with(Cell::get)
-}
 
 ///
 /// RawSchemaKey
@@ -1715,10 +1700,6 @@ impl SchemaStore {
 
     // Count real canonical authority loads so batch tests detect per-key reloads
     // without replacing the production decoder or relying on native timings.
-    #[cfg(test)]
-    pub(in crate::db) fn take_canonical_bundle_load_count_for_tests() -> u64 {
-        CANONICAL_SCHEMA_BUNDLE_LOADS.with(|loads| loads.replace(0))
-    }
 
     /// Return the accepted root selected only from canonical predecessor slots.
     pub(in crate::db) fn current_canonical_accepted_schema_root(
@@ -2035,46 +2016,6 @@ impl SchemaStore {
         }
     }
 
-    #[cfg(test)]
-    fn publish_positioned_journal_entry(
-        &mut self,
-        key: RawSchemaKey,
-        snapshot: Option<RawSchemaValue>,
-        position: JournalOverlayPosition,
-    ) -> Result<Option<RawSchemaValue>, InternalError> {
-        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
-            return Err(InternalError::store_invariant());
-        };
-        positions.preflight_publish(&key, position)?;
-        self.invalidate_accepted_bundle_cache_for_key(key);
-        let SchemaStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-            positions,
-        } = &mut self.backend
-        else {
-            return Err(InternalError::store_invariant());
-        };
-        let previous = if tombstones.contains(&key) {
-            None
-        } else {
-            match live.get(&key) {
-                Some(value) => Some(value.clone()),
-                None => canonical.get(&key).map_err(InternalError::from)?,
-            }
-        };
-        if let Some(snapshot) = snapshot {
-            tombstones.remove(&key);
-            live.insert(key, snapshot);
-        } else {
-            live.remove(&key);
-            tombstones.insert(key);
-        }
-        positions.publish_preflighted(key, position);
-        Ok(previous)
-    }
-
     /// Return the current accepted store root selected from its two checksummed slots.
     pub(in crate::db) fn current_accepted_schema_root(
         &self,
@@ -2220,18 +2161,6 @@ impl SchemaStore {
         };
         Self::runtime_entity_matching_in_bundle(&bundle, registered_store_path, |path, _| {
             path == entity_path
-        })
-    }
-
-    /// Resolve one accepted entity display name without materializing the full store catalog.
-    #[cfg(test)]
-    pub(in crate::db) fn current_accepted_runtime_entity_for_name(
-        &self,
-        registered_store_path: &'static str,
-        entity_name: &str,
-    ) -> Result<Option<AcceptedRuntimeEntity>, InternalError> {
-        self.current_accepted_runtime_entity_matching(registered_store_path, |_, snapshot_name| {
-            snapshot_name == entity_name
         })
     }
 
@@ -3136,20 +3065,6 @@ impl SchemaStore {
         .map(Some)
     }
 
-    /// Derive accepted catalog metadata from the selected accepted bundle.
-    ///
-    /// This function intentionally reads only the persisted schema store. It
-    /// does not reconstruct metadata from generated models when the store has
-    /// no accepted bundle.
-    #[cfg(test)]
-    pub(in crate::db) fn catalog_metadata(
-        &self,
-    ) -> Result<Option<SchemaStoreCatalogMetadata>, InternalError> {
-        Ok(self
-            .allocation_metadata()?
-            .map(SchemaStoreAllocationMetadata::schema))
-    }
-
     /// Derive role-specific allocation metadata from the selected accepted bundle.
     ///
     /// This function intentionally reads only accepted schema-store payloads.
@@ -3815,15 +3730,6 @@ impl SchemaStore {
         Ok(())
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn canonical_len_for_tests(&self) -> u64 {
-        match &self.backend {
-            SchemaStoreBackend::Journaled { canonical: map, .. } => map.len(),
-            SchemaStoreBackend::Heap(_) => 0,
-        }
-    }
-
     /// Damage the selected root so public consumers exercise fallible inspection.
     #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) fn corrupt_current_accepted_schema_root_for_tests(
@@ -4198,3 +4104,18 @@ const fn persisted_expression_op_name(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+use helper_tests::accepted_schema_bundle_cache_miss_count_for_tests;
+#[cfg(test)]
+use helper_tests::reset_accepted_schema_bundle_cache_miss_count_for_tests;
+
+#[cfg(test)]
+use helper_tests::ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES;
+#[cfg(test)]
+use helper_tests::CANONICAL_SCHEMA_BUNDLE_LOADS;
+#[cfg(test)]
+use helper_tests::IDENTITY_STATE_INVENTORY_READS;

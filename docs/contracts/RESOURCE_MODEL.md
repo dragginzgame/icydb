@@ -287,13 +287,43 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   charges accepted field/expression and pending unique-index conjunction pairs
   to the same request before marker publication. Fresh contexts accumulate work;
   successful operation-local context reuse does not repeat normalization.
+  Accepted-predicate projection decodes scalar operands directly and allocates
+  known junction/membership backing once, without an intermediate scalar vector
+  or geometric destination growth. Scalar operators reject missing or extra
+  persisted operands as corruption. Projection now borrows the same explicit
+  authority as normalization: it charges dispatched nodes, each field-ID lookup
+  candidate and copied name visits/bytes, and admits NOT/junction/membership
+  backing before construction. Query metadata, writes, constraint dependency
+  compilation, index staging, integrity, unique activation and migration share
+  this boundary. Unique-constraint dependency compilation projects and normalizes
+  the accepted predicate directly; it does not serialize a discarded canonical
+  key or charge its encoded length. Snapshot intake retains encoding and field
+  validation. Non-null literal payload bytes consume the same caller's
+  `DecodedBytes` allowance before the existing bounded decoder runs; NULL and
+  empty memberships consume no decode bytes. Row-constraint source classification
+  charges each accepted/pending catalog visit and admits all three borrowed-source
+  vectors' growth before allocation, including retained-prefix copies. Its errors
+  preserve the caller's typed budget diagnostic before downstream compilation.
+  Whole-schema CHECK/NOT NULL compilation also admits one exact-size destination
+  before building entries, without intermediate compiled-family vectors or a
+  merge allocation. Single-activation compilation shares the same fill path;
+  its existing allocation authority remains separate. Expression trees, targeted
+  programs and integrity/dependency containers are not covered by this admission.
+  Decoder allocation, schema validation and the remaining compiled-program
+  construction are not fully charged by this projection contract. Display/canonical validation
+  and retained replay/rebuild explicitly select no fresh construction ceiling.
 - Complete user-index-domain staging and migration validation/rewrite charge
   accepted predicate conjunction pairs to their existing construction allowance.
   Unique activation shares one page allowance between projection preparation
   and scanning, with final checks before publication. Its shared projection
-  constructor requires caller-owned normalization. Retained journal replay and
+  constructor requires caller-owned projection and normalization authority. Retained journal replay and
   derived rebuild keep canonical pure normalization without acquiring a fresh
-  request/maintenance ceiling for already-admitted work. This does not establish
+  request/maintenance ceiling for already-admitted work. Focused partial-index
+  controls qualify replay/rebuild preparation before and after ordinary request
+  refusal across all six normalization construction resources. Interrupted
+  recovery preserves rows and complete index bytes with each fresh request
+  resource set to zero, leaving its counters unchanged through marker, partial
+  row, complete row and checkpoint publication boundaries. This does not establish
   complete projection allocation/sorting or recovery accounting.
 - Budgeted boolean normalization admits new flattened-child and OR-membership
   vector backing before allocation, cumulatively with literal construction and
@@ -303,8 +333,69 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   canonical recovery behavior without a fresh ceiling. Budgeted child ordering
   now charges the existing sort-entry/comparison/scratch resources, admits
   repeated raw-key encoding through the existing encoding owner, and reserves
-  two bounded reusable key buffers before the infallible sort. Admission is
-  conservative cumulative construction, not measured instructions or live heap.
+  two bounded reusable key buffers before the infallible sort. Encoded maps
+  also admit sort entries, the canonical-input scan and the shared comparison
+  allowance before ordering their borrowed reference view. Both key and value
+  tie-break extents use the same payload owner, including nested values. This
+  admission is shared by predicate keys and canonical value fingerprints; repeat
+  key encoding carries its complete charges. Empty/singleton maps skip ordering
+  charges, and already-ordered maps use the same conservative policy. Raw
+  membership-key encoding also admits sort entries, the source/view canonicality
+  scans and deduplication through the existing comparison allowance. Repeated
+  payload work uses the shared extent owner; direct casefolded text uses the
+  text owner's construction bound for its post-transform comparison bytes.
+  Nested payloads retain strict encoding. Normalized membership keys skip this
+  ordering admission; empty/singleton raw lists need no comparison allowance.
+  Admission is cumulative construction, not measured instructions or live heap.
+  Every dispatched predicate node also consumes one existing
+  `PredicateExpressionSteps` unit before normalization, including constants,
+  leaves and NOT shells with no comparison pairs. Absorbing branches skip later
+  children; failure produces no partial predicate. These visits accumulate with
+  pair and encoding work under the same request or maintenance authority.
+  Canonical membership and accepted set construction admit sort entries and
+  the shared comparison allowance plus canonical-input/deduplication scans
+  before ordering. Each operand is admitted once through the shared comparison
+  extent owner; the largest node and text/blob extents reserve repeated payload
+  work for that allowance before sorting. This covers nested list/map/enum
+  payloads without copying values or allocating comparison scratch. It is the
+  existing construction policy, not an IC instruction bound.
+  The enum-literal conversion preflight also reserves possible collection
+  ordering and adjacent uniqueness scans before catalog normalization or
+  canonical validation. List elements and map keys reuse the shared payload
+  extent owner, including collections nested in enum payloads. This preflight
+  conservatively reserves sorting even for canonical values or ordinary lists
+  that only need a scan or no ordering. The catalog remains the schema and
+  validation authority; no second schema interpretation or ordering is added.
+  Empty/singleton containers need no ordering allowance, and the reservation
+  adds no scratch backing. Non-enum typed-list normalization is unchanged.
+  Text bytes in this preflight also reserve catalog UTF-8 length scans and
+  record-label comparisons before validation, including canonical enum payloads.
+  Later copy/conversion byte work remains separately charged. Refusal stops
+  before catalog validation or subsequent payload traversal; schema text limits
+  still count characters rather than UTF-8 bytes.
+  Schema literal normalization (including sets nested in collections), OR collapse
+  and expression membership lowering share this boundary. Nested sets accumulate
+  under the same caller before outer ordering/deduplication; ordinary list order
+  is preserved. Empty/singleton sets need no ordering allowance; the
+  in-place unstable sort adds no auxiliary backing. Already-ordered sets receive
+  the same conservative admission. OR-collapse domain checks also charge field
+  label comparisons; duplicate-only collapse admits nested value visits and
+  text/blob extent through the shared comparison owner before equality. Failure
+  leaves operands unconsumed, and an unequal pair skips later payloads.
+  Conjunction simplification also admits field-label comparisons and the shared
+  operand-tree extent before equality or ordering. Casefold comparisons reserve
+  both text transforms through the existing lowercase construction allowance and
+  charge the bounded folded comparison extent before allocating. Unsupported
+  operator pairs and unrelated domains skip payload work. Stable conjunction
+  removal also charges one predicate-expression step per shifted predicate shell
+  before removal or operator replacement. Payloads move with their owners; no
+  payload copies or new backing are introduced. Tail removal needs no shift
+  allowance. The simplifier also charges each skipped non-comparison shell,
+  including prefix revisits after replacements. These visits consume the same
+  expression allowance even when no pair/payload comparison follows; refusal
+  stops before later work and returns no partial predicate. General encoding/sorting
+  and numeric conversion remain
+  separately qualified comparison obligations.
   Complete normalization/payload-comparison and recovery accounting remain
   separate obligations
   ([#76](https://github.com/dragginzgame/icydb/issues/76)).

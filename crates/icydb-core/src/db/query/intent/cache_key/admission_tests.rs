@@ -10,7 +10,7 @@ use crate::{
             plan::expr::{Expr, ProjectionField, ProjectionSelection},
             preparation::PreparationWork,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     types::Decimal,
     value::{
@@ -65,6 +65,8 @@ fn literal_hash_admission_preserves_digests_and_cumulative_limits() {
                 Resource::NestedValueSteps,
                 Resource::PredicateExpressionSteps,
                 Resource::TemporaryBytes,
+                Resource::SortEntries,
+                Resource::SortComparisons,
             ] {
                 let exact = measured.observed(resource);
                 if exact == 0 {
@@ -113,14 +115,25 @@ fn map_scratch_is_admitted_before_hashing_without_changing_canonical_order() {
         );
         assert_eq!(root.observed(Resource::TemporaryBytes), scratch);
         with_test_hash_override(Err(test_hash_budget_error), || {
-            let denied = request_with_limit(Resource::TemporaryBytes, scratch - 1);
-            let error = literal_key(&value, &denied, Lane::PublicRead).unwrap_err();
-            // A hash call would report the override's Mutation lane instead.
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::ExecutionLane, Lane::PublicRead.raw()))
-            );
+            for (resource, limit) in [
+                (Resource::TemporaryBytes, scratch - 1),
+                (Resource::SortEntries, 1),
+                (Resource::SortComparisons, 2),
+            ] {
+                let denied = request_with_limit(resource, limit);
+                let error = literal_key(&value, &denied, Lane::PublicRead).unwrap_err();
+                // A hash call would report the override's Mutation lane instead.
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::ExecutionLane, Lane::PublicRead.raw(),))
+                );
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+                );
+            }
         });
     }
 }

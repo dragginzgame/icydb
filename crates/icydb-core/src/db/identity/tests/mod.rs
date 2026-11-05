@@ -268,7 +268,10 @@ fn index_single_field_format() {
     let entity = EntityName::try_from_str("user").unwrap();
     let idx = IndexName::try_from_entity_fields(&entity, &["email"]).unwrap();
 
-    assert_eq!(idx.as_str(), "idx_user__email");
+    assert_eq!(
+        idx.as_str(),
+        canonical_index_name("user", &["email"], false, None)
+    );
 }
 
 #[test]
@@ -276,7 +279,10 @@ fn unique_index_single_field_format() {
     let entity = EntityName::try_from_str("user").unwrap();
     let idx = IndexName::try_unique_from_entity_fields(&entity, &["email"]).unwrap();
 
-    assert_eq!(idx.as_str(), "uniq_user__email");
+    assert_eq!(
+        idx.as_str(),
+        canonical_index_name("user", &["email"], true, None)
+    );
 }
 
 #[test]
@@ -284,7 +290,10 @@ fn index_field_order_is_preserved() {
     let entity = EntityName::try_from_str("user").unwrap();
     let idx = IndexName::try_from_entity_fields(&entity, &["a", "b", "c"]).unwrap();
 
-    assert_eq!(idx.as_str(), "idx_user__a_b_c");
+    assert_eq!(
+        idx.as_str(),
+        canonical_index_name("user", &["a", "b", "c"], false, None)
+    );
 }
 
 #[test]
@@ -295,7 +304,12 @@ fn index_name_slugs_entity_and_expression_key_items() {
 
     assert_eq!(
         idx.as_str(),
-        "idx_user_account__lower_email_profile_nickname"
+        canonical_index_name(
+            "UserAccount",
+            &["LOWER(email)", "profile.nickname"],
+            false,
+            None
+        )
     );
 }
 
@@ -430,5 +444,43 @@ fn fuzz_index_name_roundtrip_and_ordering() {
         }
 
         prev = Some(idx);
+    }
+}
+
+#[test]
+fn explicit_and_automatic_index_labels_share_schema_name_validation() {
+    for name in ["by_email", "fooBar", "foo_bar"] {
+        assert_eq!(IndexName::try_from_str(name).unwrap().as_str(), name);
+    }
+    for name in ["", "bad name", "__icydb_owned"] {
+        assert!(IndexName::try_from_str(name).is_err());
+    }
+    let entity = EntityName::try_from_str("User").unwrap();
+    for (left, right) in [
+        (vec!["a_b"], vec!["a", "b"]),
+        (vec!["fooBar"], vec!["foo_bar"]),
+        (vec!["lower_email"], vec!["LOWER(email)"]),
+    ] {
+        assert_ne!(
+            IndexName::try_from_entity_fields(&entity, &left).unwrap(),
+            IndexName::try_from_entity_fields(&entity, &right).unwrap()
+        );
+    }
+}
+
+#[test]
+fn index_label_decode_keeps_the_same_contract_as_explicit_construction() {
+    for name in ["valid_label", "bad name", "__icydb_owned", "a|b"] {
+        let mut bytes = [0; IndexName::STORED_SIZE_USIZE];
+        bytes[..2].copy_from_slice(&(name.len() as u16).to_be_bytes());
+        bytes[2..2 + name.len()].copy_from_slice(name.as_bytes());
+        let decoded = IndexName::from_bytes(&bytes);
+        match IndexName::try_from_str(name) {
+            Ok(expected) => assert_eq!(decoded.unwrap(), expected),
+            Err(_) => assert!(matches!(
+                decoded,
+                Err(IdentityDecodeError::InvalidIndexName)
+            )),
+        }
     }
 }

@@ -6,7 +6,8 @@
 use crate::{
     db::{
         data::StructuralRowContract,
-        predicate::{Predicate, PredicateProgram},
+        predicate::{PredicateProgram, normalize_with_authority},
+        resource::construction::ConstructionBudget,
         schema::{SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo, SchemaInfo},
     },
     error::InternalError,
@@ -25,25 +26,24 @@ pub(in crate::db) struct PreparedIndexMutationMetadata {
 
 impl PreparedIndexMutationMetadata {
     /// Compile accepted predicates and dependency slots once for this context.
-    /// The caller supplies normalization authority so ordinary preparation can
+    /// The caller supplies projection/normalization authority so ordinary preparation can
     /// charge its request without imposing new ceilings on retained replay.
     pub(in crate::db) fn new(
         schema_info: SchemaInfo,
         row_contract: StructuralRowContract,
-        mut normalize: impl FnMut(Predicate) -> Result<Predicate, InternalError>,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Self, InternalError> {
         let field_path_inputs = schema_info
             .field_path_indexes()
             .iter()
             .map(|index| {
-                let program =
-                    index
-                        .predicate()?
-                        .map(&mut normalize)
-                        .transpose()?
-                        .map(|predicate| {
-                            PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
-                        });
+                let program = index
+                    .predicate(work)?
+                    .map(|predicate| normalize_with_authority(predicate, work))
+                    .transpose()?
+                    .map(|predicate| {
+                        PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
+                    });
                 Ok(PreparedIndexInputs::new(
                     &row_contract,
                     program,
@@ -55,14 +55,13 @@ impl PreparedIndexMutationMetadata {
             .expression_indexes()
             .iter()
             .map(|index| {
-                let program =
-                    index
-                        .predicate()?
-                        .map(&mut normalize)
-                        .transpose()?
-                        .map(|predicate| {
-                            PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
-                        });
+                let program = index
+                    .predicate(work)?
+                    .map(|predicate| normalize_with_authority(predicate, work))
+                    .transpose()?
+                    .map(|predicate| {
+                        PredicateProgram::compile_with_row_contract(&row_contract, &predicate)
+                    });
                 Ok(PreparedIndexInputs::new(
                     &row_contract,
                     program,

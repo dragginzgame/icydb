@@ -83,7 +83,7 @@ fn rust_default_matching_is_application_only() {
         text.rust_default_expr(&crate::crate_path::CratePaths::test())
             .expect("default should exist")
             .to_string(),
-        quote!(::core::convert::Into::into(String::new())).to_string(),
+        quote!(::std::convert::Into::into(String::new())).to_string(),
     );
 }
 
@@ -140,7 +140,7 @@ fn generated_identity_accepts_every_exact_unsigned_width() {
             id.rust_default_expr(&crate::crate_path::CratePaths::test())
                 .expect("identity should have a Rust placeholder")
                 .to_string(),
-            quote!(::core::default::Default::default()).to_string(),
+            quote!(::std::default::Default::default()).to_string(),
         );
     }
 }

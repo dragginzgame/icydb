@@ -7,7 +7,7 @@ use super::{
 use crate::{
     db::{
         QueryError, RequestExecutionRoot, predicate::Predicate,
-        query::preparation::PreparationWork, test_support::request_with_limit,
+        query::preparation::PreparationWork, tests::support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };

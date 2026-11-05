@@ -12,7 +12,7 @@ use crate::db::{
         plan::AccessPlannedQuery,
         preparation::PreparationWork,
     },
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

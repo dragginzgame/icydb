@@ -14,8 +14,8 @@ pub struct IndexNamesStore {}
         field(name = "a", value(item(prim = "Nat64"))),
         field(name = "b", value(item(prim = "Nat64")))
     ),
-    index(field = "a_b"),
-    index(fields = ["a", "b"])
+    index(name = "chosen_name", field = "a_b"),
+    index(name = "chosen_name", fields = ["a", "b"])
 )]
 pub struct CompoundNameCollision {}
 
@@ -28,8 +28,8 @@ pub struct CompoundNameCollision {}
         field(name = "email", value(item(prim = "Text", max_len = 32))),
         field(name = "lower_email", value(item(prim = "Text", max_len = 32)))
     ),
-    index(field = "lower_email"),
-    index(field = "LOWER(email)")
+    index(name = "chosen_name", field = "lower_email"),
+    index(name = "chosen_name", field = "LOWER(email)")
 )]
 pub struct ExpressionNameCollision {}
 
@@ -42,8 +42,8 @@ pub struct ExpressionNameCollision {}
         field(name = "score", value(item(prim = "Nat64"))),
         field(name = "active", value(item(prim = "Bool")))
     ),
-    index(field = "score", predicate = "active = true"),
-    index(field = "score", predicate = "active = false")
+    index(name = "chosen_name", field = "score", predicate = "active = true"),
+    index(name = "chosen_name", field = "score", predicate = "active = false")
 )]
 pub struct PartialNameCollision {}
 

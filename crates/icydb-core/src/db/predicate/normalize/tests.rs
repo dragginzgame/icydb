@@ -1,8 +1,12 @@
 mod admission;
+mod and_admission;
 mod backing;
+mod or_admission;
 mod owned_membership;
+mod sets;
 mod signed_lookup;
 mod sort;
+mod visits;
 
 use crate::{
     db::predicate::{
@@ -767,13 +771,19 @@ fn normalization_pair_failure_stops_nested_traversal_without_a_partial_predicate
     let mut visited = 0;
     let result = super::normalize_with_charge(predicate, &mut |_, _| {
         visited += 1;
-        if visited == 2 { Err(17) } else { Ok(()) }
+        // Eight nodes, the first pair and its label precede the second pair.
+        if visited == 11 { Err(17) } else { Ok(()) }
     });
     assert_eq!(result, Err(17));
-    assert_eq!(visited, 2);
+    assert_eq!(visited, 11);
     let absorbed = Predicate::And(vec![Predicate::False, pair()]);
+    let mut visited = 0;
     assert_eq!(
-        super::normalize_with_charge(absorbed, &mut |_, _| Err(17)),
+        super::normalize_with_charge(absorbed, &mut |_, _| {
+            visited += 1;
+            if visited > 2 { Err(17) } else { Ok(()) }
+        }),
         Ok(Predicate::False),
     );
+    assert_eq!(visited, 2, "only the AND and absorbing child are visited");
 }

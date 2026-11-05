@@ -245,12 +245,7 @@ fn validate_entity_page<C: CanisterKind>(
         .chain(candidate_schema.persisted_snapshot().candidate_indexes())
         .filter(|index| index.unique())
         .map(|index| {
-            UniqueConstraintProjection::new(
-                program.entity(),
-                index,
-                candidate_contract,
-                |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
-            )
+            UniqueConstraintProjection::new(program.entity(), index, candidate_contract, Some(work))
         })
         .collect::<Result<Vec<_>, _>>()?;
     let source = ReverseRelationSourceInfo::new(program.candidate_path(), program.entity());

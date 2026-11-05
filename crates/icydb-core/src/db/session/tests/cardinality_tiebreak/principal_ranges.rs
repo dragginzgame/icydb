@@ -68,7 +68,7 @@ fn index(
 }
 
 fn seed_principals(unique: bool) -> Vec<(Principal, u64)> {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             principal_field(2, "owner", 1, !unique),
@@ -383,7 +383,7 @@ fn unique_principal_ranges_match_row_scans_and_every_resume_suffix() {
 
 #[test]
 fn principal_primary_key_suffix_merges_preserve_complete_order() {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Principal),
             field(2, "bucket", 1, AcceptedFieldKind::Nat64),

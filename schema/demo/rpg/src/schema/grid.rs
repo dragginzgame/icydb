@@ -1,4 +1,3 @@
-use crate::schema::DemoRpgStore;
 use icydb::model::prelude::*;
 
 ///
@@ -8,7 +7,7 @@ use icydb::model::prelude::*;
 /// second SQL-visible table.
 ///
 
-#[entity(store = "DemoRpgStore",
+#[entity(store = "crate::schema::DemoRpgStore",
     version = 1,
     pk(fields = ["x", "y"]),
     index(fields = ["terrain"]),

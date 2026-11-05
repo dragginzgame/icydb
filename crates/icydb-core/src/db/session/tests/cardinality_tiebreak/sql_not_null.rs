@@ -3,11 +3,6 @@
 use super::*;
 
 pub(super) fn initialize_nullable_rows() -> DbSession<TestCanister> {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
-    session.db.drive_startup_recovery_page().unwrap();
     let fields = [
         ("id", AcceptedFieldKind::Nat64, false),
         ("status", AcceptedFieldKind::Text { max_len: None }, true),
@@ -33,36 +28,7 @@ pub(super) fn initialize_nullable_rows() -> DbSession<TestCanister> {
         )
     })
     .collect::<Vec<_>>();
-    let bindings = fields
-        .iter()
-        .map(|field| ((ENTITY_TAG, field_source(field.name())), field.id()))
-        .collect();
-    let snapshot = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.into(),
-        ENTITY_NAME.into(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
-        fields,
-    );
-    let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
-        STORE_PATH,
-        AcceptedSchemaRevision::INITIAL,
-        BTreeMap::from([(ENTITY_TAG, snapshot)]),
-        bindings,
-    );
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        session.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &candidate,
-    )
-    .unwrap();
+    let session = initialize_field_schema(fields, Vec::new());
     for values in [
         "1, 'archived', 'archived', 1, 1, TRUE, FALSE",
         "2, 'active', 'closed', 2, 3, FALSE, FALSE",

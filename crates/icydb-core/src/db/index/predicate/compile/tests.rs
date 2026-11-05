@@ -6,7 +6,7 @@ use crate::db::{
     predicate::{CoercionId, CoercionSpec, IndexCompileTargetKind},
     query::preparation::{PreparationWork, with_preparation_work},
     schema::PersistedIndexExpressionOp,
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

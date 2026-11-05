@@ -30,9 +30,7 @@ fn generated_memory_admission_errors_match_startup_and_db() {
         }
         let failure = crate::startup_state().unwrap_err();
         let code = match case.as_str() {
-            "missing_grant" => {
-                ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID
-            }
+            "missing_grant" => ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID,
             _ => panic!("unknown fixture case"),
         };
         assert_eq!(failure.error().code(), code);
@@ -106,12 +104,10 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
         let host_key = host_request.stable_key().clone();
         composed.push(host_request);
         let snapshot = ic_storage::SealedDeclarationSnapshot::new(composed).unwrap();
-        let pool = ic_storage::AllocationGrants::new(
-            vec![
-                ic_storage::MemoryAuthority::new("icydb_facade_only", "icydb.facade_only.").unwrap(),
-                ic_storage::MemoryAuthority::new("host", "host.").unwrap(),
-            ],
-        )
+        let pool = ic_storage::AllocationGrants::new(vec![
+            ic_storage::MemoryAuthority::new("icydb_facade_only", "icydb.facade_only.").unwrap(),
+            ic_storage::MemoryAuthority::new("host", "host.").unwrap(),
+        ])
         .unwrap();
         let mut runtime =
             ic_storage::MemoryRuntime::new(ic_storage::DefaultMemoryImpl::default()).unwrap();

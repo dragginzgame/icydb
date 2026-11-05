@@ -1,4 +1,5 @@
 # Git formatting hooks
+<!-- Shared companions: rules/rust-workspaces.md -->
 
 These rules are part of the [engineering baseline](../DRAGGINZGAME.md) for Rust
 repositories. The standard pre-commit hook automatically formats the selected

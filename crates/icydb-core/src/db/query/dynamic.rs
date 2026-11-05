@@ -3,6 +3,8 @@
 //! Does not own: accepted schema resolution, planning, or execution.
 //! Boundary: public dynamic inputs are lowered once against accepted authority.
 
+// The test-only distinct flag remains in the request layout and constructor; its helpers live in helper_tests.
+
 mod cleanup;
 
 use crate::db::query::{
@@ -108,18 +110,6 @@ impl DynamicQuery {
         self
     }
 
-    /// Enable projection DISTINCT for maintained internal execution callers.
-    ///
-    /// The public dynamic-query grammar deliberately does not expose this
-    /// builder; SQL and internal executor contracts remain the DISTINCT
-    /// frontends until a separately reviewed public API is designed.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn distinct_for_internal_execution(mut self) -> Self {
-        self.distinct = true;
-        self
-    }
-
     /// Append one accepted field to the grouped key in declaration order.
     #[must_use]
     pub fn group_by(mut self, field: impl Into<String>) -> Self {
@@ -171,11 +161,6 @@ impl DynamicQuery {
         self.limit
     }
 
-    #[cfg(test)]
-    pub(in crate::db) const fn projection_is_distinct(&self) -> bool {
-        self.distinct
-    }
-
     pub(in crate::db) const fn has_grouping(&self) -> bool {
         !self.group_fields.is_empty() || !self.aggregates.is_empty()
     }
@@ -205,20 +190,7 @@ impl Drop for DynamicQuery {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{DynamicQuery, FilterExpr};
+mod tests;
 
-    #[test]
-    fn repeated_filters_accumulate_as_one_conjunction() {
-        let owner = FilterExpr::eq("owner_id", 1_u64);
-        let slot = FilterExpr::eq("slot", 2_u64);
-        let query = DynamicQuery::new("InventoryStack")
-            .filter(owner.clone())
-            .filter(slot.clone());
-
-        assert_eq!(
-            query.filter_expr(),
-            Some(&FilterExpr::and(vec![owner, slot]))
-        );
-    }
-}
+#[cfg(test)]
+mod helper_tests;

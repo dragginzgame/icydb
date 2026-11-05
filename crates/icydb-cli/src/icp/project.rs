@@ -11,7 +11,7 @@ use std::{
 };
 
 use ic_host_text::escape::terminal_text;
-use ic_host_tools::icp_project::environment_network;
+use ic_host_tools::{icp::decode_canister_list, icp_project::environment_network};
 
 use crate::icp::process::{PROBE_STDOUT_BYTES, canister_id, output_stderr, probe_output};
 
@@ -89,21 +89,13 @@ fn icp_canister_list_output(environment: &str) -> io::Result<Output> {
 }
 
 fn parse_icp_canister_list(output: &[u8]) -> Result<Vec<String>, String> {
-    #[derive(serde::Deserialize)]
-    struct Inventory {
-        canisters: Vec<String>,
-    }
-    let inventory = serde_json::from_slice::<Inventory>(output)
-        .map_err(|err| format!("parse icp canister list --json: {err}"))?;
-    Ok(sorted_canister_names(inventory.canisters.into_iter()))
-}
-
-#[cfg(test)]
-pub(super) fn parse_manifest_canisters(
-    contents: &str,
-    environment: &str,
-) -> Result<Vec<String>, String> {
-    manifest::parse_canisters(contents, environment)
+    let canisters = decode_canister_list(output, PROBE_STDOUT_BYTES).map_err(|error| {
+        format!(
+            "parse icp canister list --json: {}",
+            terminal_text(&error.to_string())
+        )
+    })?;
+    Ok(sorted_canister_names(canisters.into_iter()))
 }
 
 fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
@@ -144,26 +136,10 @@ fn append_known_canisters(message: &mut String, canisters: &[String]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parse_icp_canister_list;
+mod tests;
 
-    #[test]
-    fn inventory_requires_the_complete_canister_array() {
-        for source in ["{}", r#"{"canisters":42}"#, r#"{"canisters":["a",42]}"#] {
-            assert!(parse_icp_canister_list(source.as_bytes()).is_err());
-        }
-        assert!(parse_icp_canister_list(b"{\"canisters\":[\"\xff\"]}").is_err());
-    }
+#[cfg(test)]
+mod helper_tests;
 
-    #[test]
-    fn inventory_retains_empty_valid_lists_sorting_and_unknown_fields() {
-        assert_eq!(
-            parse_icp_canister_list(br#"{"canisters":[]}"#).unwrap(),
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            parse_icp_canister_list(br#"{"canisters":["b","a"],"extra":true}"#).unwrap(),
-            ["a", "b"]
-        );
-    }
-}
+#[cfg(test)]
+pub(super) use helper_tests::parse_manifest_canisters;

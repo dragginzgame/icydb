@@ -10,7 +10,7 @@ use crate::{
             plan::{AccessPlannedQuery, LogicalPlan},
             preparation::{PreparationWork, with_preparation_work},
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

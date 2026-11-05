@@ -48,24 +48,6 @@ pub(in crate::db) fn with_accepted_sql_update_policy_context<T>(
     ))
 }
 
-/// Classify one SQL statement under an explicit `UPDATE` exposure policy.
-///
-/// This helper parses and inspects statement shape only. It does not execute
-/// mutation work or validate field existence beyond the caller-provided schema
-/// field categories.
-#[cfg(test)]
-pub(in crate::db) fn classify_sql_update_policy(
-    sql: &str,
-    policy: SqlUpdateExposurePolicy,
-    context: SqlUpdatePolicyContext<'_>,
-) -> Result<SqlUpdatePolicyResult, QueryError> {
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    Ok(classify_sql_update_statement_policy(
-        &statement, policy, context,
-    ))
-}
-
 /// Classify one SQL statement against one concrete expected entity.
 ///
 /// Direct typed execution boundaries use this adapter so their generic entity
@@ -288,3 +270,9 @@ fn assignment_field_name<'a>(statement: &SqlUpdateStatement, field: &'a str) -> 
         statement.table_alias.as_deref(),
     )
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::classify_sql_update_policy;

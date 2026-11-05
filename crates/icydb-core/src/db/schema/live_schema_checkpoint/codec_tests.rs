@@ -220,7 +220,7 @@ fn prepared_identity_checkpoint_combines_owners_and_matches_replay_bytes() {
 
 #[test]
 fn prepared_identity_checkpoint_stale_and_budget_refusals_leave_bytes_unchanged() {
-    use crate::db::{query::preparation::PreparationWork, test_support::request_with_limit};
+    use crate::db::{query::preparation::PreparationWork, tests::support::request_with_limit};
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     };

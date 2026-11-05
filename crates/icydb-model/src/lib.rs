@@ -1,6 +1,6 @@
 //! IcyDB application-model authoring and code generation.
 //!
-//! This package owns application declarations, the host-only authoring graph,
+//! This package owns application declarations, the opt-in host authoring graph,
 //! explicit application validation and normalization, and lowering into the
 //! public [`icydb_schema`] proposal contract. It is not database authority.
 
@@ -8,52 +8,39 @@ extern crate self as icydb_model;
 
 pub mod application;
 pub mod base;
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 pub mod build;
 pub mod error;
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 pub mod fragment;
-// Declarations remain available on Wasm, while their whole-graph validation
-// helpers are deliberately host-only work. Usage varies by feature profile,
-// so these Wasm allowances must not require dead code to be present.
-#[cfg_attr(
-    target_arch = "wasm32",
-    allow(
-        dead_code,
-        reason = "Wasm retains declaration nodes while host code owns whole-graph traversal"
-    )
-)]
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 pub mod node;
 pub mod normalize;
-#[cfg_attr(
-    target_arch = "wasm32",
-    expect(dead_code, reason = "whole-graph schema validation is host-owned")
-)]
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 mod schema_validate;
 mod typed_adapter;
 pub mod types;
 pub mod validate;
-#[cfg_attr(
-    target_arch = "wasm32",
-    allow(
-        dead_code,
-        reason = "Wasm retains declarations while host code owns graph visitation"
-    )
-)]
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 mod visit;
 pub mod visitor;
 
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 use crate::{build::BuildError, node::NodeError};
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 use thiserror::Error as ThisError;
 
 /// Shared schema-building prelude used by validators, macros, and tests.
 pub mod prelude {
+    #[cfg(all(feature = "build", not(target_arch = "wasm32")))]
     pub(crate) use crate::build::schema_read;
+    #[cfg(all(feature = "build", not(target_arch = "wasm32")))]
+    pub use crate::node::*;
     pub use crate::{
         EntitySource as _, Inner as _, NormalizeAndValidate as _, Path as _, base, canister,
         entity, enum_, err,
         error::ErrorTree,
-        list, map, newtype,
-        node::*,
-        normalizer, record,
+        list, map, newtype, normalizer, record,
         schema::*,
         set, store, tuple,
         types::{Cardinality, Primitive},
@@ -63,6 +50,7 @@ pub mod prelude {
             ValidateAuto, ValidateCustom, Validator as _, Visitable as _, VisitorContext,
         },
     };
+    #[cfg(all(feature = "build", not(target_arch = "wasm32")))]
     pub(crate) use crate::{
         node::{MacroNode, ValidateNode, VisitableNode},
         visit::Visitor,
@@ -120,7 +108,7 @@ pub mod schema {
 #[doc(hidden)]
 pub mod __reexports {
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "build", not(target_arch = "wasm32")))]
     pub use ctor;
     pub use icydb_model_macros;
     pub use remain;
@@ -133,6 +121,7 @@ pub mod __reexports {
 /// Top-level schema error boundary spanning build-time validation and node
 /// lookup/type errors.
 ///
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 #[derive(Debug, ThisError)]
 pub enum Error {
     #[error(transparent)]
@@ -146,48 +135,20 @@ pub enum Error {
 // TESTS
 //
 
-#[cfg(test)]
-mod tests {
-    use super::{Error, build::BuildError, error::ErrorTree, node::NodeError};
+#[cfg(all(test, feature = "build", not(target_arch = "wasm32")))]
+mod tests;
 
-    #[test]
-    fn build_errors_remain_in_build_boundary() {
-        let schema_error = Error::from(BuildError::Validation(ErrorTree::from(
-            "missing schema relation target",
-        )));
+/// Expansion support: collect declarations only in explicitly selected host builds.
+#[doc(hidden)]
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
+#[macro_export]
+macro_rules! __icydb_register_schema {
+    ($($item:item)*) => { $($item)* };
+}
 
-        match schema_error {
-            Error::BuildError(BuildError::Validation(tree)) => {
-                assert!(
-                    tree.messages()
-                        .iter()
-                        .any(|message| message == "missing schema relation target"),
-                    "build validation errors must remain wrapped as build-boundary failures",
-                );
-            }
-            Error::BuildError(BuildError::Graph(error)) => {
-                panic!("unexpected graph error: {error}");
-            }
-            Error::NodeError(_) => {
-                panic!("build validation failures must not be remapped into node-boundary errors");
-            }
-        }
-    }
-
-    #[test]
-    fn node_errors_remain_in_node_boundary() {
-        let schema_error = Error::from(NodeError::PathNotFound("entity.user_id".to_string()));
-
-        match schema_error {
-            Error::NodeError(NodeError::PathNotFound(path)) => {
-                assert_eq!(path, "entity.user_id");
-            }
-            Error::NodeError(NodeError::IncorrectNodeType(path)) => {
-                panic!("unexpected node error kind after conversion for path {path}");
-            }
-            Error::BuildError(_) => {
-                panic!("node errors must not be remapped into build-boundary failures");
-            }
-        }
-    }
+#[doc(hidden)]
+#[cfg(not(all(feature = "build", not(target_arch = "wasm32"))))]
+#[macro_export]
+macro_rules! __icydb_register_schema {
+    ($($item:item)*) => {};
 }

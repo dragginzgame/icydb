@@ -3,6 +3,8 @@
 
 #![cfg(unix)]
 
+mod parse_errors;
+
 use std::{
     fmt::Write as _,
     fs,
@@ -122,15 +124,18 @@ case "$1:$2" in
       invalid-module-hash) printf '%s\n' '{"module_hash":42}' ;;
       *)
         case "$4" in
-          --json) printf '%s\n' '{"module_hash":"0x0123"}' ;;
-          --id-only) printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}" ;;
-          *)
-            if [ -n "${ICP_FIXTURE_CYCLES+x}" ]; then
-              printf 'Cycles: %s\n' "$ICP_FIXTURE_CYCLES"
+          --json)
+            if [ -f "$ICP_FIXTURE_DIRECTORY/deployed" ] && [ -n "${ICP_FIXTURE_BALANCE_JSON+x}" ]; then
+              printf '%s\n' "$ICP_FIXTURE_BALANCE_JSON"
+              exit "${ICP_FIXTURE_BALANCE_STATUS:-0}"
+            elif [ -n "${ICP_FIXTURE_CYCLES+x}" ]; then
+              printf '{"module_hash":"0x0123","cycles":"%s"}\n' "$ICP_FIXTURE_CYCLES"
             else
-              printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}"
+              printf '%s\n' '{"module_hash":"0x0123"}'
             fi
             ;;
+          --id-only) printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}" ;;
+          *) printf '%s\n' "${ICP_FIXTURE_STATUS_ID-aaaaa-aa}" ;;
         esac
         ;;
     esac
@@ -139,6 +144,7 @@ case "$1:$2" in
     case "${ICP_FIXTURE_REFRESH_CASE-}" in
       deploy-failure|uninstalled-deploy-failure) exit 1 ;;
     esac
+    printf '%s\n' deployed > "$ICP_FIXTURE_DIRECTORY/deployed"
     ;;
   canister:top-up)
     [ "$3:$4:$5:$6:$7" = --amount:100t:fixture:--environment:fixture ] || exit 2
@@ -867,7 +873,12 @@ fn diagnostic_lookup_input_errors_keep_terminal_controls_visible() {
             assert!(!output.status.success(), "{case}: {output:?}");
             assert!(output.stdout.is_empty());
             let stderr = assert_terminal_lines(&output.stderr);
-            assert_eq!(stderr.lines().count(), 1, "{case}: {stderr}");
+            if case == "json" {
+                assert_eq!(output.status.code(), Some(1));
+                assert_eq!(stderr.lines().count(), 1, "{case}: {stderr}");
+            } else {
+                assert_eq!(output.status.code(), Some(2));
+            }
             if case != "json" {
                 let displayed_input = if case == "fact-tag" { label } else { &input };
                 assert!(
@@ -877,6 +888,18 @@ fn diagnostic_lookup_input_errors_keep_terminal_controls_visible() {
             assert!(!fixture.directory.join("calls").exists());
         }
     }
+}
+
+#[test]
+fn diagnostic_fact_count_remains_domain_admission_after_typed_parsing() {
+    let fixture = IcpFixture::new();
+    let mut command = fixture.command("");
+    command.args(["diagnostic", "65535"]);
+    for _ in 0..=icydb::diagnostic::MAX_PUBLIC_DIAGNOSTIC_FACTS {
+        command.args(["--fact", "250=18446744073709551615"]);
+    }
+    assert_failure(command.output().unwrap());
+    assert!(!fixture.directory.join("calls").exists());
 }
 
 #[test]
@@ -1001,6 +1024,89 @@ fn effective_project_network_reserves_fixture_cycles_from_nested_directories() {
         let position = |method| calls.iter().position(|line| *line == method).unwrap();
         assert!(position("show") < position("top-up"));
         assert!(position("top-up") < position("icydb_fixtures_load"));
+    }
+}
+
+#[test]
+fn fixture_cycle_balances_use_json_and_keep_local_funding_thresholds() {
+    for (response, funded) in [
+        (r#"{"cycles":"0"}"#, true),
+        (r#"{"cycles":"1_418_380_664_222"}"#, true),
+        (r#"{"cycles":"50_000_000_000_000"}"#, false),
+        (
+            r#"{"cycles":"340282366920938463463374607431768211455"}"#,
+            false,
+        ),
+        (r#"{"module_hash":"0x0123","controllers":[]}"#, false),
+    ] {
+        let fixture = IcpFixture::new();
+        let output = fixture
+            .command("")
+            .env("ICP_FIXTURE_BALANCE_JSON", response)
+            .env(
+                "ICP_FIXTURE_PROJECT_RESPONSE",
+                "environments: {fixture: {name: fixture, network: {name: local}}}",
+            )
+            .args(["canister", "refresh", "fixture", "--yes", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{response}: {output:?}");
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        let calls = calls.lines().collect::<Vec<_>>();
+        assert_eq!(calls.iter().filter(|line| **line == "status").count(), 2);
+        assert_eq!(calls.iter().filter(|line| **line == "--json").count(), 2);
+        assert_eq!(calls.contains(&"top-up"), funded, "{response}");
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|line| **line == "icydb_fixtures_load")
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn refused_cycle_observations_stop_before_funding_and_fixture_calls() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt as _};
+
+    for (response, status) in [
+        (b"{".as_slice(), "0"),
+        (br#"{"cycles":null}"#, "0"),
+        (br#"{"cycles":0}"#, "0"),
+        (br#"{"cycles":"-1"}"#, "0"),
+        (br#"{"cycles":"1_00"}"#, "0"),
+        (br#"{"cycles":"0","cycles":"1"}"#, "0"),
+        (
+            br#"{"cycles":"340282366920938463463374607431768211456"}"#,
+            "0",
+        ),
+        (br#"{"cycles":"0"} {}"#, "0"),
+        (br#"{"cycles":"\u001b[2J"}"#, "0"),
+        (b"{\"cycles\":\"0\",\"extra\":\"\xff\"}", "0"),
+        (br#"{"cycles":"0"}"#, "7"),
+    ] {
+        let fixture = IcpFixture::new();
+        let output = fixture
+            .command("")
+            .env("ICP_FIXTURE_BALANCE_JSON", OsStr::from_bytes(response))
+            .env("ICP_FIXTURE_BALANCE_STATUS", status)
+            .env(
+                "ICP_FIXTURE_PROJECT_RESPONSE",
+                "environments: {fixture: {name: fixture, network: {name: local}}}",
+            )
+            .args(["canister", "refresh", "fixture", "--yes", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{response:?}: {output:?}");
+        assert!(output.stdout.is_empty());
+        assert_terminal_lines(&output.stderr);
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        let calls = calls.lines().collect::<Vec<_>>();
+        assert_eq!(calls.iter().filter(|line| **line == "deploy").count(), 1);
+        assert_eq!(calls.iter().filter(|line| **line == "--json").count(), 2);
+        assert!(!calls.contains(&"top-up"));
+        assert!(!calls.contains(&"icydb_fixtures_load"));
     }
 }
 
@@ -1321,6 +1427,10 @@ fn ambient_fixture_controls_cannot_change_canister_observations() {
 fn malformed_inventory_cannot_fall_back_to_the_manifest() {
     for response in [
         "{}",
+        "null",
+        r#"[["fixture"]]"#,
+        r#"{"canisters":null}"#,
+        r#"{"canisters":[],"canisters":["fixture"]}"#,
         r#"{"canisters":42}"#,
         r#"{"canisters":["fixture",42]}"#,
     ] {
@@ -2074,6 +2184,7 @@ fn environment_selection_uses_default_then_inherited_value_then_explicit_flag() 
     for arguments in [
         vec!["canister", "status", "fixture"],
         vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
+        vec!["diagnostic", "E7", "--canister", "fixture"],
     ] {
         for (inherited, explicit, expected) in [
             (None, false, "local"),
@@ -2894,12 +3005,13 @@ fn migration_confirmation_missing_plans_and_adoption_keep_existing_contracts() {
     for operation in ["abort", "adopt"] {
         let fixture = IcpFixture::new();
         let status = migration_response(SchemaMigrationPhase::Unadopted, 0);
-        assert_failure(
-            fixture
-                .migration_command(&status, &[], operation)
-                .output()
-                .unwrap(),
-        );
+        let output = fixture
+            .migration_command(&status, &[], operation)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_terminal_lines(&output.stderr);
         assert!(!fixture.directory.join("calls").exists());
     }
     for operation in ["run", "advance", "abort"] {

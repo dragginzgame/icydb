@@ -6,14 +6,11 @@ use icydb::types::{Id, Ulid};
 use icydb_testing_audit_ten_simple_fixtures::ten_simple::TenSimpleEntity01;
 
 // The final host grants namespaces; components request permanent keys.
-fn icydb_storage_grants()
--> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
-    icydb::db::AllocationGrants::new(
-        vec![icydb::db::MemoryAuthority::new(
-            "icydb_ten_simple",
-            "icydb.ten_simple.",
-        )?],
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![icydb::db::MemoryAuthority::new(
+        "icydb_ten_simple",
+        "icydb.ten_simple.",
+    )?])
 }
 
 canic_icydb::start!(icydb);

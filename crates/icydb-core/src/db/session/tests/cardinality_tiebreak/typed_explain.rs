@@ -21,6 +21,179 @@ fn binding<C: CanisterKind>(session: &DbSession<C>) -> DynamicTypedEntityBinding
     session.issue_typed_entity_binding(&DESCRIPTOR).unwrap()
 }
 
+#[test]
+fn typed_explain_public_admission_matches_execution_without_reading_rows() {
+    use icydb_diagnostic_code::{DiagnosticDetail, QueryReadAdmissionCode};
+
+    let setup = initialize();
+    seed_rows(&setup);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let reader = new_request_session(&root);
+    let binding = binding(&reader);
+    let base = DynamicQuery::new(ENTITY_NAME).select(["id"]).limit(5);
+    let cases = [
+        (
+            base.clone()
+                .filter(FieldRef::new("id").eq(0_u64))
+                .order_by(asc("id")),
+            None,
+        ),
+        (
+            base.clone()
+                .filter(FieldRef::new("id").in_list([0_u64, 1, 1, 2]))
+                .order_by(asc("wide_branch")),
+            None,
+        ),
+        (
+            base.clone()
+                .filter(FieldRef::new("rare").eq("group-a"))
+                .order_by(asc("id")),
+            None,
+        ),
+        (
+            base.clone().order_by(asc("id")),
+            Some(QueryReadAdmissionCode::UnboundedFullScanRejected),
+        ),
+        (
+            base.filter(FieldRef::new("rare").eq("group-a"))
+                .order_by(asc("wide_branch")),
+            Some(QueryReadAdmissionCode::SortRequiresMaterialization),
+        ),
+    ];
+    for (query, expected) in cases {
+        let visited = root.observed(Resource::RowsVisited);
+        let gets = DataStore::current_get_call_count();
+        for _ in 0..2 {
+            let report = reader
+                .explain_query_for_typed_binding(&binding, &query)
+                .unwrap()
+                .unwrap();
+            let admission = report.public_read_admission().unwrap();
+            assert_eq!(admission.rejection(), expected);
+            assert_eq!(admission.is_admitted(), expected.is_none());
+            assert_eq!(root.observed(Resource::RowsVisited), visited);
+            assert_eq!(DataStore::current_get_call_count(), gets);
+        }
+        match (setup.execute_public_live_page(&query, None), expected) {
+            (Ok(_), None) => {}
+            (Err(error), Some(reason)) => assert_eq!(
+                error.diagnostic().detail(),
+                Some(&DiagnosticDetail::QueryReadAdmission { reason }),
+            ),
+            outcome => panic!("EXPLAIN and public admission disagree: {outcome:?}"),
+        }
+    }
+}
+
+#[test]
+fn sql_explain_modes_report_public_policy_separately_from_diagnostic_lane() {
+    let session = initialize();
+    seed_rows(&session);
+    let gets = DataStore::current_get_call_count();
+    for (sql, decision, reason) in [
+        ("SELECT id FROM PlannerRow WHERE id = 0", "admitted", None),
+        (
+            "SELECT id FROM PlannerRow ORDER BY id LIMIT 5",
+            "rejected",
+            Some("unbounded_full_scan_rejected"),
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE rare = 'group-a'",
+            "rejected",
+            Some("public_query_requires_limit"),
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE rare = 'group-a' ORDER BY wide_branch LIMIT 5",
+            "rejected",
+            Some("sort_requires_materialization"),
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE rare = 'group-a' ORDER BY id LIMIT 101",
+            "rejected",
+            Some("returned_row_bound_exceeds_policy"),
+        ),
+    ] {
+        let expected = format!(
+            "\"public_read_admission\":{{\"policy\":\"default_bounded_read\",\"decision\":\"{decision}\",\"reason\":{}}}",
+            reason.map_or_else(|| "null".to_string(), |value| format!("\"{value}\"")),
+        );
+        for mode in ["JSON", "EXECUTION JSON"] {
+            for _ in 0..2 {
+                let SqlStatementResult::Explain(text) = session
+                    .execute_trusted_sql_query(&format!("EXPLAIN {mode} {sql}"))
+                    .unwrap()
+                else {
+                    panic!("expected EXPLAIN")
+                };
+                assert!(text.contains(&expected), "{mode}: {text}");
+                if mode == "EXECUTION JSON" {
+                    assert!(text.contains("\"lane\":\"diagnostic_explain\""));
+                    assert!(text.contains("\"reason\":\"diagnostic_lane_does_not_execute\""));
+                }
+            }
+        }
+    }
+    assert_eq!(DataStore::current_get_call_count(), gets);
+}
+
+#[test]
+fn typed_grouped_explain_reports_the_existing_public_group_budget() {
+    use icydb_diagnostic_code::QueryReadAdmissionCode;
+
+    let session = initialize();
+    let binding = binding(&session);
+    let base = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").in_list([0_u64, 1, 2]))
+        .group_by("rare")
+        .aggregate(crate::db::count())
+        .order_by(asc("rare"))
+        .limit(1);
+    for (max_groups, expected) in [
+        (4, None),
+        (101, Some(QueryReadAdmissionCode::GroupedQueryExceedsBudget)),
+    ] {
+        let query = base.clone().grouped_limits(max_groups, 16 * 1024);
+        for _ in 0..2 {
+            let report = session
+                .explain_query_for_typed_binding(&binding, &query)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                report.public_read_admission().unwrap().rejection(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn delete_explain_never_claims_public_read_admission() {
+    let session = initialize();
+    seed_rows(&session);
+    let gets = DataStore::current_get_call_count();
+    for mode in ["JSON", "EXECUTION JSON"] {
+        let SqlStatementResult::Explain(text) = session
+            .execute_trusted_sql_query(&format!(
+                "EXPLAIN {mode} DELETE FROM PlannerRow WHERE id = 0"
+            ))
+            .unwrap()
+        else {
+            panic!("expected EXPLAIN")
+        };
+        assert!(text.contains("\"public_read_admission\":null"), "{text}");
+    }
+    assert_eq!(DataStore::current_get_call_count(), gets);
+    let query = DynamicQuery::new(ENTITY_NAME).filter(FieldRef::new("id").eq(0_u64));
+    assert_eq!(
+        session
+            .execute_public_live_page(&query, None)
+            .unwrap()
+            .rows
+            .len(),
+        1
+    );
+}
+
 fn request() -> DynamicQuery {
     DynamicQuery::new(ENTITY_NAME)
         .filter(FilterExpr::and(vec![

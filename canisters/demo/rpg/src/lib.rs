@@ -14,14 +14,11 @@ use icydb_testing_demo_rpg_fixtures::{
 };
 
 // The final host grants namespaces; components request permanent keys.
-fn icydb_storage_grants()
--> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
-    icydb::db::AllocationGrants::new(
-        vec![icydb::db::MemoryAuthority::new(
-            "icydb_demo_rpg",
-            "icydb.demo_rpg.",
-        )?],
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![icydb::db::MemoryAuthority::new(
+        "icydb_demo_rpg",
+        "icydb.demo_rpg.",
+    )?])
 }
 
 canic_icydb::start!(icydb);

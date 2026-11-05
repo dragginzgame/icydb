@@ -8,7 +8,7 @@ use crate::{
             },
             parser::{SqlExpr, SqlProjection, SqlSelectItem, SqlStatement, parse_sql},
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

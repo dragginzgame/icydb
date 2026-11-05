@@ -10,7 +10,7 @@ use crate::db::{
     key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     relation::RelationCommitBudget,
     schema::{AcceptedIndexPredicate, AcceptedSchemaFingerprint},
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use ic_storage::adapter::Storable;
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};

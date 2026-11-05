@@ -110,7 +110,7 @@ fn ordered_group_prefix_pages_preserve_fixed_and_compound_keys() {
 }
 
 fn initialize_group_schema(kind: AcceptedFieldKind) {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "category", 1, AcceptedFieldKind::Nat64),
@@ -739,7 +739,7 @@ fn owned_group_order_sql_rejects_mixed_keys_and_preserves_top_k() {
 
 #[test]
 fn owned_group_order_keeps_sort_budget_errors_typed() {
-    use crate::db::{desc, test_support::request_with_limit};
+    use crate::db::{desc, tests::support::request_with_limit};
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
     let values = ["eng", "ops", "sales"].map(|key| Value::Text(key.into()));
     seed_order_groups(AcceptedFieldKind::Text { max_len: None }, &values);

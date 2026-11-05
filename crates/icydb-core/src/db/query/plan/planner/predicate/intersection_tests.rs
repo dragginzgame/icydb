@@ -9,7 +9,7 @@ use crate::{
             plan::{OrderDirection, OrderSpec, OrderTerm, VisibleIndexes, exact_metadata_schema},
             preparation::PreparationWork,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

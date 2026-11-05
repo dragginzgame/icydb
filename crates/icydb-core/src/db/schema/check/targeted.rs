@@ -347,15 +347,6 @@ impl CompiledAcceptedTargetedRules {
         )
     }
 
-    #[cfg(test)]
-    pub(super) fn evaluate_with_limits_for_tests(
-        &self,
-        values_by_slot: &[Option<Cow<'_, Value>>],
-        limits: TargetedEvaluationLimits,
-    ) -> Result<Option<AcceptedTargetedRuleViolation>, AcceptedTargetedRuleEvaluationError> {
-        self.evaluate_with_limits(values_by_slot, limits, None)
-    }
-
     fn evaluate_with_limits(
         &self,
         values_by_slot: &[Option<Cow<'_, Value>>],
@@ -802,22 +793,6 @@ impl TargetedEvaluationLimits {
             path_components: MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
         }
     }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn for_tests(
-        depth: u16,
-        value_nodes: u32,
-        operations: u32,
-        path_components: usize,
-    ) -> Self {
-        Self {
-            depth,
-            value_nodes,
-            operations,
-            path_components,
-        }
-    }
 }
 
 struct TargetedEvaluationBudget {
@@ -1059,3 +1034,6 @@ impl From<AcceptedTargetedRuleEvaluationError> for super::AcceptedRowConstraintE
         }
     }
 }
+
+#[cfg(test)]
+mod helper_tests;

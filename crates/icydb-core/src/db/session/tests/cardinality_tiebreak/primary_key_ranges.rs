@@ -92,45 +92,13 @@ fn primary_key_range_sql_delete_preserves_excluded_rows() {
 // Publish a small accepted schema so numeric and non-numeric primary keys use
 // the same real session path, without a secondary index influencing selection.
 fn initialize_range_store(kind: AcceptedFieldKind) -> DbSession<TestCanister> {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
-    session.db.drive_startup_recovery_page().unwrap();
-    let fields = vec![
-        field(1, "id", 0, kind),
-        field(2, "payload", 1, AcceptedFieldKind::Nat64),
-    ];
-    let snapshot = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.into(),
-        ENTITY_NAME.into(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
-        fields,
-    );
-    let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
-        STORE_PATH,
-        AcceptedSchemaRevision::INITIAL,
-        BTreeMap::from([(ENTITY_TAG, snapshot)]),
-        BTreeMap::from([
-            ((ENTITY_TAG, field_source("id")), FieldId::new(1)),
-            ((ENTITY_TAG, field_source("payload")), FieldId::new(2)),
-        ]),
-    );
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        session.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &candidate,
+    initialize_field_schema(
+        vec![
+            field(1, "id", 0, kind),
+            field(2, "payload", 1, AcceptedFieldKind::Nat64),
+        ],
+        Vec::new(),
     )
-    .unwrap();
-    session
 }
 
 #[test]

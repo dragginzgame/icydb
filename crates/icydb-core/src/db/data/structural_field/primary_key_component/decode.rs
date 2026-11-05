@@ -50,16 +50,6 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
     }
 }
 
-/// Decode one primary-key-component Structural Binary v1 field payload
-/// directly into its canonical `PrimaryKeyComponent` form.
-#[cfg(test)]
-pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
-    raw_bytes: &[u8],
-    kind: &AcceptedFieldKind,
-) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    decode_primary_key_component_field(&CompleteBinaryValue::parse(raw_bytes)?, kind)
-}
-
 // Decode a scalar component after the complete root has been validated once.
 fn decode_primary_key_component_field(
     root: &CompleteBinaryValue<'_>,
@@ -127,22 +117,6 @@ pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
     Ok(Some(value))
 }
 
-/// Validate one Structural Binary v1 primary-key-component field payload
-/// without routing through the generic structural value lane.
-#[cfg(test)]
-pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
-    raw_bytes: &[u8],
-    kind: &AcceptedFieldKind,
-) -> Result<bool, FieldDecodeError> {
-    if !supports_primary_key_component_binary_kind(kind) {
-        return Ok(false);
-    }
-
-    decode_primary_key_component_binary_value_bytes(raw_bytes, kind)?;
-
-    Ok(true)
-}
-
 // Decode one singular component payload, treating explicit null as "no target".
 pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
@@ -185,3 +159,11 @@ fn decode_relation_primary_key_component_binary_list_bytes(
 
     Ok(components)
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::decode_primary_key_component_field_binary_bytes;
+#[cfg(test)]
+pub(in crate::db) use helper_tests::validate_primary_key_component_binary_value_bytes;

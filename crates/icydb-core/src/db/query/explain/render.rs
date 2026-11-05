@@ -167,6 +167,13 @@ impl FinalizedQueryDiagnostics {
         if let Some(admission) = self.admission() {
             lines.push(admission.render_text_block());
         }
+        if let Some(admission) = self.public_read_admission() {
+            lines.push(format!(
+                "public_read_admission.decision={}\npublic_read_admission.reason={}",
+                admission.decision_label(),
+                admission.rejection_label().unwrap_or("none"),
+            ));
+        }
         lines.push(
             self.execution()
                 .render_text_tree_verbose_with_indent(tree_indent),

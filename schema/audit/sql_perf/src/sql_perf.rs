@@ -202,7 +202,7 @@ pub struct PerfAuditMaxCardinalityProbes {}
 #[entity(store = "PerfAuditStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["common"]),
+    index(name = "idx_perf_audit_cardinality_tie__common", fields = ["common"]),
     index(fields = ["rare"]),
     fields(
         field(name = "id", value(item(prim = "Int32"))),

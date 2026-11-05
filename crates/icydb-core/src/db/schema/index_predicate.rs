@@ -11,6 +11,7 @@ use crate::db::schema::{PersistedSchemaSnapshot, check::bind_index_predicate_lit
 use crate::{
     db::{
         predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckLiteralV1,
             AcceptedCheckValueExprV1, AcceptedValueCatalogHandle, FieldId, PersistedFieldSnapshot,
@@ -20,6 +21,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 // Filtered predicates currently execute against direct physical slots. Native
 // nested key paths remain index-key metadata, not a predicate execution route.
@@ -43,12 +45,20 @@ fn field_kind(
         .ok_or_else(InternalError::store_corruption)
 }
 
-fn field_name(id: FieldId, fields: &[PersistedFieldSnapshot]) -> Result<String, InternalError> {
-    fields
-        .iter()
-        .find(|field| field.id() == id)
-        .map(|field| field.name().to_string())
-        .ok_or_else(InternalError::store_corruption)
+fn field_name<'a>(
+    id: FieldId,
+    fields: &'a [PersistedFieldSnapshot],
+    work: Option<&dyn ConstructionBudget>,
+) -> Result<&'a str, InternalError> {
+    for field in fields {
+        if let Some(work) = work {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+        }
+        if field.id() == id {
+            return Ok(field.name());
+        }
+    }
+    Err(InternalError::store_corruption())
 }
 
 #[cfg(any(test, feature = "sql"))]
@@ -109,7 +119,7 @@ impl AcceptedIndexPredicate {
     ) -> Result<Self, InternalError> {
         let bound = Self::bind_fields(predicate, snapshot.fields(), catalog)?;
         let normalized = crate::db::predicate::normalize_with_budget(
-            bound.to_predicate(snapshot.fields(), catalog)?,
+            bound.to_predicate(snapshot.fields(), catalog, Some(work))?,
             work,
         )?;
         Self::bind_fields(&normalized, snapshot.fields(), catalog)
@@ -237,27 +247,6 @@ impl AcceptedIndexPredicate {
         })
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn bind_test_sql(sql: &str, fields: &[PersistedFieldSnapshot]) -> Self {
-        let catalog = AcceptedValueCatalogHandle::new_for_tests(
-            crate::db::schema::empty_accepted_enum_catalog_for_tests(),
-            crate::db::schema::AcceptedCompositeCatalog::empty(),
-            crate::db::schema::AcceptedSchemaRevision::INITIAL,
-        );
-        let predicate =
-            crate::db::predicate::parse_sql_predicate(sql).expect("valid current frontend fixture");
-        let bound =
-            Self::bind_fields(&predicate, fields, &catalog).expect("fixture binds accepted fields");
-        let normalized =
-            crate::db::predicate::normalize(bound.to_predicate(fields, &catalog).unwrap());
-        Self::bind_fields(&normalized, fields, &catalog).expect("normalized fixture binds")
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) const fn test_non_null(id: u32) -> Self {
-        Self::IsNotNull(FieldId::new(id))
-    }
-
     /// Check current accepted semantics without applying frontend-only admission
     /// limits to generated strict field comparisons. Execution remains shared.
     pub(in crate::db::schema) fn validate_semantics(
@@ -307,7 +296,7 @@ impl AcceptedIndexPredicate {
                 }
                 crate::db::query::predicate::validate_predicate(
                     schema,
-                    &self.to_predicate(fields, catalog)?,
+                    &self.to_predicate(fields, catalog, None)?,
                 )
                 .map_err(|_| InternalError::store_invariant())
             }
@@ -341,7 +330,7 @@ impl AcceptedIndexPredicate {
             }
             _ => crate::db::query::predicate::validate_predicate(
                 schema,
-                &self.to_predicate(fields, catalog)?,
+                &self.to_predicate(fields, catalog, None)?,
             )
             .map_err(|_| InternalError::store_invariant()),
         }
@@ -438,12 +427,17 @@ impl AcceptedIndexPredicate {
 
     /// Project bound identity into current accepted names and decode admitted
     /// payloads for the existing executor. This never invokes the SQL parser.
+    /// `Some` shares caller admission for nodes, lookups, names and shell backing;
+    /// literal payload bytes share decode admission, alongside decoder-local bounds.
+    /// `None` explicitly selects
+    /// canonical/display/retained work without imposing a fresh request ceiling.
     pub(in crate::db) fn to_predicate(
         &self,
         fields: &[PersistedFieldSnapshot],
         catalog: &AcceptedValueCatalogHandle,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Predicate, InternalError> {
-        self.project(&|field| field_name(*field, fields), catalog)
+        self.project(&|field| field_name(*field, fields, work), catalog, work)
     }
 
     /// Project a catalog-derived root-name binding retained by schema metadata.
@@ -451,30 +445,40 @@ impl AcceptedIndexPredicate {
         &self,
         names: &[(FieldId, String)],
         catalog: &AcceptedValueCatalogHandle,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Predicate, InternalError> {
         self.project(
             &|field| {
-                let (_, root) = names
-                    .iter()
-                    .find(|(id, _)| id == field)
-                    .ok_or_else(InternalError::store_corruption)?;
-                let name = root.clone();
-                Ok(name)
+                for (id, root) in names {
+                    if let Some(work) = work {
+                        work.charge(Resource::PredicateExpressionSteps, 1)?;
+                    }
+                    if id == field {
+                        return Ok(root.as_str());
+                    }
+                }
+                Err(InternalError::store_corruption())
             },
             catalog,
+            work,
         )
     }
 
+    /// Resolve current row-contract names under the caller's projection authority.
     pub(in crate::db) fn for_row_contract(
         &self,
         contract: &crate::db::data::StructuralRowContract,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Predicate, InternalError> {
         self.project(
             &|field| {
                 let mut name = None;
                 for slot in 0..contract.field_count() {
+                    if let Some(work) = work {
+                        work.charge(Resource::PredicateExpressionSteps, 1)?;
+                    }
                     if contract.required_accepted_field_contract(slot)?.field_id() == *field {
-                        name = Some(contract.field_name(slot)?.to_string());
+                        name = Some(contract.field_name(slot)?);
                         break;
                     }
                 }
@@ -482,27 +486,63 @@ impl AcceptedIndexPredicate {
                 Ok(name)
             },
             contract.accepted_value_catalog_handle(),
+            work,
         )
     }
 
-    fn project(
+    fn project<'a>(
         &self,
-        name: &dyn Fn(&FieldId) -> Result<String, InternalError>,
+        name: &dyn Fn(&FieldId) -> Result<&'a str, InternalError>,
         catalog: &AcceptedValueCatalogHandle,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Predicate, InternalError> {
-        let project = |predicate: &Self| predicate.project(name, catalog);
-        let literal = |value: &AcceptedCheckLiteralV1| {
-            decode_literal(value, catalog).map_err(|_| InternalError::store_corruption())
+        // Keep shell admission before construction or descent; the existing
+        // literal decoder remains the independent owner of decoded payloads.
+        let charge = |resource, amount| work.map_or(Ok(()), |work| work.charge(resource, amount));
+        charge(Resource::PredicateExpressionSteps, 1)?;
+        let project = |predicate: &Self| predicate.project(name, catalog, work);
+        let owned_name = |field: &FieldId| {
+            let name = name(field)?;
+            match work {
+                Some(work) => work.copy_text(name),
+                None => Ok(name.to_owned()),
+            }
+        };
+        let literal = |value: &Option<AcceptedCheckLiteralV1>| {
+            value
+                .as_ref()
+                .map(|value| {
+                    // Admit the persisted input before decoding or allocating its
+                    // value. Keep budget refusal outside corruption translation.
+                    charge(Resource::DecodedBytes, value.payload().len() as u64)?;
+                    decode_literal(value, catalog).map_err(|_| InternalError::store_corruption())
+                })
+                .transpose()
+                .map(|value| value.unwrap_or(Value::Null))
         };
         Ok(match self {
             Self::True => Predicate::True,
             Self::False => Predicate::False,
-            Self::Not(inner) => Predicate::Not(Box::new(project(inner)?)),
-            Self::And(children) => {
-                Predicate::And(children.iter().map(project).collect::<Result<_, _>>()?)
+            Self::Not(inner) => {
+                charge(Resource::TemporaryBytes, size_of::<Predicate>() as u64)?;
+                Predicate::Not(Box::new(project(inner)?))
             }
-            Self::Or(children) => {
-                Predicate::Or(children.iter().map(project).collect::<Result<_, _>>()?)
+            Self::And(children) | Self::Or(children) => {
+                // Accepted cardinality is known before fallible projection;
+                // allocate the retained backing once without geometric growth.
+                charge(
+                    Resource::TemporaryBytes,
+                    (children.len() as u64).saturating_mul(size_of::<Predicate>() as u64),
+                )?;
+                let mut projected = Vec::with_capacity(children.len());
+                for child in children {
+                    projected.push(project(child)?);
+                }
+                if matches!(self, Self::And(_)) {
+                    Predicate::And(projected)
+                } else {
+                    Predicate::Or(projected)
+                }
             }
             Self::Compare {
                 field,
@@ -510,26 +550,27 @@ impl AcceptedIndexPredicate {
                 coercion,
                 values,
             } => {
-                let values = values
-                    .iter()
-                    .map(|value| {
-                        value
-                            .as_ref()
-                            .map(literal)
-                            .transpose()
-                            .map(|value| value.unwrap_or(Value::Null))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
                 let value = if matches!(op, CompareOp::In | CompareOp::NotIn) {
-                    Value::List(values)
+                    charge(
+                        Resource::TemporaryBytes,
+                        (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
+                    )?;
+                    let mut projected = Vec::with_capacity(values.len());
+                    for value in values {
+                        projected.push(literal(value)?);
+                    }
+                    Value::List(projected)
                 } else {
-                    values
-                        .into_iter()
-                        .next()
-                        .ok_or_else(InternalError::store_corruption)?
+                    // Scalar operators retain exactly one operand. Decode it
+                    // directly instead of allocating and discarding a vector;
+                    // never silently discard extra persisted operands.
+                    let [value] = values.as_slice() else {
+                        return Err(InternalError::store_corruption());
+                    };
+                    literal(value)?
                 };
                 Predicate::Compare(ComparePredicate::with_coercion(
-                    name(field)?,
+                    owned_name(field)?,
                     *op,
                     value,
                     *coercion,
@@ -541,16 +582,16 @@ impl AcceptedIndexPredicate {
                 right,
                 coercion,
             } => Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                name(left)?,
+                owned_name(left)?,
                 *op,
-                name(right)?,
+                owned_name(right)?,
                 *coercion,
             )),
             Self::IsNull(field) => Predicate::IsNull {
-                field: name(field)?,
+                field: owned_name(field)?,
             },
             Self::IsNotNull(field) => Predicate::IsNotNull {
-                field: name(field)?,
+                field: owned_name(field)?,
             },
         })
     }
@@ -561,7 +602,7 @@ impl AcceptedIndexPredicate {
         fields: &[PersistedFieldSnapshot],
         catalog: &AcceptedValueCatalogHandle,
     ) -> Result<String, InternalError> {
-        Self::render_predicate(self.to_predicate(fields, catalog)?, catalog)
+        Self::render_predicate(self.to_predicate(fields, catalog, None)?, catalog)
     }
 
     pub(in crate::db) fn render_sql_with_names(
@@ -569,7 +610,7 @@ impl AcceptedIndexPredicate {
         names: &[(FieldId, String)],
         catalog: &AcceptedValueCatalogHandle,
     ) -> Result<String, InternalError> {
-        Self::render_predicate(self.to_predicate_with_names(names, catalog)?, catalog)
+        Self::render_predicate(self.to_predicate_with_names(names, catalog, None)?, catalog)
     }
 
     fn render_predicate(
@@ -745,3 +786,6 @@ crate::retained::retained_fields!(AcceptedIndexPredicate {
     Self::CompareFields {left, op, right, coercion} => [left, op, right, coercion],
     Self::IsNull(field) | Self::IsNotNull(field) => [field],
 });
+
+#[cfg(test)]
+mod helper_tests;

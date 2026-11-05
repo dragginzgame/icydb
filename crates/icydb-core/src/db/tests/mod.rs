@@ -3,5 +3,7 @@
 //! Does not own: runtime scheduling, recovery, or storage encoding.
 //! Boundary: protects cross-subsystem execution and decoding invariants.
 
+pub(in crate::db) mod support;
+
 mod ic_update_model;
 mod persisted_format_corpus;

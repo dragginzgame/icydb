@@ -123,7 +123,10 @@ impl StoreRuntimeStorageMode {
 
 /// Whether a store owns durable allocation identity.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub enum StoreAllocationIdentityCapability {
     /// Stable allocation identity is present.
     #[default]
@@ -145,7 +148,10 @@ impl StoreAllocationIdentityCapability {
 
 /// Store durability class.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub enum StoreDurability {
     /// Store contents participate in durable storage semantics.
     #[default]
@@ -167,7 +173,10 @@ impl StoreDurability {
 
 /// Store recovery capability.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub enum StoreRecoveryCapability {
     /// Store contents can be recovered from canonical stable BTrees plus a
     /// committed journal tail.
@@ -190,7 +199,10 @@ impl StoreRecoveryCapability {
 
 /// Store commit participation class.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub enum StoreCommitParticipation {
     /// Store mutations participate in the durable commit path.
     #[default]
@@ -212,7 +224,10 @@ impl StoreCommitParticipation {
 
 /// Store schema metadata persistence class.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub enum StoreSchemaMetadataCapability {
     /// The store-local projection is rebuilt from a durable accepted checkpoint
     /// and does not retain its own schema history.

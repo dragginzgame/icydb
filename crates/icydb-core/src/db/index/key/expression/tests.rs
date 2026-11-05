@@ -1,0 +1,122 @@
+use super::*;
+use crate::types::{Date, Timestamp};
+
+#[test]
+fn persisted_text_expressions_share_frozen_unicode_mapping_and_whitespace() {
+    let source = Value::Text("\u{2003}ɤƛ İΟΣ\u{301}\u{a0}".into());
+    for (op, expected) in [
+        (
+            PersistedIndexExpressionOp::Lower,
+            "\u{2003}ɤƛ i\u{307}ος\u{301}\u{a0}",
+        ),
+        (
+            PersistedIndexExpressionOp::Upper,
+            "\u{2003}\u{a7cb}\u{a7dc} İΟΣ\u{301}\u{a0}",
+        ),
+        (PersistedIndexExpressionOp::Trim, "ɤƛ İΟΣ\u{301}"),
+        (
+            PersistedIndexExpressionOp::LowerTrim,
+            "ɤƛ i\u{307}ος\u{301}",
+        ),
+    ] {
+        let transformed = derive_non_null_scalar_expression_value(
+            scalar_index_expression_op(op),
+            ScalarExprValue::Text(source.as_text().unwrap().into()),
+        )
+        .unwrap();
+        assert_eq!(transformed, ScalarExprValue::Text(expected.into()));
+        assert_eq!(
+            derive_index_expression_value(op, &source),
+            Ok(Some(Value::Text(expected.into())))
+        );
+    }
+    // These formerly whitespace-like/invisible characters are not trimmed
+    // by the retained contract, even at either edge of a key.
+    let source = Value::Text("\u{180e}\u{200b}x\u{feff}".into());
+    assert_eq!(
+        derive_index_expression_value(PersistedIndexExpressionOp::Trim, &source),
+        Ok(Some(source))
+    );
+}
+
+#[test]
+fn borrowed_text_sources_preserve_canonical_transforms_and_rejections() {
+    let source = Value::Text(" \u{2003}Straße İ\u{2003} ".to_string());
+    for (op, expected) in [
+        (
+            PersistedIndexExpressionOp::Lower,
+            " \u{2003}straße i\u{307}\u{2003} ",
+        ),
+        (
+            PersistedIndexExpressionOp::Upper,
+            " \u{2003}STRASSE İ\u{2003} ",
+        ),
+        (PersistedIndexExpressionOp::Trim, "Straße İ"),
+        (PersistedIndexExpressionOp::LowerTrim, "straße i\u{307}"),
+    ] {
+        assert_eq!(
+            derive_index_expression_value(op, &source),
+            Ok(Some(Value::Text(expected.to_string()))),
+        );
+        assert_eq!(derive_index_expression_value(op, &Value::Null), Ok(None));
+        for invalid in [Value::Int64(1), Value::List(vec![source.clone()])] {
+            assert_eq!(
+                derive_index_expression_value(op, &invalid),
+                Err(IndexExpressionSourceClass::Text),
+            );
+        }
+    }
+    assert_eq!(
+        source,
+        Value::Text(" \u{2003}Straße İ\u{2003} ".to_string())
+    );
+}
+
+#[test]
+fn borrowed_temporal_sources_preserve_calendar_boundaries_and_rejections() {
+    for (text, year, month, day) in [
+        ("0000-01-01", 0, 1, 1),
+        ("0000-02-29", 0, 2, 29),
+        ("1900-03-01", 1900, 3, 1),
+        ("1969-12-31", 1969, 12, 31),
+        ("1970-01-01", 1970, 1, 1),
+        ("2000-02-29", 2000, 2, 29),
+        ("9999-12-31", 9999, 12, 31),
+    ] {
+        let date = Date::parse(text).unwrap();
+        let millis = i64::from(date.as_days_since_epoch()) * 86_400_000;
+        let sources = [
+            Value::Date(date),
+            Value::Timestamp(Timestamp::from_millis(millis)),
+            Value::Timestamp(Timestamp::from_millis(millis + 86_399_999)),
+        ];
+        for (op, expected) in [
+            (PersistedIndexExpressionOp::Date, Value::Date(date)),
+            (PersistedIndexExpressionOp::Year, Value::Int64(year)),
+            (PersistedIndexExpressionOp::Month, Value::Int64(month)),
+            (PersistedIndexExpressionOp::Day, Value::Int64(day)),
+        ] {
+            for source in &sources {
+                assert_eq!(
+                    derive_index_expression_value(op, source),
+                    Ok(Some(expected.clone()))
+                );
+            }
+            assert_eq!(derive_index_expression_value(op, &Value::Null), Ok(None));
+            for invalid in [
+                Value::Text(text.to_string()),
+                Value::Timestamp(Timestamp::from_millis(
+                    i64::from(Date::MIN.as_days_since_epoch()) * 86_400_000 - 1,
+                )),
+                Value::Timestamp(Timestamp::from_millis(
+                    (i64::from(Date::MAX.as_days_since_epoch()) + 1) * 86_400_000,
+                )),
+            ] {
+                assert_eq!(
+                    derive_index_expression_value(op, &invalid),
+                    Err(IndexExpressionSourceClass::DateOrTimestamp)
+                );
+            }
+        }
+    }
+}

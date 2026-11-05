@@ -3,6 +3,8 @@
 //! Does not own: standalone predicate parsing semantics, planner policy, or execution semantics.
 //! Boundary: parses one SQL statement into frontend-neutral statement contracts on top of the shared SQL token cursor.
 
+// Test invocation counting stays at parser entry; counter state and helpers live in helper_tests.
+
 mod clauses;
 mod model;
 mod projection;
@@ -76,16 +78,6 @@ pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
     crate::db::sql::input::validate_sql_statement_input(&statement, &[])
         .map_err(|reason| SqlParseError::InputAdmission { reason })?;
     Ok(statement)
-}
-
-#[cfg(test)]
-thread_local! {
-    static SQL_PARSE_INVOCATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(crate) fn sql_parse_count_for_tests() -> usize {
-    SQL_PARSE_INVOCATIONS.with(std::cell::Cell::get)
 }
 
 /// Parse one bounded `CHECK INTEGRITY` statement.
@@ -295,3 +287,12 @@ impl Parser {
         self.cursor.is_eof()
     }
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(crate) use helper_tests::sql_parse_count_for_tests;
+
+#[cfg(test)]
+use helper_tests::SQL_PARSE_INVOCATIONS;

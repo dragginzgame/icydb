@@ -1,0 +1,912 @@
+mod invariant_receipts;
+mod migration_failures;
+
+use super::*;
+use crate::{
+    db::{
+        DataStore, IndexStore, StoreAllocationIdentities, StoreRuntimeStorageCapabilities,
+        commit::{
+            CommitMarker, begin_commit, commit_memory_handle, current_commit_memory_allocation,
+            database_incarnation_id, finish_commit, mark_startup_recovery_complete_for_tests,
+            persist_raw_commit_marker_for_tests, select_commit_memory_allocation,
+        },
+        database_format::{
+            ensure_database_format_admitted, initialize_current_database_control_for_tests,
+        },
+        journal::{
+            JournalBatch, JournalRecord, JournalSequence, JournalTailStore, encode_journal_batch,
+        },
+        registry::StoreAllocationIdentity,
+        resource::request::RequestExecutionRoot,
+        schema::{
+            ConstraintId, SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
+            SchemaChangeReceipt, SchemaStore, apply_schema_application_record_op,
+            corrupt_schema_control_header_for_tests, generated_schema_authority,
+            load_schema_application_record_read_only,
+        },
+    },
+    testing::test_memory,
+    traits::Path,
+    types::EntityTag,
+};
+use ic_storage::Memory;
+use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
+use icydb_schema::{SchemaProposalDigest, SchemaSubmissionKey};
+use std::cell::RefCell;
+
+struct FreshCanister;
+
+impl Path for FreshCanister {
+    const PATH: &'static str = "startup_tests::FreshCanister";
+}
+
+impl CanisterKind for FreshCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(232)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_fresh.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(233)
+    }
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_fresh.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(234)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_fresh.integrity.v1";
+}
+
+thread_local! {
+    static FRESH_STORES: StoreRegistry = StoreRegistry::new();
+    static CURRENT_STORES: StoreRegistry = StoreRegistry::new();
+}
+
+struct CurrentCanister;
+
+impl Path for CurrentCanister {
+    const PATH: &'static str = "startup_tests::CurrentCanister";
+}
+
+impl CanisterKind for CurrentCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(228)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_current.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(229)
+    }
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_current.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(230)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_current.integrity.v1";
+}
+
+struct CorruptCanister;
+
+impl Path for CorruptCanister {
+    const PATH: &'static str = "startup_tests::CorruptCanister";
+}
+
+impl CanisterKind for CorruptCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(224)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(225)
+    }
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(226)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.integrity.v1";
+}
+
+thread_local! {
+    static CORRUPT_STORES: StoreRegistry = StoreRegistry::new();
+}
+
+struct DriverCanister;
+
+impl Path for DriverCanister {
+    const PATH: &'static str = "startup_tests::DriverCanister";
+}
+
+impl CanisterKind for DriverCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(248)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_driver.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(249)
+    }
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_driver.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(250)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_driver.integrity.v1";
+}
+
+thread_local! {
+    static DRIVER_STORES: StoreRegistry = StoreRegistry::new();
+}
+
+struct CardinalityDriverCanister;
+
+impl Path for CardinalityDriverCanister {
+    const PATH: &'static str = "startup_tests::CardinalityDriverCanister";
+}
+
+impl CanisterKind for CardinalityDriverCanister {
+    // Keep this test-only control triplet distinct from the migration
+    // fixtures that coexist in the all-feature libtest process.
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(217)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(218)
+    }
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(219)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+        "icydb.test.startup.cardinality.driver.integrity.v1";
+}
+
+thread_local! {
+    static CARDINALITY_DRIVER_DATA: RefCell<DataStore> =
+        RefCell::new(DataStore::init_journaled(test_memory(210)).expect("fixture storage should initialize"));
+    static CARDINALITY_DRIVER_INDEX: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(211)).expect("fixture storage should initialize"));
+    static CARDINALITY_DRIVER_SCHEMA: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(212)).expect("fixture storage should initialize"));
+    static CARDINALITY_DRIVER_TAIL: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(213)).expect("fixture storage should initialize"));
+    static CARDINALITY_DRIVER_STORES: StoreRegistry = {
+        let mut registry = StoreRegistry::new();
+        registry.register_journaled_store(
+            "startup_tests::CardinalityDriverStore",
+            &CARDINALITY_DRIVER_DATA,
+            &CARDINALITY_DRIVER_INDEX,
+            &CARDINALITY_DRIVER_SCHEMA,
+            &CARDINALITY_DRIVER_TAIL,
+            StoreAllocationIdentities::new_journaled(
+                StoreAllocationIdentity::new(210, "icydb.test.cardinality.driver.data.v1"),
+                StoreAllocationIdentity::new(211, "icydb.test.cardinality.driver.index.v1"),
+                StoreAllocationIdentity::new(212, "icydb.test.cardinality.driver.schema.v1"),
+                StoreAllocationIdentity::new(213, "icydb.test.cardinality.driver.journal.v1"),
+            ),
+            StoreRuntimeStorageCapabilities::journaled(),
+        ).expect("cardinality driver store should register");
+        registry
+    };
+}
+
+struct HeapRecoveryFailureCanister;
+
+impl Path for HeapRecoveryFailureCanister {
+    const PATH: &'static str = "startup_tests::HeapRecoveryFailureCanister";
+}
+
+impl CanisterKind for HeapRecoveryFailureCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(251)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.heap.recovery.failure.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(245)
+    }
+    const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup.heap.recovery.failure.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(246)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+        "icydb.test.startup.heap.recovery.failure.integrity.v1";
+}
+
+thread_local! {
+    static HEAP_RECOVERY_FAILURE_STORES: StoreRegistry = StoreRegistry::new();
+}
+
+struct HeapCheckpointFailureCanister;
+
+impl Path for HeapCheckpointFailureCanister {
+    const PATH: &'static str = "startup_tests::HeapCheckpointFailureCanister";
+}
+
+impl CanisterKind for HeapCheckpointFailureCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(254)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.heap.checkpoint.failure.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(221)
+    }
+    const STARTUP_STABLE_KEY: &'static str =
+        "icydb.test.startup.heap.checkpoint.failure.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(222)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+        "icydb.test.startup.heap.checkpoint.failure.integrity.v1";
+}
+
+thread_local! {
+    static HEAP_CHECKPOINT_FAILURE_DATA: RefCell<DataStore> =
+        const { RefCell::new(DataStore::init_heap()) };
+    static HEAP_CHECKPOINT_FAILURE_INDEX: RefCell<IndexStore> =
+        const { RefCell::new(IndexStore::init_heap()) };
+    static HEAP_CHECKPOINT_FAILURE_SCHEMA: RefCell<SchemaStore> =
+        const { RefCell::new(SchemaStore::init_heap()) };
+    static HEAP_CHECKPOINT_FAILURE_STORES: StoreRegistry = {
+        let mut registry = StoreRegistry::new();
+        registry.register_store(
+            "startup_tests::HeapCheckpointFailureStore",
+            &HEAP_CHECKPOINT_FAILURE_DATA,
+            &HEAP_CHECKPOINT_FAILURE_INDEX,
+            &HEAP_CHECKPOINT_FAILURE_SCHEMA,
+            StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
+        ).expect("heap checkpoint failure store should register");
+        registry
+    };
+}
+
+const JOURNAL_RECOVERY_FAILURE_STORE_PATH: &str = "startup_tests::JournalRecoveryFailureStore";
+
+struct JournalRecoveryFailureCanister;
+
+impl Path for JournalRecoveryFailureCanister {
+    const PATH: &'static str = "startup_tests::JournalRecoveryFailureCanister";
+}
+
+impl CanisterKind for JournalRecoveryFailureCanister {
+    fn commit_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(185)
+    }
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.journal.recovery.failure.commit.v1";
+    fn startup_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(186)
+    }
+    const STARTUP_STABLE_KEY: &'static str =
+        "icydb.test.startup.journal.recovery.failure.control.v1";
+    fn integrity_progress_memory_id() -> Result<u64, ic_storage::RuntimeOpenError> {
+        Ok(187)
+    }
+    const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+        "icydb.test.startup.journal.recovery.failure.integrity.v1";
+}
+
+thread_local! {
+    static JOURNAL_RECOVERY_FAILURE_DATA: RefCell<DataStore> =
+        RefCell::new(DataStore::init_journaled(test_memory(181)).expect("fixture storage should initialize"));
+    static JOURNAL_RECOVERY_FAILURE_INDEX: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(182)).expect("fixture storage should initialize"));
+    static JOURNAL_RECOVERY_FAILURE_SCHEMA: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(183)).expect("fixture storage should initialize"));
+    static JOURNAL_RECOVERY_FAILURE_TAIL: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(184)).expect("fixture storage should initialize"));
+    static JOURNAL_RECOVERY_FAILURE_STORES: StoreRegistry = {
+        let mut registry = StoreRegistry::new();
+        registry.register_journaled_store(
+            JOURNAL_RECOVERY_FAILURE_STORE_PATH,
+            &JOURNAL_RECOVERY_FAILURE_DATA,
+            &JOURNAL_RECOVERY_FAILURE_INDEX,
+            &JOURNAL_RECOVERY_FAILURE_SCHEMA,
+            &JOURNAL_RECOVERY_FAILURE_TAIL,
+            StoreAllocationIdentities::new_journaled(
+                StoreAllocationIdentity::new(
+                    181,
+                    "icydb.test.startup.journal.recovery.failure.data.v1",
+                ),
+                StoreAllocationIdentity::new(
+                    182,
+                    "icydb.test.startup.journal.recovery.failure.index.v1",
+                ),
+                StoreAllocationIdentity::new(
+                    183,
+                    "icydb.test.startup.journal.recovery.failure.schema.v1",
+                ),
+                StoreAllocationIdentity::new(
+                    184,
+                    "icydb.test.startup.journal.recovery.failure.journal.v1",
+                ),
+            ),
+            StoreRuntimeStorageCapabilities::journaled(),
+        ).expect("journal recovery failure store should register");
+        registry
+    };
+}
+
+#[test]
+fn fresh_observation_is_recovering_and_performs_no_stable_write() {
+    assert_eq!(
+        observe_generated_startup_state::<FreshCanister>(
+            &FRESH_STORES,
+            "generated/0123456789abcdef",
+        ),
+        Ok(DatabaseStartupState::Recovering)
+    );
+    let commit = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should configure"),
+    )
+    .expect("commit memory should reopen");
+    let startup = receipt::startup_memory::<FreshCanister>().expect("startup memory should reopen");
+    assert_eq!(commit.size(), 0);
+    assert_eq!(startup.size(), 0);
+}
+
+#[test]
+fn terminal_classification_is_typed_and_pending_or_internal_failures_remain_retryable() {
+    let corruption = InternalError::store_corruption();
+    assert!(classify_terminal_failure(StartupFailureKind::JournalRecovery, &corruption).is_some());
+    let pending = InternalError::recovery_pending();
+    assert!(classify_terminal_failure(StartupFailureKind::JournalRecovery, &pending).is_none());
+    let transient = InternalError::recovery_database_format_control_unavailable();
+    assert!(classify_terminal_failure(StartupFailureKind::DatabaseControl, &transient).is_none());
+    let migration_pending = InternalError::schema_migration(
+        icydb_diagnostic_code::SchemaMigrationCode::MigrationInProgress,
+    );
+    assert!(
+        classify_terminal_failure(StartupFailureKind::SchemaReconciliation, &migration_pending)
+            .is_none()
+    );
+    assert!(
+        classify_terminal_failure(
+            StartupFailureKind::SchemaReconciliation,
+            &InternalError::store_unsupported(),
+        )
+        .is_some(),
+        "genuinely unsupported schema application remains terminal",
+    );
+}
+
+#[test]
+fn non_current_fixed_boot_magic_surfaces_directly_without_a_failure_receipt() {
+    select_commit_memory_allocation(
+        CorruptCanister::commit_memory_id().expect("test allocation"),
+        CorruptCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    assert_eq!(memory.as_ref().grow(1), Ok(0));
+    memory.write(0, b"NOTICYDBCONTROL");
+
+    let failure = observe_generated_startup_state::<CorruptCanister>(
+        &CORRUPT_STORES,
+        "generated/0123456789abcdef",
+    )
+    .expect_err("non-current boot magic must fail directly");
+    assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+    assert_eq!(
+        failure.diagnostic().class(),
+        icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat,
+    );
+    assert_eq!(
+        receipt::startup_memory::<CorruptCanister>()
+            .expect("startup memory should open")
+            .size(),
+        0,
+    );
+}
+
+#[test]
+fn non_virgin_control_page_fails_observation_without_writes_or_retry() {
+    const SUBMISSION: &str = "generated/0123456789abcdef";
+    select_commit_memory_allocation(
+        CorruptCanister::commit_memory_id().unwrap(),
+        CorruptCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+    assert_eq!(memory.as_ref().grow(1), Ok(0));
+    assert_eq!(
+        observe_generated_startup_state::<CorruptCanister>(&CORRUPT_STORES, SUBMISSION),
+        Ok(DatabaseStartupState::Recovering),
+    );
+    for (offset, bytes) in [
+        (0, &b"SCL"[..]),
+        (
+            crate::db::database_format::DATABASE_BOOT_RECORD_BYTES as u64,
+            &[1][..],
+        ),
+        (65_535, &[1][..]),
+    ] {
+        memory.write(offset, bytes);
+        let mut before = vec![0; 65_536];
+        memory.read(0, &mut before);
+        for _ in 0..2 {
+            let failure =
+                observe_generated_startup_state::<CorruptCanister>(&CORRUPT_STORES, SUBMISSION)
+                    .expect_err("non-virgin control memory must fail before recovery is scheduled");
+            assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+            assert_eq!(
+                failure.diagnostic().class(),
+                icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat
+            );
+        }
+        let mut after = vec![0; 65_536];
+        memory.read(0, &mut after);
+        assert_eq!(before, after);
+        assert_eq!(memory.size(), 1);
+        assert_eq!(
+            receipt::startup_memory::<CorruptCanister>().unwrap().size(),
+            0
+        );
+        memory.write(offset, &[0; 3][..bytes.len()]);
+    }
+}
+
+#[test]
+fn heap_only_malformed_marker_becomes_a_durable_database_control_failure() {
+    const SUBMISSION: &str = "generated/89abcdef01234567";
+
+    select_commit_memory_allocation(
+        HeapRecoveryFailureCanister::commit_memory_id().expect("test allocation"),
+        HeapRecoveryFailureCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    initialize_current_database_control_for_tests(&memory);
+    persist_raw_commit_marker_for_tests(vec![0xff])
+        .expect("malformed marker payload should persist inside valid control authority");
+
+    assert_eq!(
+        observe_generated_startup_state::<HeapRecoveryFailureCanister>(
+            &HEAP_RECOVERY_FAILURE_STORES,
+            SUBMISSION,
+        ),
+        Ok(DatabaseStartupState::Recovering),
+        "bounded observation must not decode marker payloads",
+    );
+
+    let request_root = RequestExecutionRoot::__new_runtime_root();
+    let session = crate::db::DbSession::<HeapRecoveryFailureCanister>::new(
+        &HEAP_RECOVERY_FAILURE_STORES,
+        &request_root,
+    );
+    assert_eq!(
+        drive_generated_startup_recovery_page(&session, &HEAP_RECOVERY_FAILURE_STORES, SUBMISSION,)
+            .expect("terminal corruption should publish one durable receipt"),
+        GeneratedStartupDriverStep::Terminal,
+    );
+
+    let failure = observe_generated_startup_state::<HeapRecoveryFailureCanister>(
+        &HEAP_RECOVERY_FAILURE_STORES,
+        SUBMISSION,
+    )
+    .expect_err("the durable database-control failure should replace blind recovery retries");
+    assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+    assert_eq!(
+        failure.diagnostic().error_code(),
+        ErrorCode::RUNTIME_CORRUPTION
+    );
+    assert_eq!(
+        drive_generated_startup_recovery_page(&session, &HEAP_RECOVERY_FAILURE_STORES, SUBMISSION,)
+            .expect("exact terminal replay should not attempt recovery again"),
+        GeneratedStartupDriverStep::Terminal,
+    );
+}
+
+#[test]
+fn heap_only_schema_control_corruption_becomes_a_durable_database_control_failure() {
+    const SUBMISSION: &str = "generated/76543210fedcba98";
+
+    select_commit_memory_allocation(
+        HeapCheckpointFailureCanister::commit_memory_id().expect("test allocation"),
+        HeapCheckpointFailureCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    initialize_current_database_control_for_tests(&memory);
+    corrupt_schema_control_header_for_tests()
+        .expect("schema-control authority should admit focused corruption");
+
+    let request_root = RequestExecutionRoot::__new_runtime_root();
+    let session = crate::db::DbSession::<HeapCheckpointFailureCanister>::new(
+        &HEAP_CHECKPOINT_FAILURE_STORES,
+        &request_root,
+    );
+    assert_eq!(
+        drive_generated_startup_recovery_page(
+            &session,
+            &HEAP_CHECKPOINT_FAILURE_STORES,
+            SUBMISSION,
+        )
+        .expect("checkpoint corruption should publish one durable receipt"),
+        GeneratedStartupDriverStep::Terminal,
+    );
+
+    let failure = observe_generated_startup_state::<HeapCheckpointFailureCanister>(
+        &HEAP_CHECKPOINT_FAILURE_STORES,
+        SUBMISSION,
+    )
+    .expect_err("the checkpoint failure should remain visible after the timer returns");
+    assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+    assert_eq!(
+        failure.diagnostic().error_code(),
+        ErrorCode::RUNTIME_CORRUPTION
+    );
+}
+
+#[test]
+fn persisted_journal_record_corruption_becomes_a_durable_journal_failure() {
+    const SUBMISSION: &str = "generated/2280bad0bad0bad0";
+
+    select_commit_memory_allocation(
+        JournalRecoveryFailureCanister::commit_memory_id().expect("test allocation"),
+        JournalRecoveryFailureCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    initialize_current_database_control_for_tests(&memory);
+    let format_root = RequestExecutionRoot::__new_runtime_root();
+    let format_database = crate::db::Db::<JournalRecoveryFailureCanister>::new(
+        &JOURNAL_RECOVERY_FAILURE_STORES,
+        format_root.scope(),
+    );
+    ensure_database_format_admitted(&format_database)
+        .expect("current journal registry should initialize before corruption injection");
+
+    let record = JournalRecord::constraint_validation_job_delete(
+        JOURNAL_RECOVERY_FAILURE_STORE_PATH,
+        EntityTag::new(1),
+        ConstraintId::new(1).unwrap(),
+    )
+    .expect("syntactically bounded control record should build");
+    let batch = JournalBatch::new(
+        [0x22; 16],
+        [0x28; 16],
+        JournalSequence::new(1),
+        vec![record],
+    )
+    .expect("syntactically current journal batch should build");
+    JOURNAL_RECOVERY_FAILURE_TAIL.with(|tail| {
+        tail.borrow_mut()
+            .append_batch(&batch)
+            .expect("persisted semantic-corruption fixture should insert");
+    });
+
+    assert_eq!(
+        observe_generated_startup_state::<JournalRecoveryFailureCanister>(
+            &JOURNAL_RECOVERY_FAILURE_STORES,
+            SUBMISSION,
+        ),
+        Ok(DatabaseStartupState::Recovering),
+    );
+    let request_root = RequestExecutionRoot::__new_runtime_root();
+    let session = crate::db::DbSession::<JournalRecoveryFailureCanister>::new(
+        &JOURNAL_RECOVERY_FAILURE_STORES,
+        &request_root,
+    );
+    let drive = || {
+        drive_generated_startup_recovery_page(
+            &session,
+            &JOURNAL_RECOVERY_FAILURE_STORES,
+            SUBMISSION,
+        )
+        .expect("the driver should progress or persist a durable failure")
+    };
+    assert_eq!(drive(), GeneratedStartupDriverStep::Recovering);
+    assert_eq!(drive(), GeneratedStartupDriverStep::Terminal);
+
+    let failure = observe_generated_startup_state::<JournalRecoveryFailureCanister>(
+        &JOURNAL_RECOVERY_FAILURE_STORES,
+        SUBMISSION,
+    )
+    .expect_err("the durable journal failure should replace blind recovery retries");
+    assert_eq!(failure.kind(), StartupFailureKind::JournalRecovery);
+    assert_eq!(
+        failure.diagnostic().error_code(),
+        ErrorCode::STORE_CORRUPTION,
+    );
+    assert_eq!(drive(), GeneratedStartupDriverStep::Terminal);
+
+    let changed_record = JournalRecord::constraint_validation_job_delete(
+        JOURNAL_RECOVERY_FAILURE_STORE_PATH,
+        EntityTag::new(2),
+        ConstraintId::new(1).unwrap(),
+    )
+    .expect("changed semantic-corruption record should build");
+    let changed_batch = JournalBatch::new(
+        [0x23; 16],
+        [0x29; 16],
+        JournalSequence::new(2),
+        vec![changed_record],
+    )
+    .expect("changed journal batch should build");
+    let changed_encoded =
+        encode_journal_batch(&changed_batch).expect("changed journal batch should encode");
+    JOURNAL_RECOVERY_FAILURE_TAIL.with(|tail| {
+        tail.borrow_mut()
+            .insert_raw_batch_for_tests(JournalSequence::new(2), changed_encoded)
+            .expect("changed journal authority should insert");
+    });
+    assert_eq!(
+        observe_generated_startup_state::<JournalRecoveryFailureCanister>(
+            &JOURNAL_RECOVERY_FAILURE_STORES,
+            SUBMISSION,
+        ),
+        Ok(DatabaseStartupState::Recovering),
+        "a receipt bound to the predecessor tail proof must become stale",
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one lifecycle test keeps pending, ready, marker, and receipt precedence in one scenario"
+)]
+fn completed_recovery_stays_recovering_until_exact_generated_schema_receipt_then_is_ready() {
+    const SUBMISSION: &str = "generated/0123456789abcdef";
+
+    select_commit_memory_allocation(
+        CurrentCanister::commit_memory_id().expect("test allocation"),
+        CurrentCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    initialize_current_database_control_for_tests(&memory);
+    let incarnation = database_incarnation_id().expect("control should initialize");
+    mark_startup_recovery_complete_for_tests(&CURRENT_STORES)
+        .expect("recovery witness should publish");
+
+    assert_eq!(
+        observe_generated_startup_state::<CurrentCanister>(&CURRENT_STORES, SUBMISSION),
+        Ok(DatabaseStartupState::Recovering),
+    );
+
+    let (database_identity, accepted_head) =
+        generated_schema_authority(&CURRENT_STORES, incarnation)
+            .expect("schema authority should resolve");
+    let submission_key = SchemaSubmissionKey::try_new(SUBMISSION).expect("submission should admit");
+    let receipt = SchemaChangeReceipt::new(
+        database_identity,
+        submission_key.clone(),
+        SchemaProposalDigest::from_bytes([1; 32]),
+        accepted_head.clone(),
+        SchemaChangeOutcome::NoOp {
+            accepted_head: accepted_head.clone(),
+        },
+    )
+    .expect("terminal schema receipt should admit");
+    let record = SchemaApplicationRecord::new(receipt, Vec::new())
+        .expect("terminal schema record should admit");
+    apply_schema_application_record_op(
+        &SchemaApplicationRecordOp::insert(&record).expect("schema record operation should admit"),
+    )
+    .expect("schema record should publish");
+    let before = load_schema_application_record_read_only(database_identity, &submission_key)
+        .expect("record should load");
+
+    assert_eq!(
+        observe_generated_startup_state::<CurrentCanister>(&CURRENT_STORES, SUBMISSION),
+        Ok(DatabaseStartupState::Ready),
+    );
+    assert_eq!(
+        load_schema_application_record_read_only(database_identity, &submission_key)
+            .expect("record should reload"),
+        before,
+        "pure readiness observation must not rewrite schema application state",
+    );
+    assert_eq!(
+        receipt::startup_memory::<CurrentCanister>()
+            .expect("startup memory should open")
+            .size(),
+        0,
+        "readiness without a failure must not allocate the receipt cell",
+    );
+
+    let marker = CommitMarker::from_parts([0x5a; 16], Vec::new())
+        .expect("empty marker should admit for control observation");
+    let interrupted = begin_commit(&marker).expect("marker should persist");
+    assert_eq!(
+        observe_generated_startup_state::<CurrentCanister>(&CURRENT_STORES, SUBMISSION),
+        Ok(DatabaseStartupState::Recovering),
+        "a marker must take precedence over a completed volatile witness",
+    );
+    finish_commit(interrupted, |_| Ok(())).expect("empty marker should clear");
+    assert_eq!(
+        observe_generated_startup_state::<CurrentCanister>(&CURRENT_STORES, SUBMISSION),
+        Ok(DatabaseStartupState::Ready),
+    );
+
+    let accepted_head_binding = match accepted_head {
+        icydb_schema::ExpectedAcceptedHead::Empty => receipt::AcceptedHeadBinding::Empty,
+        icydb_schema::ExpectedAcceptedHead::Exact {
+            revision,
+            fingerprint,
+        } => receipt::AcceptedHeadBinding::Exact {
+            revision,
+            fingerprint: fingerprint.to_bytes(),
+        },
+    };
+    let terminal_failure = StartupFailure::new(
+        StartupFailureKind::SchemaReconciliation,
+        ErrorCode::RUNTIME_CONFLICT.diagnostic(DiagnosticOrigin::Recovery),
+        Vec::new(),
+    );
+    let memoized = receipt::StartupFailureReceipt::new(
+        terminal_failure.clone(),
+        receipt::StartupFailureBinding::SchemaReconciliation {
+            incarnation,
+            submission_key: SUBMISSION.to_string(),
+            accepted_head: accepted_head_binding,
+        },
+    )
+    .expect("memoized schema failure should admit");
+    assert!(
+        receipt::publish::<CurrentCanister>(&memoized).expect("memoized failure should publish")
+    );
+    assert_eq!(
+        observe_generated_startup_state::<CurrentCanister>(&CURRENT_STORES, SUBMISSION),
+        Err(terminal_failure),
+        "one exact matching failure receipt has priority over Ready evidence",
+    );
+    assert_eq!(
+        observe_generated_startup_state::<CurrentCanister>(
+            &CURRENT_STORES,
+            "generated/fedcba9876543210",
+        ),
+        Ok(DatabaseStartupState::Recovering),
+        "a receipt bound to another generated submission must be stale",
+    );
+    assert!(receipt::clear::<CurrentCanister>().expect("test receipt should clear"));
+}
+
+#[test]
+fn driver_completes_one_recovery_page_then_memoizes_only_terminal_schema_failure() {
+    const SUBMISSION: &str = "generated/0011223344556677";
+
+    select_commit_memory_allocation(
+        DriverCanister::commit_memory_id().expect("test allocation"),
+        DriverCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    initialize_current_database_control_for_tests(&memory);
+    let request_root = RequestExecutionRoot::__new_runtime_root();
+    let session = crate::db::DbSession::<DriverCanister>::new(&DRIVER_STORES, &request_root);
+
+    assert_eq!(
+        drive_generated_startup_recovery_page(&session, &DRIVER_STORES, SUBMISSION)
+            .expect("empty recovery page should complete"),
+        GeneratedStartupDriverStep::ApplyGeneratedSchema,
+    );
+    assert_eq!(
+        observe_generated_startup_state::<DriverCanister>(&DRIVER_STORES, SUBMISSION),
+        Ok(DatabaseStartupState::Recovering),
+        "recovery completion alone must not claim generated reconciliation",
+    );
+
+    let retryable = InternalError::recovery_pending();
+    assert!(
+        !record_generated_schema_startup_failure::<DriverCanister>(
+            &DRIVER_STORES,
+            SUBMISSION,
+            retryable.diagnostic(),
+            retryable.diagnostic_facts(),
+        )
+        .expect("retryable classification should complete without publication")
+    );
+    assert_eq!(
+        receipt::startup_memory::<DriverCanister>()
+            .expect("startup memory should open")
+            .size(),
+        0,
+        "retryable failure must not allocate the receipt cell",
+    );
+
+    let terminal = InternalError::store_corruption();
+    let marker = CommitMarker::from_parts([0x7b; 16], Vec::new())
+        .expect("empty marker should admit for receipt priority");
+    let interrupted = begin_commit(&marker).expect("marker should persist");
+    assert!(
+        record_generated_schema_startup_failure::<DriverCanister>(
+            &DRIVER_STORES,
+            SUBMISSION,
+            terminal.diagnostic(),
+            terminal.diagnostic_facts(),
+        )
+        .expect("terminal failure should publish")
+    );
+    let observed = observe_generated_startup_state::<DriverCanister>(&DRIVER_STORES, SUBMISSION)
+        .expect_err("matching terminal receipt should surface");
+    assert_eq!(observed.kind(), StartupFailureKind::SchemaReconciliation);
+    assert_eq!(
+        observed.diagnostic().error_code(),
+        ErrorCode::STORE_CORRUPTION
+    );
+    finish_commit(interrupted, |_| Ok(())).expect("test marker should clear");
+    assert!(
+        clear_generated_startup_failure::<DriverCanister>()
+            .expect("authoritative correction should clear the receipt")
+    );
+}
+
+#[test]
+fn ready_startup_driver_publishes_empty_cardinality_then_quiesces() {
+    const SUBMISSION: &str = "generated/cardinality-driver";
+
+    select_commit_memory_allocation(
+        CardinalityDriverCanister::commit_memory_id().expect("test allocation"),
+        CardinalityDriverCanister::COMMIT_STABLE_KEY,
+    );
+    let memory = commit_memory_handle(
+        current_commit_memory_allocation().expect("commit allocation should resolve"),
+    )
+    .expect("commit memory should open");
+    initialize_current_database_control_for_tests(&memory);
+    let request_root = RequestExecutionRoot::__new_runtime_root();
+    let database = crate::db::Db::<CardinalityDriverCanister>::new(
+        &CARDINALITY_DRIVER_STORES,
+        request_root.scope(),
+    );
+    ensure_database_format_admitted(&database).expect("current store registry should initialize");
+    mark_startup_recovery_complete_for_tests(&CARDINALITY_DRIVER_STORES)
+        .expect("recovery witness should publish");
+    let incarnation = database_incarnation_id().expect("incarnation should resolve");
+    let (database_identity, accepted_head) =
+        generated_schema_authority(&CARDINALITY_DRIVER_STORES, incarnation)
+            .expect("empty generated authority should resolve");
+    let submission_key = SchemaSubmissionKey::try_new(SUBMISSION).expect("submission should admit");
+    let receipt = SchemaChangeReceipt::new(
+        database_identity,
+        submission_key,
+        SchemaProposalDigest::from_bytes([2; 32]),
+        accepted_head.clone(),
+        SchemaChangeOutcome::NoOp { accepted_head },
+    )
+    .expect("terminal schema receipt should admit");
+    let record = SchemaApplicationRecord::new(receipt, Vec::new())
+        .expect("terminal schema record should admit");
+    apply_schema_application_record_op(
+        &SchemaApplicationRecordOp::insert(&record).expect("schema record operation should admit"),
+    )
+    .expect("schema receipt should publish");
+    assert_eq!(
+        observe_generated_startup_state::<CardinalityDriverCanister>(
+            &CARDINALITY_DRIVER_STORES,
+            SUBMISSION,
+        ),
+        Ok(DatabaseStartupState::Ready),
+    );
+
+    let session = crate::db::DbSession::<CardinalityDriverCanister>::new(
+        &CARDINALITY_DRIVER_STORES,
+        &request_root,
+    );
+    assert_eq!(
+        drive_generated_startup_recovery_page(&session, &CARDINALITY_DRIVER_STORES, SUBMISSION,)
+            .expect("empty cardinality publication should use the existing driver"),
+        GeneratedStartupDriverStep::Recovering,
+    );
+    CARDINALITY_DRIVER_SCHEMA.with_borrow(|schema| {
+        let header = schema
+            .cardinality_generation_header()
+            .expect("cardinality header should decode")
+            .expect("cardinality header should publish");
+        assert_eq!(
+            header.state(),
+            crate::db::schema::cardinality_generation::CardinalityGenerationState::Ready,
+        );
+    });
+    assert_eq!(
+        drive_generated_startup_recovery_page(&session, &CARDINALITY_DRIVER_STORES, SUBMISSION,)
+            .expect("current cardinality evidence should quiesce"),
+        GeneratedStartupDriverStep::Terminal,
+    );
+}

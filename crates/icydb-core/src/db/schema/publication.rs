@@ -13,11 +13,9 @@ use crate::{
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
             AcceptedSchemaSnapshot, CandidateSchemaRevision, ConstraintActivationState,
-            ConstraintId, MutationPublicationPreflight, PersistedSchemaSnapshot,
-            SchemaDdlAcceptedSnapshotDerivation, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, StagedUserIndexDomainReplacement, decide_schema_transition,
-            mutation::required_empty_entity_field_addition_matches,
-            transition::SchemaTransitionPlan,
+            ConstraintId, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+            SchemaStore, SchemaTransitionPlan, StagedUserIndexDomainReplacement,
+            mutation::required_empty_entity_field_addition_matches, plan_sql_ddl_addition,
         },
     },
     error::InternalError,
@@ -177,15 +175,6 @@ fn candidate_with_snapshot(
     )
 }
 
-fn validate_publishable_transition_plan(plan: &SchemaTransitionPlan) -> Result<(), InternalError> {
-    match plan.publication_preflight() {
-        MutationPublicationPreflight::PublishableNow => Ok(()),
-        MutationPublicationPreflight::RequiresPhysicalWork => {
-            Err(InternalError::store_unsupported())
-        }
-    }
-}
-
 pub(in crate::db) fn execute_schema_field_path_index_addition(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
@@ -198,11 +187,11 @@ pub(in crate::db) fn execute_schema_field_path_index_addition(
         &accepted_before_identity,
         derivation,
     );
-    let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AddFieldPathIndex)?;
-    let target = plan
-        .field_path_index_target()
-        .ok_or_else(InternalError::store_unsupported)?;
-    if Some(target) != derivation.admission().field_path_target() {
+    let SchemaTransitionPlan::AddFieldPathIndex { target } = envelope.require_transition_plan()?
+    else {
+        return Err(InternalError::store_unsupported());
+    };
+    if Some(&target) != derivation.admission().field_path_target() {
         return Err(InternalError::store_unsupported());
     }
 
@@ -223,11 +212,11 @@ pub(in crate::db) fn execute_schema_expression_index_addition(
         &accepted_before_identity,
         derivation,
     );
-    let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AddExpressionIndex)?;
-    let Some(target) = derivation.admission().expression_target() else {
+    let SchemaTransitionPlan::AddExpressionIndex { target } = envelope.require_transition_plan()?
+    else {
         return Err(InternalError::store_unsupported());
     };
-    if plan.expression_index_target() != Some(target) {
+    if Some(&target) != derivation.admission().expression_target() {
         return Err(InternalError::store_unsupported());
     }
 
@@ -307,8 +296,9 @@ pub(in crate::db) fn execute_schema_field_addition(
         }
         require_exact_empty_sql_ddl_entity(store, entity_tag)?;
     } else {
-        let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AppendOnlyFields)?;
-        validate_publishable_transition_plan(&plan)?;
+        let SchemaTransitionPlan::AppendOnlyFields = envelope.require_transition_plan()? else {
+            return Err(InternalError::store_unsupported());
+        };
     }
 
     envelope.publish()
@@ -361,11 +351,8 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.after
     }
 
-    pub(super) fn require_transition_plan(
-        &self,
-        expected_kind: SchemaTransitionPlanKind,
-    ) -> Result<SchemaTransitionPlan, InternalError> {
-        require_sql_ddl_transition_plan(self.before, self.after, expected_kind)
+    pub(super) fn require_transition_plan(&self) -> Result<SchemaTransitionPlan, InternalError> {
+        plan_sql_ddl_addition(self.before, self.after).ok_or_else(InternalError::store_unsupported)
     }
 
     pub(super) fn publish(&self) -> Result<(), InternalError> {
@@ -375,21 +362,6 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
             self.after,
         )
     }
-}
-
-fn require_sql_ddl_transition_plan(
-    before: &PersistedSchemaSnapshot,
-    after: &PersistedSchemaSnapshot,
-    expected_kind: SchemaTransitionPlanKind,
-) -> Result<SchemaTransitionPlan, InternalError> {
-    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(before, after) else {
-        return Err(InternalError::store_unsupported());
-    };
-    if plan.kind() != expected_kind {
-        return Err(InternalError::store_unsupported());
-    }
-
-    Ok(plan)
 }
 
 /// Execute one supported SQL DDL secondary-index drop through marker-first

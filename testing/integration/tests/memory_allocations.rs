@@ -1,11 +1,7 @@
 //! Controller-only allocation reporting through the generated snapshot endpoint.
 
 use ic_platform::principal::ExternalPrincipal as Principal;
-use icydb::{
-    Error, ErrorOrigin,
-    db::StorageReport,
-    diagnostic::RuntimeBoundaryCode,
-};
+use icydb::{Error, ErrorOrigin, db::StorageReport, diagnostic::RuntimeBoundaryCode};
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
 };
@@ -31,10 +27,24 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
     let allocations = report.memory_allocations().unwrap();
     assert!(allocations.current_generation > 0);
     assert!(!allocations.memories.is_empty());
-    assert_eq!(allocations.virtual_extent.bytes, allocations.virtual_extent.wasm_pages * 65_536);
-    assert_eq!(allocations.virtual_extent.bytes,
-        allocations.memories.iter().map(|entry| entry.virtual_extent.bytes).sum::<u64>());
-    assert!(allocations.memories.iter().all(|entry| entry.allocation_id > 0 && entry.stable_key.starts_with("icydb.")));
+    assert_eq!(
+        allocations.virtual_extent.bytes,
+        allocations.virtual_extent.wasm_pages * 65_536
+    );
+    assert_eq!(
+        allocations.virtual_extent.bytes,
+        allocations
+            .memories
+            .iter()
+            .map(|entry| entry.virtual_extent.bytes)
+            .sum::<u64>()
+    );
+    assert!(
+        allocations
+            .memories
+            .iter()
+            .all(|entry| entry.allocation_id > 0 && entry.stable_key.starts_with("icydb."))
+    );
 
     let repeated: Result<StorageReport, Error> = fixture
         .pocket_ic()

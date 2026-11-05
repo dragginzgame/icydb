@@ -1,5 +1,7 @@
 //! Conservative pair eligibility, retained operands and conjunction reductions.
 
+mod compaction;
+
 use super::{ComparePairSimplification, simplify_compare_pair_for_and};
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
@@ -401,7 +403,10 @@ fn simplify_with_full_restart_reference(mut predicates: Vec<Predicate>) -> Optio
                 (Predicate::Compare(left), Predicate::Compare(right))
                     if left.field == right.field && left.coercion == right.coercion =>
                 {
-                    simplify_compare_pair_for_and(left, right)
+                    simplify_compare_pair_for_and(left, right, &mut |_, _| {
+                        Ok::<_, std::convert::Infallible>(())
+                    })
+                    .unwrap()
                 }
                 _ => ComparePairSimplification::NoChange,
             };
@@ -519,7 +524,7 @@ fn replacements_preserve_large_settled_prefixes() {
 
 // Semantic fixtures use the same fallible traversal without a request ceiling.
 fn simplify_and_compare_constraints(predicates: Vec<Predicate>) -> Option<Vec<Predicate>> {
-    super::simplify_and_compare_constraints(predicates, &mut || {
+    super::simplify_and_compare_constraints(predicates, &mut |_, _| {
         Ok::<_, crate::error::InternalError>(())
     })
     .unwrap()

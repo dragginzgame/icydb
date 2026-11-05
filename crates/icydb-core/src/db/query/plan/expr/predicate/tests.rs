@@ -9,7 +9,7 @@ use crate::{
             plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
             preparation::PreparationWork,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };
@@ -111,34 +111,46 @@ fn membership_and_truth_shells_share_cumulative_construction_admission() {
         right: Box::new(compare(Value::Text("b".repeat(128)))),
     };
     for expr in [
+        Expr::membership(
+            Expr::Field(FieldId::new("label")),
+            vec![Value::Text("b".repeat(128)), Value::Text("a".repeat(128))],
+            false,
+        ),
+        Expr::membership(
+            Expr::Field(FieldId::new("label")),
+            vec![Value::Text("b".repeat(128)), Value::Text("a".repeat(128))],
+            true,
+        ),
         chain.clone(),
         Expr::Unary {
             op: UnaryOp::Not,
             expr: Box::new(chain),
         },
     ] {
-        let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
-        let expected = extract(&generous, &expr)
-            .unwrap()
-            .expect("membership extraction");
-        assert!(
-            matches!(&expected, Predicate::Compare(compare) if matches!(compare.op(), CompareOp::In | CompareOp::NotIn))
-        );
-        let bytes = generous.observed(Resource::TemporaryBytes);
-        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
-        assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
-        assert_resource(
-            extract(
-                &request_with_limit(Resource::TemporaryBytes, bytes - 1),
-                &expr,
-            )
-            .unwrap_err(),
+        for resource in [
+            Resource::PredicateExpressionSteps,
+            Resource::NestedValueSteps,
             Resource::TemporaryBytes,
-        );
-        assert_resource(
-            extract(&exact, &expr).unwrap_err(),
-            Resource::TemporaryBytes,
-        );
+            Resource::SortEntries,
+            Resource::SortComparisons,
+        ] {
+            let generous = request_with_limit(resource, 16_000_000);
+            let expected = extract(&generous, &expr)
+                .unwrap()
+                .expect("membership extraction");
+            assert!(
+                matches!(&expected, Predicate::Compare(compare) if matches!(compare.op(), CompareOp::In | CompareOp::NotIn))
+            );
+            let amount = generous.observed(resource);
+            assert!(amount > 0);
+            let exact = request_with_limit(resource, amount);
+            assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
+            assert_resource(
+                extract(&request_with_limit(resource, amount - 1), &expr).unwrap_err(),
+                resource,
+            );
+            assert_resource(extract(&exact, &expr).unwrap_err(), resource);
+        }
     }
 }
 

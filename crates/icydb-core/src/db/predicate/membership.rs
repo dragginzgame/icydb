@@ -1,17 +1,24 @@
 //! Module: predicate::membership
-//! Responsibility: shared construction of canonical membership compare predicates.
+//! Responsibility: shared construction of canonical value sets and membership predicates.
 //! Does not own: expression lowering or predicate tree normalization.
 //! Boundary: callers provide already-admitted compare leaves; this module owns
-//! the same-field and same-coercion membership assembly rule.
+//! canonical value-set ordering and the same-field/coercion membership assembly rule.
+
+#[cfg(test)]
+mod tests;
 
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, ComparePredicate},
-        resource::construction::ConstructionBudget,
+        resource::{
+            budget::sort_comparison_allowance,
+            construction::{ConstructionBudget, admit_value_comparison_repetitions},
+        },
     },
     error::InternalError,
     value::{Value, canonicalize_value_set},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 ///
 /// MembershipCompareLeaf
@@ -49,8 +56,10 @@ pub(in crate::db) fn collapse_membership_compare_leaves(
     if leaves.len() < 2 {
         return Ok(None);
     }
-    let Some((field, coercion)) =
-        membership_compare_domain(leaves.iter().map(|leaf| Some((leaf.field, leaf.coercion))))
+    let Some((field, coercion)) = membership_compare_domain(
+        leaves.iter().map(|leaf| Some((leaf.field, leaf.coercion))),
+        &mut |resource, amount| budget.charge(resource, amount),
+    )?
     else {
         return Ok(None);
     };
@@ -59,41 +68,73 @@ pub(in crate::db) fn collapse_membership_compare_leaves(
     values.extend(leaves.into_iter().map(|leaf| leaf.value));
 
     Ok(Some(membership_compare_from_values(
-        field, target_op, values, coercion,
-    )))
+        field,
+        target_op,
+        values,
+        coercion,
+        &mut |resource, amount| budget.charge(resource, amount),
+    )?))
 }
 
 /// Inspect borrowed leaf domains without constructing operands. An absent leaf
 /// means the caller's shape is ineligible; field/coercion agreement is owned here.
-pub(in crate::db::predicate) fn membership_compare_domain<'a>(
+pub(in crate::db::predicate) fn membership_compare_domain<'a, E>(
     leaves: impl IntoIterator<Item = Option<(&'a str, CoercionId)>>,
-) -> Option<(&'a str, CoercionId)> {
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<Option<(&'a str, CoercionId)>, E> {
     let mut leaves = leaves.into_iter();
-    let domain = leaves.next()??;
+    let Some(Some(domain)) = leaves.next() else {
+        return Ok(None);
+    };
     for leaf in leaves {
-        if leaf? != domain {
-            return None;
+        let Some(leaf) = leaf else { return Ok(None) };
+        // One domain check plus the maximum borrowed field-label extent.
+        charge(
+            Resource::PredicateExpressionSteps,
+            1 + domain.0.len() as u64,
+        )?;
+        if leaf != domain {
+            return Ok(None);
         }
     }
-    Some(domain)
+    Ok(Some(domain))
 }
 
 /// Assemble already-admitted same-field values using the canonical set owner.
 /// Callers establish the minimum leaf count before consuming their input.
-pub(in crate::db::predicate) fn membership_compare_from_values(
+pub(in crate::db::predicate) fn membership_compare_from_values<E>(
     field: impl Into<String>,
     target_op: CompareOp,
     values: Vec<Value>,
     coercion: CoercionId,
-) -> ComparePredicate {
-    let value = canonical_membership_value_list(values);
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePredicate, E> {
+    let value = canonical_value_set_list(values, charge)?;
 
-    ComparePredicate::with_coercion(field, target_op, value, coercion)
+    Ok(ComparePredicate::with_coercion(
+        field, target_op, value, coercion,
+    ))
 }
 
-/// Canonicalize an already-admitted membership literal set.
-pub(in crate::db) fn canonical_membership_value_list(mut values: Vec<Value>) -> Value {
+/// Admit ordering under the caller's authority, then use the existing set owner.
+/// Retained normalization explicitly supplies its infallible charge callback.
+pub(in crate::db) fn canonical_value_set_list<E>(
+    mut values: Vec<Value>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<Value, E> {
+    if values.len() > 1 {
+        charge(Resource::SortEntries, values.len() as u64)?;
+        // Reserve the shared sort allowance plus both adjacent scans: the
+        // canonical-input check and deduplication. Admission is conservative
+        // even when already ordered input avoids sorting. The in-place unstable
+        // sort has no auxiliary backing. Reserve payload work through the same
+        // admitted extent owner before entering the infallible comparator.
+        let adjacent = (values.len() as u64).saturating_sub(1).saturating_mul(2);
+        let comparisons = sort_comparison_allowance(values.len()).saturating_add(adjacent);
+        charge(Resource::SortComparisons, comparisons)?;
+        admit_value_comparison_repetitions(&values, comparisons, CoercionId::Strict, charge)?;
+    }
     canonicalize_value_set(&mut values);
 
-    Value::List(values)
+    Ok(Value::List(values))
 }

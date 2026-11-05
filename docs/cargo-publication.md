@@ -1,4 +1,5 @@
 # One Cargo publication attempt
+<!-- Shared companions: rules/contributions.md -->
 
 `scripts/ci/run-cargo-publication.sh` executes one explicitly authorized,
 consumer-admitted Cargo command. It owns retained intent, exact arguments,

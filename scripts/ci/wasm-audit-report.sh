@@ -22,7 +22,7 @@ usage() {
 usage: wasm-audit-report.sh [--profile debug|release|wasm-release] [--sql-variant sql-on|sql-off] [--date YYYY-MM-DD] [--report-dir path] [--canister name] [--skip-build]
 
 Defaults to wasm-release, sql-on, today's date, and the standard audit canister set.
-Default output uses docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/.
+Default output uses target/evidence/recurring/YYYY/MM/DD/wasm-footprint/<run>/.
 Repeat --canister to audit more than one specific canister.
 Every invocation writes a new report directory, including --skip-build.
 An existing --report-dir is rejected; use a new path for each run.
@@ -93,7 +93,7 @@ done
 audit_year="${audit_date:0:4}"
 audit_month="${audit_date:5:2}"
 audit_day="${audit_date:8:2}"
-report_scope_dir="$ROOT/docs/reports/recurring/$audit_year/$audit_month/$audit_day/$REPORT_SCOPE"
+report_scope_dir="$ROOT/target/evidence/recurring/$audit_year/$audit_month/$audit_day/$REPORT_SCOPE"
 if [[ -z "$report_dir" ]]; then
     report_run="01"
     while [[ -e "$report_scope_dir/$report_run" ]]; do
@@ -217,9 +217,9 @@ select_baseline() {
         return 0
     fi
 
-    [[ -d "$ROOT/docs/reports/recurring" ]] || return 0
+    [[ -d "$ROOT/target/evidence/recurring" ]] || return 0
     while IFS= read -r candidate; do
-        relative="${candidate#"$ROOT/docs/reports/recurring/"}"
+        relative="${candidate#"$ROOT/target/evidence/recurring/"}"
         [[ "$relative" =~ ^([0-9]{4})/([0-9]{2})/([0-9]{2})/wasm-footprint/[0-9]{2}/report\.md$ ]] || continue
         candidate_date="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
         [[ "$candidate_date" < "$audit_date" ]] || continue
@@ -235,7 +235,7 @@ select_baseline() {
             display_path "$candidate"
             return
         fi
-    done < <(find "$ROOT/docs/reports/recurring" -path '*/wasm-footprint/[0-9][0-9]/report.md' -type f | LC_ALL=C sort -r)
+    done < <(find "$ROOT/target/evidence/recurring" -path '*/wasm-footprint/[0-9][0-9]/report.md' -type f | LC_ALL=C sort -r)
 }
 
 write_summary_report() {
@@ -261,8 +261,8 @@ write_summary_report() {
         local status="PARTIAL"
         local previous_final="N/A"
         local current_final
-        local previous_gz="N/A"
-        local current_gz
+        local previous_code="N/A"
+        local current_code
 
         if [[ -z "$canister_list" ]]; then
             canister_list="$canister_name"
@@ -271,7 +271,7 @@ write_summary_report() {
         fi
 
         current_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$size_report_path")"
-        current_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$size_report_path")"
+        current_code="$(jq -er '.analysis.final_deployable.code_section_bytes // "unmeasured"' "$size_report_path")"
         if ! jq -e '.provenance.source_dirty == false' "$size_report_path" >/dev/null; then
             all_current_sources_clean=0
             status="PARTIAL"
@@ -281,7 +281,7 @@ write_summary_report() {
             baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
             if baseline_artifact_matches "$baseline_artifact" "$size_report_path"; then
                 previous_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$baseline_artifact")"
-                previous_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$baseline_artifact")"
+                previous_code="$(jq -er '.analysis.final_deployable.code_section_bytes // "unmeasured"' "$baseline_artifact")"
                 status="PASS"
             else
                 all_baselines_available=0
@@ -290,7 +290,7 @@ write_summary_report() {
             all_baselines_available=0
         fi
 
-        rows+=("$canister_name"$'\t'"$status"$'\t'"$previous_final"$'\t'"$current_final"$'\t'"$previous_gz"$'\t'"$current_gz"$'\t'"$(display_path "$size_summary_path")")
+        rows+=("$canister_name"$'\t'"$status"$'\t'"$previous_final"$'\t'"$current_final"$'\t'"$previous_code"$'\t'"$current_code"$'\t'"$(display_path "$size_summary_path")")
     done
 
     local comparability
@@ -337,14 +337,14 @@ write_summary_report() {
         printf '%s\n\n' "$baseline_status_row"
         printf '%s\n\n' "$pass_counts"
         printf '## Per-Canister Size Snapshot\n\n'
-        printf '| Canister | Baseline Status | Previous final `.wasm` | Current final `.wasm` | Previous final `.wasm.gz` | Current final `.wasm.gz` | Size Summary |\n'
+        printf '| Canister | Baseline Status | Previous final `.wasm` | Current final `.wasm` | Previous code-section bytes | Current code-section bytes | Size Summary |\n'
         printf '| --- | --- | ---: | ---: | ---: | ---: | --- |\n'
 
-        local row canister_name status previous_final current_final previous_gz current_gz size_summary_path
+        local row canister_name status previous_final current_final previous_code current_code size_summary_path
         for row in "${rows[@]}"; do
-            IFS=$'\t' read -r canister_name status previous_final current_final previous_gz current_gz size_summary_path <<<"$row"
+            IFS=$'\t' read -r canister_name status previous_final current_final previous_code current_code size_summary_path <<<"$row"
             printf '| `%s` | %s | %s | %s | %s | %s | `%s` |\n' \
-                "$canister_name" "$status" "$previous_final" "$current_final" "$previous_gz" "$current_gz" "$size_summary_path"
+                "$canister_name" "$status" "$previous_final" "$current_final" "$previous_code" "$current_code" "$size_summary_path"
         done
 
         printf '\n## Follow-Up Actions\n\n'
@@ -385,7 +385,7 @@ mkdir -- "$artifact_scope_dir"
 # Canonical explicit paths carry the same date/run identity as automatic paths.
 # Outside that hierarchy, --date supplies the comparison day.
 resolved_report_dir="$(cd "$report_dir" && pwd)"
-relative_report_dir="${resolved_report_dir#"$ROOT/docs/reports/recurring/"}"
+relative_report_dir="${resolved_report_dir#"$ROOT/target/evidence/recurring/"}"
 if [[ "$relative_report_dir" =~ ^([0-9]{4})/([0-9]{2})/([0-9]{2})/wasm-footprint/([0-9]{2})$ ]]; then
     audit_date="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
     report_run="${BASH_REMATCH[4]}"
@@ -393,7 +393,7 @@ if [[ "$relative_report_dir" =~ ^([0-9]{4})/([0-9]{2})/([0-9]{2})/wasm-footprint
 fi
 
 # Attribution reads these private copies, never mutable shared build outputs.
-capture_dir="$(mktemp -d)"
+capture_dir="$(mktemp -d "$report_dir/.capture.XXXXXX")"
 trap 'rm -f -- "$capture_dir/final.wasm" "$capture_dir/final.wasm.gz"; rmdir -- "$capture_dir"' EXIT
 
 write_twiggy_artifact() {

@@ -296,3 +296,195 @@ fn predicate_hash_copy_and_encoding_exhaustion_preserve_input_and_hash_stream() 
         }
     }
 }
+
+#[test]
+fn raw_ordering_refusal_preserves_existing_hash_stream() {
+    let predicate = Predicate::eq(
+        "map".into(),
+        Value::Map(vec![
+            (Value::Text("k".into()), Value::Text("z".repeat(256))),
+            (Value::Text("k".into()), Value::Text("a".repeat(256))),
+        ]),
+    );
+    let membership = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("İ".repeat(128)),
+            Value::Text("a".into()),
+            Value::Text("İ".repeat(128)),
+        ]),
+        CoercionId::TextCasefold,
+    ));
+    for (predicate, entries, comparisons) in [(predicate, 2, 3), (membership, 3, 12)] {
+        let mut encoded = Vec::new();
+        write_predicate_sort_key(&mut encoded, &predicate);
+        for (resource, exact) in [
+            (Resource::SortEntries, entries),
+            (Resource::SortComparisons, comparisons),
+        ] {
+            for limit in [exact - 1, exact] {
+                let root = request(resource, limit);
+                let mut hasher = new_hash_sha256();
+                hasher.update(b"previous section");
+                let before = hasher.clone();
+                let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+                    hash_predicate_structural(&mut hasher, &predicate, work)
+                        .map_err(QueryError::execute)
+                });
+                if limit == exact {
+                    result.unwrap();
+                    let mut expected = before;
+                    expected.update(&encoded);
+                    assert_eq!(finalize_hash_sha256(hasher), finalize_hash_sha256(expected));
+                } else {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .diagnostic_facts()
+                            .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                    );
+                    assert_eq!(finalize_hash_sha256(hasher), finalize_hash_sha256(before));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn raw_membership_sort_and_coerced_payload_allowances_are_exact_and_cumulative() {
+    use crate::value::lower_text_construction_allowance;
+
+    for (value, capacity, nodes, bytes) in [
+        (Value::Text("İΣ".repeat(64)), 320, 2, 256),
+        (Value::Blob(vec![1; 256]), 320, 2, 256),
+        (Value::Nat128(u128::MAX), 64, 2, 0),
+        (
+            Value::Enum(ValueEnum::test_payload(
+                1,
+                1,
+                Value::Map(vec![(Value::Text("k".into()), Value::Blob(vec![1; 256]))]),
+            )),
+            513,
+            8,
+            257,
+        ),
+    ] {
+        for coercion in [
+            CoercionId::Strict,
+            CoercionId::CollectionElement,
+            CoercionId::NumericWiden,
+            CoercionId::TextCasefold,
+        ] {
+            let (capacity, compared_bytes, fold_steps) = if coercion == CoercionId::TextCasefold
+                && let Value::Text(text) = &value
+            {
+                let (backing, steps) = lower_text_construction_allowance(text.len());
+                (64 + 2 * bytes, backing, steps)
+            } else {
+                (capacity, bytes, 0)
+            };
+            let capacity = 129 + 3 * capacity;
+            for op in [CompareOp::In, CompareOp::NotIn] {
+                let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+                    "x",
+                    op,
+                    Value::List(vec![value.clone(); 3]),
+                    coercion,
+                ));
+                // Three items: six sort comparisons and three two-entry scans.
+                // Raw admission walks source payloads; repetitions use the bound
+                // after direct coercion. Nested payloads are never casefolded.
+                for (resource, amount) in [
+                    (Resource::SortEntries, 3),
+                    (Resource::SortComparisons, 12),
+                    (Resource::NestedValueSteps, 1 + 3 * nodes / 2 + 15 * nodes),
+                    (
+                        Resource::PredicateExpressionSteps,
+                        1 + 3 * bytes + 12 * compared_bytes + 3 * fold_steps + 2 * capacity,
+                    ),
+                ] {
+                    assert_raw_membership_boundary(&predicate, resource, amount, capacity);
+                }
+            }
+        }
+    }
+}
+
+fn assert_raw_membership_boundary(
+    predicate: &Predicate,
+    resource: Resource,
+    amount: u64,
+    capacity: u64,
+) {
+    for lane in [
+        Lane::PublicRead,
+        Lane::TrustedRead,
+        Lane::Diagnostic,
+        Lane::Mutation,
+    ] {
+        for limit in [amount - 1, amount, 2 * amount] {
+            let root = request(resource, limit);
+            for attempt in 1..=3 {
+                let result = PreparationWork::run(&root.scope(), lane, |work| {
+                    raw_predicate_key_capacity(predicate, work).map_err(QueryError::execute)
+                });
+                assert_eq!(root.observed(Resource::SortTemporaryBytes), 0);
+                if attempt * amount <= limit {
+                    assert_eq!(result.unwrap() as u64, capacity);
+                    assert_eq!(root.observed(resource), attempt * amount);
+                } else {
+                    let error = result.unwrap_err();
+                    let actual = root.observed(resource);
+                    assert!(actual > limit && actual <= attempt * amount);
+                    for fact in [
+                        (DiagnosticFactTag::BudgetResource, resource.raw()),
+                        (DiagnosticFactTag::ExecutionLane, lane.raw()),
+                        (DiagnosticFactTag::Limit, limit),
+                        (DiagnosticFactTag::Actual, actual),
+                    ] {
+                        assert!(error.diagnostic_facts().contains(&fact));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn normalized_membership_and_empty_singleton_raw_lists_skip_ordering_admission() {
+    for coercion in [CoercionId::Strict, CoercionId::TextCasefold] {
+        for items in [
+            vec![],
+            vec![Value::Text("İ".repeat(128))],
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        ] {
+            for op in [CompareOp::In, CompareOp::NotIn] {
+                let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+                    "x",
+                    op,
+                    Value::List(items.clone()),
+                    coercion,
+                ));
+                for resource in [Resource::SortEntries, Resource::SortComparisons] {
+                    let root = request(resource, 0);
+                    PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+                        normalized_predicate_key_capacity(&predicate, work)
+                            .map_err(QueryError::execute)
+                    })
+                    .unwrap();
+                    assert_eq!(root.observed(resource), 0);
+                    if items.len() < 2 {
+                        PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+                            raw_predicate_key_capacity(&predicate, work)
+                                .map_err(QueryError::execute)
+                        })
+                        .unwrap();
+                        assert_eq!(root.observed(resource), 0);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -23,7 +23,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::{Value, test_hash_budget_error, with_test_hash_override},
 };

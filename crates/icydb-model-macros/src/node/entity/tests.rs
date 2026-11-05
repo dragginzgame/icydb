@@ -113,32 +113,33 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
 }
 
 #[test]
-fn index_names_obey_the_exact_schema_byte_boundary() {
-    let entity_name = "e".repeat(60);
-    for unique in [false, true] {
-        let prefix_bytes = if unique { 7 } else { 6 };
-        let field_bytes = icydb_schema::MAX_SCHEMA_NAME_BYTES - prefix_bytes - entity_name.len();
-        for excess in [0, 1] {
-            let field_name = "f".repeat(field_bytes + excess);
-            let index = Index {
-                fields: field_list(&[field_name.as_str()]),
-                unique,
-                predicate: None,
-            };
-            let name = index.generated_name(&entity_name);
-            assert_eq!(name.len(), icydb_schema::MAX_SCHEMA_NAME_BYTES + excess);
-            assert_eq!(
-                Entity::validate_index_name(&index, &entity_name, &format_ident!("TestEntity"))
-                    .is_ok(),
-                excess == 0,
-            );
-            assert_eq!(icydb_schema::SchemaName::try_new(name).is_ok(), excess == 0);
-        }
+fn explicit_index_names_obey_the_shared_schema_boundary() {
+    for name in [
+        String::new(),
+        "bad name".to_string(),
+        "__icydb_private".to_string(),
+        "x".repeat(icydb_schema::MAX_SCHEMA_NAME_BYTES + 1),
+    ] {
+        let index = Index {
+            name: Some(LitStr::new(&name, Span::call_site())),
+            fields: field_list(&["email"]),
+            unique: false,
+            predicate: None,
+        };
+        assert!(index.resolved_name("User").is_err());
     }
+    let name = "x".repeat(icydb_schema::MAX_SCHEMA_NAME_BYTES);
+    let index = Index {
+        name: Some(LitStr::new(&name, Span::call_site())),
+        fields: field_list(&["email"]),
+        unique: false,
+        predicate: None,
+    };
+    assert_eq!(index.resolved_name("User").unwrap(), name);
 }
 
 #[test]
-fn index_authoring_uses_the_shared_key_term_limit_and_canonical_slug() {
+fn index_authoring_uses_the_shared_key_term_limit_and_naming_owner() {
     for count in [
         0,
         1,
@@ -147,6 +148,7 @@ fn index_authoring_uses_the_shared_key_term_limit_and_canonical_slug() {
     ] {
         let fields = (0..count).map(|i| format!("field_{i}")).collect::<Vec<_>>();
         let index = Index {
+            name: None,
             fields: fields
                 .iter()
                 .map(|field| LitStr::new(field, Span::call_site()))
@@ -160,13 +162,14 @@ fn index_authoring_uses_the_shared_key_term_limit_and_canonical_slug() {
         );
     }
     let index = Index {
+        name: None,
         fields: field_list(&["LOWER(email)"]),
         unique: false,
         predicate: None,
     };
     Entity::validate_index_name(&index, "MailBox", &format_ident!("MailBox"))
         .expect("expression terms use the same emitted canonical slug");
-    assert!(icydb_schema::SchemaName::try_new(index.generated_name("MailBox")).is_ok());
+    assert!(icydb_schema::SchemaName::try_new(index.resolved_name("MailBox").unwrap()).is_ok());
 }
 
 #[test]
@@ -179,7 +182,7 @@ fn scalar_primary_key_does_not_emit_generated_key_struct() {
 }
 
 #[test]
-fn colliding_generated_index_names_are_rejected_at_the_entity_declaration() {
+fn distinct_definitions_with_the_same_readable_label_are_accepted() {
     for (left, right, predicates) in [
         (vec!["a_b"], vec!["a", "b"], [None, None]),
         (vec!["lower_email"], vec!["LOWER(email)"], [None, None]),
@@ -197,19 +200,21 @@ fn colliding_generated_index_names_are_rejected_at_the_entity_declaration() {
                 lower_email.value.item.max_len = Some(32);
                 let mut indexes = vec![
                     Index {
+                        name: None,
                         fields: field_list(&left),
                         unique,
                         predicate: predicates[0].map(str::to_owned),
                     },
                     Index {
+                        name: None,
                         fields: field_list(&right),
                         unique,
                         predicate: predicates[1].map(str::to_owned),
                     },
                 ];
-                assert_eq!(
-                    indexes[0].generated_name("TestEntity"),
-                    indexes[1].generated_name("TestEntity")
+                assert_ne!(
+                    indexes[0].resolved_name("TestEntity").unwrap(),
+                    indexes[1].resolved_name("TestEntity").unwrap()
                 );
                 if reverse {
                     indexes.reverse();
@@ -228,8 +233,8 @@ fn colliding_generated_index_names_are_rejected_at_the_entity_declaration() {
                     indexes,
                 );
                 assert!(
-                    entity.validate().is_err(),
-                    "colliding generated names must reject"
+                    entity.validate().is_ok(),
+                    "distinct definitions must remain independently nameable"
                 );
             }
         }
@@ -241,19 +246,21 @@ fn unique_and_nonunique_index_names_remain_distinct() {
     for reverse in [false, true] {
         let mut indexes = vec![
             Index {
+                name: None,
                 fields: field_list(&["email"]),
                 unique: false,
                 predicate: None,
             },
             Index {
+                name: None,
                 fields: field_list(&["email"]),
                 unique: true,
                 predicate: None,
             },
         ];
         assert_ne!(
-            indexes[0].generated_name("TestEntity"),
-            indexes[1].generated_name("TestEntity")
+            indexes[0].resolved_name("TestEntity").unwrap(),
+            indexes[1].resolved_name("TestEntity").unwrap()
         );
         if reverse {
             indexes.reverse();
@@ -400,7 +407,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "TypedFieldType :: Scalar",
         "TypedFieldType :: List (& :: icydb :: __macro :: TypedFieldType :: Scalar",
         "TypedFieldType :: Named (< Profile as :: icydb_model :: TypedNamedType > :: SOURCE_KEY ,)",
-        "TypedFieldDescriptor :: new (\"nickname\" , :: icydb :: __macro :: TypedFieldType :: Scalar (:: icydb :: __macro :: ScalarType :: Text { max_len : :: core :: option :: Option :: None }) , true ,)",
+        "TypedFieldDescriptor :: new (\"nickname\" , :: icydb :: __macro :: TypedFieldType :: Scalar (:: icydb :: __macro :: ScalarType :: Text { max_len : :: std :: option :: Option :: None }) , true ,)",
         "ScalarType :: Timestamp",
         "BoundWriteEncoder :: new (binding , 5usize)",
     ] {
@@ -566,6 +573,7 @@ fn validate_rejects_index_field_not_found() {
     let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id")],
         vec![Index {
+            name: None,
             fields: field_list(&["missing_field"]),
             unique: false,
             predicate: None,
@@ -585,6 +593,7 @@ fn validate_rejects_many_cardinality_index_field() {
     let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), many_scalar_field("tags")],
         vec![Index {
+            name: None,
             fields: field_list(&["tags"]),
             unique: false,
             predicate: None,
@@ -604,6 +613,7 @@ fn validate_rejects_expression_index_field_not_found() {
     let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), scalar_field("email")],
         vec![Index {
+            name: None,
             fields: field_list(&["LOWER(name)"]),
             unique: false,
             predicate: None,
@@ -625,11 +635,13 @@ fn prefix_indexes_preserve_independent_uniqueness_constraints() {
         for reverse in [false, true] {
             let mut indexes = vec![
                 Index {
+                    name: None,
                     fields: field_list(&["email"]),
                     unique: short_unique,
                     predicate: None,
                 },
                 Index {
+                    name: None,
                     fields: field_list(&["email", "tenant_id"]),
                     unique: long_unique,
                     predicate: None,
@@ -665,11 +677,13 @@ fn prefix_indexes_preserve_filtered_membership() {
             for reverse in [false, true] {
                 let mut indexes = vec![
                     Index {
+                        name: None,
                         fields: field_list(&["email"]),
                         unique,
                         predicate: short_predicate.map(str::to_owned),
                     },
                     Index {
+                        name: None,
                         fields: field_list(&["email", "tenant_id"]),
                         unique,
                         predicate: long_predicate.map(str::to_owned),
@@ -700,11 +714,13 @@ fn unfiltered_nonunique_prefix_indexes_still_fail_validation() {
     for reverse in [false, true] {
         let mut indexes = vec![
             Index {
+                name: None,
                 fields: field_list(&["email"]),
                 unique: false,
                 predicate: None,
             },
             Index {
+                name: None,
                 fields: field_list(&["email", "tenant_id"]),
                 unique: false,
                 predicate: None,
@@ -1068,6 +1084,7 @@ fn generated_integer_predicates_reject_lowering_failures_during_validation() {
                 format!("qty {operator} {literal}")
             };
             let index = Index {
+                name: None,
                 fields: field_list(&["qty"]),
                 unique: false,
                 predicate: Some(predicate),
@@ -1100,6 +1117,7 @@ fn generated_numeric_predicates_preserve_successful_validation_and_lowering() {
         (Primitive::Decimal, "1.5"),
     ] {
         let index = Index {
+            name: None,
             fields: field_list(&["qty"]),
             unique: false,
             predicate: Some(format!("qty >= {literal}")),
@@ -1132,6 +1150,7 @@ fn generated_numeric_predicates_reject_nonfinite_and_unrepresentable_literals() 
         (Primitive::Decimal, 40),
     ] {
         let index = Index {
+            name: None,
             fields: field_list(&["qty"]),
             unique: false,
             predicate: Some(format!("qty >= {}", "9".repeat(digits))),
@@ -1184,4 +1203,52 @@ fn entity_preserves_documentation_without_copying_it_to_helper_types() {
         }
     }
     assert!(found);
+}
+
+#[test]
+fn explicit_names_cannot_hide_name_collisions_or_duplicate_definitions() {
+    let first = Index {
+        name: None,
+        fields: field_list(&["a"]),
+        unique: false,
+        predicate: None,
+    };
+    let collision = first.resolved_name("TestEntity").unwrap();
+    let second = Index {
+        name: Some(LitStr::new(&collision, Span::call_site())),
+        fields: field_list(&["b"]),
+        unique: false,
+        predicate: None,
+    };
+    assert!(
+        entity_with_fields_and_indexes(
+            vec![scalar_field("id"), scalar_field("a"), scalar_field("b")],
+            vec![first, second]
+        )
+        .validate()
+        .is_err()
+    );
+
+    let indexes = ["active = true", "(active=TRUE)"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, sql)| Index {
+            name: Some(LitStr::new(&format!("chosen_{i}"), Span::call_site())),
+            fields: field_list(&["a"]),
+            unique: false,
+            predicate: Some(sql.into()),
+        })
+        .collect();
+    assert!(
+        entity_with_fields_and_indexes(
+            vec![
+                scalar_field("id"),
+                scalar_field("a"),
+                primitive_field("active", Primitive::Bool)
+            ],
+            indexes
+        )
+        .validate()
+        .is_err()
+    );
 }

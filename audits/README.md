@@ -1,4 +1,5 @@
 # Shared audit methods
+<!-- Shared companions: audits/ci-release-integrity.md audits/code-hygiene.md audits/complexity-and-technical-debt.md audits/flow-convergence-and-duplication.md audits/ic-canister-applications.md audits/module-cleanup.md audits/module-surface-hardening.md docs/provenance.md -->
 
 These methods apply the [engineering baseline](../DRAGGINZGAME.md) to a named
 review scope. Shared Tooling owns the common questions and evidence contract;

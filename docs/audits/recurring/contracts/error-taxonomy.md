@@ -4,7 +4,7 @@
 
 - Report scope: `error-taxonomy`
 - Method: `ERROR-5 + DOMAIN-1`
-- Report: `docs/reports/recurring/YYYY/MM/DD/error-taxonomy/<run>/report.md`
+- Report: `docs/reports/recurring/error-taxonomy.md`
 
 Apply [audit governance](../../README.md), especially domain scope, finding
 ownership, immutable reports, and executed-test evidence. Freeze the method

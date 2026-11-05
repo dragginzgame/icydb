@@ -9,7 +9,7 @@ use crate::db::{
     session::tests::cardinality_tiebreak::{
         probe_candidates_for_tests, ranking_candidates_for_tests,
     },
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

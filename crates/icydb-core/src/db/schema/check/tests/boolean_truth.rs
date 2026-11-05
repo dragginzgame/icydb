@@ -99,7 +99,7 @@ fn boolean_tests_are_total_in_accepted_checks_and_index_membership() {
         .unwrap();
         let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog.clone());
         let predicate = membership
-            .to_predicate(snapshot.fields(), &catalog)
+            .to_predicate(snapshot.fields(), &catalog, None)
             .unwrap();
         let index_program = PredicateProgram::compile_with_schema_info(&schema, &predicate);
         for (value, expected) in [Value::Bool(true), Value::Bool(false), Value::Null]

@@ -45,6 +45,34 @@ renaming or helper-name override; downstream code can rely on the conventional
 names. Shadowing prelude types such as `Result` or `Option` is supported: macro
 expansion qualifies its standard-library and runtime references.
 
+## Whole-Row Write Inputs
+
+Runtime-enabled entities provide `UserInsert::from(row)`,
+`UserPatch::from(row)` and `UserReplace::from(row)`. These consume the entity
+into the existing generated write input; encode and execute that input through
+the usual accepted binding. No second schema parser or field-to-value encoder
+is needed.
+
+- Insert copies caller-authored fields and omits generated and managed fields.
+  A generated key in the source row is ignored; use the returned inserted row
+  to obtain the database-assigned key. Caller-authored scalar and composite
+  keys are preserved.
+- Patch and replace preserve every primary-key component, including a key
+  originally assigned by the database. They supply every authorable non-key
+  field. Optional `None` becomes `WriteCell::Null`, not `WriteCell::Omitted`.
+  For a partial update, explicitly set the desired patch fields to `Omitted`.
+- Managed timestamps and other database-owned values remain absent from the
+  authored fields. Scalar relation values become the existing typed IDs;
+  optional and repeated relations retain their nulls, order and duplicates.
+- `row.into_typed_key()` consumes just the key components into `Id<User>` for
+  exact reads or deletion. It supports scalar and composite keys and does not
+  encode unrelated row fields.
+
+Conversion does not normalize, validate or authorize application data. Keep
+those application hooks explicit before conversion. Encoding and execution
+still use the current accepted binding, including renamed-field mappings and
+stale-binding refusal. Converting a row does not make an old binding current.
+
 ## Primary Keys
 
 Declare one required field with `pk(field = "id")`, or two to four distinct
@@ -231,13 +259,39 @@ identical membership. Predicates and unique constraints remain unchanged in the
 generated schema. The existing rejection of unfiltered, non-unique prefix
 indexes still applies.
 
-Generated index names must also be distinct. The macro reports a collision at
-the later index declaration, before host model construction. The current name
-format can collide for `a_b` versus `(a, b)`, a field named `lower_email` versus
-`LOWER(email)`, or identical key terms with different partial predicates.
-Distinct uniqueness prefixes remain separate names. This diagnostic does not
-change the naming format or resolve its representational limits; those remain
-tracked in [#203](https://github.com/dragginzgame/icydb/issues/203).
+## Index Names
+
+Index names are automatic by default. Add `name` only when an application or
+operator needs a particular lookup label:
+
+```rust
+index(field = "email")
+index(name = "active_email", field = "email", predicate = "active = true")
+```
+
+Automatic names combine a readable entity/key label with a 32-hex-digit suffix.
+The shared schema owner hashes length-framed exact entity and ordered key terms,
+uniqueness and the parsed predicate identity under one versioned domain. Labels
+may be shortened to the schema-name byte bound; the suffix always includes the
+complete definition. Field/expression distinctions, case-sensitive field names,
+key boundaries and different partial predicates therefore participate in naming.
+Declaration ordering and unrelated indexes do not participate. Predicate spacing,
+keyword case and redundant parentheses do not change names; this is a structural
+parsed identity, not a general proof that differently written SQL is equivalent.
+
+Explicit names use the existing bounded schema-name contract and cannot use the
+engine-reserved `__icydb_` prefix. An override changes only the lookup label;
+uniqueness, membership and accepted physical `IndexId` authority remain separate.
+Names must be distinct within the entity, whether automatic or explicit. A digest
+is not an injectivity proof: conflicting names still reject at the later declaration
+with an override example. Repeating the same parsed index definition also rejects,
+even with different explicit names. Model and runtime intake checks remain.
+
+This pre-1.0 hard cut changes automatic names. Update name-based tooling from the
+accepted catalog, or explicitly retain a chosen previous label with `name`.
+There is no old-name fallback, alias map or declaration-order numbering. A changed
+automatic name must follow normal generated schema reconciliation; it does not
+authorize dropping an index or treating retained data as disposable.
 
 ## Field And Relation Names
 
@@ -261,7 +315,7 @@ reserved field identifiers:
 
 Entity, store, canister, and named-type names come from their Rust declarations.
 Fields, variants, relations, constraints, and rules use their explicit authored
-names; indexes derive their canonical names. Do not create a second name map in
+names; indexes derive names unless an explicit `name` overrides the label. Do not create a second name map in
 application code.
 
 ## Nested Strong Relations
@@ -492,7 +546,8 @@ canisters/app/src/build.rs      # mod design; main calls build_canister!(design:
 canisters/app/src/lib.rs        # mod design; canic_icydb::start!(icydb); application endpoints
 ```
 
-Put `icydb` in both `[dependencies]` and `[build-dependencies]`. The build
+Put `icydb` in both `[dependencies]` and `[build-dependencies]`, selecting
+`features = ["build"]` only on the build dependency. The build
 script's `main` returns `Result<(), Box<dyn std::error::Error>>`, prints
 `cargo:rerun-if-changed=src/design`, and returns the result of
 `icydb::build::build_canister!(design::AppCanister)`. Cargo's explicit build
@@ -514,6 +569,32 @@ crates/app-schema/       # canister, store, entity, and named-type declarations
 canisters/app/build.rs   # depends on app-schema and calls build_canister!
 canisters/app/src/lib.rs # depends on app-schema and runs the generated actor
 ```
+
+The schema library forwards the request to each dependency whose declarations
+belong to its graph. For a facade-only schema library:
+
+```toml
+[features]
+default = []
+build = ["icydb/build"]
+
+[dependencies]
+icydb = { workspace = true }
+```
+
+The consuming canister enables `app-schema/build` through its schema
+`[build-dependencies]` entry. A schema-only library using `icydb-model` forwards
+`build` to `icydb-model/build` instead; shared schema dependencies forward it
+recursively. Normal dependency entries do not request it. Cargo separates build
+and runtime feature contexts, including native builds.
+
+Without `build`, declarations emit application types and behavior without
+process-global registration or authoring descriptors. Host `build`, `node`,
+`fragment` and graph error APIs require that feature. Feature selection belongs
+to IcyDB's dependency; callers need no feature with a matching name. `wire-schema`
+is a separate opt-in for native binding metadata on `icydb`, `icydb-core` and
+`icydb-schema`, and does not collect the application graph. Runtime codecs and
+accepted catalog authority do not depend on either generation feature.
 
 For several canisters, share declarations only where the Rust domain is
 actually shared; independent canisters can each use the single-package layout.

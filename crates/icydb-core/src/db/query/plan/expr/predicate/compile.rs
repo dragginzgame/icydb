@@ -13,7 +13,7 @@ use crate::{
         QueryError,
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
-            Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
+            Predicate, canonical_value_set_list, collapse_membership_compare_leaves,
         },
         query::plan::expr::{
             BinaryOp, BooleanFunctionShape, Expr, FieldPredicateFunctionKind, Function,
@@ -853,7 +853,9 @@ fn compile_bool_compact_membership_truth_predicate(
         return Ok(Predicate::False);
     }
 
-    let list = canonical_membership_value_list(values);
+    let list = canonical_value_set_list(values, &mut |resource, amount| {
+        work.charge(resource, amount)
+    })?;
     let op = if matches!(truth, BoolTruth::True) {
         CompareOp::In
     } else {

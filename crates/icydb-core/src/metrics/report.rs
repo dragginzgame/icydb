@@ -70,7 +70,7 @@ impl Serialize for InstructionMetrics {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
 impl ic_wire::typescript::Wire for InstructionMetrics {
     fn native_schema(
         context: &mut ic_wire::typescript::SchemaContext,
@@ -82,7 +82,10 @@ impl ic_wire::typescript::Wire for InstructionMetrics {
 // Preserve the existing reflection name, field order and bytes. These are
 // report facts, not a mutable recorder or a governed persistence adapter.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 struct AggregateFields {
     samples: u64,
     total: u128,

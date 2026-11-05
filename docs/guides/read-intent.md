@@ -30,8 +30,14 @@ accepted prepared plan, including the index/prefix or typed rejection reason.
 `NotApplicable` means the route does not use secondary-order pushdown; it does
 not mean that ordering requires a sort (primary-key ordering can already be
 satisfied). `MissingModelContext` is reserved for context-free logical plan
-projection. These diagnostics do not predict PublicRead admission; authorization
-and public-page admission remain separate execution checks.
+projection. Typed `public_read_admission()` and logical/execution EXPLAIN's
+`public_read_admission` report apply the canonical default bounded-read policy
+to the displayed accepted read plan, including its first rejection reason.
+Context-free and non-read plans have no public-read verdict. Execution EXPLAIN
+also retains the separate diagnostic-lane summary, which cannot execute rows.
+The public-read report does not validate authorization, cursor bytes, runtime
+budgets or a page envelope that would change the plan. Actual public-page
+admission remains an execution check against that page's prepared plan.
 
 Public scalar typed and dynamic reads return bounded live pages. A non-null
 continuation means traversal is not yet proven exhausted; it does not promise

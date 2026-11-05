@@ -2,6 +2,8 @@
 //! Defines the stable value hashing contract used by fingerprinting,
 //! diagnostics, and persisted comparison helpers.
 
+// Test overrides remain at the hashing decision points; their state and helpers live in helper_tests.
+
 #[cfg(test)]
 mod tests;
 
@@ -187,55 +189,8 @@ pub(crate) fn hash_single_list_identity_canonical_value(
     Ok(Some(hasher.digest128().to_be_bytes()))
 }
 
-#[cfg(test)]
-type TestHashOverride = Result<[u8; 16], fn() -> InternalError>;
-
-/// Fixed typed failure used to qualify consumers without spending real IC work.
-#[cfg(test)]
-pub(crate) fn test_hash_budget_error() -> InternalError {
-    use icydb_diagnostic_code::{
-        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope as Scope,
-        DiagnosticExecutionLane as Lane,
-    };
-    InternalError::execution_budget_exceeded(
-        Resource::TemporaryBytes,
-        10,
-        11,
-        Scope::Execution,
-        Lane::Mutation,
-        7,
-    )
-}
-
-#[cfg(test)]
-thread_local! {
-    static TEST_HASH_OVERRIDE: std::cell::Cell<Option<TestHashOverride>> =
-        const { std::cell::Cell::new(None) };
-}
-
-#[cfg(test)]
-fn test_hash_override() -> Option<Result<[u8; 16], InternalError>> {
-    TEST_HASH_OVERRIDE.with(|cell| {
-        cell.get()
-            .map(|result| result.map_err(|make_error| make_error()))
-    })
-}
-
 // Execute one closure with a thread-local test hash override and always restore
 // the previous override state, even if the closure panics.
-#[cfg(test)]
-pub(crate) fn with_test_hash_override<T>(
-    override_hash: TestHashOverride,
-    f: impl FnOnce() -> T + std::panic::UnwindSafe,
-) -> T {
-    let previous = TEST_HASH_OVERRIDE.with(|cell| cell.replace(Some(override_hash)));
-    let result = std::panic::catch_unwind(f);
-    TEST_HASH_OVERRIDE.with(|cell| cell.set(previous));
-    match result {
-        Ok(value) => value,
-        Err(payload) => std::panic::resume_unwind(payload),
-    }
-}
 
 // Hash map entries under canonical key order to keep fingerprints deterministic
 // even when callers construct `Value::Map` directly in non-canonical order.
@@ -388,3 +343,13 @@ pub(crate) fn fingerprint_value(value: &Value) -> Result<[u8; 32], InternalError
 
     Ok(hasher.finalize().into())
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(crate) use helper_tests::test_hash_budget_error;
+#[cfg(test)]
+use helper_tests::test_hash_override;
+#[cfg(test)]
+pub(crate) use helper_tests::with_test_hash_override;

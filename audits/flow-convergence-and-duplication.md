@@ -1,4 +1,5 @@
 # Flow convergence and duplication
+<!-- Shared companions: docs/principles/simplicity-and-maintainability.md -->
 
 Apply the [common audit contract](README.md) and
 [canonical authority guidance](../docs/principles/simplicity-and-maintainability.md#canonical-authority-and-converged-flow).

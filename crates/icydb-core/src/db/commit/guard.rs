@@ -3,6 +3,8 @@
 //! Does not own: mutation planning, marker payload semantics, or recovery orchestration.
 //! Boundary: executor::mutation -> commit::guard -> commit::store (one-way).
 
+// Test-only trap interception stays at the commit failure boundary; rollback state and helpers live in helper_tests.
+
 #[cfg(any(test, feature = "migration"))]
 use crate::db::schema::preflight_schema_migration_record_op;
 use crate::{
@@ -27,13 +29,6 @@ use crate::db::commit::PreparedRowCommitOp;
 #[cfg(test)]
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-#[cfg(test)]
-// Core unit fixtures exercise commit mechanics without generated lifecycle
-// wiring; generated-canister tests still install and exercise the real hook.
-const fn noop_startup_recovery_wakeup() {}
-
-#[cfg(test)]
-const DEFAULT_STARTUP_RECOVERY_WAKEUP: Option<fn()> = Some(noop_startup_recovery_wakeup);
 #[cfg(not(test))]
 const DEFAULT_STARTUP_RECOVERY_WAKEUP: Option<fn()> = None;
 
@@ -46,14 +41,6 @@ thread_local! {
         const { Cell::new(DEFAULT_STARTUP_RECOVERY_WAKEUP) };
 }
 
-#[cfg(test)]
-thread_local! {
-    // Existing native fault fixtures return errors to inspect retained state.
-    // Child-process qualification disables that exception to exercise the same
-    // terminating path used unconditionally by production.
-    static RETURN_COMMIT_FAILURES_FOR_TESTS: Cell<bool> = const { Cell::new(true) };
-}
-
 /// Install the generated watchdog wake-up for recovery and published schema work.
 #[doc(hidden)]
 pub fn install_startup_recovery_wakeup(wakeup: fn()) {
@@ -64,119 +51,6 @@ fn startup_recovery_wakeup() -> Result<fn(), InternalError> {
     STARTUP_RECOVERY_WAKEUP
         .with(Cell::get)
         .ok_or_else(InternalError::executor_invariant)
-}
-
-///
-/// ApplyRollback
-///
-/// Best-effort rollback payload owned by one in-flight apply guard.
-/// This remains intentionally narrow:
-/// - one closure for the batch rollback path
-/// - one prepared row op for the single-row hot path
-/// - no transactional semantics beyond "try to unwind local process state"
-///
-
-#[cfg(test)]
-enum ApplyRollback {
-    None,
-    Closure(Box<dyn FnOnce()>),
-    SinglePreparedRow(PreparedRowCommitOp),
-}
-
-///
-/// CommitApplyGuard
-///
-/// Executor-internal guard for the commit-marker apply phase.
-///
-/// This guard is strictly best-effort infrastructure:
-/// - Durable atomicity is owned by commit markers + recovery replay.
-/// - Rollback closures here are best-effort, in-process cleanup only.
-/// - This type does not provide transactional semantics or durable undo.
-/// - New code must not rely on closure-based rollback for correctness.
-///
-/// Long-term direction:
-/// marker application should become fully mechanical/idempotent so this guard
-/// can be removed without changing user-visible correctness.
-///
-
-#[cfg(test)]
-pub(crate) struct CommitApplyGuard {
-    finished: bool,
-    rollback: ApplyRollback,
-}
-
-#[cfg(test)]
-impl CommitApplyGuard {
-    /// Create one apply-phase rollback guard.
-    pub(crate) const fn new() -> Self {
-        Self {
-            finished: false,
-            rollback: ApplyRollback::None,
-        }
-    }
-
-    pub(crate) fn record_rollback(&mut self, rollback: impl FnOnce() + 'static) {
-        debug_assert!(
-            matches!(self.rollback, ApplyRollback::None),
-            "commit apply guard currently owns exactly one rollback closure",
-        );
-
-        if matches!(self.rollback, ApplyRollback::None) {
-            self.rollback = ApplyRollback::Closure(Box::new(rollback));
-        }
-    }
-
-    /// Record one prepared row-op rollback snapshot for the single-row hot path.
-    pub(crate) fn record_single_row_rollback(&mut self, rollback: PreparedRowCommitOp) {
-        debug_assert!(
-            matches!(self.rollback, ApplyRollback::None),
-            "commit apply guard currently owns exactly one rollback payload",
-        );
-
-        if matches!(self.rollback, ApplyRollback::None) {
-            self.rollback = ApplyRollback::SinglePreparedRow(rollback);
-        }
-    }
-
-    /// Mark the guarded apply phase complete and drop rollback closures.
-    pub(crate) fn finish(mut self) -> Result<(), InternalError> {
-        if self.finished {
-            return Err(InternalError::executor_invariant());
-        }
-
-        self.finished = true;
-        self.rollback = ApplyRollback::None;
-        Ok(())
-    }
-
-    fn rollback_best_effort(&mut self) {
-        if self.finished {
-            // Defensive: rollback after finish is a logic error, but must not panic.
-            return;
-        }
-
-        // Best-effort cleanup only:
-        // - execute the one caller-owned rollback payload
-        // - never unwind past this boundary
-        match std::mem::replace(&mut self.rollback, ApplyRollback::None) {
-            ApplyRollback::None => {}
-            ApplyRollback::Closure(rollback) => {
-                let _ = catch_unwind(AssertUnwindSafe(rollback));
-            }
-            ApplyRollback::SinglePreparedRow(rollback) => {
-                let _ = catch_unwind(AssertUnwindSafe(|| rollback.apply()));
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-impl Drop for CommitApplyGuard {
-    fn drop(&mut self) {
-        if !self.finished {
-            self.rollback_best_effort();
-        }
-    }
 }
 
 ///
@@ -378,48 +252,14 @@ fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
 }
 
 #[cfg(test)]
-mod tests {
-    mod wakeup;
+mod tests;
 
-    use super::*;
-    use crate::db::{
-        commit::{commit_memory_handle, select_commit_memory_allocation},
-        database_format::initialize_current_database_control_for_tests,
-    };
+#[cfg(test)]
+mod helper_tests;
 
-    struct StartupRecoveryWakeupRestore(Option<fn()>);
-
-    impl Drop for StartupRecoveryWakeupRestore {
-        fn drop(&mut self) {
-            STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(self.0));
-        }
-    }
-
-    #[test]
-    fn missing_startup_recovery_wakeup_rejects_before_marker_publication() {
-        const MEMORY_ID: u8 = 242;
-        const STABLE_KEY: &str = "icydb.test.commit_guard_missing_wakeup.v1";
-
-        select_commit_memory_allocation(MEMORY_ID.into(), STABLE_KEY);
-        let allocation = super::super::memory::current_commit_memory_allocation()
-            .expect("commit allocation should resolve");
-        let memory = commit_memory_handle(allocation).expect("commit memory should open");
-        initialize_current_database_control_for_tests(&memory);
-
-        let previous = STARTUP_RECOVERY_WAKEUP.with(|installed| installed.replace(None));
-        let _restore = StartupRecoveryWakeupRestore(previous);
-        let marker = CommitMarker::from_parts([0x6d; 16], Vec::new())
-            .expect("empty control marker should admit");
-
-        let error = begin_commit(&marker).expect_err("missing wake-up wiring must fail closed");
-        assert_eq!(
-            error.diagnostic().error_code(),
-            icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION,
-        );
-        assert!(
-            with_commit_store(super::super::store::CommitStore::marker_is_empty)
-                .expect("commit marker should remain observable"),
-            "failed admission must not publish durable recovery work",
-        );
-    }
-}
+#[cfg(test)]
+pub(crate) use helper_tests::CommitApplyGuard;
+#[cfg(test)]
+use helper_tests::DEFAULT_STARTUP_RECOVERY_WAKEUP;
+#[cfg(test)]
+use helper_tests::RETURN_COMMIT_FAILURES_FOR_TESTS;

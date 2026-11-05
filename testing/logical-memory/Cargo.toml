@@ -23,7 +23,10 @@ icydb-testing-canic-adapter = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 
 [build-dependencies]
-icydb = { workspace = true, default-features = true }
+icydb = { workspace = true, default-features = true, features = ["build"] }
 
 [lints]
 workspace = true
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

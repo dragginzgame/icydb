@@ -220,9 +220,10 @@ read_receipt() {
     lines=()
     while IFS= read -r line || [[ -n "$line" ]]; do
         lines[${#lines[@]}]="$line"
-        [[ ${#lines[@]} -le 6 ]] || break
+        [[ ${#lines[@]} -le 8 ]] || break
     done < "$receipt"
-    if [[ "${#lines[@]}" -ne 6 || "${lines[0]}" != "format=2:$RELEASE_GROUP" ]]; then
+    if [[ ! ( "${#lines[@]}" == 6 && "${lines[0]}" == "format=2:$RELEASE_GROUP" ) &&
+          ! ( "${#lines[@]}" == 8 && "$RELEASE_GROUP" == cli && "${lines[0]}" == format=3:cli ) ]]; then
         echo "Malformed release candidate receipt: $receipt" >&2
         exit 1
     fi
@@ -232,6 +233,16 @@ read_receipt() {
     RECEIPT_CANDIDATE_VERSION="${lines[3]#candidate_version=}"
     RECEIPT_RELEASE_VERSION="${lines[4]#release_version=}"
     RECEIPT_DIFF_HASH="${lines[5]#release_diff_sha256=}"
+    RECEIPT_VALIDATION=''
+    RECEIPT_VALIDATION_HASH=''
+    if [[ "${#lines[@]}" == 8 ]]; then
+        RECEIPT_VALIDATION="${lines[6]#validation=}"
+        RECEIPT_VALIDATION_HASH="${lines[7]#validation_sha256=}"
+        [[ "${lines[6]}" == "validation=$RECEIPT_VALIDATION" &&
+           "$RECEIPT_VALIDATION" =~ ^cli-[0-9a-f]{40}\.[A-Za-z0-9]+$ &&
+           "${lines[7]}" == "validation_sha256=$RECEIPT_VALIDATION_HASH" &&
+           "$RECEIPT_VALIDATION_HASH" =~ ^[0-9a-f]{64}$ ]] || exit 1
+    fi
 
     if [[ "${lines[1]}" != "bump=$RECEIPT_BUMP" ||
           "${lines[2]}" != "candidate_commit=$RECEIPT_CANDIDATE_COMMIT" ||
@@ -245,6 +256,16 @@ read_receipt() {
     fi
 
     validate_transition "$RECEIPT_BUMP" "$RECEIPT_CANDIDATE_VERSION" "$RECEIPT_RELEASE_VERSION"
+}
+
+# A selected gate's source view and raw Shared evidence live beside this
+# receipt. Cache cleanup cannot erase the proof or turn it into a full gate.
+verify_selected_gate() {
+    [[ -n "$RECEIPT_VALIDATION" ]] || return 0
+    local admitted
+    admitted="$(perl "$SCRIPT_DIR/../release/validation-gate.pl" check \
+        "$RELEASE_RECEIPT_DIR/$RECEIPT_VALIDATION" "$RECEIPT_CANDIDATE_COMMIT")" || return
+    [[ "$(jq -r .gate_sha256 <<< "$admitted")" == "$RECEIPT_VALIDATION_HASH" ]]
 }
 
 receipt_for_current_version() {
@@ -285,13 +306,24 @@ record_receipt() {
     mkdir -p "$RELEASE_RECEIPT_DIR"
     receipt="$RELEASE_RECEIPT_DIR/$RELEASE_GROUP-v$release_version.candidate"
     temporary_receipt="$receipt.tmp.$$"
+    local validation='' validation_hash='' pointer="$RELEASE_RECEIPT_DIR/$RELEASE_GROUP-$candidate_commit.gate"
+    if [[ "$RELEASE_GROUP" == cli && ( -e "$pointer" || -L "$pointer" ) ]]; then
+        [[ ! -L "$pointer" && -f "$pointer" ]]
+        validation="$(cat "$pointer")"
+        [[ "$validation" =~ ^cli-[0-9a-f]{40}\.[A-Za-z0-9]+$ ]]
+        validation_hash="$(perl "$SCRIPT_DIR/../release/validation-gate.pl" check \
+            "$RELEASE_RECEIPT_DIR/$validation" "$candidate_commit" | jq -er .gate_sha256)" || exit
+    fi
     printf '%s\n' \
-        "format=2:$RELEASE_GROUP" \
+        "format=$([[ -n "$validation" ]] && printf 3 || printf 2):$RELEASE_GROUP" \
         "bump=$bump" \
         "candidate_commit=$candidate_commit" \
         "candidate_version=$candidate_version" \
         "release_version=$release_version" \
         "release_diff_sha256=$transition_hash" > "$temporary_receipt"
+    if [[ -n "$validation" ]]; then
+        printf '%s\n' "validation=$validation" "validation_sha256=$validation_hash" >> "$temporary_receipt"
+    fi
     mv "$temporary_receipt" "$receipt"
 
     echo "Recorded tested release candidate $candidate_commit for $RELEASE_GROUP-v$release_version"
@@ -330,6 +362,7 @@ verify_staged() {
         echo "Staged release transition differs from the tested candidate receipt" >&2
         exit 1
     fi
+    verify_selected_gate
 }
 
 verify_commit() {
@@ -375,6 +408,7 @@ verify_commit() {
         echo "Release commit differs from the tested candidate transition" >&2
         exit 1
     fi
+    verify_selected_gate
 }
 
 case "${1:-}" in

@@ -10,7 +10,7 @@ use crate::db::schema::{
     SchemaVersion,
     transition::{
         SchemaAdmissionIdentityComparison, SchemaAdmissionRejectionClassification,
-        SchemaAdmissionRejectionReason, schema_admission_rejection,
+        SchemaAdmissionRejectionReason, classify_schema_admission_rejection,
     },
 };
 use crate::error::SchemaDdlAdmissionError;
@@ -232,10 +232,7 @@ impl SchemaDdlAcceptedSnapshotDerivation {
             accepted_after.persisted_snapshot(),
         )
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-        if let Some(rejection) = schema_admission_rejection(comparison) {
-            let admission = rejection
-                .admission()
-                .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+        if let Some(admission) = classify_schema_admission_rejection(comparison) {
             return Err(SchemaDdlMutationAdmissionError::SchemaVersionAdmission(
                 SchemaDdlSchemaVersionAdmissionError::from_schema_admission(admission)
                     .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?,

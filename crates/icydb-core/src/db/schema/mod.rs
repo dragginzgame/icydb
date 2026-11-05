@@ -222,7 +222,7 @@ pub(in crate::db) use field_kind_semantics::{
 };
 #[cfg(feature = "migration")]
 pub(in crate::db) use fingerprint::accepted_commit_schema_fingerprint;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
@@ -318,11 +318,6 @@ pub(in crate::db::schema) use mutation::SchemaTransitionSourceBudget;
 pub(in crate::db) use mutation::{
     MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES, UniqueConstraintProjection,
 };
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db::schema) use mutation::{
-    MutationPlan, MutationPublicationPreflight, SchemaMutationRequest,
-    schema_mutation_request_for_snapshots,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlFieldAdditionCandidateError,
@@ -354,6 +349,10 @@ pub(in crate::db) use mutation::{
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget, StagedUserIndexDomainError,
+};
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) use mutation::{
+    SchemaMutationRequest, schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
@@ -416,129 +415,8 @@ pub(in crate::db) use store::{
     PreparedSchemaPositionRetirement, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
 };
 
-#[cfg(test)]
-// Keep optional scalar record members under the real catalog admission owner
-// so reader/session qualification need not introduce a newtype wrapper.
-pub(in crate::db) fn build_record_composite_catalog_for_tests(
-    record_path: String,
-    member_name: String,
-    leaf_kind: AcceptedFieldKind,
-    nullable: bool,
-    enum_catalog: &AcceptedEnumCatalog,
-) -> (AcceptedCompositeCatalog, CompositeTypeId) {
-    build_record_members_catalog_for_tests(
-        record_path,
-        vec![(member_name, leaf_kind, nullable)],
-        enum_catalog,
-    )
-}
-
-#[cfg(test)]
-// Multi-member reader fixtures use the same catalog admission as single-member records.
-pub(in crate::db) fn build_record_members_catalog_for_tests(
-    record_path: String,
-    members: Vec<(String, AcceptedFieldKind, bool)>,
-    enum_catalog: &AcceptedEnumCatalog,
-) -> (AcceptedCompositeCatalog, CompositeTypeId) {
-    let record_type = CompositeTypeId::new(1).unwrap();
-    let fields = members
-        .into_iter()
-        .enumerate()
-        .map(|(index, (name, kind, nullable))| {
-            composite_catalog::AcceptedCompositeField::new(
-                CompositeFieldId::new(u32::try_from(index + 1).unwrap()).unwrap(),
-                name,
-                composite_catalog::AcceptedCompositeElement::new(kind, nullable),
-            )
-        })
-        .collect();
-    let catalog = AcceptedCompositeCatalog::from_initial_definitions(
-        std::collections::BTreeMap::from([(
-            record_type,
-            (
-                record_path,
-                composite_catalog::AcceptedCompositeShape::Record(fields),
-            ),
-        )]),
-        enum_catalog,
-    )
-    .expect("test record catalog should build");
-    (catalog, record_type)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn build_record_newtype_composite_catalog_for_tests(
-    record_path: String,
-    member_name: String,
-    newtype_path: String,
-    leaf_kind: AcceptedFieldKind,
-    enum_catalog: &AcceptedEnumCatalog,
-) -> Result<
-    (
-        AcceptedCompositeCatalog,
-        CompositeTypeId,
-        CompositeTypeId,
-        CompositeFieldId,
-    ),
-    crate::error::InternalError,
-> {
-    let record_type =
-        CompositeTypeId::new(1).expect("test record type identity should be non-zero");
-    let newtype_type = CompositeTypeId::new(2).expect("test newtype identity should be non-zero");
-    let member_id = CompositeFieldId::new(1).expect("test member identity should be non-zero");
-    let catalog = AcceptedCompositeCatalog::from_initial_definitions(
-        std::collections::BTreeMap::from([
-            (
-                record_type,
-                (
-                    record_path,
-                    composite_catalog::AcceptedCompositeShape::Record(vec![
-                        composite_catalog::AcceptedCompositeField::new(
-                            member_id,
-                            member_name,
-                            composite_catalog::AcceptedCompositeElement::new(
-                                AcceptedFieldKind::Composite {
-                                    type_id: newtype_type,
-                                },
-                                false,
-                            ),
-                        ),
-                    ]),
-                ),
-            ),
-            (
-                newtype_type,
-                (
-                    newtype_path,
-                    composite_catalog::AcceptedCompositeShape::Newtype(
-                        composite_catalog::AcceptedCompositeElement::new(leaf_kind, false),
-                    ),
-                ),
-            ),
-        ]),
-        enum_catalog,
-    )
-    .map_err(|_| crate::error::InternalError::store_invariant())?;
-    Ok((catalog, record_type, newtype_type, member_id))
-}
-
-#[cfg(test)]
-pub(in crate::db) fn validate_accepted_enum_catalog_format_for_tests(
-    bytes: &[u8],
-) -> Result<(), crate::error::InternalError> {
-    enum_catalog::decode_accepted_enum_catalog(bytes).map(drop)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn validate_accepted_schema_bundle_format_for_tests(
-    bytes: &[u8],
-) -> Result<(), crate::error::InternalError> {
-    enum_catalog::decode_accepted_schema_revision_bundle(bytes).map(drop)
-}
 #[cfg(feature = "sql")]
-pub(in crate::db::schema) use transition::{
-    SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
-};
+pub(in crate::db::schema) use transition::{SchemaTransitionPlan, plan_sql_ddl_addition};
 pub(crate) use types::FieldType;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
@@ -557,3 +435,17 @@ pub(in crate::db) use types::{
     query_field_is_queryable, query_field_kind_from_persisted_kind,
     query_field_type_from_persisted_kind,
 };
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::build_record_composite_catalog_for_tests;
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use helper_tests::build_record_members_catalog_for_tests;
+#[cfg(test)]
+pub(in crate::db) use helper_tests::build_record_newtype_composite_catalog_for_tests;
+#[cfg(test)]
+pub(in crate::db) use helper_tests::validate_accepted_enum_catalog_format_for_tests;
+#[cfg(test)]
+pub(in crate::db) use helper_tests::validate_accepted_schema_bundle_format_for_tests;

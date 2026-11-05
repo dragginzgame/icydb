@@ -5,7 +5,7 @@ use crate::{
         QueryError,
         predicate::{ComparePredicate, Predicate, normalize, normalize_with_budget},
         query::preparation::PreparationWork,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };
@@ -133,7 +133,10 @@ fn normalization_backing_refusal_stops_before_later_pair_work() {
         root.observed(Resource::TemporaryBytes),
         3 * size_of::<Value>() as u64
     );
-    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
+    // The outer AND, membership OR and its three leaves were visited. Backing
+    // refusal follows two domain checks (one step plus three field bytes each),
+    // but prevents the later conjunction and all of its comparison work.
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 5 + 2 * 4);
 }
 
 #[test]
@@ -145,9 +148,12 @@ fn membership_backing_refusal_preserves_owned_operands() {
     let result = crate::db::predicate::normalize::collapse_same_field_or_equalities(
         &mut children,
         &mut |resource, bytes| {
-            assert_eq!(resource, Resource::TemporaryBytes);
-            assert_eq!(bytes, 3 * size_of::<Value>() as u64);
-            Err(17)
+            if resource == Resource::TemporaryBytes {
+                assert_eq!(bytes, 3 * size_of::<Value>() as u64);
+                Err(17)
+            } else {
+                Ok(())
+            }
         },
     );
     assert_eq!(result, Err(17));

@@ -11,6 +11,8 @@ use crate::{
     SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 
+// Keep generated test lookup tables beside the macro input so production and
+// test inventories cannot drift; executable tests live in the external module.
 macro_rules! define_error_code_registry {
     (
         $(

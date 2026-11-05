@@ -1,7 +1,7 @@
 //! Module: db::schema::mutation
 //! Responsibility: catalog-native schema mutation contracts.
 //! Does not own: SQL DDL parsing, physical rebuild execution, or schema-store writes.
-//! Boundary: describes accepted snapshot changes before reconciliation persists them.
+//! Boundary: describes accepted snapshot changes before publication persists them.
 
 use crate::db::schema::PersistedFieldSnapshot;
 
@@ -114,9 +114,9 @@ pub(in crate::db) use user_index_domain::{StagedUserIndexDomainError, UniqueCons
 ///
 /// SchemaMutationRequest
 ///
-/// Internal request vocabulary that lowers catalog-level mutation intent into
-/// a deterministic `MutationPlan`. SQL DDL and generated proposal comparison
-/// must route through this type instead of constructing plans ad hoc.
+/// Catalog-level mutation shapes shared by SQL DDL snapshot comparison and
+/// accepted index-target construction. Transition policy validates the shape
+/// before it becomes a publishable or physical-work plan.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -124,7 +124,7 @@ pub(in crate::db) use user_index_domain::{StagedUserIndexDomainError, UniqueCons
     not(any(test, feature = "sql")),
     expect(
         dead_code,
-        reason = "catalog mutation vocabulary is shared with SQL reconciliation"
+        reason = "catalog mutation vocabulary is shared with SQL DDL planning"
     )
 )]
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
@@ -152,101 +152,6 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
     UnsupportedIndexKeyShape,
     EmptyIndexKey,
     ExpressionIndexRequiresExpressionKey,
-}
-
-///
-/// MutationPlan
-///
-/// Deterministic schema-owned plan for moving one accepted snapshot to the
-/// next. Every variant is a current publication or physical-execution shape;
-/// rejected snapshot deltas never become mutation plans.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db::schema) enum MutationPlan {
-    MetadataOnly,
-    FieldPathIndexRebuild {
-        target: SchemaFieldPathIndexRebuildTarget,
-    },
-    ExpressionIndexRebuild {
-        target: SchemaExpressionIndexRebuildTarget,
-    },
-}
-
-/// Schema-owned publication boundary for a current mutation plan.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db::schema) enum MutationPublicationPreflight {
-    PublishableNow,
-    RequiresPhysicalWork,
-}
-
-#[cfg(any(test, feature = "sql"))]
-impl MutationPlan {
-    /// Build the no-op plan for equal accepted snapshots.
-    pub(in crate::db::schema) const fn exact_match() -> Self {
-        Self::MetadataOnly
-    }
-
-    /// Plan a field-path index rebuild from accepted index metadata.
-    const fn field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
-        Self::FieldPathIndexRebuild { target }
-    }
-
-    /// Plan an accepted deterministic expression-index rebuild.
-    const fn expression_index_addition(target: SchemaExpressionIndexRebuildTarget) -> Self {
-        Self::ExpressionIndexRebuild { target }
-    }
-
-    /// Return the sole publication decision for this plan.
-    #[must_use]
-    pub(in crate::db::schema) const fn publication_preflight(
-        &self,
-    ) -> MutationPublicationPreflight {
-        match self {
-            Self::MetadataOnly => MutationPublicationPreflight::PublishableNow,
-            Self::FieldPathIndexRebuild { .. } | Self::ExpressionIndexRebuild { .. } => {
-                MutationPublicationPreflight::RequiresPhysicalWork
-            }
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn field_path_index_target(
-        &self,
-    ) -> Option<&SchemaFieldPathIndexRebuildTarget> {
-        match self {
-            Self::FieldPathIndexRebuild { target } => Some(target),
-            Self::MetadataOnly | Self::ExpressionIndexRebuild { .. } => None,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::schema) const fn expression_index_target(
-        &self,
-    ) -> Option<&SchemaExpressionIndexRebuildTarget> {
-        match self {
-            Self::ExpressionIndexRebuild { target } => Some(target),
-            Self::MetadataOnly | Self::FieldPathIndexRebuild { .. } => None,
-        }
-    }
-}
-
-#[cfg(any(test, feature = "sql"))]
-impl From<SchemaMutationRequest<'_>> for MutationPlan {
-    fn from(request: SchemaMutationRequest<'_>) -> Self {
-        match request {
-            SchemaMutationRequest::ExactMatch => Self::exact_match(),
-            SchemaMutationRequest::AppendOnlyFields(_) => Self::MetadataOnly,
-            SchemaMutationRequest::AddFieldPathIndex { target } => {
-                Self::field_path_index_addition(target)
-            }
-            SchemaMutationRequest::AddExpressionIndex { target } => {
-                Self::expression_index_addition(target)
-            }
-        }
-    }
 }
 
 #[cfg(all(test, feature = "sql"))]

@@ -53,14 +53,6 @@ impl AcceptedStructuralMutationCommitOptions {
         }
     }
 
-    #[cfg(test)]
-    pub(in crate::db) const fn with_mutation_progress() -> Self {
-        Self {
-            capture_output_values: false,
-            packing: AcceptedStructuralMutationPacking::Complete,
-        }
-    }
-
     pub(in crate::db) const fn bounded_prefix() -> Self {
         Self {
             capture_output_values: false,
@@ -1018,3 +1010,6 @@ pub(in crate::db) fn execute_accepted_structural_update_bounded_prefix<C: Canist
         },
     )
 }
+
+#[cfg(test)]
+mod helper_tests;

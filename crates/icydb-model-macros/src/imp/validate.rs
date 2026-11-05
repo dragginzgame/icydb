@@ -436,7 +436,7 @@ fn validator_call(
             #context,
             #model::visitor::CallbackIdentity::new(
                 #model::visitor::CallbackKind::Validator,
-                ::core::any::type_name::<#callback_type>(),
+                ::std::any::type_name::<#callback_type>(),
             ),
         );
         #model::visitor::Validator::validate(

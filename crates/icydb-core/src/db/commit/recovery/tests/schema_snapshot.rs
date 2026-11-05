@@ -1,6 +1,8 @@
 //! Schema records finish semantic preparation before the first batch effect.
 
 mod migration_plan;
+#[cfg(unix)]
+mod termination;
 mod validation_index;
 
 use super::super::{
@@ -24,10 +26,10 @@ use crate::{
             StoreRuntimeStorageCapabilities,
         },
         schema::{
-            AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode, LeafCodec,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
-            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
-            accepted_schema_candidate_for_tests,
+            AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision, FieldId,
+            FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            ScalarCodec, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaStore,
+            SchemaVersion, accepted_schema_candidate_for_tests,
         },
     },
     testing::test_memory,
@@ -134,7 +136,7 @@ fn batch(records: Vec<JournalRecord>) -> JournalBatch {
 fn repeated_index_chunks_recheck_fingerprints_and_keys_against_one_candidate() {
     use crate::db::{
         index::IndexId, schema::accepted_schema_cache_fingerprint_for_persisted_snapshot,
-        test_support::index::nat64_index_key,
+        tests::support::index::nat64_index_key,
     };
 
     let (db, snapshot) = fixture();
@@ -188,8 +190,7 @@ fn repeated_index_chunks_recheck_fingerprints_and_keys_against_one_candidate() {
     }
 }
 
-#[test]
-fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
+fn catalog_publication_fixture() -> (Db<TestCanister>, CandidateSchemaRevision, JournalBatch) {
     let (db, snapshot) = fixture();
     select_commit_memory_allocation(
         TestCanister::commit_memory_id().expect("test allocation"),
@@ -211,6 +212,12 @@ fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
         )
         .unwrap(),
     ]);
+    (db, candidate, batch)
+}
+
+#[test]
+fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
+    let (db, candidate, batch) = catalog_publication_fixture();
     let handle = db.with_store_registry(|registry| registry.iter().next().unwrap().1);
     for mode in [
         JournalRecordApplyMode::Replay,

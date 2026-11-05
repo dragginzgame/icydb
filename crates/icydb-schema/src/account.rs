@@ -19,7 +19,10 @@ use crate::{Principal, PrincipalError, SchemaContractError, Subaccount};
 /// share that normalization; nonzero subaccounts retain all 32 bytes. Platform
 /// owns the shared account text grammar.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct Account {
     owner: Principal,
     subaccount: Option<Subaccount>,

@@ -6,7 +6,7 @@ use crate::{
         query::{
             plan::planner::range::bounds::compare_range_bound_values, preparation::PreparationWork,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     error::InternalError,
     value::Value,

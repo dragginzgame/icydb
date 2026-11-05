@@ -1,5 +1,5 @@
 # Engineering contracts by task
-<!-- Shared companions: docs/tool-store-maintenance.md -->
+<!-- Shared companions: docs/candid-boundary.md docs/principles/rust-code-hygiene.md docs/tool-store-maintenance.md rules/agent-maintenance.md rules/change-reporting.md rules/contributions.md rules/rust-workspaces.md tasks/README.md tasks/cargo-tool-versions.md -->
 
 These contracts supplement the [engineering baseline](../DRAGGINZGAME.md).
 Read the applicable sections when the task touches their subject. This file is
@@ -211,6 +211,10 @@ an unqualified deploy has the defined fleet scope.
 
 ## IC application encoding
 
+- Enforce the lexical application-type boundary with the shared
+  [Candid source check](../docs/candid-boundary.md), using reviewed declaration
+  allowances for named external protocols and codec comparisons. Review macro
+  expansion and cross-module aliases separately; the check is not type resolution.
 - **Use `ic-wire` for all application endpoints we own**, including public
   endpoints called by third parties, owned canister RPC and frontend/client
   payloads. Caller location or endpoint visibility does not select the codec.
@@ -434,6 +438,26 @@ contracts; ordinary development does not require rereading these mechanics.
   sequential recipes or dependency edges that also hold under parallel Make.
   A failed lint must prevent later stages, and a passing lint does not replace
   the remaining complete gate or existing recovery obligations.
+- Give each validation obligation one execution owner per admitted attempt and
+  configuration. Aggregate CI/release recipes must not repeatedly invoke full
+  lint, setup or build gates through nested product targets. Keep standalone
+  commands safe by sharing prerequisite dependencies or delegating to admitted
+  leaf stages; parallel Make must preserve ordering and avoid duplicate work.
+  Prepare shared test artifacts once for their exact inputs, then let applicable
+  suites consume them. Different features, targets, hosts, archives and installed
+  contracts remain distinct obligations.
+- A later release or publication step must freshly admit its inputs, but need
+  not automatically repeat every earlier check. Reuse only through the qualified
+  [stage evidence contract](../docs/release-validation-reuse.md); missing or
+  changed evidence requires execution. Neither a successful earlier group nor
+  a version-only diff proves reuse is safe. Preserve actual archive verification,
+  registry/source identity and recovery checks at their owning boundaries.
+- Run tooling regression fixtures when their implementation, callers or covered
+  contracts change, or when explicitly qualifying them. Do not attach a tool's
+  complete self-test suite to every ordinary use of that tool. For example,
+  verifying each release archive remains required where selected, while rerunning
+  the archive verifier's synthetic regression matrix needs its own applicability.
+  Keep those regressions in their owning CI roster and qualify any new selector.
 - Check for active builds before compilation or source mutation that could affect their inputs. Do not change
   source under active validation or compete for its build lock. Use the owning
   repository's build directory; preserve unrelated artifacts.
@@ -532,13 +556,46 @@ contracts; ordinary development does not require rereading these mechanics.
 
 ## Changelogs and artifact preservation
 
+- **Git retains decisions and compact results, not an archive of agent runs.**
+  Routine validation needs no new evidence directory or report: use the owning
+  changelog/issue and existing CI result. For a useful performance study or design
+  investigation, maintain one current summary per topic, normally at most 150
+  lines, recording the conclusion, limitations, source/tool identities, commands
+  and selected absolute results. Update it instead of making a directory for
+  each run, dependency adoption or patch release; Git history preserves revisions.
+- Default tracked experimental evidence budget: one summary plus at most two
+  small text/data files per topic, **100 KiB combined per topic and 5 MiB across
+  the repository**. These are ceilings, not targets. Do not commit raw run logs,
+  bulk measurement tables, source-tree snapshots, build outputs, Wasm binaries,
+  or compressed evidence bundles (`zip`, `tar.gz`, `xz`, etc.). Compression does
+  not make bulk evidence appropriate for Git. Maintained test vectors and source
+  fixtures belong with tests and require a concrete regression purpose; do not
+  rename historical output as a fixture to bypass this rule.
+- New raw experimental output belongs under `target/evidence/`, removable by
+  explicit `cargo clean`. Retain it while investigating a failure or preparing
+  the compact result; it is not a permanent archive. No automatic copying into
+  docs, another directory, Git history or remote storage. A claim requiring
+  durable raw evidence needs an explicit exception naming the claim, minimal
+  payload, measured size, owner, destination and retention/review period. Small
+  release receipts and active deployment/recovery records retain their separate
+  contracts; this experimental budget does not discard them.
+- For existing evidence excess, inventory and compact it under an authorized
+  cleanup. Preserve useful conclusions and repair references. Retire obsolete
+  claims or state that raw measurements are no longer retained; never present a
+  summary/hash as proof that missing artifacts remain independently verifiable.
+  Superseded exploratory output does not need another permanent archive merely
+  because an agent once produced it. Ordinary Git deletion leaves history intact;
+  history rewriting, remote archival and deleting active recovery evidence need
+  their own explicit scope. A new rule alone does not authorize sibling cleanup.
 - Before editing a changelog, read and apply [the changelog rules](changelogs.md).
   They are part of this mandatory baseline and own release-note content, issue
   links, draft/history preservation and detailed-note structure.
 - Releases and deployments preserve consumer-owned build and evidence artifacts
   on success, failure and retry. Never append cargo clean or equivalent cleanup.
   Cleanup requires explicit scope and authority. Tools may clean temporary files
-  they own; they must not erase consumer artifacts or the only retained evidence.
+  they own; they must not erase consumer artifacts or required evidence outside
+  the explicit cleanup scope. Preservation during delivery does not require
+  committing raw artifacts or retaining every completed experiment forever.
 - Managed tool setup retains current declared requirements across consumers,
   selected deliverables, small provenance receipts and explicitly needed recovery
   evidence. Successful builds discard their private compiler scratch after byte

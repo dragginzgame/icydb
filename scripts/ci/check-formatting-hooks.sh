@@ -44,7 +44,9 @@ script_dir="${BASH_SOURCE[0]}"
 script_dir="${script_dir%/*}"
 # shellcheck source=scripts/ci/fixture-lifecycle.sh
 source "$script_dir/fixture-lifecycle.sh"
-fixture="$(fixture_create "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
+scratch="${TMPDIR:-$root/target/tmp}"
+mkdir -p -- "$scratch"
+fixture="$(fixture_create "$scratch/formatting-adoption.XXXXXX")"
 fixture_complete=false
 finish() {
     local status=$?

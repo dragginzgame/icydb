@@ -127,3 +127,6 @@ path = "tests/convergence_candidate.rs"
 [[test]]
 name = "memory_allocations"
 path = "tests/memory_allocations.rs"
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

@@ -26,7 +26,7 @@ trap finish EXIT
 fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
 export TMPDIR="${fixture%/*}"
-release_inputs=(scripts/release/group.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
+release_inputs=(scripts/release/group.sh scripts/release/verify.sh scripts/ci/release-receipts.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
 bash "$root/scripts/ci/check-release-commands.sh" "$root" "${release_inputs[@]}"
 # Exercise this consumer's actual Make adapters after the checker changes cwd.
 mkdir "$fixture/relative-temp"
@@ -42,7 +42,7 @@ export RELEASE_FIXTURE_BASH="$real_bash"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/bash"
 cat >> "$fixture/bin/bash" <<'STUB'
 set -euo pipefail
-if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh ]]; then
+if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh || "$1" == scripts/release/verify.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
 fi
 if [[ "$1" == scripts/ci/release-candidate-receipt.sh ]]; then
@@ -166,6 +166,10 @@ done
 # Real preflight must fill its selected cache before the offline validation gate.
 # Simulate a cold cache without registry requests or dependency changes.
 mkdir -p scripts/ci
+mkdir -p scripts/release ci
+cp "$root/scripts/release/verify.sh" "$root/scripts/release/group.sh" scripts/release/
+cp "$root/scripts/ci/release-receipts.sh" "$root/scripts/ci/cargo-release-groups.jq" scripts/ci/
+cp "$root/ci/cargo-release-groups.json" ci/
 cp "$root/scripts/ci/finalize-release-changelog.awk" scripts/ci/
 mkdir -p releases/database
 printf '# Changelog\n\n## [0.1.1]\n\nFixture notes.\n' > releases/database/CHANGELOG.md

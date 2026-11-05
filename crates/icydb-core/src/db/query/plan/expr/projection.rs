@@ -91,13 +91,6 @@ impl ProjectionSpec {
         Self { fields }
     }
 
-    /// Build one projection semantic contract for tests outside planner modules.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn from_fields_for_test(fields: Vec<ProjectionField>) -> Self {
-        Self::new(fields)
-    }
-
     /// Return the declared output field count.
     #[must_use]
     pub(in crate::db) const fn len(&self) -> usize {
@@ -423,3 +416,6 @@ Self::Exprs(field_0) => [field_0],
 crate::retained::retained_fields!(ProjectionSpec {
 Self{fields} => [fields],
 });
+
+#[cfg(test)]
+mod helper_tests;

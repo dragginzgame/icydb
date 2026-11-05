@@ -13,11 +13,6 @@ use crate::{
     error::InternalError,
 };
 
-use super::{
-    SchemaTransitionRejection, SchemaTransitionRejectionDetail,
-    SchemaTransitionRejectionDetailCode, SchemaTransitionRejectionKind,
-};
-
 ///
 /// SchemaAdmissionIdentity
 ///
@@ -111,7 +106,7 @@ impl fmt::Debug for SchemaAdmissionRejectionReason {
 /// SchemaAdmissionRejectionClassification
 ///
 /// SchemaAdmissionRejectionClassification is the structured admission-matrix
-/// decision used before final transition rejection formatting.
+/// decision consumed by DDL admission without a transition-error wrapper.
 ///
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -145,22 +140,9 @@ impl fmt::Debug for SchemaAdmissionRejectionClassification {
     }
 }
 
-// Apply the version/method/fingerprint gate before mutation compatibility
-// classification. Passing this gate only admits a candidate to compatibility
-// checks; it does not publish the candidate snapshot by itself.
-pub(in crate::db::schema) fn schema_admission_rejection(
-    comparison: SchemaAdmissionIdentityComparison,
-) -> Option<SchemaTransitionRejection> {
-    let classification = classify_schema_admission_rejection(comparison)?;
-
-    Some(SchemaTransitionRejection::new(
-        SchemaTransitionRejectionKind::SchemaVersion,
-        SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::SchemaAdmission),
-        Some(classification),
-    ))
-}
-
-pub(super) fn classify_schema_admission_rejection(
+// Return the version/method/fingerprint refusal directly to DDL admission.
+// This does not authorize physical work or publication.
+pub(in crate::db::schema) fn classify_schema_admission_rejection(
     comparison: SchemaAdmissionIdentityComparison,
 ) -> Option<SchemaAdmissionRejectionClassification> {
     if comparison.stored.fingerprint_method_version

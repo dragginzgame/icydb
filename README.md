@@ -10,7 +10,7 @@
   &nbsp;&middot;&nbsp;
   <a href="https://github.com/dragginzgame/ic-timers"><img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icons/ic-timers.svg" width="18" height="18" alt=""> <strong>ic-timers</strong></a>
   &nbsp;&middot;&nbsp;
-  <a href="https://github.com/dragginzgame/ic-memory"><img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icons/ic-memory.svg" width="18" height="18" alt=""> <strong>ic-memory</strong></a>
+  <a href="https://github.com/dragginzgame/ic-storage"><img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icons/ic-memory.svg" width="18" height="18" alt=""> <strong>ic-storage</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="https://github.com/dragginzgame/ic-query"><img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icons/ic-query.svg" width="18" height="18" alt=""> <strong>ic-query</strong></a>
   &nbsp;&middot;&nbsp;
@@ -100,16 +100,20 @@ The workspace version is recorded in [Cargo.toml](Cargo.toml).
 
 ## Add IcyDB
 
-Use the same release for runtime and host-side model generation. This example
-pins the released 0.291.0 version; choose your supported release explicitly:
+Use the same source for runtime and host-side model generation. The development
+contract for 0.298 makes generation explicit:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.291.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.291.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", features = ["build"] }
 ```
+
+Select a supported published tag for released applications and follow that
+release's documentation. Package versions in this checkout remain at their last
+release until release preparation.
 
 The default feature set includes structural, typed, and dynamic reads and writes.
 Optional features are `sql` for session SQL, `metrics` for replicated-call entity
@@ -118,11 +122,15 @@ schema-migration operations. Features compile library capabilities; they create
 no public methods. The separately owned `canic-icydb` adapter exports explicitly
 declared endpoints using IC Wire. See [endpoint setup](INSTALLING.md#explicit-endpoint-declarations).
 
-The development branch selects the newer dependency family described in the
-[pending 0.292 notes](docs/changelog/0.292.md). Its
-[Canic qualification](testing/canic-adapter/README.md) requires a matching adapter;
-the current 0.113 composition is unqualified against these updated libraries.
-The published 0.291 examples retain their original dependency set.
+The [pending 0.298 notes](releases/database/0.298.md) describe the explicit
+`build` and `wire-schema` feature cut. Runtime declarations, typed adapters,
+normalization and validation remain available with both features disabled.
+Enable `wire-schema` only for native browser-binding/metadata generation; it is
+independent of actor generation. Shared schema libraries forward `build` through
+their own feature and enable it only from the canister's build dependency.
+See [the host/runtime setup](docs/guides/schema-authoring.md#host-build-and-runtime-model-boundary).
+Canic qualification remains separately owned by
+[the adapter workspace](testing/canic-adapter/README.md).
 
 The 0.291 upgrade changes the Memory allocation ledger, schema-artifact
 and digest identities, and Deep integrity-job payload format. Regenerate

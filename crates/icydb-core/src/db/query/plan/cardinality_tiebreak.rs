@@ -125,17 +125,6 @@ impl<'a> CardinalityTiebreakCandidate<'a> {
         }
     }
 
-    /// Detach fixtures that outlive their locally prepared source plan.
-    #[cfg(test)]
-    pub(in crate::db) fn into_owned(self) -> CardinalityTiebreakCandidate<'static> {
-        CardinalityTiebreakCandidate {
-            access: Cow::Owned(self.access.into_owned()),
-            index: self.index,
-            family: self.family,
-            consumed_prefix_arity: self.consumed_prefix_arity,
-        }
-    }
-
     #[must_use]
     pub(in crate::db) const fn index(&self) -> &SemanticIndexAccessContract {
         &self.index
@@ -273,3 +262,6 @@ Self::PolicyFallback(field_0) => [field_0],
 crate::retained::retained_fields!(ExactCardinalityTiebreakEvidence {
 Self{route_pin,candidates} => [route_pin,candidates],
 });
+
+#[cfg(test)]
+mod helper_tests;

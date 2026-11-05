@@ -13,7 +13,7 @@ use crate::db::{
         PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaIndexId, SchemaInfo,
         UniqueConstraintProjection,
     },
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use crate::types::EntityTag;
 use icydb_diagnostic_code::{
@@ -119,13 +119,14 @@ fn visible(
     })
 }
 
-// Calibrate the predicate owner's complete allowance independently of the
-// projection handoff: pair classification, raw keys and canonical sorting.
-fn normalization_steps(accepted: &AcceptedSchemaSnapshot) -> u64 {
-    let predicate = accepted.persisted_snapshot().indexes()[0]
+// Measure the complete projection and normalization owner. Metadata retains only
+// referenced names; row authority scans all accepted slots, so keep them distinct.
+fn projection_steps(row_contract: bool) -> u64 {
+    let accepted = accepted_indexes();
+    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
+    let (contract, _) = candidate_projections();
+    let bound = accepted.persisted_snapshot().indexes()[0]
         .predicate()
-        .unwrap()
-        .to_predicate(accepted.persisted_snapshot().fields(), &catalog())
         .unwrap();
     let budget = MaintenanceConstructionBudget::with_limit_for_tests(
         Resource::PredicateExpressionSteps,
@@ -133,16 +134,20 @@ fn normalization_steps(accepted: &AcceptedSchemaSnapshot) -> u64 {
     );
     budget
         .run(
-            |work| crate::db::predicate::normalize_with_budget(predicate, work),
+            |work| {
+                let predicate = if row_contract {
+                    bound.for_row_contract(&contract, Some(work))?
+                } else {
+                    schema.field_path_indexes()[0]
+                        .predicate(Some(work))?
+                        .unwrap()
+                };
+                crate::db::predicate::normalize_with_budget(predicate, work)
+            },
             std::convert::identity,
         )
         .unwrap();
-    let steps = budget.observed_for_tests(Resource::PredicateExpressionSteps);
-    assert!(
-        steps > 3,
-        "sort work supplements the three conjunction pairs"
-    );
-    steps
+    budget.observed_for_tests(Resource::PredicateExpressionSteps)
 }
 
 fn assert_resource(facts: &[(DiagnosticFactTag, u64)], limit: u64, actual: u64) {
@@ -162,7 +167,7 @@ fn assert_resource(facts: &[(DiagnosticFactTag, u64)], limit: u64, actual: u64) 
 fn visible_index_normalization_shares_request_limits_across_both_index_kinds() {
     let accepted = accepted_indexes();
     let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
-    let steps = 2 * normalization_steps(&accepted);
+    let steps = 2 * projection_steps(false);
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         let root = request_with_limit(Resource::PredicateExpressionSteps, steps - 1);
         let facts = visible(&root, lane, &schema)
@@ -199,10 +204,10 @@ fn each_index_projection_keeps_its_canonical_predicate_at_the_exact_boundary() {
         accepted.persisted_snapshot().indexes()[0]
             .predicate()
             .unwrap()
-            .to_predicate(accepted.persisted_snapshot().fields(), &catalog())
+            .to_predicate(accepted.persisted_snapshot().fields(), &catalog(), None)
             .unwrap(),
     );
-    let steps = normalization_steps(&accepted);
+    let steps = projection_steps(false);
     for expression in [false, true] {
         for (limit, admitted) in [(steps - 1, false), (steps, true), (steps + 1, true)] {
             let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
@@ -232,7 +237,7 @@ fn each_index_projection_keeps_its_canonical_predicate_at_the_exact_boundary() {
 #[test]
 fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
     let (contract, candidates) = candidate_projections();
-    let steps = normalization_steps(&accepted_indexes());
+    let steps = projection_steps(true);
     for index in &candidates {
         for (limit, admitted) in [(steps - 1, false), (steps, true), (steps + 1, true)] {
             let budget = MaintenanceConstructionBudget::with_limit_for_tests(
@@ -241,12 +246,7 @@ fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
             );
             let result = budget.run(
                 |work| {
-                    UniqueConstraintProjection::new(
-                        EntityTag::new(7),
-                        index,
-                        &contract,
-                        |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
-                    )
+                    UniqueConstraintProjection::new(EntityTag::new(7), index, &contract, Some(work))
                 },
                 std::convert::identity,
             );
@@ -265,7 +265,7 @@ fn unique_candidate_normalization_obeys_exact_page_construction_limits() {
 #[test]
 fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
     let (contract, candidates) = candidate_projections();
-    let steps = 2 * normalization_steps(&accepted_indexes());
+    let steps = 2 * projection_steps(true);
     for (limit, admitted) in [(steps - 1, false), (steps, true)] {
         let budget = MaintenanceConstructionBudget::with_limit_for_tests(
             Resource::PredicateExpressionSteps,
@@ -278,7 +278,7 @@ fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
                         EntityTag::new(7),
                         &candidates[0],
                         &contract,
-                        |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
+                        Some(work),
                     )
                 },
                 std::convert::identity,
@@ -290,7 +290,7 @@ fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
                     EntityTag::new(7),
                     &candidates[1],
                     &contract,
-                    |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
+                    Some(work),
                 )
             },
             std::convert::identity,
@@ -310,7 +310,7 @@ fn candidate_normalization_is_cumulative_and_retains_the_first_refusal() {
 #[test]
 fn migration_candidate_normalization_uses_the_existing_page_budget() {
     let (contract, candidates) = candidate_projections();
-    let steps = normalization_steps(&accepted_indexes());
+    let steps = projection_steps(true);
     for index in &candidates {
         for (limit, admitted) in [(steps - 1, false), (steps, true)] {
             let budget = MaintenanceConstructionBudget::with_limit_for_tests(
@@ -336,6 +336,115 @@ fn migration_candidate_normalization_uses_the_existing_page_budget() {
                     .expect("migration must admit predicate work before rows");
                 assert_resource(&error.diagnostic_facts(), steps - 1, steps);
             }
+        }
+    }
+}
+
+// The fixture has three distinct one-character text literals per index. Derive
+// their encoded extent from the literal codec, independently of budget receipts.
+fn literal_decode_bytes_per_index() -> u64 {
+    let catalog = catalog();
+    let literal = crate::db::schema::check::bind_index_predicate_literal(
+        crate::value::InputValue::from("a"),
+        K::Text { max_len: None },
+        catalog.enum_catalog(),
+        catalog.composite_catalog(),
+    )
+    .unwrap();
+    3 * literal.payload().len() as u64
+}
+
+#[test]
+fn visible_index_decode_bytes_accumulate_before_row_or_key_scanning() {
+    let accepted = accepted_indexes();
+    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
+    let required = 2 * literal_decode_bytes_per_index();
+    for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+        for limit in [required - 1, required, 2 * required] {
+            let root = request_with_limit(Resource::DecodedBytes, limit);
+            for attempt in 1..=3 {
+                let result = visible(&root, lane, &schema);
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+                assert_eq!(root.observed(Resource::KeyIndexEntriesVisited), 0);
+                if attempt * required <= limit {
+                    assert_eq!(result.unwrap().accepted_semantic_index_contracts().len(), 2);
+                    assert_eq!(root.observed(Resource::DecodedBytes), attempt * required);
+                } else {
+                    let facts = result.unwrap_err().diagnostic_facts();
+                    for fact in [
+                        (
+                            DiagnosticFactTag::BudgetResource,
+                            Resource::DecodedBytes.raw(),
+                        ),
+                        (DiagnosticFactTag::ExecutionLane, lane.raw()),
+                        (DiagnosticFactTag::Limit, limit),
+                        (
+                            DiagnosticFactTag::Actual,
+                            root.observed(Resource::DecodedBytes),
+                        ),
+                    ] {
+                        assert!(facts.contains(&fact));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "migration")]
+#[test]
+fn unique_and_migration_projection_share_decode_limits_and_retained_refusal() {
+    let (contract, candidates) = candidate_projections();
+    let bytes = literal_decode_bytes_per_index();
+    for limit in [2 * bytes - 1, 2 * bytes] {
+        let budget =
+            MaintenanceConstructionBudget::with_limit_for_tests(Resource::DecodedBytes, limit);
+        budget
+            .run(
+                |work| {
+                    UniqueConstraintProjection::new(
+                        EntityTag::new(7),
+                        &candidates[0],
+                        &contract,
+                        Some(work),
+                    )
+                },
+                std::convert::identity,
+            )
+            .unwrap();
+        assert_eq!(budget.observed_for_tests(Resource::DecodedBytes), bytes);
+        let result = budget.run(
+            |work| {
+                crate::db::schema::MigrationIndexProjection::new(
+                    EntityTag::new(7),
+                    &candidates[1],
+                    &contract,
+                    work,
+                )
+            },
+            std::convert::identity,
+        );
+        if limit == 2 * bytes {
+            assert!(result.is_ok());
+            assert_eq!(budget.observed_for_tests(Resource::DecodedBytes), limit);
+        } else {
+            let error = result
+                .err()
+                .expect("the second projection exceeds the shared decode allowance");
+            let facts = error.diagnostic_facts();
+            for fact in [
+                (
+                    DiagnosticFactTag::BudgetResource,
+                    Resource::DecodedBytes.raw(),
+                ),
+                (DiagnosticFactTag::Limit, limit),
+                (DiagnosticFactTag::Actual, 2 * bytes),
+            ] {
+                assert!(facts.contains(&fact));
+            }
+            let retained = budget.run(|_| Ok(()), std::convert::identity).unwrap_err();
+            assert_eq!(retained.diagnostic_facts(), facts);
         }
     }
 }

@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     db::{
         index::{IndexId, decode_index_key_frame},
-        test_support::index::nat64_index_key,
+        tests::support::index::nat64_index_key,
     },
     types::EntityTag,
 };

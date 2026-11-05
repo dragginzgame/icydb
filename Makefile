@@ -135,7 +135,7 @@ help:
 	@echo "  publish          Publish crates; reuse the exact shared release receipt when available"
 	@echo ""
 	@echo "Development:"
-	@echo "  cloc             Report workspace Rust runtime and test source counts"
+	@echo "  cloc             Report Rust app/library, tests, examples and tooling LOC"
 	@echo "  test             Run product workspace tests without Canic or PocketIC"
 	@echo "  test-cli         Run CLI native unit and process tests only"
 	@echo "  clippy-cli       Lint all CLI targets only (strict warnings)"
@@ -263,8 +263,10 @@ _test-icydb-no-default:
 _test-core-no-default:
 	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-core --no-default-features
 
+# Full workspace qualification includes graph tests; runtime-only selection has
+# its own independent consumer and no-default-feature checks above.
 _test-workspace:
-	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing
 
 # Focused development stages for the CLI package. Release verification retains
 # the complete validate gate until group selection and receipts are qualified.
@@ -412,6 +414,8 @@ check:
 
 clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing -- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build -- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
 
 clippy-cli:
@@ -453,21 +457,15 @@ fmt fmt-check format-tools-check: export CARGO_HOME := $(CARGO_WORK_HOME)
 fmt fmt-check format-tools-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
 
 validate:
-	$(MAKE) --no-print-directory tools-check
-	$(MAKE) --no-print-directory check-rust-compiler
+	@perl scripts/release/validation-stages.pl check
 	# Admit lint before invariant fixtures, product builds or executable tests.
-	+$(VALIDATION_RUNNER) --fail-fast \
-		fmt-check \
-		lint-workflows \
-		shellcheck \
-		check-dependency-pins \
-		clippy \
-		check-invariants \
-		check
+	+$(VALIDATION_RUNNER) --input Makefile --input ci/release-validation.json \
+		--input ci/release-validation-contract.json --fail-fast \
+		$(shell perl scripts/release/validation-stages.pl fast)
 	# Once clippy passes, retain every later long-lane failure in one combined log.
-	+$(VALIDATION_RUNNER) \
-		check-feature-matrix \
-		test
+	+$(VALIDATION_RUNNER) --input Makefile --input ci/release-validation.json \
+		--input ci/release-validation-contract.json \
+		$(shell perl scripts/release/validation-stages.pl collect)
 
 # Explicit broad static preflight. This intentionally does not replace `validate`:
 # feature-specific clippy lanes and executable tests remain in the full gate.
@@ -533,6 +531,7 @@ check-portable-automation: shared-tooling-check
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/release/test-standard-release.sh
 	bash scripts/ci/test-release-validation-plan.sh
+	perl scripts/ci/test-database-validation.pl
 	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-release-groups.sh
 	bash scripts/ci/test-tooling-fixture-completion.sh
 	bash scripts/ci/test-publish-workspace.sh
@@ -552,6 +551,7 @@ check-invariants:
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)" --external-ic
+	+$(MAKE) --no-print-directory check-candid-boundary
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
@@ -566,8 +566,13 @@ check-invariants:
 	bash scripts/ci/check-wasm-post-link-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 
+.PHONY: check-candid-boundary
+check-candid-boundary:
+	perl scripts/ci/check-candid-boundary.pl "$(ROOT_DIR)" ci/candid-boundary.json crates canisters schema testing
+
 check-feature-matrix:
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features --features testing
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features --features sql
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features --features sql
@@ -645,6 +650,8 @@ ci-adapter:
 _ci-workspace-clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \
 		-- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing -- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build -- -D warnings
 
 _ci-workspace-integration-clippy:
 	+$(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked -p icydb-testing-integration \
@@ -652,12 +659,41 @@ _ci-workspace-integration-clippy:
 
 _ci-workspace-tests:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
-		--workspace --all-targets --verbose
+		--workspace --all-targets --features icydb-model/build --verbose
 
 ci-sql-tier-a:
 	+$(VALIDATION_RUNNER) \
 		_ci-tier-a-sqlite \
 		_ci-tier-a-mutation
+
+# Bounded database feedback, not release omission authority. Both selections
+# include the same downstream SQL/session/facade acceptance through the runner.
+.PHONY: ci-database-parser ci-database-planner ci-database-query _test-database-parser _test-database-planner _test-database-lowering _test-database-session _test-database-facade
+DATABASE_ACCEPTANCE := _test-database-lowering _test-database-session _ci-tier-a-sqlite _ci-tier-a-mutation _test-database-facade
+
+ci-database-parser:
+	+$(VALIDATION_RUNNER) --fail-fast check-rust-compiler _ci-core-sql-clippy _test-database-parser $(DATABASE_ACCEPTANCE)
+
+ci-database-planner:
+	+$(VALIDATION_RUNNER) --fail-fast check-rust-compiler _ci-core-sql-clippy _test-database-planner $(DATABASE_ACCEPTANCE)
+
+ci-database-query:
+	+$(VALIDATION_RUNNER) --fail-fast check-rust-compiler _ci-core-sql-clippy _test-database-parser _test-database-planner $(DATABASE_ACCEPTANCE)
+
+_test-database-parser:
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::sql::parser::
+
+_test-database-planner:
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::query::plan::
+
+_test-database-lowering:
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::sql::lowering::
+
+_test-database-session:
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::session::tests::cardinality_tiebreak::
+
+_test-database-facade:
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb --lib --no-default-features --features sql db::sql::
 
 _ci-tier-a-sqlite:
 	+$(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
@@ -723,7 +759,7 @@ release-preflight:
 	fi
 	@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory tools-check
 release-verify:
-	+$(RELEASE_EDITOR_ENV) TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
+	+$(RELEASE_EDITOR_ENV) MAKE="$(MAKE)" TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true bash scripts/release/verify.sh
 release-prepare-version:
 	+@$(RELEASE_EDITOR_ENV) TMPDIR="$(RELEASE_TMP_DIR)" bash scripts/release/prepare.sh
 release-prepared-check:

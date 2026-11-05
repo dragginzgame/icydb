@@ -1,4 +1,3 @@
-use crate::schema::DemoRpgStore;
 use icydb::model::prelude::*;
 
 ///
@@ -26,10 +25,10 @@ pub struct CharacterMentor {}
 /// Fixture RPG character entity used by SQL endpoint and integration harnesses.
 ///
 
-#[entity(store = "DemoRpgStore",
+#[entity(store = "crate::schema::DemoRpgStore",
     version = 1,
     pk(fields = ["id"]),
-    index(fields = ["name"]),
+    index(name = "idx_character__name", fields = ["name"]),
     index(fields = ["level", "class_name"]),
     fields(
         field(name = "id",

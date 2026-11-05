@@ -137,11 +137,6 @@ impl KernelRow {
         !matches!(self.slots, KernelRowSlots::NotMaterialized)
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn slot(&self, slot: usize) -> Option<Value> {
-        self.slot_ref(slot).cloned()
-    }
-
     pub(in crate::db) fn into_data_row(self) -> Result<ReadDataRow, InternalError> {
         self.data_row
             .ok_or_else(InternalError::query_executor_invariant)
@@ -348,3 +343,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
         },
     })
 }
+
+#[cfg(test)]
+mod helper_tests;

@@ -21,7 +21,7 @@ use crate::{
 };
 
 fn initialize_rows() -> DbSession<TestCanister> {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "category", 1, AcceptedFieldKind::Nat64),

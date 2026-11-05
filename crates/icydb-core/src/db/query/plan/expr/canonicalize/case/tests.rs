@@ -5,7 +5,7 @@ use crate::{
         canonicalize::canonicalize_scalar_where_bool_expr_artifact,
         derive_normalized_bool_expr_predicate_subset, eval_builder_expr_for_value_preview,
     },
-    db::{query::preparation::PreparationWork, test_support::request_with_limit},
+    db::{query::preparation::PreparationWork, tests::support::request_with_limit},
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{

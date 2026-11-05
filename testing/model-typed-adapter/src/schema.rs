@@ -74,13 +74,13 @@ use std::{
     rc::Rc as Box,
 };
 const _: Into<u8> = 0..0;
-const _: ::core::option::Option<&dyn Clone> = ::core::option::Option::None;
+const _: ::std::option::Option<&dyn Clone> = ::std::option::Option::None;
 const _: From<u8> = 0..;
-const _: Result<()> = ::core::result::Result::Ok(());
-const _: ::core::option::Option<&(dyn PartialEq + PartialOrd)> = ::core::option::Option::None;
+const _: Result<()> = ::std::result::Result::Ok(());
+const _: ::std::option::Option<&(dyn PartialEq + PartialOrd)> = ::std::option::Option::None;
 const _: Option<()> = std::marker::PhantomData;
-const _: ::core::option::Option<Vec<()>> = ::core::option::Option::None;
-const _: ::core::option::Option<Box<()>> = ::core::option::Option::None;
+const _: ::std::option::Option<Vec<()>> = ::std::option::Option::None;
+const _: ::std::option::Option<Box<()>> = ::std::option::Option::None;
 
 const _: std::cmp::Ordering = None;
 const _: std::cmp::Ordering = Ok;
@@ -194,6 +194,19 @@ pub struct TypedIdentityUser {}
     fields(field(name = "id", value(item(prim = "Nat64"))))
 )]
 pub struct TypedIdentityCounter {}
+
+#[entity(
+    store = "TypedAdapterStore",
+    version = 1,
+    pk(field = "id"),
+    fields(field(
+        name = "id",
+        value(item(prim = "Nat64")),
+        generated(insert = "Identity::next")
+    )),
+    timestamps
+)]
+pub struct ManagedKeyOnly {}
 
 #[entity(
     store = "TypedAdapterStore",

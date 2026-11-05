@@ -1,0 +1,24 @@
+[package]
+name = "icydb-testing-test-fixtures"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = "0.297.0"
+publish = false
+license-file = { workspace = true }
+description = "Shared schema and seed fixtures for IcyDB test surfaces"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[package.metadata.shared-tooling.loc]
+category = "tests"
+
+[features]
+default = []
+build = ["icydb/build", "icydb-model/build"]
+
+[dependencies]
+icydb = { workspace = true, default-features = true }
+icydb-model = { workspace = true }
+
+[lints]
+workspace = true

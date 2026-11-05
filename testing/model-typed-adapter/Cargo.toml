@@ -9,13 +9,19 @@ description = "Renamed-dependency typed-adapter fixture for IcyDB model packages
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.shared-tooling.loc]
+category = "tests"
+
 [dependencies]
 model_api = { workspace = true }
 runtime_api = { workspace = true, default-features = true }
 
 [build-dependencies]
-model_api = { workspace = true }
-runtime_api = { workspace = true }
+model_api = { workspace = true, features = ["build"] }
+runtime_api = { workspace = true, features = ["build"] }
+
+[dev-dependencies]
+runtime_api = { workspace = true, features = ["sql"] }
 
 [lints]
 workspace = true

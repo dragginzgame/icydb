@@ -721,6 +721,13 @@ to this contract can include previously skipped formats such as `.mjs` and
 
 ## Consumer formatting-hook adoption
 
+Formatting-hook qualification and Rust source selection default to the selected
+consumer's `target/tmp`; `TMPDIR` overrides that location. The presentation-only
+`run-formatting.sh` wrapper uses its caller's working directory as the consumer
+root and defaults to `target/tmp`, with `RUNNER_TEMP` then `TMPDIR` taking
+precedence. Overrides may be relative and are resolved before changing directory.
+No helper exports a global temporary-directory default.
+
 On failure, the checker replays its existing baseline and per-checkout hook logs
 to stderr before reporting the retained fixture directory. Diagnostic replay is
 best effort and preserves the original failure status; successful checks remove

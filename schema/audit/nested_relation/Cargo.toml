@@ -11,6 +11,10 @@ description = "Controlled nested-relation measurement schemas"
 [package.metadata.cargo-machete]
 ignored = ["icydb"]
 
+[features]
+default = []
+build = ["icydb/build", "icydb-model/build"]
+
 [dependencies]
 canic-icydb = { workspace = true }
 ic-platform = { workspace = true, features = ["ic0"] }
@@ -21,3 +25,6 @@ icydb-testing-wasm-helpers = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

@@ -1,5 +1,6 @@
 #[cfg(feature = "sql")]
 mod boolean_truth;
+mod dependency_budget;
 #[cfg(feature = "sql")]
 mod float_literals;
 mod source_bounds;

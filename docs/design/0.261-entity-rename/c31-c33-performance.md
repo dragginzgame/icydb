@@ -430,7 +430,7 @@ pending candidate patch, artifact/source/report hashes, raw Wasm sizes, timer
 observations and functional checks. Its tabular rows use explicit column names
 and exclude all host timings.
 
-See [structured measurements](c31-c33-measurements.json). The earlier published
+See [structured measurements](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/design/0.261-entity-rename/c31-c33-measurements.json). The earlier published
 comparison is sourced from Toko Miner's
 `docs/upstream/artifacts/icydb-0.261.5-action-comparison.json`, whose hash is
 retained in the evidence. The final feedback for Toko is:

@@ -4,7 +4,7 @@ use super::canonicalize_grouped_having_numeric_literal_for_accepted_kind as norm
 use crate::{
     db::{
         query::preparation::PreparationWork, schema::AcceptedFieldKind,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

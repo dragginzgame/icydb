@@ -26,7 +26,7 @@ impl Imp<List> for FromTrait {
             quote!(
                 entries
                     .into_iter()
-                    .map(::core::convert::Into::into)
+                    .map(::std::convert::Into::into)
                     .collect()
             ),
             None,
@@ -74,7 +74,7 @@ impl Imp<Set> for FromTrait {
             quote!(
                 entries
                     .into_iter()
-                    .map(::core::convert::Into::into)
+                    .map(::std::convert::Into::into)
                     .collect()
             ),
             Some(quote!(#item: ::std::cmp::Ord)),
@@ -92,7 +92,7 @@ fn vec_collection_from_strategy(
 ) -> TraitStrategy {
     let mut implementor = Implementor::new(def, TraitKind::From)
         .set_tokens(vec_collection_from_tokens(body))
-        .add_impl_constraint(quote!(I: ::core::convert::Into<#item>))
+        .add_impl_constraint(quote!(I: ::std::convert::Into<#item>))
         .add_impl_generic(quote!(I))
         .add_trait_generic(quote!(::std::vec::Vec<I>));
 
@@ -123,13 +123,13 @@ fn map_from_strategy(
                 Self(
                     entries
                         .into_iter()
-                        .map(|(key, value)| (::core::convert::Into::into(key), ::core::convert::Into::into(value)))
+                        .map(|(key, value)| (::std::convert::Into::into(key), ::std::convert::Into::into(value)))
                         .collect(),
                 )
             }
         })
-        .add_impl_constraint(quote!(IK: ::core::convert::Into<#key>))
-        .add_impl_constraint(quote!(IV: ::core::convert::Into<#value>))
+        .add_impl_constraint(quote!(IK: ::std::convert::Into<#key>))
+        .add_impl_constraint(quote!(IV: ::std::convert::Into<#value>))
         .add_impl_constraint(quote!(#key: ::std::cmp::Ord))
         .add_impl_generic(quote!(IK))
         .add_impl_generic(quote!(IV))
@@ -143,10 +143,10 @@ fn newtype_from_strategy(def: &Def, item: &TokenStream, paths: &CratePaths) -> T
     let tokens = Implementor::new(def, TraitKind::From)
         .set_tokens(quote! {
             fn from(t: T) -> Self {
-                Self(::core::convert::Into::into(t))
+                Self(::std::convert::Into::into(t))
             }
         })
-        .add_impl_constraint(quote!(T: ::core::convert::Into<#item>))
+        .add_impl_constraint(quote!(T: ::std::convert::Into<#item>))
         .add_impl_generic(quote!(T))
         .add_trait_generic(quote!(T))
         .impl_tokens(paths);

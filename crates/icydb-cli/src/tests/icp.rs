@@ -7,11 +7,10 @@ use icydb::__macro::RpcMethod;
 
 use std::path::Path;
 
-use crate::icp::test_support::{
+use crate::icp::support_tests::{
     build_command, canister_status_id_command, canister_status_json_command, deploy_command,
     fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
-    install_upgrade_command, parse_canister_cycles, parse_manifest_canisters, status_command,
-    top_up_command,
+    install_upgrade_command, parse_manifest_canisters, status_command, top_up_command,
 };
 
 #[test]
@@ -277,19 +276,6 @@ fn canister_status_probe_commands_target_selected_environment() {
         assert_eq!(command.get_program().to_string_lossy(), "icp");
         assert_eq!(args, expected);
     }
-}
-
-#[test]
-fn canister_status_cycles_parser_accepts_underscored_cycle_balance() {
-    let status = "\
-Canister Status Report:
-  Memory size: 9_515_742
-  Cycles: 1_418_380_664_222
-  Reserved cycles: 0
-";
-
-    assert_eq!(parse_canister_cycles(status), Some(1_418_380_664_222));
-    assert_eq!(parse_canister_cycles("Status: Running"), None);
 }
 
 #[test]

@@ -1111,12 +1111,6 @@ impl InternalError {
         Self::index_internal()
     }
 
-    /// Construct a query-origin internal error.
-    #[cfg(test)]
-    pub(crate) fn query_internal() -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Query)
-    }
-
     /// Construct a query-origin unsupported error.
     #[cold]
     #[inline(never)]
@@ -1899,18 +1893,6 @@ impl InternalError {
         Self::index_plan_corruption(ErrorOrigin::Serialize)
     }
 
-    /// Construct an index-plan invariant violation error with a canonical prefix.
-    #[cfg(test)]
-    pub(crate) fn index_plan_invariant(origin: ErrorOrigin) -> Self {
-        Self::new(ErrorClass::InvariantViolation, origin)
-    }
-
-    /// Construct an index-plan invariant violation error for store-origin failures.
-    #[cfg(test)]
-    pub(crate) fn index_plan_store_invariant() -> Self {
-        Self::index_plan_invariant(ErrorOrigin::Store)
-    }
-
     /// Construct an index-origin conflict without claiming accepted identity.
     ///
     /// Live accepted uniqueness violations use compact accepted-constraint facts.
@@ -1976,7 +1958,10 @@ impl fmt::Debug for InternalError {
 ///
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub enum ConstraintValuePathComponent {
     /// Persisted root field whose admitted value was traversed.
     RootField { field_id: u32 },
@@ -2044,7 +2029,10 @@ impl fmt::Display for ConstraintValuePathComponent {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct ConstraintValuePath {
     components: Vec<ConstraintValuePathComponent>,
 }
@@ -2084,7 +2072,10 @@ impl fmt::Display for ConstraintValuePath {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct ConstraintValidationFindingOutput {
     accepted_schema_fingerprint: [u8; 16],
     entity_tag: u64,
@@ -3157,3 +3148,6 @@ impl fmt::Debug for ErrorOrigin {
         write!(f, "{}", *self as u8)
     }
 }
+
+#[cfg(test)]
+mod helper_tests;

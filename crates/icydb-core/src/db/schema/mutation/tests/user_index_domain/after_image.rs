@@ -11,7 +11,6 @@ use crate::{
             EncodedValue, IndexMutationPlan, IndexPlanReadView, IndexReadContract,
             PreparedIndexMutationMetadata, plan_index_mutation_for_slot_reader_structural,
         },
-        predicate::{normalize, normalize_with_budget},
         resource::budget::MaintenanceConstructionBudget,
     },
     error::InternalError,
@@ -141,7 +140,7 @@ fn canonical_commit_metadata(
     schema: SchemaInfo,
     contract: StructuralRowContract,
 ) -> Result<PreparedIndexMutationMetadata, InternalError> {
-    PreparedIndexMutationMetadata::new(schema, contract, |predicate| Ok(normalize(predicate)))
+    PreparedIndexMutationMetadata::new(schema, contract, None)
 }
 
 fn plan_name_update(
@@ -198,9 +197,7 @@ fn commit_metadata_shares_predicate_pairs_across_field_and_expression_indexes() 
     );
     // Both families share all normalization work, including sort/key admission.
     let prepare = |work: &MaintenanceConstructionBudget| {
-        PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), |predicate| {
-            normalize_with_budget(predicate, work)
-        })
+        PreparedIndexMutationMetadata::new(schema.clone(), contract.clone(), Some(work))
     };
     let baseline = MaintenanceConstructionBudget::with_limit_for_tests(
         Resource::PredicateExpressionSteps,

@@ -7,7 +7,7 @@ use crate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, normalize, normalize_with_budget,
         },
         query::preparation::PreparationWork,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };
@@ -16,8 +16,27 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 
-fn predicates() -> [Predicate; 2] {
+fn predicates() -> [Predicate; 4] {
     [
+        Predicate::Or(
+            ["left", "right"]
+                .map(|field| {
+                    Predicate::eq(
+                        field.into(),
+                        Value::Map(vec![
+                            (Value::Text("k".into()), Value::Text("z".repeat(128))),
+                            (Value::Text("a".into()), Value::Text("a".repeat(128))),
+                            (Value::Text("k".into()), Value::Text("b".repeat(128))),
+                        ]),
+                    )
+                })
+                .into(),
+        ),
+        Predicate::Or(
+            [3, 1, 3]
+                .map(|n| Predicate::eq("a".into(), Value::Nat64(n)))
+                .into(),
+        ),
         Predicate::Or(vec![
             Predicate::IsNull { field: "z".into() },
             Predicate::IsNull {

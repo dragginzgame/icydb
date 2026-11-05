@@ -12,7 +12,7 @@ changed method identity; earlier reports remain historical and affected comparis
 
 - Report scope: `complexity-and-technical-debt`.
 - Method: shared snapshot revision plus `ICYDB-CTD-2`; record both identities.
-- Reports: `docs/reports/recurring/YYYY/MM/DD/complexity-and-technical-debt/<run>/report.md`.
+- Reports: `docs/reports/recurring/complexity-and-technical-debt.md`.
 - Trigger: affected owners at minor-line closeout, new public/configuration axes,
   persisted state, routes, cursor/protocol formats or widely consumed variants,
   or repeated edits across unrelated owners. Broad baselines require a request.

@@ -4,7 +4,7 @@ use super::*;
 use crate::db::{
     predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate},
     query::{plan::ResolvedOrderField, preparation::PreparationWork},
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 

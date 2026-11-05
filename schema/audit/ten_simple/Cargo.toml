@@ -7,6 +7,13 @@ version = "0.297.0"
 publish = false
 description = "Ten-entity simple schema fixture crate for wasm SQL auditing"
 
+[package.metadata.shared-tooling.loc]
+category = "tests"
+
+[features]
+default = []
+build = ["icydb/build"]
+
 [dependencies]
 icydb = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

@@ -18,11 +18,11 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   opted-in typed adapters.
 - `canisters/audit/*`: SQL audit harnesses for wasm baselines.
 - `canisters/demo/rpg`: RPG demo canister with character and grid entities.
-- `canisters/test/sql`: lightweight SQL smoke-test harness.
-- `canisters/test/sql_bounded`: generated bounded SQL update harness.
+- `canisters/tests/sql`: lightweight SQL smoke-test harness.
+- `canisters/tests/sql_bounded`: generated bounded SQL update harness.
 - `schema/demo/rpg`: demo schema fixtures and seed data.
 - `schema/audit/*`: audit schema fixtures.
-- `schema/test/*`: shared macro/e2e and SQL fixtures.
+- `schema/tests/*`: shared macro/e2e and SQL fixtures.
 - `testing/model-*`: packaged model, macro, and typed-adapter contract tests.
 - `testing/integration`: canister integration tests.
 - `assets/`: images and docs assets.
@@ -165,7 +165,7 @@ struct TypeName;
 - Use Rust test harness.
 - Unit tests live near code when they stay within the owning module boundary.
 - Cross-module behavior suites belong under the owning subsystem `tests/` directory.
-- Macro/model expansion tests belong with the model crates and `testing/model-*` adapters; generated behavior fixtures live in `schema/test/fixtures`. Canister E2E tests belong in `testing/integration`. Follow [TESTING.md](../../TESTING.md); do not add ad-hoc generated `DummyEntity` types to accepted-schema planner tests.
+- Macro/model expansion tests belong with the model crates and `testing/model-*` adapters; generated behavior fixtures live in `schema/tests/fixtures`. Canister E2E tests belong in `testing/integration`. Follow [TESTING.md](../../TESTING.md); do not add ad-hoc generated `DummyEntity` types to accepted-schema planner tests.
 - Every inline unit test module must be preceded by:
 
 ```rust

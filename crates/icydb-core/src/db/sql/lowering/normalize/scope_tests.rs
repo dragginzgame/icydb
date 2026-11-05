@@ -2,7 +2,7 @@ use crate::db::{
     QueryError, RequestExecutionRoot,
     query::preparation::PreparationWork,
     sql::lowering::{SqlLoweringError, normalize::sql_statement_scope_candidates},
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,

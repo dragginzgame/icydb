@@ -25,7 +25,7 @@ pub(crate) use normalization::{
 };
 #[allow(
     unused_imports,
-    reason = "shared harness targets consume different scenario-selection subsets"
+    reason = "this shared module is compiled by targets with and without this import, so an expectation is not always fulfilled"
 )]
 pub(crate) use selection::select_stratified;
 pub(crate) use selection::{ScenarioStratum, SelectionError};

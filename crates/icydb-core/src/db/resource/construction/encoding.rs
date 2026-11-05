@@ -1,8 +1,17 @@
 //! Shared construction bounds for encoded values and canonical value hashes.
 //! Owns admission only: canonical encoding and map comparison stay with their writers.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
-    db::{predicate::CoercionId, resource::construction::ConstructionBudget},
+    db::{
+        predicate::CoercionId,
+        resource::{
+            budget::sort_comparison_allowance,
+            construction::{ConstructionBudget, admit_value_comparison_repetitions},
+        },
+    },
     error::InternalError,
     value::{Value, fingerprint_value, lower_text_construction_allowance},
 };
@@ -31,8 +40,8 @@ impl dyn ConstructionBudget + '_ {
     }
 }
 
-/// Bound encoded extent and admit coercion/map scratch without encoding or sorting.
-/// Nested comparison work is separate; this is not a complete sorting-work bound.
+/// Bound encoded extent and admit coercion/map scratch and comparison allowances.
+/// This walks admitted inputs without encoding, hashing or sorting them.
 pub(in crate::db) fn encoded_value_capacity(
     value: &Value,
     coercion: CoercionId,
@@ -68,6 +77,22 @@ pub(in crate::db) fn encoded_value_capacity(
                     Resource::TemporaryBytes,
                     (entries.len().max(4) as u64)
                         .saturating_mul(size_of::<&(Value, Value)>() as u64),
+                )?;
+            }
+            if entries.len() > 1 {
+                let count = entries.len() as u64;
+                let comparisons =
+                    sort_comparison_allowance(entries.len()).saturating_add(count - 1);
+                budget.charge(Resource::SortEntries, count)?;
+                budget.charge(Resource::SortComparisons, comparisons)?;
+                // The canonical-input scan and sort compare a key, then its
+                // value on ties. Reserve both through the shared payload owner,
+                // without collecting a second view or sorting during admission.
+                admit_value_comparison_repetitions(
+                    entries.iter().flat_map(|(key, value)| [key, value]),
+                    comparisons.saturating_mul(2),
+                    CoercionId::Strict,
+                    &mut |resource, amount| budget.charge(resource, amount),
                 )?;
             }
             for (key, value) in entries {

@@ -10,7 +10,7 @@ use crate::{
             preparation::PreparationWork,
         },
         resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

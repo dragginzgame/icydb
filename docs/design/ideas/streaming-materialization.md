@@ -1,7 +1,7 @@
 # Nested Collection Materialization
 
 Status: broader streaming deferred after the bounded
-[0.260 investigation](../../reports/investigations/2026/09/19/collection-materialization/02/report.md).
+[0.260 investigation](../../reports/investigations/collection-materialization.md).
 A smaller nullable by-kind correctness fix was retained (-252 raw actor bytes),
 but the named-list fixture's 54 instruction/cycle observations were unchanged.
 Collection ownership remains intact. Reopening requires new evidence at the

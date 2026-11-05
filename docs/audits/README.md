@@ -4,7 +4,8 @@ Apply [the shared audit contract](../../audits/README.md) at the reviewed revisi
 recorded in [the snapshot](../../.shared-tooling.snapshot). This overlay owns
 IcyDB's product obligations, audit selection and report destinations. Shared methods own generic
 inspection, evidence, findings and authorized cleanup; they add no schedule or
-automatic full gate. Reports stay in `docs/reports/`.
+automatic full gate. Compact topic summaries stay in `docs/reports/`; raw output
+belongs under `target/evidence/`.
 
 [Code hygiene](../../audits/code-hygiene.md) uses
 [the local style/architecture rules](../governance/code-hygiene/README.md) and
@@ -12,7 +13,8 @@ automatic full gate. Reports stay in `docs/reports/`.
 retain their distinct correctness and measurement questions. The four structural
 and cleanup overlays below carry new `ICYDB-*` identities; their
 [prior definitions](archive/shared-adoption/README.md) are frozen historical
-references. Earlier reports and artifacts are unchanged and affected comparisons
+references. Historical assessments retain their original source identities in
+Git; authorized evidence cleanup may compact their working-tree copies. Affected comparisons
 are `N/A (method change)`.
 
 ## Audit Definitions
@@ -47,8 +49,7 @@ The broad invariant-preservation sweep is also retired. Its definition is
 preserved under [archive/integrity](archive/integrity/invariant-preservation.md)
 and is ineligible for new recurring runs. Domain audits own its correctness
 checks; the targeted [boundary handoff review](targeted/integrity/boundary-handoff-review.md)
-preserves the check for guarantees lost between owners. Historical reports
-remain unchanged.
+preserves the check for guarantees lost between owners. Historical conclusions retain their original identity in Git.
 
 Domain-safety audits follow the change triggers and scope contract below.
 Performance, Wasm, and completeness retain their own scope and run conditions.
@@ -77,18 +78,17 @@ issue context. Their executed results still use the report hierarchy below.
 
 ## Report Locations
 
-Reports are immutable outputs, classified by lifecycle:
+Apply the [report retention policy](../reports/README.md). Saved outcomes are
+classified by lifecycle:
 
-- recurring run:
-  `docs/reports/recurring/YYYY/MM/DD/<scope>/<run>/report.md`
+- recurring topic summary: `docs/reports/recurring/<scope>.md`
 - release closeout:
   `docs/reports/releases/<version>/closeout/YYYY-MM-DD/<run>/report.md`
-- one-time investigation:
-  `docs/reports/investigations/YYYY/MM/DD/<scope>/<run>/report.md`
+- investigation summary: `docs/reports/investigations/<scope>.md`
 
-`<run>` is a two-digit sequence beginning at `01`. Machine-readable findings
-use `findings.json` beside the report. Supporting output belongs in the same
-run's `artifacts/` directory.
+Raw run output, including machine-readable findings, uses unique directories
+under `target/evidence/`. Release closeout and recovery records retain their own
+contracts. Update a topic's current summary instead of accumulating run reports.
 
 See `docs/reports/README.md` for the report ownership and history contract.
 
@@ -97,8 +97,8 @@ See `docs/reports/README.md` for the report ownership and history contract.
 - recurring definition: `<focus>.md`
 - targeted playbook: `<focus>.md`
 - report scope: stable lowercase kebab-case
-- run directory: `01`, `02`, ...
-- human-readable result: `report.md`
+- raw-capture run directory: `01`, `02`, ...
+- compact topic result: `<scope>.md`; raw-capture result: `report.md`
 - structured findings: `findings.json`
 
 The path carries date, scope, and run identity, so report filenames must not
@@ -143,7 +143,7 @@ must not be presented as a whole-system verdict.
 
 Record `DOMAIN-1` alongside the audit-local method tag to identify this scope
 contract. On first adoption, describe the coverage change and mark affected
-deltas `N/A (method change)`. Historical broad reports remain unchanged; only
+deltas `N/A (method change)`. Historical broad assessments remain available in Git; only
 explicitly equivalent obligations and evidence can remain comparable.
 
 ### Finding Ownership And Shared Evidence
@@ -269,7 +269,8 @@ during a run, preserve the failed attempt and record the replacement and why
 its assertions cover the same obligation. Do not silently drop the obligation,
 count the replacement as equivalent based on its name, or retry an expensive
 failure without new evidence. Definition edits need authorization; an audit
-finding does not grant it. Historical reports remain immutable.
+finding does not grant it. Historical source identity remains recorded even when
+an authorized cleanup compacts retained experimental evidence.
 
 When the selected proof changes the method or coverage, follow the method-change
 and comparability rules above. Reuse this contract rather than copying its
@@ -277,14 +278,15 @@ status and counting rules into each definition.
 
 ## History Preservation
 
-Use [report ownership](../reports/README.md) for the existing recurring,
-release-closeout and investigation hierarchy. Never overwrite reports or their
-structured findings. New evidence receives a new run; historical definitions
-are ineligible for new runs and keep their original source identity.
+Use [report ownership](../reports/README.md) for compact topic summaries and raw
+output retention. Preserve useful conclusions and repair references during an
+authorized cleanup; Git retains historical revisions. Keep release/recovery
+records under their separate contracts. Historical audit definitions remain
+ineligible for new runs and keep their original source identity.
 
 ## Sources of Truth
 
 - [Shared methods](../../audits/README.md): common procedure and evidence contract.
 - [Architecture contracts](architecture-contracts.md): IcyDB invariants.
 - `docs/audits/recurring/` and `docs/audits/targeted/`: local overlays/domain methods.
-- [Reports](../reports/README.md): immutable evidence and local output layout.
+- [Reports](../reports/README.md): compact conclusions and raw-output retention.

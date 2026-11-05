@@ -1,0 +1,17 @@
+error: invalid index name; use a nonempty bounded schema name outside __icydb_; for example: index(name = "users_by_email", field = "email")
+ --> tests/ui/index_names/invalid.rs:9:18
+  |
+9 |     index(name = "bad name", field = "email")
+  |                  ^^^^^^^^^^
+
+error: invalid index name; use a nonempty bounded schema name outside __icydb_; for example: index(name = "users_by_email", field = "email")
+  --> tests/ui/index_names/invalid.rs:15:18
+   |
+15 |     index(name = "__icydb_private", field = "email")
+   |                  ^^^^^^^^^^^^^^^^^
+
+error: index(...) accepts only one name argument
+  --> tests/ui/index_names/invalid.rs:21:25
+   |
+21 |     index(name = "one", name = "two", field = "email")
+   |                         ^^^^

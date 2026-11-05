@@ -61,13 +61,7 @@ fn stream_access_module_limits_direct_store_traversal_to_scan_boundary() {
 
     let allowed = ["scan.rs"];
     for source_path in sources {
-        if source_path
-            .components()
-            .any(|part| part.as_os_str() == "tests")
-            || source_path
-                .file_name()
-                .is_some_and(|name| name == "tests.rs")
-        {
+        if source_is_test_only(&source_path) {
             continue;
         }
 
@@ -97,13 +91,7 @@ fn executor_runtime_modules_have_no_raw_access_path_variant_matching() {
 
     let mut violations = Vec::new();
     for source_path in sources {
-        if source_path
-            .components()
-            .any(|part| part.as_os_str() == "tests")
-            || source_path
-                .file_name()
-                .is_some_and(|name| name == "tests.rs")
-        {
+        if source_is_test_only(&source_path) {
             continue;
         }
 

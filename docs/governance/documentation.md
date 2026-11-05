@@ -6,9 +6,10 @@ and artifacts; they do not create another current feature backlog.
 
 ## Owners And Checks
 
-- README owns release-pinned dependency examples. Installation and other guides
-  link there. Choose its supported release deliberately; runtime and build
-  examples must agree. Release tooling leaves README prose unchanged.
+- README owns paired dependency examples. Installation and other guides link
+  there. Released examples select the same supported tag; pending hard cuts may
+  document the same canonical development source with generation selected only
+  by the build dependency. Release tooling leaves README prose unchanged.
 - The compiled `testing/model-facade-only` package owns the complete onboarding
   example. README links to its manifest, declarations, build script and actor.
   Its native test exercises startup, typed writes and reads; a separate ignored
@@ -34,7 +35,8 @@ codec checks. These tests also participate in their normal package test lanes.
 `check-invariants`: it checks local Markdown file/directory targets in current
 entry points, guides and contracts, inventory source-owner paths, and README
 dependency examples for matching canonical release tags no newer than the
-workspace. Older supported releases remain valid across metadata preparation.
+workspace, or the explicit runtime/build development pair. Older supported
+releases remain valid across metadata preparation; mixed selections refuse.
 The link checker ignores fenced examples;
 it does not validate anchors, remote links, every Markdown extension, or the
 truth of arbitrary prose. Explicit document arguments support isolated checks.

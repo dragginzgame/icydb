@@ -25,7 +25,6 @@ const fn has_reversible_traversal_shape_for_path_kind(kind: AccessPathKind) -> b
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SinglePathAccessShapeFacts {
     kind: AccessPathKind,
-    is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
     index_key_items_for_slot_map: Option<IndexShapeDetails>,
@@ -228,10 +227,6 @@ impl AccessShapeFacts {
     }
 }
 
-const fn is_by_keys_empty_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> bool {
-    matches!(payload, ExecutionPathPayload::ByKeys(keys) if keys.is_empty())
-}
-
 const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> usize {
     match payload {
         ExecutionPathPayload::IndexPrefix { .. } => 1,
@@ -247,7 +242,6 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
 
 fn derive_single_path_access_shape_facts_from_inputs(
     kind: AccessPathKind,
-    is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
     index_prefix_spec_count: usize,
@@ -261,7 +255,6 @@ fn derive_single_path_access_shape_facts_from_inputs(
 
     SinglePathAccessShapeFacts {
         kind,
-        is_by_keys_empty,
         index_prefix_details,
         index_range_details,
         index_key_items_for_slot_map,
@@ -284,7 +277,6 @@ fn derive_access_path_shape_facts<K>(
 
     derive_single_path_access_shape_facts_from_inputs(
         kind,
-        is_by_keys_empty_from_payload(path),
         index_prefix_details,
         index_range_details,
         index_prefix_spec_count_from_payload(path),
@@ -417,72 +409,4 @@ impl<K> ExecutableAccessPlan<'_, K> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::access::path::SemanticIndexAccessContractInner;
-    use std::sync::Arc;
-
-    fn detail(name: &str) -> IndexShapeDetails {
-        IndexShapeDetails::from_access_contract(
-            SemanticIndexAccessContract {
-                inner: Arc::new(SemanticIndexAccessContractInner {
-                    ordinal: 0,
-                    physical_generation: 1,
-                    name: name.into(),
-                    store_path: "test".into(),
-                    key_items: vec![SemanticIndexKeyItem::Field("field".into())],
-                    unique: false,
-                    predicate_semantics: None,
-                }),
-            },
-            1,
-        )
-    }
-
-    #[test]
-    fn child_summary_keeps_first_range_and_checks_later_reverse_flags() {
-        let first = detail("first");
-        let second = detail("second");
-        assert_eq!(
-            summarize_child_runtime_shapes(std::iter::empty()),
-            (None, true)
-        );
-        assert_eq!(
-            summarize_child_runtime_shapes(
-                [
-                    (None, true),
-                    (Some(first.clone()), true),
-                    (Some(second), false),
-                ]
-                .into_iter()
-            ),
-            (Some(first), false)
-        );
-    }
-
-    #[test]
-    fn semantic_and_executable_summaries_agree_for_empty_and_nested_trees() {
-        for (plan, reverse) in [
-            (AccessPlan::<u64>::Union(vec![]), true),
-            (AccessPlan::Intersection(vec![]), true),
-            (AccessPlan::full_scan(), true),
-            (AccessPlan::by_keys(vec![1, 2]), false),
-            (
-                AccessPlan::Union(vec![
-                    AccessPlan::full_scan(),
-                    AccessPlan::Intersection(vec![AccessPlan::by_keys(vec![1])]),
-                ]),
-                false,
-            ),
-            (
-                AccessPlan::Intersection(vec![AccessPlan::full_scan(), AccessPlan::Union(vec![])]),
-                true,
-            ),
-        ] {
-            let semantic = plan.shape_facts();
-            let executable = plan.executable_contract().shape_facts();
-            assert_eq!(semantic, executable);
-            assert_eq!(semantic.all_paths_support_reverse_traversal(), reverse);
-        }
-    }
-}
+mod tests;

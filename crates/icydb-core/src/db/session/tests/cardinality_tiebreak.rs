@@ -1685,11 +1685,16 @@ fn new_request_session(root: &crate::db::RequestExecutionRoot) -> DbSession<Test
 }
 
 fn initialize() -> DbSession<TestCanister> {
+    initialize_schema_candidate(schema_candidate(STORE_PATH))
+}
+
+// Reset only fresh heap fixtures and publish their validated candidate through the
+// common request identity. Journaled/recovery fixtures retain their own lifecycle.
+fn initialize_schema_candidate(candidate: CandidateSchemaRevision) -> DbSession<TestCanister> {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
     let session = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
-    let candidate = schema_candidate(STORE_PATH);
     session
         .db
         .drive_startup_recovery_page()
@@ -1707,6 +1712,48 @@ fn initialize() -> DbSession<TestCanister> {
     .expect("cardinality tie-break schema should publish");
 
     session
+}
+
+// Install a valid field/index fixture with the shared store and request identity.
+// Special value catalogs keep their own candidate construction.
+fn initialize_field_schema(
+    fields: Vec<PersistedFieldSnapshot>,
+    indexes: Vec<PersistedIndexSnapshot>,
+) -> DbSession<TestCanister> {
+    let bindings = fields
+        .iter()
+        .map(|field| ((ENTITY_TAG, field_source(field.name())), field.id()))
+        .collect();
+    let snapshot = initial_single_key_snapshot(fields, indexes);
+    let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+        STORE_PATH,
+        AcceptedSchemaRevision::INITIAL,
+        BTreeMap::from([(ENTITY_TAG, snapshot)]),
+        bindings,
+    );
+    initialize_schema_candidate(candidate)
+}
+
+// These fixtures use field 1 as their sole primary key and start at the initial
+// schema/layout version. Composite keys and historical layouts remain explicit.
+fn initial_single_key_snapshot(
+    fields: Vec<PersistedFieldSnapshot>,
+    indexes: Vec<PersistedIndexSnapshot>,
+) -> PersistedSchemaSnapshot {
+    PersistedSchemaSnapshot::new_with_indexes(
+        SchemaVersion::initial(),
+        ENTITY_SOURCE.into(),
+        ENTITY_NAME.into(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(
+            fields
+                .iter()
+                .map(|field| (field.id(), field.slot()))
+                .collect(),
+        ),
+        fields,
+        indexes,
+    )
 }
 
 fn initialize_journaled() -> DbSession<JournaledTestCanister> {
@@ -1827,20 +1874,7 @@ fn schema_candidate_at(
         ),
         lower_expression_index(store_path, 6, 6, "zz_lower_common_idx", 2, 1, "common"),
     ];
-    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.to_string(),
-        ENTITY_NAME.to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
-        fields,
-        indexes,
-    );
+    let snapshot = initial_single_key_snapshot(fields, indexes);
     let bindings = BTreeMap::from([
         ((ENTITY_TAG, field_source("id")), FieldId::new(1)),
         ((ENTITY_TAG, field_source("common")), FieldId::new(2)),

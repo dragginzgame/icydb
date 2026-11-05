@@ -29,55 +29,13 @@ fn limited_request(bytes: u64) -> RequestExecutionRoot {
 // Reuse the session harness's registry with a payload-only accepted schema.
 // No generated model or secondary index can stand in for primary-row reads.
 fn initialize_payload_store() {
-    initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "payload", 1, AcceptedFieldKind::Blob { max_len: None }),
         ],
         Vec::new(),
     );
-}
-
-pub(super) fn initialize_payload_schema(
-    fields: Vec<PersistedFieldSnapshot>,
-    indexes: Vec<PersistedIndexSnapshot>,
-) {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let setup = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-    setup.db.drive_startup_recovery_page().unwrap();
-    let bindings = fields
-        .iter()
-        .map(|field| ((ENTITY_TAG, field_source(field.name())), field.id()))
-        .collect();
-    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.into(),
-        ENTITY_NAME.into(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
-        fields,
-        indexes,
-    );
-    let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
-        STORE_PATH,
-        AcceptedSchemaRevision::INITIAL,
-        BTreeMap::from([(ENTITY_TAG, snapshot)]),
-        bindings,
-    );
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        setup.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &candidate,
-    )
-    .unwrap();
 }
 
 #[test]
@@ -109,7 +67,7 @@ fn unique_numeric_ranges_preserve_page_union_and_every_resume_suffix() {
     // and [1, 2) over 1..=5. Current scalar LIMIT is a total result limit;
     // use the maintained physical page window to verify complete pagination.
     for (count, upper) in [(13_u64, 5_u64), (5, 2)] {
-        initialize_payload_schema(
+        initialize_field_schema(
             vec![
                 field(1, "id", 0, AcceptedFieldKind::Nat64),
                 field(2, "code", 1, AcceptedFieldKind::Nat64),

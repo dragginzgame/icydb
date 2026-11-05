@@ -43,10 +43,6 @@ pub(in crate::db) const MAX_DATABASE_CONTROL_OPS_PER_MARKER: usize = 4;
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 
 static COMMIT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-#[cfg(test)]
-thread_local! {
-    static TEST_JOURNAL_SEQUENCE: Cell<u64> = const { Cell::new(1) };
-}
 
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
@@ -223,35 +219,6 @@ impl CommitMarker {
         })
     }
 
-    /// Borrow the exact database-wide schema-application record effect.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn schema_application(&self) -> Option<&SchemaApplicationRecordOp> {
-        let mut index = 0;
-        while index < self.database_control.len() {
-            if let DatabaseControlOp::SchemaApplication(operation) = &self.database_control[index] {
-                return Some(operation);
-            }
-            index += 1;
-        }
-        None
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn entity_source_lineage(
-        &self,
-    ) -> Option<&crate::db::schema::EntitySourceLineageCatalogOp> {
-        self.database_control
-            .iter()
-            .find_map(|operation| match operation {
-                DatabaseControlOp::EntitySourceLineage(operation) => Some(operation),
-                DatabaseControlOp::SchemaApplication(_) | DatabaseControlOp::SchemaMigration(_) => {
-                    None
-                }
-                DatabaseControlOp::MutationProgress(_) => None,
-            })
-    }
-
     #[must_use]
     pub(in crate::db) const fn database_control(&self) -> &[DatabaseControlOp] {
         self.database_control.as_slice()
@@ -303,24 +270,6 @@ pub(in crate::db) fn generate_marker_batch_id(
         timestamp_bytes.copy_from_slice(&marker_id[..8]);
         generate_commit_id(u64::from_be_bytes(timestamp_bytes))
     }
-}
-
-/// Encode one commit-marker payload in the canonical binary format.
-#[cfg(test)]
-pub(in crate::db) fn encode_commit_marker_payload(
-    marker: &CommitMarker,
-) -> Result<Vec<u8>, InternalError> {
-    // Phase 1: size the output once so commit persistence writes one compact frame.
-    let capacity = commit_marker_payload_capacity(marker);
-    if capacity > u32::MAX as usize {
-        return Err(InternalError::commit_marker_payload_exceeds_u32_length_limit());
-    }
-
-    // Phase 2: emit one length-delimited frame for deterministic recovery replay.
-    let mut encoded = Vec::with_capacity(capacity);
-    let _journal_batch_ranges = write_commit_marker_payload(&mut encoded, marker)?;
-
-    Ok(encoded)
 }
 
 // The control layout has two existing consumers: allocation-free sizing and
@@ -749,3 +698,9 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
 fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
     InternalError::commit_corruption()
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::encode_commit_marker_payload;

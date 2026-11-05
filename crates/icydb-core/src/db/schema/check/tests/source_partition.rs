@@ -1,5 +1,7 @@
 //! Mixed accepted families keep their write/integrity identity and gate scope.
 
+mod admission;
+
 use super::*;
 
 #[test]

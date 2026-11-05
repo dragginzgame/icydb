@@ -17,7 +17,7 @@ use crate::db::{
         },
     },
     schema::AcceptedFieldKind,
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::DiagnosticExecutionLane as Lane;
 
@@ -27,6 +27,18 @@ fn plan() -> ExplainPlan {
         &request_with_limit(Resource::TemporaryBytes, 16_000_000),
     )
     .unwrap()
+}
+
+#[test]
+fn context_free_explain_does_not_claim_public_admission() {
+    let report = plan();
+    assert_eq!(report.public_read_admission(), None);
+    assert!(
+        report
+            .render_json_canonical()
+            .unwrap()
+            .contains("\"public_read_admission\":null")
+    );
 }
 
 #[test]
@@ -86,6 +98,7 @@ fn logical_text_and_json_share_ordered_plan_summaries() {
             "page",
             "delete_limit",
             "consistency",
+            "public_read_admission",
         ]
     );
     assert_eq!(fields[0].1, "Load(LoadSpec { limit: None, offset: 0 })");

@@ -11,7 +11,7 @@ use crate::{
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
 fn seeded_rows() -> Vec<(RawDataStoreKey, RawRow)> {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "payload", 1, AcceptedFieldKind::Blob { max_len: None }),

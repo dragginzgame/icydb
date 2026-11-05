@@ -7,6 +7,9 @@ version = "0.297.0"
 publish = false
 description = "Typed deterministic SQL correctness generator for IcyDB tests"
 
+[package.metadata.shared-tooling.loc]
+category = "tests"
+
 [dependencies]
 ic-platform = { workspace = true, features = ["blake3"] }
 serde = { workspace = true, features = ["derive", "std"] }

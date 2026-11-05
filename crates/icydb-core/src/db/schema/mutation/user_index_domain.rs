@@ -3,8 +3,6 @@
 //! Does not own: accepted-schema marker persistence or physical index apply.
 //! Boundary: accepted-domain or isolated-generation proofs -> exact raw index effects.
 
-#[cfg(any(test, feature = "sql", feature = "migration"))]
-use crate::db::resource::construction::ConstructionBudget;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::{
     commit::CommitSchemaFingerprint,
@@ -33,7 +31,8 @@ use crate::{
             decode_index_key_frame, raw_user_index_entity_bounds,
         },
         key_taxonomy::PrimaryKeyValue,
-        predicate::{Predicate, PredicateProgram},
+        predicate::PredicateProgram,
+        resource::construction::ConstructionBudget,
         schema::{
             MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
             SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
@@ -680,7 +679,7 @@ impl PreparedUserIndex {
     fn from_accepted_index(
         index: &crate::db::schema::PersistedIndexSnapshot,
         predicate_row_contract: Option<&StructuralRowContract>,
-        normalize: impl FnOnce(Predicate) -> Result<Predicate, InternalError>,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Self, StagedUserIndexDomainError> {
         let request = if index.key().is_field_path_only() {
             SchemaMutationRequest::from_accepted_field_path_index(index)
@@ -705,8 +704,10 @@ impl PreparedUserIndex {
                     .ok_or(StagedUserIndexDomainError::MissingPredicateRowContract)?;
                 Some(
                     bound
-                        .for_row_contract(row_contract)
-                        .and_then(normalize)
+                        .for_row_contract(row_contract, work)
+                        .and_then(|predicate| {
+                            crate::db::predicate::normalize_with_authority(predicate, work)
+                        })
                         .map_err(StagedUserIndexDomainError::KeyDerivation)?,
                 )
                 .map(|predicate| {
@@ -767,19 +768,19 @@ pub(in crate::db) struct UniqueConstraintProjection {
 
 impl UniqueConstraintProjection {
     /// Compile one exact unique-index owner against the accepted row contract.
-    /// The caller supplies normalization authority: maintenance borrows its page
+    /// The caller supplies projection/normalization authority: maintenance borrows its page
     /// budget; ordinary commit borrows its request, while replay preserves its
     /// already-accepted preparation contract without a fresh ceiling.
     pub(in crate::db) fn new(
         entity_tag: EntityTag,
         index: &crate::db::schema::PersistedIndexSnapshot,
         row_contract: &StructuralRowContract,
-        normalize: impl FnOnce(Predicate) -> Result<Predicate, InternalError>,
+        work: Option<&dyn ConstructionBudget>,
     ) -> Result<Self, InternalError> {
         if !index.unique() || index.physical_generation() == 0 {
             return Err(InternalError::store_invariant());
         }
-        let prepared = PreparedUserIndex::from_accepted_index(index, Some(row_contract), normalize)
+        let prepared = PreparedUserIndex::from_accepted_index(index, Some(row_contract), work)
             .map_err(StagedUserIndexDomainError::into_internal_error)?;
         Ok(Self {
             entity_tag,
@@ -825,10 +826,8 @@ impl MigrationIndexProjection {
             return Err(InternalError::store_invariant());
         }
         let prepared =
-            PreparedUserIndex::from_accepted_index(index, Some(row_contract), |predicate| {
-                crate::db::predicate::normalize_with_budget(predicate, work)
-            })
-            .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            PreparedUserIndex::from_accepted_index(index, Some(row_contract), Some(work))
+                .map_err(StagedUserIndexDomainError::into_internal_error)?;
         Ok(Self {
             entity_tag,
             index_id: crate::db::index::IndexId::new_with_generation(
@@ -921,11 +920,8 @@ impl PreparedUserIndexProjection {
         let mut unique_index_ids = BTreeSet::new();
 
         for index in snapshot.indexes() {
-            let prepared = PreparedUserIndex::from_accepted_index(
-                index,
-                predicate_row_contract,
-                |predicate| crate::db::predicate::normalize_with_budget(predicate, work),
-            )?;
+            let prepared =
+                PreparedUserIndex::from_accepted_index(index, predicate_row_contract, Some(work))?;
             if index.unique() {
                 unique_index_ids.insert(IndexId::new_with_generation(
                     entity_tag,
@@ -1284,153 +1280,4 @@ impl StagedUserIndexDomainBudget {
 }
 
 #[cfg(test)]
-mod tests {
-    mod empty_domain;
-
-    use super::*;
-    use crate::db::index::IndexKeyKind;
-
-    #[test]
-    fn projection_preserves_unique_conflicts_and_strict_frame_admission() {
-        let id = IndexId::new_with_generation(EntityTag::new(7), 0, 0);
-        let unique = BTreeSet::from([id]);
-        let entry = |primary: u64| StagedUserIndexDomainEntry {
-            key: IndexKey::new_from_components_with_primary_key_value(
-                &id,
-                IndexKeyKind::User,
-                &[vec![42]],
-                &crate::db::key_taxonomy::PrimaryKeyValue::from(
-                    crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(primary),
-                ),
-            )
-            .unwrap()
-            .to_raw()
-            .unwrap(),
-            value: IndexEntryValue::presence(),
-        };
-        assert!(matches!(
-            validate_projection(
-                &mut [entry(1), entry(1)],
-                &unique,
-                ProjectionAuthority::CandidateAfter
-            ),
-            Err(StagedUserIndexDomainError::DuplicateRawKey)
-        ));
-        assert!(matches!(
-            validate_projection(
-                &mut [entry(2), entry(1)],
-                &unique,
-                ProjectionAuthority::AcceptedBefore
-            ),
-            Err(StagedUserIndexDomainError::DuplicateUniqueKey)
-        ));
-        assert!(matches!(
-            validate_projection(
-                &mut [entry(2), entry(1)],
-                &unique,
-                ProjectionAuthority::CandidateAfter
-            ),
-            Err(StagedUserIndexDomainError::CandidateUniqueConflict)
-        ));
-        let mut malformed = entry(1);
-        malformed.key = RawIndexStoreKey::from_persisted_bytes(vec![0]);
-        assert!(matches!(
-            validate_projection(
-                &mut [malformed],
-                &unique,
-                ProjectionAuthority::CandidateAfter
-            ),
-            Err(StagedUserIndexDomainError::PhysicalKeyDecode)
-        ));
-    }
-
-    #[test]
-    fn stage_budget_rejections_preserve_the_exact_resource() {
-        for resource in [
-            SchemaTransitionBudgetResource::SourceRows,
-            SchemaTransitionBudgetResource::SourceRowBytes,
-            SchemaTransitionBudgetResource::ProjectionEntries,
-            SchemaTransitionBudgetResource::DeletionKeys,
-            SchemaTransitionBudgetResource::ProjectionWorkUnits,
-            SchemaTransitionBudgetResource::StagedRawBytes,
-        ] {
-            let internal =
-                StagedUserIndexDomainError::BudgetExceeded(resource).into_internal_error();
-            assert!(matches!(
-                internal.detail(),
-                Some(crate::error::ErrorDetail::Store(
-                    crate::error::StoreError::SchemaTransitionBudgetExceeded {
-                        resource: actual,
-                    }
-                )) if *actual == resource
-            ));
-        }
-    }
-
-    #[test]
-    fn standard_budget_fixes_and_admits_the_design_measurement_point() {
-        let design_rows = std::hint::black_box(2_048usize);
-        let design_indexes = std::hint::black_box(8usize);
-        let design_domain_entries = design_rows * design_indexes;
-        let design_projection_entries = design_domain_entries * 2;
-        let design_work_units = design_domain_entries * 3;
-
-        assert_eq!(MAX_SCHEMA_PROJECTION_ENTRIES, 131_072);
-        assert_eq!(MAX_DELETION_KEYS, 65_536);
-        assert_eq!(MAX_SCHEMA_STAGED_RAW_BYTES, 256 * 1024 * 1024);
-        assert_eq!(MAX_SCHEMA_PROJECTION_WORK_UNITS, 262_144);
-        let mut source = SchemaTransitionSourceBudget::standard();
-        for _ in 0..design_rows {
-            source
-                .consume_source_row(0)
-                .expect("the design row count should fit the shared source budget");
-        }
-        assert!(MAX_SCHEMA_PROJECTION_ENTRIES >= design_projection_entries);
-        assert!(MAX_DELETION_KEYS >= design_domain_entries);
-        assert!(MAX_SCHEMA_PROJECTION_WORK_UNITS >= design_work_units);
-    }
-
-    #[test]
-    fn standard_budget_rejects_each_aggregate_dimension_at_its_boundary() {
-        let mut entry_count = StagedUserIndexDomainBudget::standard();
-        for _ in 0..MAX_SCHEMA_PROJECTION_ENTRIES {
-            assert!(entry_count.consume_projection_entry(0).is_ok());
-        }
-        assert!(matches!(
-            entry_count.consume_projection_entry(0),
-            Err(StagedUserIndexDomainError::BudgetExceeded(
-                SchemaTransitionBudgetResource::ProjectionEntries,
-            )),
-        ));
-
-        let mut deletion_count = StagedUserIndexDomainBudget::standard();
-        for _ in 0..MAX_DELETION_KEYS {
-            assert!(deletion_count.consume_deletion_key(0).is_ok());
-        }
-        assert!(matches!(
-            deletion_count.consume_deletion_key(0),
-            Err(StagedUserIndexDomainError::BudgetExceeded(
-                SchemaTransitionBudgetResource::DeletionKeys,
-            )),
-        ));
-
-        let mut work = StagedUserIndexDomainBudget::standard();
-        for _ in 0..MAX_SCHEMA_PROJECTION_WORK_UNITS {
-            assert!(work.consume_projection_work().is_ok());
-        }
-        assert!(matches!(
-            work.consume_projection_work(),
-            Err(StagedUserIndexDomainError::BudgetExceeded(
-                SchemaTransitionBudgetResource::ProjectionWorkUnits,
-            )),
-        ));
-
-        let mut staged_bytes = StagedUserIndexDomainBudget::standard();
-        assert!(matches!(
-            staged_bytes.consume_staged_bytes(MAX_SCHEMA_STAGED_RAW_BYTES + 1),
-            Err(StagedUserIndexDomainError::BudgetExceeded(
-                SchemaTransitionBudgetResource::StagedRawBytes,
-            )),
-        ));
-    }
-}
+mod tests;

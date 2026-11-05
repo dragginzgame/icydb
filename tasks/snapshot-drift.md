@@ -1,5 +1,5 @@
 # Shared snapshot integrity and adoption
-<!-- Shared companions: docs/tool-catalog-bindings.md -->
+<!-- Shared companions: docs/tool-catalog-bindings.md rules/agent-maintenance.md tasks/README.md -->
 
 Apply the [common run contract](README.md) and the
 [snapshot contract](../docs/consuming-snapshots.md).

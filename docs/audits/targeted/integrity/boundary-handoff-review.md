@@ -30,4 +30,4 @@ Apply IcyDB's [executed-test evidence](../../README.md#executed-test-evidence)
 and [verification readout](../../README.md#verification-readout).
 
 Authorized saved investigations use
-`docs/reports/investigations/YYYY/MM/DD/boundary-handoff-review/<run>/report.md`.
+`docs/reports/investigations/boundary-handoff-review.md`.

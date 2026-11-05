@@ -1,4 +1,5 @@
 # Complexity and technical debt
+<!-- Shared companions: docs/principles/simplicity-and-maintainability.md -->
 
 Apply the [common audit contract](README.md) and
 [simplicity guidance](../docs/principles/simplicity-and-maintainability.md).

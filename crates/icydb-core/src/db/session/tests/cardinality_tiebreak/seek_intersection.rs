@@ -42,9 +42,7 @@ fn initialize_intersection(case: u8, signed: bool) {
             )
         })
         .collect();
-    crate::db::session::tests::cardinality_tiebreak::scalar_page_limits::initialize_payload_schema(
-        fields, indexes,
-    );
+    initialize_field_schema(fields, indexes);
     for start in (0..160).step_by(8) {
         let rows = (start..start + 8)
             .map(|id| {
@@ -353,7 +351,7 @@ fn general_intersection_signed_pages_preserve_every_resume_suffix() {
 // maintained dynamic frontend must expose the same exact index contract for
 // every signed width, including values near its persisted boundaries.
 fn qualify_signed_lookups(kind: AcceptedFieldKind, values: &[i64]) {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "value", 1, kind.clone()),

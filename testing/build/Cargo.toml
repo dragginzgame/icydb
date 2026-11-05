@@ -9,6 +9,9 @@ description = "Maintained canister build and Wasm report tooling for IcyDB"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.shared-tooling.loc]
+category = "build_tooling"
+
 [dependencies]
 clap = { workspace = true }
 ic-build = { workspace = true }
@@ -26,7 +29,9 @@ serde_json = { workspace = true }
 ic-host-fs = { workspace = true, features = ["test-support"] }
 ic-host-process = { workspace = true, features = ["test-support"] }
 ic-wire = { workspace = true, features = ["typescript"] }
-icydb-core = { workspace = true, features = ["metrics", "migration", "sql"] }
+icydb = { workspace = true, features = ["wire-schema"] }
+icydb-core = { workspace = true, features = ["metrics", "migration", "sql", "wire-schema"] }
+icydb-schema = { workspace = true, features = ["wire-schema"] }
 serde-reflection = { workspace = true }
 
 [lints]

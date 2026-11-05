@@ -35,6 +35,7 @@ fn global_aggregate_explain_preserves_terminal_order_and_warm_rendering() {
                 panic!("expected explain result");
             };
             assert!(text.contains("admission"));
+            assert!(text.contains("public_read_admission"));
             text
         };
         let single: Vec<_> = terminals.iter().map(|terminal| explain(terminal)).collect();

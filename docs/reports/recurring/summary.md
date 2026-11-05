@@ -1,0 +1,19 @@
+> Historical assessment, not current-code qualification. Raw output and superseded runs
+> were retired from the working tree under Shared 0.30.4. Git history retains them.
+> Current follow-up authority is GitHub issues; selected results below retain their
+> original source, method and limitations, not a fresh measurement.
+
+# Audit Summary - 2026-06-06
+
+| Audit | Status | Risk | Report | Notes |
+| ---- | ---- | ----: | ---- | ---- |
+| Layer Violation | PASS | 3.0/10 | `docs/audits/reports/2026-06/2026-06-06/layer-violation.md` | No strict layer violations; `AccessPath` decision ownership improved from `2` to `1`, with `AggregateKind` fan-out still monitoring-only. |
+| Structure / Module / Visibility Discipline | PASS | 3.6/10 | `docs/audits/reports/2026-06/2026-06-06/module-structure.md` | SQL execution diagnostics attribution moved into a child module; no high/critical structural violations remain. |
+| Velocity Preservation | PASS | 4.7/10 | `docs/audits/reports/2026-06/2026-06-06/velocity-preservation.md` | Executor/query-plan suspect handoff surface improved; remaining risk is review-size governance for broad cleanup/generated-fixture slices. |
+| Velocity Preservation (Forward-Looking Rerun) | PASS | 4.8/10 | `docs/audits/reports/2026-06/2026-06-06/velocity-preservation-2.md` | Rewritten current-code extension-friction method finds moderate future risk, driven mainly by scalar/value decision shock radius and large owner-clear hubs rather than recent slice width. |
+| Velocity Preservation (Forward-Looking Rerun 2) | PASS | 4.3/10 | `docs/audits/reports/2026-06/2026-06-06/velocity-preservation-3.md` | Accepted persisted-kind semantics now have a schema-owned classifier consumed by SQL capability, predicate, and relation key validation paths; remaining risk is runtime value, codec, index, and executor validation spread. |
+| Velocity Preservation (Forward-Looking Rerun 3) | PARTIAL | 4.4/10 | `docs/audits/reports/2026-06/2026-06-06/velocity-preservation-4.md` | Executor accepted queryability now consumes the schema classifier, but current dirty executor projection/facade code fails the focused core compile check. |
+| Velocity Preservation (Forward-Looking Rerun 4) | PASS | 4.1/10 | `docs/audits/reports/2026-06/2026-06-06/velocity-preservation-5.md` | Accepted queryability/value-shape validation now consume the schema classifier, no-feature facade re-export break is fixed; remaining risk is runtime `Value`/codec/index/projection contract spread. |
+| Wasm Footprint | PARTIAL | N/A | `docs/audits/reports/2026-06/2026-06-06/wasm-footprint.md` | Standard seven-canister wasm-release/sql-on artifacts and Twiggy breakdowns are present, including isolated SQL/fluent query fixtures plus reachable one/ten simple and complex fluent endpoints; baseline deltas remain partial after the dfx-to-icp artifact schema shift. |
+
+[Original report and recorded commands](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/reports/recurring/2026/06/06/summary/01/report.md).

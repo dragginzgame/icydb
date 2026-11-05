@@ -9,7 +9,10 @@ use serde::Deserialize;
 
 /// Checked named allocations in the host-owned Storage directory.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct MemoryAllocations {
     /// Durable directory generation; this does not confer current admission.
     pub current_generation: u64,
@@ -50,7 +53,10 @@ impl MemoryAllocations {
 
 /// Measured logical extent in 64-KiB Wasm pages and bytes.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct MemoryExtent {
     /// Extent in Wasm pages.
     pub wasm_pages: u64,
@@ -71,7 +77,10 @@ impl MemoryExtent {
 
 /// A retained directory entry. Presence does not grant opening authority.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct MemoryAllocation {
     /// Opaque Storage identity, never a selectable memory-manager slot.
     pub allocation_id: u64,

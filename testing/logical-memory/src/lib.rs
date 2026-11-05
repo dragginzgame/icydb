@@ -12,14 +12,11 @@ use icydb::{
 };
 
 // The final host grants namespaces; components request permanent keys.
-fn icydb_storage_grants()
--> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
-    icydb::db::AllocationGrants::new(
-        vec![icydb::db::MemoryAuthority::new(
-            "icydb_logical_fixture",
-            "icydb.logical_fixture.",
-        )?],
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![icydb::db::MemoryAuthority::new(
+        "icydb_logical_fixture",
+        "icydb.logical_fixture.",
+    )?])
 }
 canic_icydb::start! {
     icydb;

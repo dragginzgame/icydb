@@ -15,18 +15,6 @@ pub(in crate::types) enum RandomError {
     NotInitialized,
 }
 
-#[cfg(test)]
-pub(in crate::types) fn seed_from(seed: [u8; 32]) {
-    RNG.with_borrow_mut(|rng| {
-        *rng = Some(ChaCha20Rng::from_seed(seed));
-    });
-}
-
-#[cfg(test)]
-pub(in crate::types) fn clear_for_tests() {
-    RNG.with_borrow_mut(|rng| *rng = None);
-}
-
 fn seed_from_system() -> Result<ChaCha20Rng, RandomError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -55,41 +43,12 @@ pub(in crate::types) fn next_u128() -> Result<u128, RandomError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    const SEED: [u8; 32] = [17; 32];
+#[cfg(test)]
+mod helper_tests;
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn next_u128_seeds_from_system_when_unseeded() {
-        clear_for_tests();
-
-        assert!(next_u128().is_ok());
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[test]
-    fn next_u128_fails_when_rng_is_unseeded_without_native_entropy() {
-        clear_for_tests();
-
-        std::assert_matches!(next_u128(), Err(RandomError::NotInitialized));
-    }
-
-    #[test]
-    fn seed_from_makes_next_u128_deterministic() {
-        seed_from(SEED);
-        let first = next_u128().expect("seeded rng should produce a value");
-        let second = next_u128().expect("seeded rng should produce a second value");
-
-        seed_from(SEED);
-        assert_eq!(
-            next_u128().expect("seeded rng should replay first value"),
-            first
-        );
-        assert_eq!(
-            next_u128().expect("seeded rng should replay second value"),
-            second
-        );
-    }
-}
+#[cfg(test)]
+pub(in crate::types) use helper_tests::clear_for_tests;
+#[cfg(test)]
+pub(in crate::types) use helper_tests::seed_from;

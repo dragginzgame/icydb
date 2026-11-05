@@ -1,4 +1,5 @@
 # Local maintenance schedule
+<!-- Shared companions: tasks/maintenance-prompt.md -->
 
 The coordinator runs the [maintenance prompt](maintenance-prompt.md) against
 the [task catalog](README.md). Local source files stay unchanged; findings go to

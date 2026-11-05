@@ -22,7 +22,7 @@ use crate::{
             SchemaFieldSlot, SchemaIndexId, SchemaInfo, SchemaInsertDefault, SchemaRowLayout,
             SchemaVersion, empty_accepted_enum_catalog_for_tests,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };

@@ -4,8 +4,8 @@ use crate::db::resource::construction::ConstructionBudget;
 
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot, query::preparation::PreparationWork,
-        test_support::request_with_limit,
+        QueryError, RequestExecutionRoot, predicate::CoercionId,
+        query::preparation::PreparationWork, tests::support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };
@@ -169,4 +169,50 @@ fn slice_equality_admits_each_payload_and_stops_after_a_mismatch() {
     })
     .unwrap();
     assert_eq!(root.observed(Resource::NestedValueSteps), 2);
+}
+
+#[test]
+fn repeated_comparison_admission_stops_at_rejected_parent_and_preserves_operands() {
+    use crate::db::resource::construction::admit_value_comparison_repetitions;
+
+    let values = vec![
+        Value::Enum(ValueEnum::test_payload(1, 1, Value::Blob(vec![1; 4096]))),
+        Value::Null,
+    ];
+    let before = values.clone();
+    let mut visited = Vec::new();
+    let result = admit_value_comparison_repetitions(
+        &values,
+        4,
+        CoercionId::Strict,
+        &mut |resource, amount| {
+            visited.push((resource, amount));
+            Err::<(), _>(17)
+        },
+    );
+    assert_eq!(result, Err(17));
+    assert_eq!(visited, vec![(Resource::NestedValueSteps, 2)]);
+    assert_eq!(values, before);
+}
+
+#[test]
+fn repeated_comparison_allowance_saturates_without_wrapping() {
+    use crate::db::resource::construction::admit_value_comparison_repetitions;
+
+    let root = request_with_limit(Resource::NestedValueSteps, u64::MAX - 1);
+    let error = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+        admit_value_comparison_repetitions(
+            &[Value::Null],
+            u64::MAX,
+            CoercionId::Strict,
+            &mut |resource, amount| work.charge(resource, amount),
+        )
+    })
+    .unwrap_err();
+    assert_eq!(root.observed(Resource::NestedValueSteps), u64::MAX);
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Actual, u64::MAX))
+    );
 }

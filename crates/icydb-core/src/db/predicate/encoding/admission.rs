@@ -4,7 +4,13 @@
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, Predicate},
-        resource::construction::{ConstructionBudget, ENCODING_NODE_BYTES, encoded_value_capacity},
+        resource::{
+            budget::sort_comparison_allowance,
+            construction::{
+                ConstructionBudget, ENCODING_NODE_BYTES, admit_value_comparison_repetitions,
+                encoded_value_capacity,
+            },
+        },
     },
     error::InternalError,
     value::Value,
@@ -21,7 +27,7 @@ pub(in crate::db::predicate) fn normalized_predicate_key_capacity(
 }
 
 /// Raw encoding also admits temporary membership views before sorting/coercion.
-/// This covers construction, not all nested payload-comparison work.
+/// Ordering and coerced payload comparisons use the caller's existing allowances.
 pub(in crate::db::predicate) fn raw_predicate_key_capacity(
     predicate: &Predicate,
     budget: &dyn ConstructionBudget,
@@ -69,6 +75,22 @@ fn predicate_capacity(
                         Resource::TemporaryBytes,
                         (items.len().max(4) as u64)
                             .saturating_mul(size_of::<std::borrow::Cow<'_, Value>>() as u64),
+                    )?;
+                }
+                if !canonical_lists && items.len() > 1 {
+                    let count = items.len() as u64;
+                    // Reserve source canonicality, canonicalized-view checks,
+                    // and deduplication in addition to sorting. Admission stays
+                    // conservative when coercion or source order skips a scan.
+                    let comparisons = sort_comparison_allowance(items.len())
+                        .saturating_add((count - 1).saturating_mul(3));
+                    budget.charge(Resource::SortEntries, count)?;
+                    budget.charge(Resource::SortComparisons, comparisons)?;
+                    admit_value_comparison_repetitions(
+                        items,
+                        comparisons,
+                        compare.coercion().id(),
+                        &mut |resource, amount| budget.charge(resource, amount),
                     )?;
                 }
                 budget.charge(Resource::NestedValueSteps, 1)?;

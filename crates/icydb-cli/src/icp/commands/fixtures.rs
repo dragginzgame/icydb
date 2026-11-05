@@ -1,10 +1,10 @@
 //! Module: ICP fixture refresh helpers.
 //! Responsibility: load generated fixtures and reserve local cycles before refresh.
 //! Does not own: generic canister lifecycle commands or project discovery.
-//! Boundary: exposes fixture command construction and cycle parsing to the ICP command owner.
+//! Boundary: projects shared ICP status facts into local fixture funding policy.
 
 use ic_host_text::escape::terminal_text;
-use ic_host_tools::icp::StatusOutput;
+use ic_host_tools::icp::{StatusOutput, decode_canister_cycles};
 use icydb::__macro::RpcMethod;
 
 use std::process::Command;
@@ -13,7 +13,8 @@ use crate::icp::{
     IcpCallKind,
     commands::append_environment_args,
     process::{
-        canister_status_command, output_stderr, probe_output, run_external_command, update_output,
+        PROBE_STDOUT_BYTES, canister_status_command, output_stderr, probe_output,
+        run_external_command, update_output,
     },
     project::environment_targets_local,
 };
@@ -79,17 +80,21 @@ fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128
     let output = probe_output(&mut canister_status_command(
         environment,
         canister,
-        StatusOutput::Text,
+        StatusOutput::Json,
     ))
     .map_err(|err| err.to_string())?;
     if !output.status.success() {
         return Err(output_stderr(output.stderr.as_slice()));
     }
 
-    Ok(parse_canister_cycles(
-        std::str::from_utf8(&output.stdout)
-            .map_err(|error| format!("parse icp cycles UTF-8: {error}"))?,
-    ))
+    // Missing public-only balances stay unknown; malformed supplied balances
+    // must stop the refresh before funding or loading fixtures.
+    decode_canister_cycles(&output.stdout, PROBE_STDOUT_BYTES).map_err(|error| {
+        format!(
+            "parse icp cycle balance JSON: {}",
+            terminal_text(&error.to_string())
+        )
+    })
 }
 
 fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String> {
@@ -140,13 +145,6 @@ pub(super) fn fixtures_load_command(
     )
 }
 
-pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
-    status.lines().find_map(|line| {
-        let cycles = line.trim().strip_prefix("Cycles:")?.trim();
-        cycles.replace('_', "").parse::<u128>().ok()
-    })
-}
-
 pub(super) fn top_up_command(environment: &str, canister: &str, amount: &str) -> Command {
     let mut command = Command::new("icp");
     command
@@ -161,11 +159,4 @@ pub(super) fn top_up_command(environment: &str, canister: &str, amount: &str) ->
 }
 
 #[cfg(test)]
-mod tests {
-    use super::fixture_load_result;
-
-    #[test]
-    fn deployed_fixture_method_absence_remains_an_authoritative_failure() {
-        assert!(fixture_load_result(Err("CanisterMethodNotFound".into())).is_err());
-    }
-}
+mod tests;

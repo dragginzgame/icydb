@@ -11,6 +11,7 @@ mod value;
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
+pub(in crate::db) use comparison::{admit_value_comparison, admit_value_comparison_repetitions};
 pub(in crate::db) use encoding::{ENCODING_NODE_BYTES, encoded_value_capacity};
 
 /// Required accounting authority for fallible database construction.

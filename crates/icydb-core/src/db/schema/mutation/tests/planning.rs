@@ -3,6 +3,7 @@ use crate::db::schema::{
     AcceptedConstraintCatalog, AcceptedConstraintKind, ConstraintIdAllocator, ConstraintOrigin,
     PersistedRelationEdgeSnapshot, RelationId, RelationIdAllocator,
     mutation::delta::{SchemaMutationDelta, classify_schema_mutation_delta},
+    transition::{SchemaTransitionPlan, plan_sql_ddl_addition},
 };
 
 #[test]
@@ -81,35 +82,34 @@ fn ddl_field_rename_rejects_dotted_targets_and_preserves_retained_name_repair() 
 }
 
 #[test]
-fn metadata_mutation_plan_is_immediately_publishable() {
+fn field_addition_plan_has_no_physical_index_target() {
+    let stored = base_snapshot();
     let field = nullable_text_field("nickname", 3, 2);
-    let fields = [field];
-    let plan: MutationPlan = SchemaMutationRequest::AppendOnlyFields(&fields).into();
-
+    let added = append_fields_snapshot(&stored, &[field]);
     assert_eq!(
-        plan.publication_preflight(),
-        super::MutationPublicationPreflight::PublishableNow,
+        plan_sql_ddl_addition(&stored, &added),
+        Some(SchemaTransitionPlan::AppendOnlyFields)
     );
 }
 
 #[test]
 fn index_mutation_plans_preserve_the_current_physical_target() {
-    let field_path: MutationPlan =
-        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
-            .expect("field-path index should lower")
-            .into();
-    let expression: MutationPlan =
-        SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
-            .expect("expression index should lower")
-            .into();
+    let stored = base_snapshot();
+    let with_field_index = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);
+    let with_expression_index = snapshot_with_indexes(&stored, vec![expression_name_index()]);
+    let Some(SchemaTransitionPlan::AddFieldPathIndex {
+        target: field_path_target,
+    }) = plan_sql_ddl_addition(&stored, &with_field_index)
+    else {
+        panic!("field-path addition must retain its physical target");
+    };
+    let Some(SchemaTransitionPlan::AddExpressionIndex {
+        target: expression_target,
+    }) = plan_sql_ddl_addition(&stored, &with_expression_index)
+    else {
+        panic!("expression addition must retain its physical target");
+    };
 
-    assert_eq!(
-        field_path.publication_preflight(),
-        super::MutationPublicationPreflight::RequiresPhysicalWork,
-    );
-    let field_path_target = field_path
-        .field_path_index_target()
-        .expect("field-path plan should expose its runner target");
     assert_eq!(field_path_target.name(), "by_name");
     let [field_path_key] = field_path_target.key_paths() else {
         panic!("test field-path index should retain one accepted key");
@@ -122,15 +122,7 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
     assert!(!field_path_key.nullable);
     assert_eq!(field_path_key.slot(), SchemaFieldSlot::new(1));
     assert_eq!(field_path_key.path(), &["name".to_string()]);
-    assert!(field_path.expression_index_target().is_none());
 
-    assert_eq!(
-        expression.publication_preflight(),
-        super::MutationPublicationPreflight::RequiresPhysicalWork,
-    );
-    let expression_target = expression
-        .expression_index_target()
-        .expect("expression plan should expose its runner target");
     let [super::SchemaExpressionIndexRebuildKey::Expression(expression_key)] =
         expression_target.key_items()
     else {
@@ -140,7 +132,6 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
     assert_eq!(expression_key.source().field_id, FieldId::new(2));
     assert_eq!(expression_key.source().slot(), SchemaFieldSlot::new(1));
     assert_eq!(expression_key.source().path(), &["name".to_string()]);
-    assert!(expression.field_path_index_target().is_none());
 }
 
 #[test]
@@ -248,10 +239,10 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
     else {
         panic!("append-only delta should lower into a request");
     };
-    let plan: MutationPlan = SchemaMutationRequest::AppendOnlyFields(added_fields).into();
+    assert_eq!(added_fields, std::slice::from_ref(&added));
     assert_eq!(
-        plan.publication_preflight(),
-        super::MutationPublicationPreflight::PublishableNow,
+        plan_sql_ddl_addition(&stored, &generated),
+        Some(SchemaTransitionPlan::AppendOnlyFields)
     );
 
     let with_index = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);

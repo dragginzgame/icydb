@@ -17,7 +17,9 @@ use crate::{
         query::{
             builder::scalar_projection::write_scalar_projection_expr_plan_label,
             explain::{
+                ExplainPublicReadAdmission,
                 access_projection::write_access_json,
+                admission::write_public_read_admission,
                 explain_access_plan,
                 writer::{JsonWriter, render_logical},
             },
@@ -54,6 +56,7 @@ pub struct ExplainPlan {
     distinct: bool,
     grouping: ExplainGrouping,
     order_pushdown: ExplainOrderPushdown,
+    public_read_admission: Option<ExplainPublicReadAdmission>,
     page: ExplainPagination,
     delete_limit: ExplainDeleteLimit,
     consistency: MissingRowPolicy,
@@ -71,6 +74,7 @@ impl fmt::Debug for ExplainPlan {
             .field("distinct", &self.distinct)
             .field("grouping", &self.grouping)
             .field("order_pushdown", &self.order_pushdown)
+            .field("public_read_admission", &self.public_read_admission)
             .field("page", &self.page)
             .field("delete_limit", &self.delete_limit)
             .field("consistency", &self.consistency)
@@ -139,6 +143,24 @@ impl ExplainPlan {
         self
     }
 
+    /// Return the default public-read policy decision for this displayed plan.
+    ///
+    /// `None` means this is a context-free projection or a non-read plan. This
+    /// does not validate caller authorization, cursors, execution budgets, or
+    /// a page envelope that would change the plan before execution.
+    #[must_use]
+    pub const fn public_read_admission(&self) -> Option<ExplainPublicReadAdmission> {
+        self.public_read_admission
+    }
+
+    pub(in crate::db) const fn with_public_read_admission(
+        mut self,
+        admission: Option<ExplainPublicReadAdmission>,
+    ) -> Self {
+        self.public_read_admission = admission;
+        self
+    }
+
     /// Borrow projected pagination status.
     #[must_use]
     pub const fn page(&self) -> &ExplainPagination {
@@ -188,7 +210,9 @@ impl ExplainPlan {
                 self.page(),
                 self.delete_limit(),
                 self.consistency(),
-            )
+            )?;
+            out.write_str("\npublic_read_admission=")?;
+            write_public_read_admission(self.public_read_admission(), out)
         })
     }
 
@@ -971,6 +995,7 @@ fn explain_scalar_inner(
         distinct: logical.distinct,
         grouping,
         order_pushdown,
+        public_read_admission: None,
         page,
         delete_limit,
         consistency: logical.consistency,
@@ -1114,6 +1139,9 @@ fn write_logical_explain_json(explain: &ExplainPlan, out: &mut dyn fmt::Write) -
     object.field_with("access", |out| {
         write_access_json(explain.access(), out)?;
         Ok(())
+    })?;
+    object.field_with("public_read_admission", |out| {
+        write_public_read_admission(explain.public_read_admission(), out)
     })?;
     object.field_with("access_decision", |out| {
         write_access_decision_json(explain.access_decision(), out)?;

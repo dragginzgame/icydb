@@ -1,4 +1,5 @@
 # Changelog rules
+<!-- Shared companions: rules/change-reporting.md rules/contributions.md rules/rust-workspaces.md -->
 
 These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md)
 for repositories with changelogs. Read them before editing release notes.

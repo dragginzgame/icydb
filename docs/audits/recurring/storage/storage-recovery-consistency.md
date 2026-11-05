@@ -4,7 +4,7 @@
 
 - Report scope: `recovery-consistency`
 - Method: `RECOVERY-5 + DOMAIN-1`
-- Report: `docs/reports/recurring/YYYY/MM/DD/recovery-consistency/<run>/report.md`
+- Report: `docs/reports/recurring/recovery-consistency.md`
 
 Apply [audit governance](../../README.md): scope, immutable reports, finding
 ownership, shared evidence, authorization, and executed-test evidence. Freeze

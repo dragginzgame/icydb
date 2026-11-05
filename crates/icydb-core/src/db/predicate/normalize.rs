@@ -11,14 +11,14 @@ use crate::{
         QueryError,
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
-            canonical_membership_value_list,
+            canonical_value_set_list,
             encoding::write_predicate_sort_key,
             membership::{membership_compare_domain, membership_compare_from_values},
             normalize::admission::admit_enum_input_construction,
             simplify::simplify_and_compare_constraints,
         },
         query::preparation::PreparationWork,
-        resource::construction::ConstructionBudget,
+        resource::construction::{ConstructionBudget, admit_value_comparison},
         schema::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, SchemaInfo,
             SchemaLiteralValidationReason, ValidateError, classify_accepted_field_kind,
@@ -27,7 +27,7 @@ use crate::{
     },
     error::InternalError,
     types::NumericValue,
-    value::{InputValue, Value, canonicalize_value_set},
+    value::{InputValue, Value},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -55,9 +55,21 @@ pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
     }
 }
 
-/// Normalize under the caller's existing construction authority. Charge visited
-/// conjunction pairs and new flattening/membership backing before work. Reusing
-/// owned backing is free; sort scratch and key encoding share this authority.
+/// Normalize a projected accepted predicate under the same explicit authority.
+/// `None` is reserved for canonical/retained work, never a fresh request fallback.
+pub(in crate::db) fn normalize_with_authority(
+    predicate: Predicate,
+    work: Option<&dyn ConstructionBudget>,
+) -> Result<Predicate, InternalError> {
+    match work {
+        Some(work) => normalize_with_budget(predicate, work),
+        None => Ok(normalize(predicate)),
+    }
+}
+
+/// Normalize under the caller's existing construction authority. Charge node
+/// visits, conjunction pairs and new flattening/membership backing before work.
+/// Reusing owned backing is free; sort scratch and key encoding share this authority.
 pub(in crate::db) fn normalize_with_budget(
     predicate: Predicate,
     work: &dyn ConstructionBudget,
@@ -84,7 +96,11 @@ fn normalize_with_work<E>(
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
     canonicalize: &mut impl FnMut(&mut Vec<Predicate>) -> Result<(), E>,
 ) -> Result<Predicate, E> {
-    // Normalize recursively while preserving logical equivalence.
+    // Every dispatched node consumes the existing caller allowance before its
+    // work, including leaves and NOT shells that perform no pair comparisons.
+    // Absorbing branches still skip later children; retained normalization uses
+    // the same traversal with its explicit infallible charge callback.
+    charge(Resource::PredicateExpressionSteps, 1)?;
     Ok(match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
@@ -245,7 +261,9 @@ fn normalize_compare_value_for_accepted_contract(
                     work,
                 )?);
             }
-            let normalized = canonical_membership_value_list(normalized);
+            let normalized = canonical_value_set_list(normalized, &mut |resource, amount| {
+                work.charge(resource, amount)
+            })?;
             Ok(normalized)
         }
         CompareOp::Contains => {
@@ -412,7 +430,9 @@ fn normalize_compare_value_for_accepted_kind(
                 op,
                 work,
             )?;
-            let normalized = canonical_membership_value_list(normalized);
+            let normalized = canonical_value_set_list(normalized, &mut |resource, amount| {
+                work.charge(resource, amount)
+            })?;
             Ok(normalized)
         }
         CompareOp::Contains => {
@@ -457,7 +477,7 @@ fn normalize_value_for_accepted_kind(
             let Value::List(values) = value else {
                 return work.copy_value(value);
             };
-            let mut normalized = normalize_accepted_list_value_for_kind(
+            let normalized = normalize_accepted_list_value_for_kind(
                 field,
                 values.as_slice(),
                 inner,
@@ -465,8 +485,9 @@ fn normalize_value_for_accepted_kind(
                 op,
                 work,
             )?;
-            canonicalize_value_set(&mut normalized);
-            Ok(Value::List(normalized))
+            canonical_value_set_list(normalized, &mut |resource, amount| {
+                work.charge(resource, amount)
+            })
         }
         AcceptedFieldKind::Map {
             key,
@@ -668,10 +689,7 @@ fn normalize_and<E>(
 
     // Compare-pair simplification scans all conjunction children directly, so
     // it does not require a pre-sorted shape to preserve semantics.
-    let Some(mut out) = simplify_and_compare_constraints(out, &mut || {
-        charge(Resource::PredicateExpressionSteps, 1)
-    })?
-    else {
+    let Some(mut out) = simplify_and_compare_constraints(out, charge)? else {
         return Ok(Predicate::False);
     };
 
@@ -819,30 +837,34 @@ fn collapse_same_field_or_equalities<E>(
 
     // Prove compatibility without allocating or consuming any child. Failed
     // collapse must leave the authored order and operands intact for sorting.
-    let Some((_, coercion)) = membership_compare_domain(children.iter().map(|child| {
-        let Predicate::Compare(compare) = child else {
-            return None;
-        };
-        if compare.op != CompareOp::Eq {
-            return None;
-        }
-        if !matches!(
-            compare.coercion.id,
-            CoercionId::Strict | CoercionId::TextCasefold
-        ) {
-            return None;
-        }
-        if !or_eq_compare_value_is_in_safe(&compare.value) {
-            return None;
-        }
-        Some((compare.field.as_str(), compare.coercion.id))
-    })) else {
+    let Some((_, coercion)) = membership_compare_domain(
+        children.iter().map(|child| {
+            let Predicate::Compare(compare) = child else {
+                return None;
+            };
+            if compare.op != CompareOp::Eq {
+                return None;
+            }
+            if !matches!(
+                compare.coercion.id,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) {
+                return None;
+            }
+            if !or_eq_compare_value_is_in_safe(&compare.value) {
+                return None;
+            }
+            Some((compare.field.as_str(), compare.coercion.id))
+        }),
+        charge,
+    )?
+    else {
         return Ok(None);
     };
 
     // The ordinary sort/dedup would retain the first identical leaf. Keep that
     // equality (and its complete coercion metadata), not a singleton IN list.
-    if children.windows(2).all(|pair| pair[0] == pair[1]) {
+    if equality_values_are_identical(children, charge)? {
         return Ok(children.drain(..).next());
     }
 
@@ -869,7 +891,26 @@ fn collapse_same_field_or_equalities<E>(
         CompareOp::In,
         values,
         coercion,
-    ))))
+        charge,
+    )?)))
+}
+
+// The domain preflight already proves equal field, operator and coercion. Only
+// literal equality remains; admit it before borrowing payloads for comparison.
+fn equality_values_are_identical<E>(
+    children: &[Predicate],
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    for pair in children.windows(2) {
+        let [Predicate::Compare(left), Predicate::Compare(right)] = pair else {
+            return Ok(false);
+        };
+        admit_value_comparison(&left.value, charge)?;
+        if left.value != right.value {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 // Keep OR->IN canonicalization fail-closed for collection/map literals because

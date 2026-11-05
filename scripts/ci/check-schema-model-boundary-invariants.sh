@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
+# shellcheck source=scripts/ci/invariant-common.sh
+source "$ROOT/scripts/ci/invariant-common.sh"
+require_rg "schema/model boundary checks"
+
 SCHEMA_CARGO="crates/icydb-schema/Cargo.toml"
 SCHEMA_ROOT="crates/icydb-schema/src"
 MODEL_CARGO="crates/icydb-model/Cargo.toml"
@@ -33,9 +37,9 @@ fail_contract() {
 }
 
 schema_dependency_leaks="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     '^[[:space:]]*icydb-[a-z0-9-]+[[:space:]]*=' \
-    "$SCHEMA_CARGO" || true
+    "$SCHEMA_CARGO"
 )"
 if [[ -n "$schema_dependency_leaks" ]]; then
   fail_with_matches \
@@ -44,9 +48,9 @@ if [[ -n "$schema_dependency_leaks" ]]; then
 fi
 
 schema_operation_leaks="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     '\b(now|generate|try_generate|normalize_for_storage|decode_row|encode_row)\s*\(' \
-    "$SCHEMA_ROOT" || true
+    "$SCHEMA_ROOT"
 )"
 if [[ -n "$schema_operation_leaks" ]]; then
   fail_with_matches \
@@ -63,9 +67,9 @@ then
 fi
 
 coarse_field_contract="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     'FieldType::Scalar\(ScalarKind|Scalar\(ScalarKind' \
-    "$SCHEMA_ROOT" || true
+    "$SCHEMA_ROOT"
 )"
 if [[ -n "$coarse_field_contract" ]]; then
   fail_with_matches \
@@ -90,9 +94,9 @@ do
 done
 
 model_dependency_leaks="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     '^[[:space:]]*(icydb|runtime_api)[[:space:]]*=|^[[:space:]]*icydb-(cli|config|core|diagnostic-code|utils)[[:space:]]*=|package[[:space:]]*=[[:space:]]*"icydb"' \
-    "$MODEL_CARGO" "$MODEL_MACROS_CARGO" || true
+    "$MODEL_CARGO" "$MODEL_MACROS_CARGO"
 )"
 if [[ -n "$model_dependency_leaks" ]]; then
   fail_with_matches \
@@ -111,9 +115,9 @@ for model_manifest in "$MODEL_CARGO" "$MODEL_MACROS_CARGO"; do
 done
 
 schema_only_runtime_leaks="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     'package[[:space:]]*=[[:space:]]*"icydb(-core)?"|^[[:space:]]*(icydb(-core)?|runtime_api)[[:space:]]*=' \
-    "$SCHEMA_ONLY_FIXTURE_CARGO" || true
+    "$SCHEMA_ONLY_FIXTURE_CARGO"
 )"
 if [[ -n "$schema_only_runtime_leaks" ]]; then
   fail_with_matches \
@@ -212,9 +216,9 @@ canonical_atoms=(
 )
 for atom in "${canonical_atoms[@]}"; do
   duplicate_definitions="$(
-    rg -n --no-heading --color=never \
+    rg_checked -n --no-heading --color=never \
       "pub struct ${atom}([[:space:]]|\\(|\\{|<)" \
-      crates/icydb-core/src crates/icydb/src || true
+      crates/icydb-core/src crates/icydb/src
   )"
   if [[ -n "$duplicate_definitions" ]]; then
     fail_with_matches \

@@ -46,7 +46,7 @@ lifecycle exports require participant mode.
 
 If the application or an independent framework must own the complete IC
 lifecycle root, select participant mode and invoke these plain hooks from its
-native lifecycle exports. The [compiled composition fixture](../../canisters/test/lifecycle_participant/src/lib.rs)
+native lifecycle exports. The [compiled composition fixture](../../canisters/tests/lifecycle_participant/src/lib.rs)
 uses Canic exports and bounded Wire post-upgrade argument decoding. Platform
 0.1.10 provides lifecycle entrypoint macros, while IcyDB's supported composition
 continues to use Canic as the host owner:

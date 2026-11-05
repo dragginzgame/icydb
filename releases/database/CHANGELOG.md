@@ -3,6 +3,128 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.298.0]
+
+### ⚠️ Breaking
+
+- Keep index names automatic, with a bounded full-definition suffix and optional
+  explicit overrides. Distinct fields, expressions and partial predicates no
+  longer collapse onto the same readable name; conflicts include compiler examples.
+  Automatic names change in this hard cut; explicit labels can retain existing names
+  ([#203 — Canonical index naming](https://github.com/dragginzgame/icydb/issues/203)).
+- Require explicit `build` for native model collection and actor generation,
+  and independent `wire-schema` for native binding metadata. Runtime models,
+  typed adapters and explicit application behavior no longer collect a global
+  authoring graph. Build scripts and shared schema libraries must opt in.
+
+### 🧹 Cleanup
+
+- Compile CHECK and NOT NULL rules directly into one admitted destination,
+  removing intermediate compiled-rule vectors while preserving rule semantics
+  ([#76 — Constraint program backing](https://github.com/dragginzgame/icydb/issues/76)).
+- Remove discarded predicate serialization from unique-constraint dependency
+  compilation, retaining accepted-schema validation and budgeted projection
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Remove temporary scalar-literal vectors and growing collection buffers from
+  accepted-predicate projection; reject malformed scalar literal counts
+  ([#76 — Predicate normalization allocation accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Remove obsolete schema-reconciliation paths from SQL DDL planning while
+  preserving supported schema changes, historical values and admission errors.
+- Collapse duplicate schema-addition plan representations and remove unused
+  query-routing facts, preserving physical index staging, MIN/MAX eligibility
+  and EXPLAIN output.
+
+### 🩹 Fixed
+
+- Admit constraint-source traversal and temporary backing before compilation,
+  preserving typed budget refusals across request and maintenance callers
+  ([#76 — Constraint compilation accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit accepted predicate literal payload bytes through the caller's decode
+  budget before decoding, across metadata and row-contract projections; preserve
+  retained recovery and typed corruption diagnostics
+  ([#76 — Predicate normalization accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit accepted-predicate nodes, field lookup/name copies and collection backing
+  through the caller's existing budget before construction, across query, write
+  and maintenance paths; preserve retained recovery authority
+  ([#76 — Accepted predicate projection admission](https://github.com/dragginzgame/icydb/issues/76)).
+- Charge predicate-normalization visits, membership/set and encoded-map ordering,
+  OR/AND label/payload comparisons to the existing construction budget, including
+  repeated set comparisons, raw membership-key ordering, conjunction compaction/revisits,
+  enum-literal collection/text validation and casefold backing; preserve canonical
+  results and retained recovery
+  ([#76 — Bound predicate normalization work](https://github.com/dragginzgame/icydb/issues/76)).
+- Expose a native-only async typed startup wait helper over Testkit polling, preserving
+  terminal errors and bounded progress without matching diagnostic strings
+  ([#315 — Published typed startup driver](https://github.com/dragginzgame/icydb/issues/315)).
+- Generate whole-row conversions into existing checked write inputs and typed
+  keys, preserving generated fields, explicit NULLs and composite identity
+  ([#322 — Canonical whole-row mutation adapters](https://github.com/dragginzgame/icydb/issues/322)).
+- Report default public-read admission and its rejection reason in typed and
+  SQL EXPLAIN, using the execution policy without reading rows
+  ([#275 — Explain public-read admission](https://github.com/dragginzgame/icydb/issues/275)).
+
+### 🧪 Testing
+
+- Qualify native replay/fold aborts after prepared schema handoffs are lost or
+  misrouted, retaining successful preflight/application controls
+  ([#154 — Production failure-boundary qualification](https://github.com/dragginzgame/icydb/issues/154)).
+- Preserve partial unique-index ownership across decode refusal and conflicting
+  retries, including expression keys, legal transfers and journaled recovery
+  ([#76 — Filtered uniqueness decode boundaries](https://github.com/dragginzgame/icydb/issues/76)).
+- Verify decode-budget refusal for populated mixed batches and successive writes
+  under one request, preserving retained entry bytes, prior committed progress
+  and identity-safe retry
+  ([#76 — Populated mutation decode limits](https://github.com/dragginzgame/icydb/issues/76)).
+- Qualify decode-budget insert refusal before publication, exact-limit success
+  and identity-safe retry; replay partial-index writes with decode capacity
+  exhausted across publication interruptions
+  ([#76 — Mutation and recovery decode limits](https://github.com/dragginzgame/icydb/issues/76)).
+- Cover decode-budget refusal at later membership and nested operands, before
+  index scans, and across shared unique-index/migration projection allowances
+  ([#76 — Predicate decoding budget coverage](https://github.com/dragginzgame/icydb/issues/76)).
+- Qualify partial-index recovery across four publication interruptions with
+  exhausted normalization allowances, preserving rows and full index bytes
+  ([#76 — Predicate normalization recovery accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Simplify parser expectations with direct SQL expressions and shared explicit
+  statement defaults. Keep ORDER BY expectation trees independent of parser
+  execution while preserving full syntax assertions.
+- Reuse session-fixture installation and initial single-key schema construction
+  while retaining null-handling, range, pagination and special-catalog coverage.
+
+### 🛠️ Tooling
+
+- Adopt Shared Tooling 0.30.4 with the macOS LOC fix and an enforced Candid
+  source boundary. Compact historical experiments into topic summaries and
+  keep new raw Wasm captures under `target/evidence/`; preserve release and
+  recovery records. Report uncompressed module and code-section bytes.
+- Adopt Storage 0.67.1, Testkit 0.87, Wire 0.17.2, Platform 0.23.0 and
+  Host Tools 0.83 as one root dependency cohort; refresh Shared Tooling 0.30.4.
+  Preserve stored layouts and codec bytes; Canic composition remains separately
+  unqualified ([#373 — Canic adapter qualification](https://github.com/dragginzgame/icydb/issues/373)).
+- Adopt the current Shared LOC presentation: clearer column spacing, `???`
+  for unclassified source and diagnostic guidance in help. Preserve JSON
+  categories and source totals.
+- Restore exported Shared documentation links through the canonical upstream
+  repair, without copying central fleet inventories
+  ([Shared #355 — Complete exported documentation links](https://github.com/dragginzgame/shared-tooling/issues/355)).
+- Adopt Shared Tooling 0.30.0: explicit source categories, plural test directories,
+  external test/helper modules and checked lint expectations. Make source scans
+  reject missing inputs; retain the independent Canic qualification boundary.
+- Add explicit parser/planner CI selections with mandatory downstream SQL,
+  session and reference-query acceptance. Explain full-gate fallback in release
+  logs and CI summaries; release omissions still require a matching reviewed
+  native qualification ([#603](https://github.com/dragginzgame/icydb/issues/603)).
+- Align full workspace and documentation gates with explicit native generation,
+  preserving graph-test coverage, compiler admission and paired runtime/build
+  dependency examples after the feature cut.
+- Select independently qualified CLI-only release checks on Linux, keeping
+  database, shared-input and unqualified-host releases on full validation.
+  Carry selected evidence through release recovery and keep final Cargo package
+  verification before publication
+  ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603)).
+
+[Detailed changes](0.298.md).
+
 ## [0.297.0] - 2026-11-04
 
 ### ⚠️ Breaking

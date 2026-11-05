@@ -27,6 +27,43 @@ not invoke `icydb-model` application validators or normalizers. Applications
 that want those Rust behaviors must call `normalize`, `validate`, or
 `normalize_and_validate` explicitly before constructing a write.
 
+## Startup in native canister tests
+
+Enable `testing` in the test application's native dependency on `icydb` to use
+`icydb::testing::drive_startup`. Pass a Testkit-owned PocketIC instance, a maximum
+round count, and an async closure that observes the generated `startup_state()` through
+your application's authorized read-only endpoint. The observation returns
+`Result<DatabaseStartupState, E>`: `Ready` completes, `Recovering` permits another
+round, and errors retain their original typed value. An ordinary-work endpoint
+that returns a startup-pending error is not a readiness observation.
+
+```rust,ignore
+use icydb::testing::drive_startup;
+
+// Application transport decodes the existing DatabaseStartupState and preserves
+// both transport failures and the existing StartupFailure as typed errors.
+drive_startup(&pic, 60, async |pic| {
+    observe_database_startup(pic, canister_id).await
+}).await?;
+```
+
+The same helper works after installation and upgrade. Testkit checks readiness
+before progression, then advances simulated time by one second and ticks once
+per pending round. A zero budget still checks once, and readiness on the last
+allowed round succeeds. Exhaustion is `TickUntilError::ProgressLimit`; observation
+and progression failures are `Failed` and `Progress`. Do not retry business writes
+inside the observation closure. Select the round bound for the fixture's workload;
+this helper does not declare a universal recovery deadline.
+
+The application owns the observation endpoint and its authorization. Enabling
+`testing` exports no IC method, starts no server and registers no watchdog.
+The caller owns the async runtime and explicitly closes its Testkit instance
+with `instance.close().await` after using it. Testkit remains the provisioning,
+lifecycle and polling owner. The optional
+dependency is native-only and absent from ordinary runtime/Wasm graphs. Existing
+private integration fixtures retain their separately qualified Canic/Testkit
+stack until that composition is updated.
+
 For full setup, examples, and release notes:
 
 - Workspace README: `../../README.md`

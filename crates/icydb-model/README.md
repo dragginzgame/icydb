@@ -21,6 +21,13 @@ remove downstream string vocabularies but remain proposal/model convenience:
 accepted schema snapshots alone decide whether the referenced source is
 current.
 
+Native declaration collection, `build`, `node`, `fragment` and graph errors
+require the explicit `build` Cargo feature. Without it, declarations retain their
+Rust types, typed adapter contracts, normalization and validation, without global
+registration or the source generator. Shared model libraries forward `build` to
+all reused model declarations; canister build dependencies opt in. This feature
+is host-only and does not establish runtime schema authority.
+
 The three behavior families are intentionally separate:
 
 - durable rules are bounded proposal metadata that become accepted

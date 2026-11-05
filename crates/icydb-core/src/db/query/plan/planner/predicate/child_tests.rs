@@ -6,7 +6,7 @@ use crate::{
         QueryError,
         access::{AccessPath, AccessPlan},
         query::{plan::PlannedNonIndexAccessReason as Reason, preparation::PreparationWork},
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

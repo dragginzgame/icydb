@@ -22,7 +22,7 @@ icydb-testing-wasm-helpers = { workspace = true }
 runtime_api = { workspace = true, default-features = true }
 
 [build-dependencies]
-runtime_api = { workspace = true, default-features = true }
+runtime_api = { workspace = true, default-features = true, features = ["build"] }
 
 [dev-dependencies]
 # The independent integration workspace owns this qualification dependency.
@@ -31,3 +31,6 @@ serde_json = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

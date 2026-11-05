@@ -1,20 +1,14 @@
-#[cfg(not(target_arch = "wasm32"))]
 mod actor;
 
 use crate::{
-    ThisError,
-    node::{Schema, SchemaGraphError},
+    Error, ThisError,
+    node::{Schema, SchemaGraphError, SchemaNode},
     prelude::*,
+    schema_validate::validate_schema,
 };
-use std::sync::{LazyLock, RwLock, RwLockReadGuard};
+use std::sync::{LazyLock, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-#[cfg(not(target_arch = "wasm32"))]
 pub use actor::generate;
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::{Error, node::SchemaNode, schema_validate::validate_schema};
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::{Mutex, RwLockWriteGuard};
 
 ///
 /// BuildError
@@ -37,7 +31,6 @@ pub enum BuildError {
 /// Process-global schema graph used during build-time code generation.
 static SCHEMA: LazyLock<RwLock<Schema>> = LazyLock::new(|| RwLock::new(Schema::new()));
 /// Serializes constructor registration with validation and sealing.
-#[cfg(not(target_arch = "wasm32"))]
 static REGISTRATION_GATE: Mutex<()> = Mutex::new(());
 
 /// Acquire a write guard to the global schema during build-time codegen.
@@ -45,7 +38,6 @@ static REGISTRATION_GATE: Mutex<()> = Mutex::new(());
 /// # Panics
 ///
 /// Panics if the process-global schema lock has been poisoned.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn schema_write() -> RwLockWriteGuard<'static, Schema> {
     SCHEMA
         .write()
@@ -60,7 +52,6 @@ pub(crate) fn schema_write() -> RwLockWriteGuard<'static, Schema> {
 /// # Panics
 ///
 /// Panics if the process-global registration gate or schema lock is poisoned.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn register_node(node: SchemaNode) {
     let _registration = REGISTRATION_GATE
         .lock()
@@ -84,7 +75,6 @@ pub(crate) fn schema_read() -> RwLockReadGuard<'static, Schema> {
 /// # Panics
 ///
 /// Panics if the process-global registration gate or schema lock is poisoned.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn get_schema() -> Result<RwLockReadGuard<'static, Schema>, Error> {
     let _registration = REGISTRATION_GATE
         .lock()

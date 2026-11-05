@@ -17,10 +17,13 @@ finish() {
   exit "$status"
 }
 trap finish EXIT
-mkdir -p "$fixture/.github/workflows" "$fixture/scripts/ci" "$fixture/testing/integration/src"
+mkdir -p "$fixture/.github/workflows" "$fixture/scripts/ci" "$fixture/scripts/release" \
+  "$fixture/ci" "$fixture/testing/integration/src"
 cp "$ROOT/Makefile" "$fixture/"
 cp "$ROOT/.github/CODEOWNERS" "$fixture/.github/"
 cp "$ROOT/scripts/ci/"{check-ci-workflow-invariants.sh,ci-workflow-invariants.jq,dependency-pins.jq,run-icydb-validation-targets.sh} "$fixture/scripts/ci/"
+cp "$ROOT/scripts/release/validation-stages.pl" "$fixture/scripts/release/"
+cp "$ROOT/ci/"{release-validation.json,release-validation-contract.json} "$fixture/ci/"
 cp "$ROOT/testing/integration/src/lib.rs" "$fixture/testing/integration/src/"
 core_subject="$fixture/.github/workflows/ci.yml"
 adapter_subject="$fixture/.github/workflows/canic-adapter.yml"
@@ -261,8 +264,11 @@ mutate '.jobs.release.needs = ["wasm_size_report"]'
 check fail release-prerequisite
 subject="$core_subject"
 reset
-perl -0pi -e 's/(validate:\n\t[^\n]+\n)\t[^\n]+check-rust-compiler\n/$1/' "$fixture/Makefile"
+jq '.stages -= ["check-rust-compiler"]' "$ROOT/ci/release-validation.json" > "$fixture/ci/release-validation.json"
 check fail missing-release-compiler-admission
+cp "$ROOT/ci/release-validation.json" "$fixture/ci/"
+perl -pi -e 's/validation-stages.pl fast/validation-stages.pl collect/' "$fixture/Makefile"
+check fail bypassed-release-fast-stages
 cp "$ROOT/Makefile" "$fixture/Makefile"
 reset
 perl -ni -e 'print unless m{^/\.github/actions/ }' "$fixture/.github/CODEOWNERS"
@@ -293,6 +299,9 @@ for selection in \
   'unrouted-tier-b-provider|^[[:space:]]*_ci-tier-b-sql-perf$|_ci-tier-b-sql-canister' \
   'excluded-provider|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-core --exclude icydb-testing-integration --verbose' \
   'filtered-workspace|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-testing-integration provider_filter --verbose' \
+  'filtered-product-workspace|--features icydb-model/build --verbose|--features icydb-model/build provider_filter --verbose' \
+  'missing-model-graph-coverage|--features icydb-model/build|' \
+  'wrong-model-feature|--features icydb-model/build|--features icydb-model/wire-schema' \
   'missing-tier-b-provider|--test sql_canister --verbose|--test recovery_closeout --verbose' \
   'ignored-tier-b-provider|--test sql_canister --verbose|--test sql_canister --verbose -- --ignored' \
   'skipped-tier-b-provider|--test sql_perf_audit --verbose -- --nocapture|--test sql_perf_audit --verbose -- --skip required_provider' \

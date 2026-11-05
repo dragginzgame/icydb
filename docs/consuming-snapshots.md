@@ -1,5 +1,5 @@
 # Consuming Shared Tooling Snapshots
-<!-- Shared companions: docs/rust-toolchains.md scripts/distribution/maintenance-files.txt -->
+<!-- Shared companions: docs/rust-toolchains.md scripts/distribution/maintenance-files.txt scripts/distribution/governance-files.txt docs/ic-tools.md docs/verification-helpers.md docs/local-setup.md docs/make-interface.md tasks/snapshot-drift.md rules/dependency-pinning.md rules/changelogs.md -->
 
 CI and release behavior must not depend on a sibling checkout, a moving Git
 branch, or network availability. Consumers vendor a reviewed file set and
@@ -523,14 +523,11 @@ still names only the last failed target. Move consumer readers to the combined
 path before removing a local aggregator; preserve target selection, storage-root
 selection and any product-owned presentation in the caller.
 
-Fleet reports and their regression tests are optional consumer selections;
-normally run them centrally from Shared Tooling. Consumers intentionally running
-the tooling LOC regression select `scripts/ci/test-cloc-tooling.sh`; its reporter
-and checksum companions are derived alongside the mandatory snapshot verifier.
-That test runs against adopted working-tree bytes before a consumer commit and
-does not need the distribution helper.
-`test-cloc-tooling-distribution.sh` remains upstream-only: it qualifies actual
-committed exporter/verifier integration and the consumer fixture's independence.
+Tooling adoption is reviewed through the [snapshot-drift task](../tasks/snapshot-drift.md),
+using the maintained snapshot verifier. The retired tooling LOC reporter and its
+two dedicated fixtures are no longer selectable entrypoints. Remove their local
+callers and selections during an authorized refresh; retain the verifier and
+checksum helpers required by other entrypoints.
 `test-cloc-fixture-contexts.sh` is the upstream admission check for the reusable
 LOC fixtures under enclosing Git/Cargo configuration, including sibling-report
 checks with trailing-slash and aliased temporary roots. Refresh
@@ -1014,34 +1011,21 @@ recipes only after testing their actual callers and hook, following the
 Rust toolchain. Shared Tooling itself selects `CLOC_REPORT` and `CLOC_ROOT` before
 the include to summarize sibling workspaces; consumers normally use the defaults.
 Installing the raw cloc executable alone does not add these Make commands.
-In Shared Tooling, `make cloc-tooling` scans sibling CI and tooling, including
-non-Rust repositories; `CLOC_PARENT` selects its parent directory. It needs Git,
-cloc and core Perl modules, with no Cargo dependency or consumer command execution.
-As of 0.16.0, the common consumer include no longer exports this fleet command or
-its `CLOC_PARENT` input. Move Make/CI/help callers to the central command before
-refreshing, and refresh `test-tool-commands.sh` too if it is selected. Consumers
-that deliberately select `scripts/dev/cloc-tooling.pl` can
-invoke `perl scripts/dev/cloc-tooling.pl PARENT` directly from their reviewed
-snapshot. The reporter and its snapshot contract remain available; no command
-implicitly invokes another checkout.
-
-The report includes each recorded `version@revision` and complete declared-file
-integrity, with separate identities for multiple bundles. Missing versions remain
-`unrecorded`; missing, modified or symlinked files and mode differences show
-`DRIFT`, including declared documents outside the LOC scope. `OK` means declared
-hashes and modes match, not that provenance or consumer behavior was qualified.
-The JSON output retains full revisions and each manifest's drifted paths.
+Use the [tooling audit tasks](https://github.com/dragginzgame/shared-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#tooling-adoption-audit) for snapshot
+integrity, applicable upstream changes and actual consumer wiring. The former
+`cloc-tooling` command is retired; Rust LOC remains available through `cloc.sh`.
 
 To retire unnecessary fleet copies, review their local callers first, update
 Make/CI/help references, then select the remaining entrypoints and refresh through
 the exporter. Preserve ownership records until
-that refresh completes. Candidates are `cloc-tooling.pl`, `cloc-siblings.sh` and their
-dedicated tests; keep `cloc.sh` for the consumer's own workspace. Preserve
+that refresh completes. Candidates are `cloc-tooling.pl`, the retired
+`cloc-siblings.sh` entrypoint and fleet-only tests; keep the unified `cloc.sh`
+for workspace and parent-directory reports. Preserve
 checksum/verifier helpers used by other selected tools, local integration checks
 and historical evidence. Automatic retirement is limited to verified unchanged
 payloads outside the selected closure.
 This is a consumer-owned selection change, not permission for another repository
-to edit its files. Fleet reports and their regression coverage remain maintained
+to edit its files. Snapshot verification and its regression coverage remain maintained
 and tested in Shared Tooling.
 
 Review pins against existing qualified versions before activation. A local

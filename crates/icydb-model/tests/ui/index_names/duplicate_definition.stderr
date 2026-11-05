@@ -1,0 +1,11 @@
+error: duplicate index definition; remove the repeated index declaration
+  --> tests/ui/index_names/duplicate_definition.rs:10:36
+   |
+10 |     index(name = "second", field = "email")
+   |                                    ^^^^^^^
+
+error: duplicate index definition; remove the repeated index declaration
+  --> tests/ui/index_names/duplicate_definition.rs:17:19
+   |
+17 |     index(field = "email")
+   |                   ^^^^^^^

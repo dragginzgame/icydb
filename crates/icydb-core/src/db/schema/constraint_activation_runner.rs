@@ -626,9 +626,7 @@ fn resume_journaled_unique_validation(
     let (projection, dependency_fields) = construction.run(
         |work| {
             Ok((
-                UniqueConstraintProjection::new(entity_tag, candidate, &contract, |predicate| {
-                    crate::db::predicate::normalize_with_budget(predicate, work)
-                })?,
+                UniqueConstraintProjection::new(entity_tag, candidate, &contract, Some(work))?,
                 unique_index_key_fields(accepted.persisted_snapshot(), candidate)?,
             ))
         },

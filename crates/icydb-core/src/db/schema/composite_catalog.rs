@@ -143,15 +143,6 @@ impl AcceptedCompositeCatalog {
         Ok(self)
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn empty() -> Self {
-        Self {
-            by_id: BTreeMap::new(),
-            id_by_path: BTreeMap::new(),
-        }
-    }
-
     /// Construct one initial composite catalog from already allocated
     /// store-local identities and canonical shapes.
     pub(in crate::db::schema) fn from_initial_definitions(
@@ -218,12 +209,6 @@ impl AcceptedCompositeCatalog {
             return Err(CompositeCatalogBuildError::FieldKindResolution);
         }
         Ok(self)
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn type_id(&self, path: &str) -> Option<CompositeTypeId> {
-        self.id_by_path.get(path).copied()
     }
 
     #[must_use]
@@ -494,3 +479,6 @@ Self{path,codec,shape} => [path,codec,shape],
 });
 crate::retained::retained_copy!(CompositeFieldId);
 crate::retained::retained_copy!(CompositeTypeId);
+
+#[cfg(test)]
+mod helper_tests;

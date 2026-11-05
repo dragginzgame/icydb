@@ -81,12 +81,12 @@ Required:
   overall verdicts, and follow-up; do not derive composite scores
 - identify broken boundary or invariant
 - record concrete evidence path
-- preserve all historical reports
+- preserve useful conclusions and original source identity under the retention policy
 - classify executed results under `docs/reports/recurring/`,
   `docs/reports/releases/`, or `docs/reports/investigations/`
 - keep recurring reports under
-  `docs/reports/recurring/YYYY/MM/DD/<scope>/<run>/report.md`
-- colocate structured findings and artifacts with their owning report run
+  `docs/reports/recurring/<scope>.md`
+- keep raw structured findings and artifacts under `target/evidence/`
 - include report preamble fields (scope, baseline path, method tag, and
   comparability status)
 - enforce daily baseline discipline per scope:

@@ -1,5 +1,7 @@
 //! Current accepted filtered predicates preserve catalog facts through persistence.
 
+mod projection_admission;
+mod projection_backing;
 mod projection_budget;
 
 use std::borrow::Cow;
@@ -91,7 +93,7 @@ fn issue_field_ordering_parsed_predicates_survive_codec_and_nulls() {
                 .validate_semantics(decoded.fields(), &catalog(), &schema)
                 .unwrap();
             let executable = predicate
-                .to_predicate(decoded.fields(), &catalog())
+                .to_predicate(decoded.fields(), &catalog(), None)
                 .unwrap();
             let program = PredicateProgram::compile_with_schema_info(&schema, &executable);
             assert!(!program.eval_with_slot_value_cow_reader(&mut |_| None));
@@ -162,7 +164,7 @@ fn issue_field_ordering_rejects_unsupported_pairs_and_coercions() {
             &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .unwrap();
-        let executable = bound.to_predicate(base.fields(), &catalog()).unwrap();
+        let executable = bound.to_predicate(base.fields(), &catalog(), None).unwrap();
         assert!(matches!(
             crate::db::query::predicate::validate_predicate(&schema, &executable),
             Err(ValidateError::InvalidCoercion { coercion: actual, .. }) if actual == coercion
@@ -239,7 +241,7 @@ fn evaluate(snapshot: &PersistedSchemaSnapshot, value: &Value) -> bool {
     let predicate = snapshot.indexes()[0]
         .predicate()
         .unwrap()
-        .to_predicate(snapshot.fields(), &catalog)
+        .to_predicate(snapshot.fields(), &catalog, None)
         .unwrap();
     let program = PredicateProgram::compile_with_schema_info(&schema, &predicate);
     program.eval_with_slot_value_cow_reader(&mut |slot| (slot == 1).then_some(Cow::Borrowed(value)))
@@ -340,7 +342,7 @@ fn accepted_identity_survives_unrelated_chained_and_swapped_renames() {
             .zip(names)
             .map(|(field, name)| field.clone_with_name(name.into()))
             .collect::<Vec<_>>();
-        let projected = predicate.to_predicate(&fields, &catalog()).unwrap();
+        let projected = predicate.to_predicate(&fields, &catalog(), None).unwrap();
         let renamed = PersistedSchemaSnapshot::new(
             base.version(),
             base.entity_path().into(),
@@ -527,8 +529,10 @@ fn enum_literal_identity_uses_variant_ids_through_renames() {
         bound
     );
     assert_eq!(
-        bound.to_predicate(base.fields(), &catalog).unwrap(),
-        bound.to_predicate(base.fields(), &renamed_catalog).unwrap()
+        bound.to_predicate(base.fields(), &catalog, None).unwrap(),
+        bound
+            .to_predicate(base.fields(), &renamed_catalog, None)
+            .unwrap()
     );
 }
 
@@ -574,7 +578,7 @@ fn generated_field_comparisons_keep_accepted_capabilities_after_codec() {
             let executable = decoded.indexes()[0]
                 .predicate()
                 .unwrap()
-                .to_predicate(decoded.fields(), &catalog)
+                .to_predicate(decoded.fields(), &catalog, None)
                 .unwrap();
             let program = PredicateProgram::compile_with_schema_info(&schema, &executable);
             assert_eq!(
@@ -698,3 +702,5 @@ fn accepted_predicate_validation_retains_literal_admission_bounds() {
             .is_err()
     );
 }
+
+mod literal_admission;

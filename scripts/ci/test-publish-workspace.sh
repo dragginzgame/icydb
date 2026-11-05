@@ -68,6 +68,8 @@ case "$*" in
         ;;
     'cat-file -t refs/tags/database-v0.265.0') echo tag ;;
     'rev-parse --verify refs/tags/database-v0.265.0^{commit}') echo "$HEAD_COMMIT" ;;
+    'cat-file -t refs/tags/cli-v0.265.0') echo tag ;;
+    'rev-parse --verify refs/tags/cli-v0.265.0^{commit}') echo "$HEAD_COMMIT" ;;
     *) echo "Unexpected Git read: $*" >&2; exit 99 ;;
 esac
 GIT
@@ -208,6 +210,19 @@ rm -f "$FIXTURE_STATE/"*
 run_subject 7 REGISTRY_MODE=new FAIL_PUBLISH=1
 printf 'lookup %s 0.265.0\ncargo publish -p %s --locked --registry crates-io --no-verify\n' \
     "${crates[0]}" "${crates[0]}" > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
+
+# A selected CLI completion permits push, but never suppresses final archive
+# verification. This orchestration fixture substitutes candidate admission;
+# test-release-validation-plan.sh owns the real metadata/evidence transition.
+cp "$root/scripts/ci/verify-file-checksum.sh" "$fixture/scripts/ci/"
+printf '#!/usr/bin/env bash\n[[ "$*" == verify-commit ]]\n' > "$fixture/scripts/ci/release-candidate-receipt.sh"
+printf 'admitted fixture candidate\n' > "$RELEASE_RECEIPT_DIR/cli-v0.265.0.candidate"
+candidate_sha="$(bash "$root/scripts/ci/verify-file-checksum.sh" --print sha256 "$RELEASE_RECEIPT_DIR/cli-v0.265.0.candidate")"
+printf '%s\n' format=selected-cli/1 "$HEAD_COMMIT" "$candidate_sha" > "$RELEASE_RECEIPT_DIR/cli-v0.265.0.commit"
+RELEASE_GROUP=cli bash "$fixture/scripts/ci/verify-release-gate-receipt.sh" "$HEAD_COMMIT"
+run_subject 0 RELEASE_GROUP=cli REGISTRY_MODE=absent PUBLISH_DRY_RUN=1
+printf 'lookup icydb-cli 0.265.0\ncargo publish -p icydb-cli --locked --registry crates-io --dry-run\n' > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 
 # Qualify the maintained Make entry point as well as direct script invocation.

@@ -30,13 +30,13 @@ impl Imp<Newtype> for PartialEqTrait {
 
 fn newtype_partial_eq_tokens(ident: &Ident, prim: &TokenStream) -> TokenStream {
     quote! {
-        impl ::core::cmp::PartialEq<#prim> for #ident {
+        impl ::std::cmp::PartialEq<#prim> for #ident {
             fn eq(&self, other: &#prim) -> bool {
                 self.0 == *other
             }
         }
 
-        impl ::core::cmp::PartialEq<#ident> for #prim {
+        impl ::std::cmp::PartialEq<#ident> for #prim {
             fn eq(&self, other: &#ident) -> bool {
                 *self == other.0
             }

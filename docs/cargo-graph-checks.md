@@ -1,4 +1,5 @@
 # Resolved Cargo graph checks
+<!-- Shared companions: rules/contributions.md rules/rust-workspaces.md -->
 
 `--json` emits a complete structured result after successful Cargo observation
 and parsing: selected consumer, exact command, target, roots, pass/fail and

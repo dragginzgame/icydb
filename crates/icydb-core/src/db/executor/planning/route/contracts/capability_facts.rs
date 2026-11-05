@@ -5,10 +5,7 @@
 
 #[cfg(feature = "sql")]
 use crate::db::executor::route::LoadOrderRouteReason;
-use crate::db::executor::{
-    aggregate::capability::AggregateFieldExtremaIneligibilityReason,
-    route::{LoadOrderRouteDecision, LoadOrderRouteMode},
-};
+use crate::db::executor::route::{LoadOrderRouteDecision, LoadOrderRouteMode};
 
 ///
 /// RouteCapabilityFacts
@@ -30,10 +27,6 @@ pub(in crate::db::executor) struct RouteCapabilityFacts {
     pub(in crate::db::executor) bounded_probe_hint_safe: bool,
     pub(in crate::db::executor) field_min_fast_path_eligible: bool,
     pub(in crate::db::executor) field_max_fast_path_eligible: bool,
-    pub(in crate::db::executor) field_min_fast_path_ineligibility_reason:
-        Option<AggregateFieldExtremaIneligibilityReason>,
-    pub(in crate::db::executor) field_max_fast_path_ineligibility_reason:
-        Option<AggregateFieldExtremaIneligibilityReason>,
 }
 
 impl RouteCapabilityFacts {

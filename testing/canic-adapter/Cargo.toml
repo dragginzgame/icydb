@@ -27,14 +27,14 @@ members = [
     "../../canisters/audit/ten_entity_reachable_operations",
     "../../canisters/audit/ten_entity_typed_query",
     "../../canisters/demo/rpg",
-    "../../canisters/test/lifecycle_participant",
-    "../../canisters/test/read_authority",
-    "../../canisters/test/schema_guard",
-    "../../canisters/test/schema_public",
-    "../../canisters/test/sql",
-    "../../canisters/test/sql_bounded",
-    "../../canisters/test/sql_guard",
-    "../../canisters/test/wire_rollback",
+    "../../canisters/tests/lifecycle_participant",
+    "../../canisters/tests/read_authority",
+    "../../canisters/tests/schema_guard",
+    "../../canisters/tests/schema_public",
+    "../../canisters/tests/sql",
+    "../../canisters/tests/sql_bounded",
+    "../../canisters/tests/sql_guard",
+    "../../canisters/tests/wire_rollback",
     "../../schema/audit/nested_relation",
     "../../testing/endpoint-installation",
     "../../testing/integration",
@@ -81,7 +81,7 @@ icydb-testing-codec-query = { path = "../../testing/codec-query" }
 icydb-testing-demo-rpg-fixtures = { path = "../../schema/demo/rpg" }
 icydb-testing-sql-generator = { path = "../../testing/sql-generator" }
 icydb-testing-sqlite-reference = { path = "../../testing/sqlite-reference" }
-icydb-testing-test-sql-fixtures = { path = "../../schema/test/sql" }
+icydb-testing-test-sql-fixtures = { path = "../../schema/tests/sql" }
 icydb-testing-wasm-helpers = { path = "../../testing/wasm-helpers" }
 # Renamed-dependency fixtures exercise generated imports under caller-selected names.
 runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
@@ -92,6 +92,7 @@ trybuild = "1.0"
 # ---------------------
 [workspace.lints.rust]
 unsafe_code = "deny"
+unfulfilled_lint_expectations = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -111,6 +112,11 @@ uninlined_format_args = "warn"
 unnecessary_cast = "warn"
 use_self = "warn"
 
+# Workspace style choices, not local defect suppressions: documented module
+# banners, explicit crate visibility, owned boundary inputs, test glob imports
+# and descriptive module names are intentional across generated/feature surfaces.
+# Error contracts are documented at boundary owners; match/if-let syntax stays
+# an author choice. Cargo has no expect level; local exceptions use expectations.
 doc_markdown = "allow"
 empty_line_after_doc_comments = "allow"
 missing_errors_doc = "allow"
@@ -223,3 +229,6 @@ codegen-units = 1
 panic = "abort"
 strip = "none"
 debug = "line-tables-only"
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

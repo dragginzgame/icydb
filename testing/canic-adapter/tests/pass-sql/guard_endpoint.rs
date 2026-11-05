@@ -1,4 +1,4 @@
-#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps, dead_code)]
+#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps, dead_code, reason = "trybuild checks path coercions with generated exports; target and macro expansion can omit these warnings")]
 
 extern crate self as guard_application;
 

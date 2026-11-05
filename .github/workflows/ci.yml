@@ -201,7 +201,8 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status inventory_preserves_empty_success_and_failed_command_fallback
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status external_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status mutation_capture_
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --lib renamed_schema_only_dependency_emits_fragment
+          bash scripts/ci/check-native-codegen-features.sh
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --features build --lib renamed_schema_only_dependency_emits_fragment
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib wasm_optimizer::tests
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact

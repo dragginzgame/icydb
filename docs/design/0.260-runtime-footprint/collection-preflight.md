@@ -3,7 +3,7 @@
 Scope: the user authorised this investigation ahead of W1/W2 on 2026-09-19.
 This records the source preflight for [C1](0.260-status.md), not an instruction
 to add a streaming subsystem. The later
-[matched correction and final disposition](../../reports/investigations/2026/09/19/collection-materialization/02/report.md)
+[matched correction and final disposition](../../reports/investigations/collection-materialization.md)
 supersedes the preliminary candidate assumptions below: the measured named-list
 fixture uses CatalogValue, whereas the retained correction is by-kind.
 
@@ -77,7 +77,7 @@ allocation deltas are **unmeasured**; no speedup or reduced complexity is claime
 C1 remains in progress. A no-build disposition remains valid if the required
 admission work is disproportionate to the measured workload.
 
-Follow-up: the [current-path IC baseline](../../reports/investigations/2026/09/19/collection-materialization/01/report.md)
+Follow-up: the [current-path IC baseline](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/reports/investigations/2026/09/19/collection-materialization/01/report.md)
 now supplies raw actor size and query instructions/full-message cycles for
 54 calls. It confirms a growing collection-read cost, not an allocation-only
 attribution or a retained runtime improvement. The measurements and exact

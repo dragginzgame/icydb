@@ -83,7 +83,7 @@ fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
         base.fields(),
     );
     // Each before/after projection visits one index and the canonical source,
-    // then shares the predicate owner's complete normalization/sort allowance.
+    // then shares the predicate owner's projection/normalization/sort allowance.
     let source_steps = 2 * (1 + predicate.canonical_bytes().unwrap().len() as u64);
     let catalog = AcceptedValueCatalogHandle::new_for_tests(
         empty_accepted_enum_catalog_for_tests(),
@@ -97,7 +97,7 @@ fn complete_domain_predicate_pairs_share_setup_budget_without_store_writes() {
     normalization
         .run(
             |work| {
-                let compiled = predicate.to_predicate(base.fields(), &catalog)?;
+                let compiled = predicate.to_predicate(base.fields(), &catalog, Some(work))?;
                 crate::db::predicate::normalize_with_budget(compiled, work)
             },
             std::convert::identity,

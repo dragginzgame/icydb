@@ -95,20 +95,7 @@ fn sparse_schema_candidate(complete_index: bool) -> CandidateSchemaRevision {
         .iter()
         .map(|field| ((ENTITY_TAG, field_source(field.name())), field.id()))
         .collect();
-    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.to_string(),
-        ENTITY_NAME.to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
-        fields,
-        indexes,
-    );
+    let snapshot = initial_single_key_snapshot(fields, indexes);
     accepted_schema_candidate_with_field_bindings_for_tests(
         STORE_PATH,
         AcceptedSchemaRevision::INITIAL,

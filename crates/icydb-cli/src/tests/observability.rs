@@ -10,7 +10,7 @@ use icydb::db::{
     EntityRelationDescription, EntitySchemaDescription,
 };
 
-use crate::observability::test_support::{
+use crate::observability::support_tests::{
     method_error, render_field_list, render_metrics_report, render_schema_report,
     render_snapshot_report, yes_no,
 };

@@ -64,7 +64,11 @@ function emit(i) {
 }
 END {
     # Direct callers must not turn retained previous history into a downgrade.
-    if (previous != "" && historical(version))
+    # Candidate projection also admits already-finalized groups without a bump.
+    # This read-only mode still checks duplicates and competing pending headings.
+    if (verify_current && (version != previous || !allow_finalized || !finalized))
+        reject("current release requires its exact finalized heading", first)
+    if (!verify_current && previous != "" && historical(version))
         reject("selected version " version " must be greater than previous version " previous, 0)
     if (!first || (top != "## [" version "]" &&
         top != "## [" version "] - Unreleased" &&

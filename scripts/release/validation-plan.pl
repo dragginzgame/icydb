@@ -5,6 +5,9 @@ use warnings;
 use JSON::PP;
 use Digest::SHA qw(sha256_hex);
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL);
+use FindBin;
+use lib $FindBin::Bin;
+use ValidationScope qw(cli_private);
 my $json = JSON::PP->new->canonical->utf8;
 my ($group, $source, $baseline, $output, $scope) = @ARGV;
 @ARGV == 5 && $scope =~ /\A(?:auto|workspace)\z/
@@ -45,7 +48,7 @@ my $contract_raw = read_file('ci/release-validation-contract.json');
 my $contract = $json->decode($contract_raw);
 $contract->{schema} == 1 && $contract_raw eq $json->encode($contract)."\n"
     or die "invalid consumer mapping contract\n";
-for my $path ('Makefile', 'ci/cargo-release-groups.json') {
+for my $path ('Makefile', 'ci/cargo-release-groups.json', 'ci/release-validation.json') {
     sha256_hex(read_file($path)) eq ($contract->{files}{$path}//'')
         or die "release recipes/group policy changed; requalify mapping\n";
 }
@@ -53,7 +56,8 @@ my $groups_path = "$output.groups.json";
 write_new($groups_path, \@groups);
 my @full = split /\n/, capture('perl', 'scripts/ci/validation-evidence.pl',
     'roster', '.', $policy_path, $groups_path);
-my @mapped = sort (@{$contract->{full_stages}}, @{$contract->{supplemental_stages}});
+my @full_gate = split /\n/, capture('perl', 'scripts/release/validation-stages.pl', 'full');
+my @mapped = sort (@full_gate, @{$contract->{supplemental_stages}});
 same_names([sort @full], \@mapped);
 $source =~ /\A[0-9a-f]{40,64}\z/ && capture('git','rev-parse','HEAD') eq "$source\n"
     or die "stale release source\n";
@@ -69,13 +73,7 @@ my @changed = @{$observation->{changes}};
 # command/presentation/test surface may narrow. New library/build surfaces,
 # manifests, dependency locks, shared tooling, generated identities, fixtures and
 # any unknown path expand to the full roster. Database changes never narrow.
-my $narrow = @changed && $scope eq 'auto' && $group eq 'cli';
-for my $path (@changed) {
-    next if $path =~ m{\Acrates/icydb-cli/(?:src|tests)/[^\x00-\x1f]+\.rs\z}
-        && $path ne 'crates/icydb-cli/src/lib.rs';
-    next if $path eq 'releases/cli/CHANGELOG.md' || $path =~ m{\Areleases/cli/\d+\.\d+\.md\z};
-    $narrow = 0;
-}
+my $narrow = $scope eq 'auto' && cli_private($group,\@changed);
 my %excluded = map { $_ => 'Only CLI-private Rust sources/tests and CLI notes changed since the group baseline; engine/schema/model/macros, manifests, features, generators, retained formats, dependencies and gate inputs are identical. CLI lint, build, process/library-consumer tests and archive verification remain required.' }
     qw(clippy check check-feature-matrix test);
 my $index_inventory = capture('git','ls-files','--stage','-z');

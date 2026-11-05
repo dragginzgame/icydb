@@ -25,7 +25,7 @@ fn named_adapter_impl_tokens(
             fn encode_typed_input<C>(
                 self,
                 context: &C,
-            ) -> ::core::result::Result<C::PublicValue, #model::TypedValueError>
+            ) -> ::std::result::Result<C::PublicValue, #model::TypedValueError>
             where
                 C: #model::TypedAdapterContext,
             {
@@ -37,7 +37,7 @@ fn named_adapter_impl_tokens(
             fn decode_typed_output<C>(
                 context: &C,
                 value: C::PublicValue,
-            ) -> ::core::result::Result<Self, #model::TypedValueError>
+            ) -> ::std::result::Result<Self, #model::TypedValueError>
             where
                 C: #model::TypedAdapterContext,
             {
@@ -83,7 +83,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
                 Self::#variant_ident(value) => context.input_enum(
                     #source,
                     #variant_source,
-                    ::core::option::Option::Some(<#ty as #model::TypedInputValue>::encode_typed_input(
+                    ::std::option::Option::Some(<#ty as #model::TypedInputValue>::encode_typed_input(
                         value,
                         context,
                     )?),
@@ -94,7 +94,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
                 Self::#variant_ident => context.input_enum(
                     #source,
                     #variant_source,
-                    ::core::option::Option::None,
+                    ::std::option::Option::None,
                 )
             }
         }
@@ -109,7 +109,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
                     let payload = selected
                         .payload
                         .ok_or(#model::TypedValueError::ShapeMismatch)?;
-                    ::core::result::Result::Ok(Self::#variant_ident(
+                    ::std::result::Result::Ok(Self::#variant_ident(
                         <#ty as #model::TypedOutputValue>::decode_typed_output(
                             context,
                             payload,
@@ -121,9 +121,9 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
             quote! {
                 #ordinal => {
                     if selected.payload.is_some() {
-                        return ::core::result::Result::Err(#model::TypedValueError::ShapeMismatch);
+                        return ::std::result::Result::Err(#model::TypedValueError::ShapeMismatch);
                     }
-                    ::core::result::Result::Ok(Self::#variant_ident)
+                    ::std::result::Result::Ok(Self::#variant_ident)
                 }
             }
         }
@@ -142,7 +142,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
         let selected = context.output_enum(&DESCRIPTOR, value)?;
         match selected.ordinal {
             #(#output_variants),*,
-            _ => ::core::result::Result::Err(#model::TypedValueError::ShapeMismatch),
+            _ => ::std::result::Result::Err(#model::TypedValueError::ShapeMismatch),
         }
     };
 
@@ -195,7 +195,7 @@ pub(crate) fn record_adapter_tokens(node: &Record, paths: &CratePaths) -> TokenS
             &[#(#field_sources),*],
             value,
         )?.into_iter();
-        ::core::result::Result::Ok(Self {
+        ::std::result::Result::Ok(Self {
             #(#output_fields),*
         })
     };
@@ -266,7 +266,7 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple, paths: &CratePaths) -> TokenStr
     });
     let value_count = node.values.len();
     let encode = quote! {
-        ::core::result::Result::Ok(context.input_list(::std::vec![
+        ::std::result::Result::Ok(context.input_list(::std::vec![
             #(#input_values),*
         ]))
     };
@@ -275,95 +275,14 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple, paths: &CratePaths) -> TokenStr
             .output_list(value)
             .ok_or(#model::TypedValueError::ShapeMismatch)?;
         if values.len() != #value_count {
-            return ::core::result::Result::Err(#model::TypedValueError::ShapeMismatch);
+            return ::std::result::Result::Err(#model::TypedValueError::ShapeMismatch);
         }
         let mut values = values.into_iter();
-        ::core::result::Result::Ok(Self(#(#output_values),*))
+        ::std::result::Result::Ok(Self(#(#output_values),*))
     };
 
     named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{enum_adapter_tokens, record_adapter_tokens};
-    use crate::node::{Def, Enum, Record};
-    use darling::{FromMeta, ast::NestedMeta};
-    use quote::quote;
-
-    #[test]
-    fn enum_adapter_uses_model_owned_source_bound_context() {
-        let args = NestedMeta::parse_meta_list(quote!(
-            name = "ChoiceSource",
-            variant(name = "Empty"),
-            variant(name = "Count", value(item(prim = "Nat64")))
-        ))
-        .expect("enum adapter arguments should parse");
-        let mut node = Enum::from_list(&args).expect("enum adapter node should lower");
-        node.def = Def::new(
-            syn::parse_quote!(
-                pub struct Choice;
-            ),
-            crate::crate_path::CratePaths::test(),
-        );
-
-        let tokens = enum_adapter_tokens(&node, &crate::crate_path::CratePaths::test()).to_string();
-
-        for expected in [
-            "impl :: icydb_model :: TypedNamedType for Choice",
-            "const SOURCE_KEY : & 'static str = \"ChoiceSource\"",
-            "input_enum (\"ChoiceSource\" , \"Empty\"",
-            "input_enum (\"ChoiceSource\" , \"Count\"",
-            "TypedEnumDescriptor",
-            "type_source_key : \"ChoiceSource\"",
-            "variants : & [\"Empty\" , \"Count\"]",
-            "context . output_enum (& DESCRIPTOR , value)",
-            "match selected . ordinal",
-            "TypedInputValue for Choice",
-            "TypedOutputValue for Choice",
-        ] {
-            assert!(
-                tokens.contains(expected),
-                "expected generated enum adapter contract `{expected}` in: {tokens}",
-            );
-        }
-        assert_eq!(tokens.matches("output_enum").count(), 1);
-        assert!(!tokens.contains(":: icydb ::"));
-    }
-
-    #[test]
-    fn record_adapter_uses_source_bound_members_and_context() {
-        let args = NestedMeta::parse_meta_list(quote!(
-            name = "ProfileSource",
-            fields(
-                field(name = "label", value(item(prim = "Text", unbounded))),
-                field(name = "count", value(item(prim = "Nat64")))
-            )
-        ))
-        .expect("record adapter arguments should parse");
-        let mut node = Record::from_list(&args).expect("record adapter node should lower");
-        node.def = Def::new(
-            syn::parse_quote!(
-                pub struct Profile;
-            ),
-            crate::crate_path::CratePaths::test(),
-        );
-
-        let tokens =
-            record_adapter_tokens(&node, &crate::crate_path::CratePaths::test()).to_string();
-
-        for expected in [
-            "impl :: icydb_model :: TypedNamedType for Profile",
-            "input_record (\"ProfileSource\"",
-            "output_record (\"ProfileSource\"",
-            "TypedInputValue for Profile",
-            "TypedOutputValue for Profile",
-        ] {
-            assert!(
-                tokens.contains(expected),
-                "expected generated record adapter contract `{expected}` in: {tokens}",
-            );
-        }
-        assert!(!tokens.contains(":: icydb ::"));
-    }
-}
+mod tests;

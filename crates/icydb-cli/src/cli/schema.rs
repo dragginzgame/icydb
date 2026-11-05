@@ -104,16 +104,12 @@ pub(crate) struct ConfirmedMigrationTarget {
     target: CanisterTarget,
 
     /// Confirm the controller operation explicitly.
-    #[arg(long)]
-    yes: bool,
+    #[arg(long = "yes", required = true)]
+    _yes: bool,
 }
 
 impl ConfirmedMigrationTarget {
     pub(crate) const fn target(&self) -> &CanisterTarget {
         &self.target
-    }
-
-    pub(crate) const fn confirmed(&self) -> bool {
-        self.yes
     }
 }

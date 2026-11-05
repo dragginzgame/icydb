@@ -211,13 +211,16 @@ impl CompiledAcceptedRowConstraints {
             checks,
             not_null,
             targeted,
-        } = row_constraint_sources(snapshot);
+        } = row_constraint_sources(snapshot, work)?;
         let targeted_rules = CompiledAcceptedTargetedRules::compile_sources(
             schema,
             value_catalog,
             targeted.into_iter(),
         )
         .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        // Both row-local families compile into one admitted destination. No
+        // intermediate compiled-family vectors need allocation or merging.
+        let constraints = work.vec_with_capacity(checks.len() + not_null.len())?;
         let mut compiled = Self::compile_sources(
             schema,
             value_catalog,
@@ -225,6 +228,7 @@ impl CompiledAcceptedRowConstraints {
             checks,
             not_null,
             targeted_rules,
+            constraints,
         )
         .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
         // All activations share caller authority. Build locally and return no
@@ -314,6 +318,7 @@ impl CompiledAcceptedRowConstraints {
             checks,
             not_null,
             CompiledAcceptedTargetedRules::empty(),
+            Vec::with_capacity(1),
         )
     }
 
@@ -334,6 +339,7 @@ impl CompiledAcceptedRowConstraints {
             Vec::new(),
             Vec::new(),
             targeted_rules,
+            Vec::new(),
         )
     }
 
@@ -344,12 +350,34 @@ impl CompiledAcceptedRowConstraints {
         check_sources: Vec<CheckConstraintSource<'_>>,
         not_null_sources: Vec<NotNullConstraintSource>,
         targeted_rules: CompiledAcceptedTargetedRules,
+        mut constraints: Vec<CompiledAcceptedRowConstraint>,
     ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
         let snapshot = schema.persisted_snapshot();
-        let mut constraints = compile_check_sources(snapshot, value_catalog, &check_sources)?
-            .into_iter()
-            .chain(compile_not_null_sources(snapshot, &not_null_sources)?)
-            .collect::<Vec<_>>();
+        // Callers supply empty backing for the exact source count. Preserve
+        // CHECK-before-NOT-NULL validation while filling that destination once.
+        debug_assert!(constraints.is_empty());
+        debug_assert!(constraints.capacity() >= check_sources.len() + not_null_sources.len());
+        for &(id, expression, validated) in &check_sources {
+            expression
+                .validate(snapshot, value_catalog.composite_catalog())
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
+            constraints.push(CompiledAcceptedRowConstraint::Check(
+                CompiledAcceptedCheck {
+                    id,
+                    expression: compile_expr(expression, snapshot, value_catalog)?,
+                    validated,
+                },
+            ));
+        }
+        for &(id, field_id, accepted) in &not_null_sources {
+            let slot = slot_for_field(snapshot, field_id)
+                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
+            constraints.push(CompiledAcceptedRowConstraint::NotNull {
+                id,
+                slot: usize::from(slot.get()),
+                accepted,
+            });
+        }
         icydb_schema::compact_sort_unstable_by(&mut constraints, |left, right| {
             left.id().cmp(&right.id())
         });
@@ -578,67 +606,6 @@ impl CompiledAcceptedRowConstraints {
         }
         Ok(())
     }
-
-    #[cfg(test)]
-    pub(in crate::db) fn evaluate_targeted_rules_with_limits(
-        &self,
-        current_fingerprint: CommitSchemaFingerprint,
-        values_by_slot: &[Option<Cow<'_, Value>>],
-        limits: super::targeted::TargetedEvaluationLimits,
-    ) -> Result<(), AcceptedRowConstraintEvaluationError> {
-        if current_fingerprint != self.fingerprint {
-            return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
-        }
-        let violation = self
-            .targeted_rules
-            .evaluate_with_limits_for_tests(values_by_slot, limits)
-            .map_err(AcceptedRowConstraintEvaluationError::from)?;
-        if let Some(violation) = violation {
-            return Err(targeted_rule_violation_error(violation));
-        }
-        Ok(())
-    }
-}
-
-fn compile_check_sources(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    value_catalog: &AcceptedValueCatalogHandle,
-    sources: &[CheckConstraintSource<'_>],
-) -> Result<Vec<CompiledAcceptedRowConstraint>, AcceptedRowConstraintEvaluationError> {
-    sources
-        .iter()
-        .copied()
-        .map(|(id, expression, validated)| {
-            expression
-                .validate(snapshot, value_catalog.composite_catalog())
-                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
-            Ok(CompiledAcceptedRowConstraint::Check(
-                CompiledAcceptedCheck {
-                    id,
-                    expression: compile_expr(expression, snapshot, value_catalog)?,
-                    validated,
-                },
-            ))
-        })
-        .collect()
-}
-
-fn compile_not_null_sources(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    sources: &[NotNullConstraintSource],
-) -> Result<Vec<CompiledAcceptedRowConstraint>, AcceptedRowConstraintEvaluationError> {
-    sources
-        .iter()
-        .map(|(id, field_id, accepted)| {
-            let slot = slot_for_field(snapshot, *field_id)
-                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
-            Ok(CompiledAcceptedRowConstraint::NotNull {
-                id: *id,
-                slot: usize::from(slot.get()),
-                accepted: *accepted,
-            })
-        })
-        .collect()
 }
 
 fn compile_integrity_constraints(
@@ -712,22 +679,28 @@ fn targeted_rule_violation_error(
 }
 
 // Each catalog is classified once, retaining accepted sources before pending
-// sources within every family. The family compilers keep their existing order.
-fn row_constraint_sources(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-) -> RowConstraintSources<'_> {
+// sources within every family. Admit each visit and any new borrowed-source
+// backing before construction; downstream compilers keep their existing order.
+fn row_constraint_sources<'a>(
+    snapshot: &'a crate::db::schema::PersistedSchemaSnapshot,
+    work: &dyn ConstructionBudget,
+) -> Result<RowConstraintSources<'a>, InternalError> {
     let mut sources = RowConstraintSources::default();
     for constraint in snapshot.constraints() {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
         match constraint.kind() {
             AcceptedConstraintKind::Check { expression } => {
+                work.reserve_vec(&mut sources.checks, 1)?;
                 sources
                     .checks
                     .push((constraint.id(), expression.as_ref(), true));
             }
             AcceptedConstraintKind::NotNull { field_id } => {
+                work.reserve_vec(&mut sources.not_null, 1)?;
                 sources.not_null.push((constraint.id(), *field_id, true));
             }
             AcceptedConstraintKind::TargetedRule { target, operation } => {
+                work.reserve_vec(&mut sources.targeted, 1)?;
                 sources
                     .targeted
                     .push((constraint.id(), *target, operation.as_ref(), true));
@@ -738,16 +711,20 @@ fn row_constraint_sources(
         }
     }
     for activation in snapshot.constraint_activations() {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
         match activation.kind() {
             ConstraintActivationKind::Check { expression } => {
+                work.reserve_vec(&mut sources.checks, 1)?;
                 sources
                     .checks
                     .push((activation.id(), expression.as_ref(), false));
             }
             ConstraintActivationKind::NotNull { field_id } => {
+                work.reserve_vec(&mut sources.not_null, 1)?;
                 sources.not_null.push((activation.id(), *field_id, false));
             }
             ConstraintActivationKind::TargetedRule { target, operation } => {
+                work.reserve_vec(&mut sources.targeted, 1)?;
                 sources
                     .targeted
                     .push((activation.id(), *target, operation.as_ref(), false));
@@ -756,7 +733,7 @@ fn row_constraint_sources(
             }
         }
     }
-    sources
+    Ok(sources)
 }
 
 /// Map one row-program result into the shared accepted write diagnostic.
@@ -1095,16 +1072,17 @@ fn unique_index_dependency_slots(
         }
     }
     if let Some(bound) = index.predicate() {
-        work.charge(
-            Resource::PredicateExpressionSteps,
-            bound
-                .canonical_bytes()
-                .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?
-                .len() as u64,
-        )?;
+        // Snapshot acceptance already validates the encoding. Dependency selection
+        // needs only the budgeted semantic projection, not a serialized key.
         let predicate = bound
-            .to_predicate(snapshot.fields(), value_catalog)
-            .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+            .to_predicate(snapshot.fields(), value_catalog, Some(work))
+            .map_err(|error| {
+                if error.class() == crate::error::ErrorClass::Corruption {
+                    InternalError::accepted_row_constraint_program_corrupt()
+                } else {
+                    error
+                }
+            })?;
         // Project the accepted tree for the existing normalization owner so
         // discarded branches do not gain independent write barriers.
         normalize_with_budget(predicate, work)?.try_for_each_field(&mut |name| {
@@ -1281,3 +1259,6 @@ fn validate_value_literal(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod helper_tests;

@@ -109,7 +109,7 @@ pub(crate) fn cardinality_wrapper(
             #body
         },
         Cardinality::Opt => quote! {
-            if let ::core::option::Option::Some(v) = #var_expr {
+            if let ::std::option::Option::Some(v) = #var_expr {
                 #body
             }
         },

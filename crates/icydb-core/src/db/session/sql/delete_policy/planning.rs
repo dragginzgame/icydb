@@ -12,24 +12,6 @@ use crate::db::{
     sql::parser::{SqlDeleteStatement, SqlStatement},
 };
 
-/// Classify one SQL statement under an explicit `DELETE` exposure policy.
-///
-/// This helper parses and inspects statement shape only. It does not execute
-/// mutation work or validate field existence beyond the caller-provided primary
-/// key context.
-#[cfg(test)]
-pub(in crate::db) fn classify_sql_delete_policy(
-    sql: &str,
-    policy: SqlDeleteExposurePolicy,
-    context: SqlDeletePolicyContext<'_>,
-) -> Result<SqlDeletePolicyResult, QueryError> {
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    Ok(classify_sql_delete_statement_policy(
-        &statement, policy, context,
-    ))
-}
-
 pub(in crate::db) fn classify_sql_delete_statement_policy(
     statement: &SqlStatement,
     policy: SqlDeleteExposurePolicy,
@@ -111,3 +93,9 @@ fn classify_write_shape(
         primary_key_fields: context.primary_key_fields,
     })
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::classify_sql_delete_policy;

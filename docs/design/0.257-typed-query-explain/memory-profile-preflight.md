@@ -21,7 +21,7 @@ not query authority or a schema migration.
 
 Capacity includes every region using the manager, including indexes and journals;
 it is not payload capacity or a platform guarantee. The
-[experiment](../../reports/investigations/2026/09/13/bucket-sizing/01/report.md)
+[experiment](../../reports/investigations/bucket-sizing.md)
 supports 16 pages as a starting point, not a universal optimum. Lifecycle and
 mutation qualification accompany this default change; full-scale application
 growth and aggregate background costs are not established by that experiment.

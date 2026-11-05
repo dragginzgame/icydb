@@ -20,7 +20,7 @@ pub(crate) fn expand_request_execution(
         item.attrs.push(parse_quote!(
             #[allow(
                 clippy::future_not_send,
-                reason = "IcyDB request roots are intentionally canister-poll-local"
+                reason = "canister-local request roots need not be Send, but bodies with no suspension may remain Send and cannot fulfill an expectation"
             )]
         ));
         Box::new(parse_quote!({

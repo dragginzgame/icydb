@@ -26,11 +26,6 @@ use icydb_schema::EntitySourceKey;
 // Each named case has its own accepted registry identity. All fixtures publish
 // the actual kind and index contract rather than relying on generated models.
 pub(super) fn initialize_component_schema(kind: AcceptedFieldKind, enums: AcceptedEnumCatalog) {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let setup = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-    setup.db.drive_startup_recovery_page().unwrap();
     let fields = vec![
         field(1, "id", 0, AcceptedFieldKind::Nat64),
         field(2, "category", 1, AcceptedFieldKind::Nat64),
@@ -47,17 +42,7 @@ pub(super) fn initialize_component_schema(kind: AcceptedFieldKind, enums: Accept
         BTreeMap::new(),
         BTreeMap::new(),
     );
-    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.into(),
-        ENTITY_NAME.into(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
+    let snapshot = initial_single_key_snapshot(
         fields,
         vec![PersistedIndexSnapshot::new(
             SchemaIndexId::new(1).unwrap(),
@@ -92,13 +77,7 @@ pub(super) fn initialize_component_schema(kind: AcceptedFieldKind, enums: Accept
         bindings,
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
     );
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        setup.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &candidate,
-    )
-    .unwrap();
+    initialize_schema_candidate(candidate);
 }
 
 fn assert_component_projection(

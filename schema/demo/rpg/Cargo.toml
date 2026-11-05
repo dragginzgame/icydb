@@ -12,6 +12,13 @@ authors = { workspace = true }
 [package.metadata.cargo-machete]
 ignored = ["icydb"]
 
+[package.metadata.shared-tooling.loc]
+category = "examples"
+
+[features]
+default = []
+build = ["icydb/build", "icydb-model/build"]
+
 [dependencies]
 icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }

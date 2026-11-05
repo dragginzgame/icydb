@@ -19,7 +19,7 @@
 //!
 //! ## Crate layout
 //!
-//! - `build` *(host builds)*
+//! - `build` *(host builds with the `build` feature)*
 //!   Host-side build-script facade for generated actor glue. Downstream
 //!   canister `build.rs` files should use this module rather than depending on
 //!   lower-level implementation crates directly.
@@ -108,12 +108,12 @@ pub mod metrics {
 }
 
 // facade modules
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 pub mod build {
     //! Host-side build-script facade for generated actor glue.
     //!
     //! This module is the advertised downstream build-script API. Add `icydb`
-    //! to `[build-dependencies]`, then call `icydb::build::build_canister!()`
+    //! to `[build-dependencies]` with `features = ["build"]`, then call `icydb::build::build_canister!()`
     //! from `build.rs`. Model-graph code generation is owned by `icydb-model`.
     //! This module is host-only and is not part of Wasm runtime builds.
 
@@ -149,6 +149,8 @@ pub mod build {
 }
 pub mod db;
 pub mod guards;
+#[cfg(all(feature = "testing", not(target_family = "wasm")))]
+pub mod testing;
 pub mod diagnostic {
     //! Compact diagnostic identity for CLI and canister callers.
 
@@ -261,7 +263,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Panics if model validation fails, the type is not a registered canister,
 /// or the consuming package's IcyDB dependency cannot be resolved.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "build", not(target_arch = "wasm32")))]
 #[macro_export]
 macro_rules! build_canister {
     ($canister_ty:ty) => {{
@@ -290,7 +292,7 @@ macro_rules! __icydb_start_actor {
 
         #[allow(
             dead_code,
-            reason = "generated actor members are feature-dependent in downstream canisters"
+            reason = "downstream feature and endpoint selections can use all generated members, leaving a dead-code expectation unfulfilled"
         )]
         mod __icydb_generated {
             #[doc(hidden)]
@@ -301,7 +303,7 @@ macro_rules! __icydb_start_actor {
 
         #[allow(
             unused_imports,
-            reason = "minimal downstream canisters may use only a subset of generated actor conveniences"
+            reason = "downstream canisters may use all or only some conveniences, so an unused-import expectation is not stable"
         )]
         use __icydb_generated::{db, db_with_request_root, startup_state};
         pub use __icydb_generated::icydb_memory_requests;
@@ -434,43 +436,5 @@ macro_rules! db {
 // Helpers
 //
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod tests {
-    use crate::build;
-
-    struct ModelWrapper(u64);
-
-    impl icydb_model::Inner<u64> for ModelWrapper {
-        fn inner(&self) -> &u64 {
-            &self.0
-        }
-
-        fn into_inner(self) -> u64 {
-            self.0
-        }
-    }
-
-    impl icydb_model::Path for ModelWrapper {
-        const PATH: &'static str = "icydb::tests::ModelWrapper";
-    }
-
-    #[test]
-    fn build_facade_exports_typed_entrypoint() {
-        fn assert_model_inner<T: crate::traits::Inner<u64>>() {}
-
-        assert_model_inner::<ModelWrapper>();
-        let wrapper = ModelWrapper(7);
-        assert_eq!(*crate::traits::Inner::inner(&wrapper), 7);
-        assert_eq!(crate::traits::Inner::into_inner(wrapper), 7);
-
-        std::hint::black_box(
-            build_facade_macros_resolve as fn() -> Result<(), Box<dyn std::error::Error>>,
-        );
-    }
-
-    fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {
-        build::build_canister!(ModelWrapper)?;
-
-        Ok(())
-    }
-}
+#[cfg(all(test, feature = "build", not(target_arch = "wasm32")))]
+mod tests;

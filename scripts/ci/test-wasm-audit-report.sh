@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Exercise capture/provenance decisions without Cargo, a replica, or Twiggy.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/icydb-wasm-audit.XXXXXX")"
+fixture_parent="${TMPDIR:-$ROOT/target/tmp}"
+mkdir -p "$fixture_parent"
+TEST_ROOT="$(mktemp -d "$fixture_parent/icydb-wasm-audit.XXXXXX")"
 fixture_complete=false
 cleanup() {
     local status=$?
@@ -24,7 +26,7 @@ trap cleanup EXIT
 source "$ROOT/scripts/ci/wasm-report-common.sh"
 FIXTURE="$TEST_ROOT/repository"
 ARTIFACTS="$FIXTURE/artifacts/wasm-size"
-mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/docs/reports/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
+mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/target/evidence/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
 cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$ROOT/scripts/ci/verify-file-checksum.sh" "$FIXTURE/scripts/ci/"
 mkdir -p "$FIXTURE/testing/build/src"
 cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$FIXTURE/testing/build/src/"
@@ -68,6 +70,7 @@ write_fixture() {
             final_deployable_stage: "binaryen_oz_wasm",
             path_remapping: "workspace=/w;cargo-registry=/c;rust-library=/r"
         },
+        analysis: {final_deployable: {code_section_bytes: 0}},
         artifacts: {
             final_deployable_wasm: {bytes: 8, sha256: $hash},
             final_deployable_wasm_gz: {bytes: $gz_bytes, sha256: $gz_hash}
@@ -101,6 +104,16 @@ change_report() {
 write_fixture default_empty
 write_fixture default_empty_metrics
 run_subject --canister default_empty_metrics
+grep -Fq 'Current code-section bytes' "$report_dir/report.md"
+# shellcheck disable=SC2016 # Backticks are literal Markdown delimiters.
+if grep -Fq 'Current final `.wasm.gz`' "$report_dir/report.md"; then
+    echo 'Compressed sizes must not be performance columns' >&2
+    exit 1
+fi
+change_report default_empty 'del(.analysis)'
+run_subject --canister default_empty_metrics
+grep -Fq 'unmeasured' "$report_dir/report.md"
+write_fixture default_empty
 grep -Fq "code snapshot identifier: \`$revision\`" "$report_dir/report.md"
 grep -Fq "source tree: \`$tree\`" "$report_dir/report.md"
 grep -Fq "lockfile SHA-256: \`$digest\`" "$report_dir/report.md"
@@ -123,7 +136,7 @@ bash "$FIXTURE/scripts/ci/wasm-audit-report.sh" --skip-build \
 test -s "$TEST_ROOT/default-subjects/report.md"
 
 # Preserve a comparable byte-count baseline for subsequent capture decisions.
-baseline="$FIXTURE/docs/reports/recurring/2026/01/01/wasm-footprint/01"
+baseline="$FIXTURE/target/evidence/recurring/2026/01/01/wasm-footprint/01"
 mkdir -p "${baseline%/*}"
 cp -R "$report_dir" "$baseline"
 run_subject --canister default_empty_metrics
@@ -210,7 +223,7 @@ assert_baseline() {
 run_canonical() {
     local day="$1" sequence="$2" destination
     shift 2
-    destination="$FIXTURE/docs/reports/recurring/${day//-//}/wasm-footprint/$sequence"
+    destination="$FIXTURE/target/evidence/recurring/${day//-//}/wasm-footprint/$sequence"
     run_subject --date "$day" --report-dir "$destination" "$@"
     report_dir="$destination"
 }
@@ -221,28 +234,28 @@ for sequence in 01 02; do
     run=$((run + 1))
     bash "$FIXTURE/scripts/ci/wasm-audit-report.sh" --skip-build \
         --canister default_empty --date 2026-02-02 > "$TEST_ROOT/output" 2>&1
-    report_dir="$FIXTURE/docs/reports/recurring/2026/02/02/wasm-footprint/$sequence"
+    report_dir="$FIXTURE/target/evidence/recurring/2026/02/02/wasm-footprint/$sequence"
     if [[ "$sequence" == "01" ]]; then
-        assert_baseline 'docs/reports/recurring/2026/01/01/wasm-footprint/01/report.md'
+        assert_baseline 'target/evidence/recurring/2026/01/01/wasm-footprint/01/report.md'
     else
-        assert_baseline 'docs/reports/recurring/2026/02/02/wasm-footprint/01/report.md'
+        assert_baseline 'target/evidence/recurring/2026/02/02/wasm-footprint/01/report.md'
     fi
 done
 
 # An explicit canonical path carries its day even when --date differs.
 run_canonical 2026-02-02 03 --date 2026-12-01
-assert_baseline 'docs/reports/recurring/2026/02/02/wasm-footprint/01/report.md'
+assert_baseline 'target/evidence/recurring/2026/02/02/wasm-footprint/01/report.md'
 grep -Fq '# Recurring Audit - Wasm Footprint (2026-02-02)' "$report_dir/report.md"
 
 # Backdated first runs cannot select later dates or later runs from their day.
 run_canonical 2026-02-01 01
-assert_baseline 'docs/reports/recurring/2026/01/01/wasm-footprint/01/report.md'
+assert_baseline 'target/evidence/recurring/2026/01/01/wasm-footprint/01/report.md'
 run_canonical 2025-12-01 01
 assert_baseline 'N/A'
 
 # Noncanonical output locations use the requested day and its run-01 baseline.
 run_subject --date 2026-02-02
-assert_baseline 'docs/reports/recurring/2026/02/02/wasm-footprint/01/report.md'
+assert_baseline 'target/evidence/recurring/2026/02/02/wasm-footprint/01/report.md'
 
 # A first run seeks the latest compatible earlier report, across the full batch.
 change_report default_empty '.tools.ic_wasm_sha256 = "4444444444444444444444444444444444444444444444444444444444444444"'
@@ -250,15 +263,15 @@ run_canonical 2026-02-03 01
 assert_baseline 'N/A'
 write_fixture default_empty
 run_canonical 2026-02-04 01
-assert_baseline 'docs/reports/recurring/2026/02/02/wasm-footprint/03/report.md'
+assert_baseline 'target/evidence/recurring/2026/02/02/wasm-footprint/03/report.md'
 write_fixture default_empty_metrics
 run_canonical 2026-02-05 01 --canister default_empty_metrics
-assert_baseline 'docs/reports/recurring/2026/01/01/wasm-footprint/01/report.md'
+assert_baseline 'target/evidence/recurring/2026/01/01/wasm-footprint/01/report.md'
 
 # A non-comparable same-day baseline stays pinned; it is never replaced by an
 # older compatible report to manufacture a passing comparison.
 run_canonical 2026-02-03 02
-assert_baseline 'docs/reports/recurring/2026/02/03/wasm-footprint/01/report.md'
+assert_baseline 'target/evidence/recurring/2026/02/03/wasm-footprint/01/report.md'
 grep -Fq 'comparability status: `non-comparable' "$report_dir/report.md"
 
 # A missing daily baseline cannot be replaced by another day's report. When
@@ -266,6 +279,6 @@ grep -Fq 'comparability status: `non-comparable' "$report_dir/report.md"
 run_canonical 2026-02-06 02
 assert_baseline 'N/A'
 run_canonical 2026-02-06 01
-assert_baseline 'docs/reports/recurring/2026/02/05/wasm-footprint/01/report.md'
+assert_baseline 'target/evidence/recurring/2026/02/05/wasm-footprint/01/report.md'
 printf 'Wasm audit capture checks passed: %s cases\n' "$run"
 fixture_complete=true

@@ -388,21 +388,22 @@ pub trait HasSchema: HasSchemaPart + HasDef {
         let kind = Self::schema_node_kind();
 
         quote! {
-            const _: () = {
-                const #const_var: #model::node::#kind = #schema_expr;
+            #model::__icydb_register_schema! {
+                const _: () = {
+                    const #const_var: #model::node::#kind = #schema_expr;
 
-                #[cfg(not(target_arch = "wasm32"))]
-                #[#model::__reexports::ctor::ctor(
-                    unsafe,
-                    anonymous,
-                    crate_path = #model::__reexports::ctor
-                )]
-                fn #ctor() {
-                    #model::build::register_node(
-                        #model::node::SchemaNode::#kind(#const_var)
-                    );
-                }
-            };
+                    #[#model::__reexports::ctor::ctor(
+                        unsafe,
+                        anonymous,
+                        crate_path = #model::__reexports::ctor
+                    )]
+                    fn #ctor() {
+                        #model::build::register_node(
+                            #model::node::SchemaNode::#kind(#const_var)
+                        );
+                    }
+                };
+            }
         }
     }
 }

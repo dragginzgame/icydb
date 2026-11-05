@@ -1,17 +1,17 @@
-error: duplicate generated index name 'idx_compound_name_collision__a_b'
-  --> tests/ui/index_names/collisions.rs:18:21
+error: duplicate index name 'chosen_name'; choose a distinct override, for example: index(name = "users_by_email", field = "email")
+  --> tests/ui/index_names/collisions.rs:18:18
    |
-18 |     index(fields = ["a", "b"])
-   |                     ^^^
+18 |     index(name = "chosen_name", fields = ["a", "b"])
+   |                  ^^^^^^^^^^^^^
 
-error: duplicate generated index name 'idx_expression_name_collision__lower_email'
-  --> tests/ui/index_names/collisions.rs:32:19
+error: duplicate index name 'chosen_name'; choose a distinct override, for example: index(name = "users_by_email", field = "email")
+  --> tests/ui/index_names/collisions.rs:32:18
    |
-32 |     index(field = "LOWER(email)")
-   |                   ^^^^^^^^^^^^^^
+32 |     index(name = "chosen_name", field = "LOWER(email)")
+   |                  ^^^^^^^^^^^^^
 
-error: duplicate generated index name 'idx_partial_name_collision__score'
-  --> tests/ui/index_names/collisions.rs:46:19
+error: duplicate index name 'chosen_name'; choose a distinct override, for example: index(name = "users_by_email", field = "email")
+  --> tests/ui/index_names/collisions.rs:46:18
    |
-46 |     index(field = "score", predicate = "active = false")
-   |                   ^^^^^^^
+46 |     index(name = "chosen_name", field = "score", predicate = "active = false")
+   |                  ^^^^^^^^^^^^^

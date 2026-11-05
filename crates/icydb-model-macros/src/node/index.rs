@@ -14,7 +14,7 @@ use crate::{
     prelude::*,
 };
 use darling::ast::NestedMeta;
-use icydb_schema::canonical_index_name_slug;
+use icydb_schema::{SchemaName, canonical_index_name, is_engine_reserved_schema_name};
 
 ///
 /// Index
@@ -22,6 +22,8 @@ use icydb_schema::canonical_index_name_slug;
 
 #[derive(Debug)]
 pub struct Index {
+    pub(crate) name: Option<LitStr>,
+
     pub(crate) fields: Vec<LitStr>,
 
     pub(crate) unique: bool,
@@ -33,6 +35,7 @@ pub struct Index {
 
 impl FromMeta for Index {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
+        let mut name = None;
         let mut fields = None;
         let mut unique = false;
         let mut unique_seen = false;
@@ -51,6 +54,16 @@ impl FromMeta for Index {
                     unique_seen = true;
                 }
                 NestedMeta::Meta(syn::Meta::NameValue(name_value)) => {
+                    if name_value.path.is_ident("name") {
+                        let literal = LitStr::from_expr(&name_value.value)?;
+                        set_index_arg_once(
+                            &mut name,
+                            literal,
+                            "index(...) accepts only one name argument",
+                            &name_value.path,
+                        )?;
+                        continue;
+                    }
                     if name_value.path.is_ident("field") {
                         set_index_arg_once(
                             &mut fields,
@@ -94,19 +107,19 @@ impl FromMeta for Index {
                     }
 
                     return Err(DarlingError::custom(
-                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                        "index(...) supports name = \"...\", field = \"...\", fields = [...], unique, and predicate = \"...\"",
                     )
                     .with_span(&name_value.path));
                 }
                 NestedMeta::Meta(syn::Meta::Path(path)) => {
                     return Err(DarlingError::custom(
-                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                        "index(...) supports name = \"...\", field = \"...\", fields = [...], unique, and predicate = \"...\"",
                     )
                     .with_span(path));
                 }
                 _ => {
                     return Err(DarlingError::custom(
-                        "index(...) supports field = \"...\", fields = [...], unique, and predicate = \"...\"",
+                        "index(...) supports name = \"...\", field = \"...\", fields = [...], unique, and predicate = \"...\"",
                     ));
                 }
             }
@@ -123,6 +136,7 @@ impl FromMeta for Index {
         }
 
         Ok(Self {
+            name,
             fields,
             unique,
             predicate,
@@ -188,7 +202,7 @@ impl Index {
         paths: &CratePaths,
     ) -> Result<TokenStream, DarlingError> {
         let model = &paths.model;
-        let name = self.generated_name(entity_name);
+        let name = self.resolved_name(entity_name)?;
         let fields = self.validated_field_idents();
         let fields = quote_slice(&fields, to_str_lit);
         let key_items = self.schema_key_items_tokens(paths);
@@ -198,19 +212,18 @@ impl Index {
             .as_ref()
             .map(|value| LitStr::new(value, Span::call_site()));
         let predicate = if let Some(predicate) = predicate {
-            quote! { ::core::option::Option::Some(#predicate) }
+            quote! { ::std::option::Option::Some(#predicate) }
         } else {
-            quote! { ::core::option::Option::None }
+            quote! { ::std::option::Option::None }
         };
         let predicate_expression = self
             .validated_generated_predicate(entity, paths)?
             .map(|predicate| {
-                predicate_source_expression_tokens(&predicate, entity, paths).map(
-                    |expression| quote! { ::core::option::Option::Some(|_schema| #expression) },
-                )
+                predicate_source_expression_tokens(&predicate, entity, paths)
+                    .map(|expression| quote! { ::std::option::Option::Some(|_schema| #expression) })
             })
             .transpose()?
-            .unwrap_or_else(|| quote! { ::core::option::Option::None });
+            .unwrap_or_else(|| quote! { ::std::option::Option::None });
 
         Ok(quote! {
             #model::node::Index::new_with_key_items_and_predicate(
@@ -224,18 +237,33 @@ impl Index {
         })
     }
 
-    /// Build the canonical index name (`idx_entity__key_item...`) shared across
-    /// validation and codegen.
-    pub fn generated_name(&self, entity_name: &str) -> String {
-        let prefix = if self.unique { "uniq" } else { "idx" };
-        let entity = canonical_index_name_slug(entity_name);
-        let fields = self
-            .generated_name_segments()
-            .iter()
-            .map(|field| canonical_index_name_slug(field))
-            .collect::<Vec<_>>()
-            .join("_");
-        format!("{prefix}_{entity}__{fields}")
+    /// Resolve an optional authored label or derive the full-definition name.
+    pub(crate) fn resolved_name(&self, entity_name: &str) -> Result<String, DarlingError> {
+        if let Some(name) = &self.name {
+            let value = name.value();
+            if SchemaName::try_new(value.clone()).is_err() || is_engine_reserved_schema_name(&value)
+            {
+                return Err(DarlingError::custom(
+                    "invalid index name; use a nonempty bounded schema name outside __icydb_; for example: index(name = \"users_by_email\", field = \"email\")"
+                ).with_span(name));
+            }
+            return Ok(value);
+        }
+        let terms = self.validated_key_item_terms();
+        let predicate = self.canonical_predicate_key()?;
+        Ok(canonical_index_name(
+            entity_name,
+            &terms.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.unique,
+            predicate.as_deref(),
+        ))
+    }
+
+    pub(crate) fn canonical_predicate_key(&self) -> Result<Option<Vec<u8>>, DarlingError> {
+        self.predicate
+            .as_deref()
+            .map(|sql| predicate::parse(sql).map(|parsed| predicate::canonical_name_key(&parsed)))
+            .transpose()
     }
 
     pub(crate) fn parsed_key_items(&self) -> Result<Vec<IndexKeyItemSpec>, DarlingError> {
@@ -257,10 +285,6 @@ impl Index {
             .into_iter()
             .map(|item| item.canonical_text())
             .collect()
-    }
-
-    pub(crate) fn generated_name_segments(&self) -> Vec<String> {
-        self.validated_key_item_terms()
     }
 
     fn validated_key_items(&self) -> Vec<IndexKeyItemSpec> {
@@ -289,7 +313,7 @@ impl Index {
 
     fn schema_key_items_tokens(&self, paths: &CratePaths) -> TokenStream {
         if !self.has_expression_key_items() {
-            return quote! { ::core::option::Option::None };
+            return quote! { ::std::option::Option::None };
         }
 
         let key_items = self
@@ -298,7 +322,7 @@ impl Index {
             .map(|value| IndexKeyItemSpec::schema_tokens(value, paths))
             .collect::<Vec<_>>();
 
-        quote! { ::core::option::Option::Some(&[#(#key_items),*]) }
+        quote! { ::std::option::Option::Some(&[#(#key_items),*]) }
     }
 
     pub(crate) fn validated_generated_predicate(
@@ -957,108 +981,4 @@ fn parse_index_field_ident(field: &str, literal: &LitStr) -> Result<Ident, Darli
 ///
 
 #[cfg(test)]
-mod tests {
-    use crate::node::index::{Index, IndexExpressionSpec, IndexKeyItemSpec};
-    use darling::{FromMeta, ast::NestedMeta};
-    use proc_macro2::Span;
-    use quote::quote;
-    use syn::LitStr;
-
-    fn field_list(values: &[&str]) -> Vec<LitStr> {
-        values
-            .iter()
-            .map(|value| LitStr::new(value, Span::call_site()))
-            .collect()
-    }
-
-    fn parse_index(tokens: proc_macro2::TokenStream) -> Result<Index, darling::Error> {
-        let args = NestedMeta::parse_meta_list(tokens).expect("test meta should parse");
-        Index::from_list(&args)
-    }
-
-    #[test]
-    fn from_list_parses_scalar_field_shorthand() {
-        let index =
-            parse_index(quote!(field = "email")).expect("scalar index shorthand should parse");
-
-        assert_eq!(
-            index.fields.iter().map(LitStr::value).collect::<Vec<_>>(),
-            ["email"],
-        );
-        assert!(!index.unique);
-        assert_eq!(index.predicate, None);
-    }
-
-    #[test]
-    fn from_list_parses_fields_unique_and_predicate() {
-        let index = parse_index(quote!(
-            fields = ["tenant_id", "LOWER(email)"],
-            unique,
-            predicate = "active = true"
-        ))
-        .expect("index fields syntax should parse");
-
-        assert_eq!(
-            index.fields.iter().map(LitStr::value).collect::<Vec<_>>(),
-            ["tenant_id", "LOWER(email)"],
-        );
-        assert!(index.unique);
-        assert_eq!(index.predicate.as_deref(), Some("active = true"));
-    }
-
-    #[test]
-    fn from_list_rejects_mixed_field_and_fields_syntax() {
-        let err = parse_index(quote!(field = "email", fields = ["tenant_id", "email"]))
-            .expect_err("index field and fields syntax should be mutually exclusive");
-
-        assert!(
-            err.to_string().contains(
-                "index(...) accepts either one field = \"...\" argument or one fields = [...] argument"
-            ),
-            "unexpected error: {err}",
-        );
-    }
-
-    #[test]
-    fn from_list_rejects_comma_string_fields() {
-        let err = parse_index(quote!(fields = "tenant_id, email"))
-            .expect_err("index fields should reject comma strings");
-
-        assert!(
-            err.to_string().contains("not a comma-string"),
-            "unexpected error: {err}",
-        );
-    }
-
-    #[test]
-    fn parsed_key_items_accept_supported_expression_and_field_mix() {
-        let index = Index {
-            fields: field_list(&["tenant_id", "LOWER(email)"]),
-            unique: true,
-            predicate: None,
-        };
-
-        let key_items = index
-            .parsed_key_items()
-            .expect("supported index fields should parse");
-
-        assert_eq!(
-            key_items,
-            vec![
-                IndexKeyItemSpec::Field(syn::parse_quote!(tenant_id)),
-                IndexKeyItemSpec::Expression(IndexExpressionSpec::Lower(syn::parse_quote!(email))),
-            ],
-        );
-    }
-
-    #[test]
-    fn generated_name_uses_expression_key_item_canonical_text() {
-        let index = Index {
-            fields: field_list(&["LOWER(email)"]),
-            unique: false,
-            predicate: None,
-        };
-
-        assert_eq!(index.generated_name("User"), "idx_user__lower_email");
-    }
-}
+mod tests;

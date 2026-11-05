@@ -3,8 +3,9 @@
 //! Does not own: runtime scheduling, recovery, or commit behavior.
 //! Boundary: prevents write/recovery paths from introducing async or reentry surfaces.
 
-use crate::db::test_support::source_guard::{
+use crate::db::tests::support::source_guard::{
     collect_rust_sources, relative_rust_source_path, runtime_source_without_test_items,
+    source_is_test_only,
 };
 
 use std::{collections::BTreeMap, fs, path::Path};
@@ -37,15 +38,6 @@ fn path_matches_guard(relative_path: &str, guarded_path: &str) -> bool {
         return relative_path.starts_with(guarded_path);
     }
     relative_path == guarded_path
-}
-
-fn source_is_test_only(source_path: &Path) -> bool {
-    source_path
-        .components()
-        .any(|component| component.as_os_str() == "tests")
-        || source_path
-            .file_name()
-            .is_some_and(|name| name == "tests.rs")
 }
 
 fn guarded_runtime_sources() -> Vec<(String, String)> {

@@ -39,7 +39,7 @@ Report scope: `security-boundary`
 
 Current method tag: `Security Boundary Method V3`
 
-Use `docs/reports/recurring/YYYY/MM/DD/security-boundary/<run>/report.md`.
+Use `docs/reports/recurring/security-boundary.md`.
 Run `01` is the daily baseline; same-day reruns use `02`, `03`, and so on.
 
 Method V3 uses owner-based proof selection, shared executed-test evidence, and

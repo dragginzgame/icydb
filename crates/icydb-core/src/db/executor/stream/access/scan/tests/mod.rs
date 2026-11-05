@@ -13,7 +13,7 @@ use crate::{
             with_query_execution_budget_for_tests,
         },
         schema::SchemaStore,
-        test_support::index::nat64_index_key,
+        tests::support::index::nat64_index_key,
     },
     error::ErrorOrigin,
 };

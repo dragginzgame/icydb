@@ -120,13 +120,12 @@ if TOOL_COMMAND_FAIL=cloc.sh make --no-print-directory -C "$consumer" cloc \
     echo 'accepted failed LOC report' >&2; exit 1
 fi
 
-# A caller can select the sibling reporter without copying the common recipe.
-cp "$fixture/tool-stub" "$snapshot/scripts/dev/cloc-siblings.sh"
+# A caller selects a parent directory and crate detail through the same recipe.
 : > "$TOOL_COMMAND_LOG"
 make --no-print-directory -C "$consumer" cloc \
-    CLOC_REPORT="$snapshot/scripts/dev/cloc-siblings.sh" CLOC_ROOT="$fixture" \
+    CLOC_ROOT="$fixture" CLOC_SUBCRATES=1 \
     > "$fixture/siblings.log" 2>&1
-printf 'cloc-siblings.sh <%s>\n' "$fixture" > "$fixture/expected"
+printf 'cloc.sh <--subcrates> <%s>\n' "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
 : > "$TOOL_COMMAND_LOG"

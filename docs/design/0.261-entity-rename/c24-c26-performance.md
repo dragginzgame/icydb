@@ -19,7 +19,7 @@ post-link pipeline. The subject is the broad `sql_perf` audit actor with existin
 measurement endpoints, not a downstream production application. No actor
 instrumentation, dependencies or Cargo versions were changed.
 
-[Machine-readable evidence](c24-c26-measurements.json) retains artifact/source
+[Machine-readable evidence](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/design/0.261-entity-rename/c24-c26-measurements.json) retains artifact/source
 hashes, all samples, the disposable host probe and the initial harness failure.
 Frozen Wasms, host executable and logs remain in
 `/tmp/icydb-c24-c26-measure`. The host binary is identical for both artifacts.

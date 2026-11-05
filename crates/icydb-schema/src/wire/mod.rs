@@ -1,6 +1,6 @@
 //! Native RPC resource policy; IC Wire owns the codec and envelopes.
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
 mod metadata;
 
 use ic_wire::Limits;

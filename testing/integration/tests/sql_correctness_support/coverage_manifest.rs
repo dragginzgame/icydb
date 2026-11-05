@@ -2960,5 +2960,5 @@ fn providers_require_workspace_test_registration_and_a_ci_selection() {
         Some("_ci-tier-b-sql-perf")
     );
     assert!(provider_ci_target("testing/integration/tests/recovery_closeout.rs").is_none());
-    assert!(provider_ci_target("canisters/test/sql/src/lib.rs").is_none());
+    assert!(provider_ci_target("canisters/tests/sql/src/lib.rs").is_none());
 }

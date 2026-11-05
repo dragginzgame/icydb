@@ -1,7 +1,7 @@
 //! Pin planner-owned HAVING identity bytes.
 
 use super::*;
-use crate::db::{QueryError, RequestExecutionRoot, test_support::request_with_limit};
+use crate::db::{QueryError, RequestExecutionRoot, tests::support::request_with_limit};
 use crate::{
     db::{
         codec::new_hash_sha256,

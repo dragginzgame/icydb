@@ -11,9 +11,12 @@ authors = { workspace = true }
 
 [features]
 default = []
+wire-schema = ["icydb-core/wire-schema", "icydb-schema/wire-schema", "ic-wire/typescript"]
+build = ["icydb-model/build"]
 sql = ["icydb-core/sql"]
 metrics = ["icydb-core/metrics"]
 migration = ["icydb-core/migration"]
+testing = ["dep:ic-testkit"]
 
 [dependencies]
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
@@ -28,16 +31,24 @@ icydb-schema = { workspace = true }
 serde = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-ic-wire = { workspace = true, features = ["typescript"] }
+ic-testkit = { workspace = true, optional = true }
 
 [dev-dependencies]
 ic-platform-types = { workspace = true, features = ["principal-external", "principal-self-authenticating"] }
 ic-storage = { workspace = true, features = ["test-support"] }
 trybuild = { workspace = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "net", "rt", "time"] }
+
 [[test]]
 name = "storage_bootstrap"
 path = "tests/storage_bootstrap.rs"
+
+[[test]]
+name = "startup_polling"
+path = "tests/startup_polling.rs"
+required-features = ["testing"]
 
 [[test]]
 name = "platform_types"

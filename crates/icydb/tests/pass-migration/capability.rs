@@ -43,6 +43,6 @@ mod declared_retry {
 
     #[test]
     fn declared_retry_compiles_through_the_public_macro() {
-        let _ = core::any::TypeId::of::<RetryCanister>();
+        let _ = std::any::TypeId::of::<RetryCanister>();
     }
 }

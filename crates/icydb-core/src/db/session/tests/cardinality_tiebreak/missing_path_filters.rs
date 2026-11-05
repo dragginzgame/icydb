@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::db::{
-    RequestExecutionRoot,
     executor::{StructuralProjectionRequest, execute_structural_projection_rows},
     query::{
         admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
@@ -25,11 +24,6 @@ use crate::value::Value;
 use icydb_schema::EntitySourceKey;
 
 fn initialize_profiles() -> DbSession<TestCanister> {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-    session.db.drive_startup_recovery_page().unwrap();
     let enums = empty_accepted_enum_catalog_for_tests();
     let (composites, profile_type) = build_record_composite_catalog_for_tests(
         "tests::Profile".into(),
@@ -70,20 +64,7 @@ fn initialize_profiles() -> DbSession<TestCanister> {
         BTreeMap::new(),
         BTreeMap::new(),
     );
-    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
-        SchemaVersion::initial(),
-        ENTITY_SOURCE.into(),
-        ENTITY_NAME.into(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(
-            fields
-                .iter()
-                .map(|field| (field.id(), field.slot()))
-                .collect(),
-        ),
-        fields,
-        vec![],
-    );
+    let snapshot = initial_single_key_snapshot(fields, vec![]);
     let candidate = accepted_schema_candidate_with_catalogs_for_tests(
         STORE_PATH,
         AcceptedSchemaRevision::INITIAL,
@@ -92,13 +73,7 @@ fn initialize_profiles() -> DbSession<TestCanister> {
         bindings,
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
     );
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        session.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &candidate,
-    )
-    .unwrap();
+    let session = initialize_schema_candidate(candidate);
     seed_profiles(&session);
     session
 }

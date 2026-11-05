@@ -6,9 +6,17 @@
 #[cfg(test)]
 mod tests;
 
-use crate::db::predicate::{
-    CompareOp, ComparePredicate, Predicate, compare_eq, compare_order, eval_ordered_compare_result,
+use crate::{
+    db::{
+        predicate::{
+            CoercionId, CompareOp, ComparePredicate, Predicate, compare_eq, compare_order,
+            eval_ordered_compare_result,
+        },
+        resource::construction::admit_value_comparison,
+    },
+    value::{Value, lower_text_construction_allowance},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy)]
@@ -29,7 +37,7 @@ enum ComparePairSimplification {
 /// - tighter/equivalent constraints are folded to one canonical compare shape
 pub(in crate::db::predicate) fn simplify_and_compare_constraints<E>(
     mut predicates: Vec<Predicate>,
-    charge_pair: &mut impl FnMut() -> Result<(), E>,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<Option<Vec<Predicate>>, E> {
     // Earlier pairs are settled while their surviving operands are unchanged.
     // Deletion cannot make those pairs reducible. After replacement, revisit
@@ -45,17 +53,24 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints<E>(
         // Only Compare/Compare pairs can reduce. Keep other children in place,
         // but do not scan their suffix; removals/restarts recheck the new left.
         if !matches!(&predicates[i], Predicate::Compare(_)) {
+            // Replacements can revisit this prefix many times. Each skipped
+            // shell needs admission even though it performs no pair comparison.
+            charge(Resource::PredicateExpressionSteps, 1)?;
             i += 1;
             continue;
         }
         let mut j = revisit.map_or_else(|| i.saturating_add(1), |(_, changed)| changed);
         while j < predicates.len() {
-            charge_pair()?;
+            charge(Resource::PredicateExpressionSteps, 1)?;
             let simplification = match (&predicates[i], &predicates[j]) {
-                (Predicate::Compare(left), Predicate::Compare(right))
-                    if left.field == right.field && left.coercion == right.coercion =>
-                {
-                    simplify_compare_pair_for_and(left, right)
+                (Predicate::Compare(left), Predicate::Compare(right)) => {
+                    // Admit the borrowed label before checking the pair's domain.
+                    charge(Resource::PredicateExpressionSteps, left.field.len() as u64)?;
+                    if left.field == right.field && left.coercion == right.coercion {
+                        simplify_compare_pair_for_and(left, right, charge)?
+                    } else {
+                        ComparePairSimplification::NoChange
+                    }
                 }
                 _ => ComparePairSimplification::NoChange,
             };
@@ -69,7 +84,7 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints<E>(
                 ComparePairSimplification::Contradiction => return Ok(None),
                 ComparePairSimplification::KeepFirst => {
                     // The next right operand shifts into this same position.
-                    predicates.remove(j);
+                    remove_predicate(&mut predicates, j, charge)?;
                     if let Some((frontier, _)) = revisit.take() {
                         // The changed operand is gone; the original prefix
                         // proof holds again, including pairs with its survivor.
@@ -79,26 +94,28 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints<E>(
                 }
                 ComparePairSimplification::KeepSecond => {
                     // Visit the new left row, without revisiting settled rows.
-                    predicates.remove(i);
+                    remove_predicate(&mut predicates, i, charge)?;
                     revisit = revisit.map(|(frontier, changed)| (frontier - 1, changed - 1));
                     continue 'left;
                 }
                 ComparePairSimplification::ReplaceFirst(replacement) => {
-                    // Classification proved this is a comparison. Only its
-                    // operator changes; keep the owned operand and metadata.
+                    // Admit the shift before changing either operand. Since
+                    // j > i, removing j leaves the retained position unchanged.
+                    remove_predicate(&mut predicates, j, charge)?;
                     if let Predicate::Compare(compare) = &mut predicates[i] {
                         compare.op = replacement;
                     }
-                    predicates.remove(j);
                     revisit = Some((i, i));
                     i = 0;
                     continue 'left;
                 }
                 ComparePairSimplification::ReplaceSecond(replacement) => {
-                    if let Predicate::Compare(compare) = &mut predicates[j] {
+                    // Removing the earlier operand moves the retained one to
+                    // j - 1. Admission precedes both removal and replacement.
+                    remove_predicate(&mut predicates, i, charge)?;
+                    if let Predicate::Compare(compare) = &mut predicates[j - 1] {
                         compare.op = replacement;
                     }
-                    predicates.remove(i);
                     revisit = Some((i, j - 1));
                     i = 0;
                     continue 'left;
@@ -111,56 +128,76 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints<E>(
     Ok(Some(predicates))
 }
 
+// Callers supply a visited index. Stable removal moves each following fixed-size
+// predicate shell once; payloads stay owned and are neither copied nor compared.
+fn remove_predicate<E>(
+    predicates: &mut Vec<Predicate>,
+    index: usize,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<(), E> {
+    let shifted = predicates.len() - index - 1;
+    charge(Resource::PredicateExpressionSteps, shifted as u64)?;
+    predicates.remove(index);
+    Ok(())
+}
+
 // Simplify one pair of compare predicates in an AND clause.
-fn simplify_compare_pair_for_and(
+fn simplify_compare_pair_for_and<E>(
     left: &ComparePredicate,
     right: &ComparePredicate,
-) -> ComparePairSimplification {
-    match (left.op, right.op) {
-        (CompareOp::Eq, CompareOp::Eq) => simplify_eq_eq_pair(left, right),
-        (CompareOp::Eq, _) => simplify_eq_with_constraint_pair(left, right, true),
-        (_, CompareOp::Eq) => simplify_eq_with_constraint_pair(right, left, false),
-        _ => simplify_constraint_constraint_pair(left, right),
-    }
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
+    Ok(match (left.op, right.op) {
+        (CompareOp::Eq, CompareOp::Eq) => simplify_eq_eq_pair(left, right, charge)?,
+        (CompareOp::Eq, _) => simplify_eq_with_constraint_pair(left, right, true, charge)?,
+        (_, CompareOp::Eq) => simplify_eq_with_constraint_pair(right, left, false, charge)?,
+        _ => simplify_constraint_constraint_pair(left, right, charge)?,
+    })
 }
 
 // Simplify `field = a AND field = b`.
-fn simplify_eq_eq_pair(
+fn simplify_eq_eq_pair<E>(
     left: &ComparePredicate,
     right: &ComparePredicate,
-) -> ComparePairSimplification {
-    match compare_eq(&left.value, &right.value, &left.coercion) {
-        Some(true) => ComparePairSimplification::KeepFirst,
-        Some(false) => ComparePairSimplification::Contradiction,
-        None => ComparePairSimplification::NoChange,
-    }
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
+    admit_compare_values(left, right, charge)?;
+    Ok(
+        match compare_eq(&left.value, &right.value, &left.coercion) {
+            Some(true) => ComparePairSimplification::KeepFirst,
+            Some(false) => ComparePairSimplification::Contradiction,
+            None => ComparePairSimplification::NoChange,
+        },
+    )
 }
 
 // Simplify `field = a AND field <op> b` where `<op>` is one inequality bound.
 //
 // `eq_is_first` indicates whether `eq` is the left/first pair item.
-fn simplify_eq_with_constraint_pair(
+fn simplify_eq_with_constraint_pair<E>(
     eq: &ComparePredicate,
     constraint: &ComparePredicate,
     eq_is_first: bool,
-) -> ComparePairSimplification {
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
     // Unsupported operators cannot simplify here; avoid coercion and comparison
     // work (including casefold allocation) whose result would be discarded.
     if !constraint.op.is_ordering_family() {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     }
+    admit_compare_values(eq, constraint, charge)?;
     let Some(ordering) = compare_order(&eq.value, &constraint.value, &eq.coercion) else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
 
     if !eval_ordered_compare_result(constraint.op, ordering) {
-        return ComparePairSimplification::Contradiction;
+        return Ok(ComparePairSimplification::Contradiction);
     }
-    if eq_is_first {
+    Ok(if eq_is_first {
         ComparePairSimplification::KeepFirst
     } else {
         ComparePairSimplification::KeepSecond
-    }
+    })
 }
 
 // Simplify inequality-pair combinations in conjunctions:
@@ -168,26 +205,27 @@ fn simplify_eq_with_constraint_pair(
 // - tighter upper-bound retention (`<`, `<=`)
 // - lower/upper contradiction detection
 // - lower/upper equality collapse (`>= a AND <= a -> = a`)
-fn simplify_constraint_constraint_pair(
+fn simplify_constraint_constraint_pair<E>(
     left: &ComparePredicate,
     right: &ComparePredicate,
-) -> ComparePairSimplification {
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
     let left_lower = left.op.lower_bound_inclusive();
     let right_lower = right.op.lower_bound_inclusive();
     let left_upper = left.op.upper_bound_inclusive();
     let right_upper = right.op.upper_bound_inclusive();
 
     if left_lower.is_some() && right_lower.is_some() {
-        return simplify_two_lower_bounds(left, right);
+        return simplify_two_lower_bounds(left, right, charge);
     }
     if left_upper.is_some() && right_upper.is_some() {
-        return simplify_two_upper_bounds(left, right);
+        return simplify_two_upper_bounds(left, right, charge);
     }
     if left_lower.is_some() && right_upper.is_some() {
-        return simplify_lower_upper_pair(left, right);
+        return simplify_lower_upper_pair(left, right, charge);
     }
     if left_upper.is_some() && right_lower.is_some() {
-        return match simplify_lower_upper_pair(right, left) {
+        return Ok(match simplify_lower_upper_pair(right, left, charge)? {
             ComparePairSimplification::KeepFirst => ComparePairSimplification::KeepSecond,
             ComparePairSimplification::KeepSecond => ComparePairSimplification::KeepFirst,
             ComparePairSimplification::ReplaceFirst(cmp) => {
@@ -198,27 +236,29 @@ fn simplify_constraint_constraint_pair(
             }
             ComparePairSimplification::NoChange => ComparePairSimplification::NoChange,
             ComparePairSimplification::Contradiction => ComparePairSimplification::Contradiction,
-        };
+        });
     }
 
-    ComparePairSimplification::NoChange
+    Ok(ComparePairSimplification::NoChange)
 }
 
-fn simplify_two_lower_bounds(
+fn simplify_two_lower_bounds<E>(
     left: &ComparePredicate,
     right: &ComparePredicate,
-) -> ComparePairSimplification {
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
+    admit_compare_values(left, right, charge)?;
     let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
     let Some(left_inclusive) = left.op.lower_bound_inclusive() else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
     let Some(right_inclusive) = right.op.lower_bound_inclusive() else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
 
-    match ordering {
+    Ok(match ordering {
         Ordering::Greater => ComparePairSimplification::KeepFirst,
         Ordering::Less => ComparePairSimplification::KeepSecond,
         Ordering::Equal => {
@@ -230,24 +270,26 @@ fn simplify_two_lower_bounds(
                 ComparePairSimplification::KeepFirst
             }
         }
-    }
+    })
 }
 
-fn simplify_two_upper_bounds(
+fn simplify_two_upper_bounds<E>(
     left: &ComparePredicate,
     right: &ComparePredicate,
-) -> ComparePairSimplification {
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
+    admit_compare_values(left, right, charge)?;
     let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
     let Some(left_inclusive) = left.op.upper_bound_inclusive() else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
     let Some(right_inclusive) = right.op.upper_bound_inclusive() else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
 
-    match ordering {
+    Ok(match ordering {
         Ordering::Less => ComparePairSimplification::KeepFirst,
         Ordering::Greater => ComparePairSimplification::KeepSecond,
         Ordering::Equal => {
@@ -259,26 +301,28 @@ fn simplify_two_upper_bounds(
                 ComparePairSimplification::KeepFirst
             }
         }
-    }
+    })
 }
 
 // Simplify `lower AND upper`, where `lower` is one of (`>`,`>=`) and `upper`
 // is one of (`<`,`<=`).
-fn simplify_lower_upper_pair(
+fn simplify_lower_upper_pair<E>(
     lower: &ComparePredicate,
     upper: &ComparePredicate,
-) -> ComparePairSimplification {
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<ComparePairSimplification, E> {
+    admit_compare_values(lower, upper, charge)?;
     let Some(ordering) = compare_order(&lower.value, &upper.value, &lower.coercion) else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
     let Some(lower_inclusive) = lower.op.lower_bound_inclusive() else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
     let Some(upper_inclusive) = upper.op.upper_bound_inclusive() else {
-        return ComparePairSimplification::NoChange;
+        return Ok(ComparePairSimplification::NoChange);
     };
 
-    match ordering {
+    Ok(match ordering {
         Ordering::Less => ComparePairSimplification::NoChange,
         Ordering::Greater => ComparePairSimplification::Contradiction,
         Ordering::Equal => {
@@ -288,5 +332,33 @@ fn simplify_lower_upper_pair(
                 ComparePairSimplification::Contradiction
             }
         }
+    })
+}
+
+// Structural comparisons inspect at most the admitted left tree. Casefolding
+// additionally constructs both text operands; use the transform owner's bound
+// before either allocation and admit the maximum folded comparison extent.
+fn admit_compare_values<E>(
+    left: &ComparePredicate,
+    right: &ComparePredicate,
+    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
+) -> Result<(), E> {
+    if left.coercion.id == CoercionId::TextCasefold {
+        for value in [&left.value, &right.value] {
+            let Value::Text(text) = value else {
+                return Ok(());
+            };
+            let (backing, steps) = lower_text_construction_allowance(text.len());
+            charge(Resource::TemporaryBytes, backing)?;
+            charge(Resource::PredicateExpressionSteps, steps)?;
+        }
+        if let Value::Text(text) = &left.value {
+            charge(
+                Resource::PredicateExpressionSteps,
+                (text.len() as u64).saturating_mul(2),
+            )?;
+        }
+        return Ok(());
     }
+    admit_value_comparison(&left.value, charge)
 }

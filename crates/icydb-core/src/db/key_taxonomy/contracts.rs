@@ -74,7 +74,7 @@ macro_rules! impl_entity_key_bytes_numeric {
     ($($ty:ty),* $(,)?) => {
         $(
             impl EntityKeyBytes for $ty {
-                const BYTE_LEN: usize = ::core::mem::size_of::<Self>();
+                const BYTE_LEN: usize = ::std::mem::size_of::<Self>();
 
                 fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
                     validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;

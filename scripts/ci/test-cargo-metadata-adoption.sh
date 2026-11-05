@@ -49,6 +49,9 @@ if [[ "$ordering_only" == false ]]; then
     if [[ -f "$ROOT/$path" ]]; then
       mkdir -p "$fixture/repo/$(dirname "$path")"
       cp "$ROOT/$path" "$fixture/repo/$path"
+    else
+      # A retired manifest in HEAD must not join current workspace discovery.
+      rm -f "$fixture/repo/$path"
     fi
   done < "$fixture/manifests"
   # The pending qualification workspace is not in the committed archive yet.
@@ -61,6 +64,12 @@ if [[ "$ordering_only" == false ]]; then
     if [[ -d "$ROOT/$directory" ]]; then
       cp -R "$ROOT/$directory" "$fixture/repo/$directory"
     fi
+  done
+  # Current member/target paths must accompany current manifests during the
+  # plural-directory hard cut and Cargo binary-directory migration.
+  for directory in canisters/tests schema/tests testing/build/src/bin; do
+    rm -rf "$fixture/repo/$directory"
+    cp -R "$ROOT/$directory" "$fixture/repo/$directory"
   done
   for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
     scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \

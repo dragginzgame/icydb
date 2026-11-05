@@ -24,8 +24,11 @@ canic-icydb = { workspace = true }
 runtime_api = { workspace = true, features = ["metrics"] }
 
 [build-dependencies]
-icydb-testing-audit-default-empty-fixtures = { workspace = true }
-runtime_api = { workspace = true }
+icydb-testing-audit-default-empty-fixtures = { workspace = true, features = ["build"] }
+runtime_api = { workspace = true, features = ["build"] }
 
 [lints]
 workspace = true
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

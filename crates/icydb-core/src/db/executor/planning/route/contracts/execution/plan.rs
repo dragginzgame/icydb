@@ -115,8 +115,6 @@ impl ExecutionRoutePlan {
                 bounded_probe_hint_safe: false,
                 field_min_fast_path_eligible: false,
                 field_max_fast_path_eligible: false,
-                field_min_fast_path_ineligibility_reason: None,
-                field_max_fast_path_ineligibility_reason: None,
             },
             fast_path_order: &[],
             top_n_seek_spec: None,

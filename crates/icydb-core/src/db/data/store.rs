@@ -3,6 +3,8 @@
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
+// Test counters stay at the actual store access boundary; counter state and helpers live in helper_tests.
+
 use crate::{
     db::{
         data::{CanonicalRow, RawDataStoreKey, RawRow},
@@ -23,18 +25,6 @@ use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet, btree_map::Entry};
 
 use std::ops::{Bound, ControlFlow, RangeBounds};
-
-#[cfg(test)]
-thread_local! {
-    static DATA_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-fn record_data_store_get_call() {
-    DATA_STORE_GET_CALL_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
 
 ///
 /// DataStore
@@ -219,16 +209,6 @@ impl DataStore {
         Ok(previous)
     }
 
-    /// Insert one raw row directly for corruption-focused test setup only.
-    #[cfg(test)]
-    pub(in crate::db) fn insert_raw_for_test(
-        &mut self,
-        key: RawDataStoreKey,
-        row: RawRow,
-    ) -> Result<Option<RawRow>, InternalError> {
-        self.insert_raw(key, row)
-    }
-
     /// Remove one row by raw key.
     pub(in crate::db) fn remove(
         &mut self,
@@ -356,18 +336,6 @@ impl DataStore {
         self.bump_generation();
 
         Ok(())
-    }
-
-    /// Validate and publish one positioned row for direct store tests.
-    #[cfg(test)]
-    pub(in crate::db) fn publish_positioned_journal_entry(
-        &mut self,
-        key: RawDataStoreKey,
-        row: Option<RawRow>,
-        position: JournalOverlayPosition,
-    ) -> Result<(), crate::error::InternalError> {
-        self.preflight_positioned_journal_entry(&key, position)?;
-        self.publish_preflighted_journal_entry(key, row, position)
     }
 
     /// Preflight row provenance before marker publication.
@@ -629,24 +597,6 @@ impl DataStore {
         Ok(empty)
     }
 
-    /// Return an exact row count for tests without exposing the backing map.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn len(&self) -> u64 {
-        match &self.backend {
-            DataStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
-            DataStoreBackend::Journaled { .. } => {
-                let mut count = 0_u64;
-                self.visit_entries(|_key, _row| {
-                    count = count.saturating_add(1);
-                    Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
-                })
-                .expect("fixture traversal should succeed");
-                count
-            }
-        }
-    }
-
     /// Return the row-store generation used to prove index metadata freshness.
     #[must_use]
     pub(in crate::db) const fn generation(&self) -> u64 {
@@ -886,32 +836,8 @@ impl DataStore {
         )
     }
 
-    /// Independent physical byte baseline for storage-report tests.
-    #[cfg(test)]
-    pub(in crate::db) fn memory_bytes(&self) -> u64 {
-        // Report map footprint as key bytes + row bytes per entry.
-        let mut bytes = 0u64;
-        self.visit_entries(|key, row| {
-            bytes = bytes.saturating_add(key.as_bytes().len() as u64 + row.len() as u64);
-            Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
-        })
-        .expect("fixture traversal should succeed");
-        bytes
-    }
-
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
-    }
-
-    #[cfg(test)]
-    fn rebuild_entity_cardinality_from_entries(&mut self) -> Result<(), InternalError> {
-        let mut cardinality = EntityCardinality::empty();
-        self.visit_entries(|key, _row| {
-            cardinality.apply_present_entity(key.entity_tag_prefix());
-            Ok::<_, crate::error::InternalError>(StoreVisit::Continue)
-        })?;
-        self.entity_cardinality = cardinality;
-        Ok(())
     }
 
     fn apply_entity_overlay_delta(
@@ -928,12 +854,6 @@ impl DataStore {
             return;
         };
         entity_cardinality_delta.apply_presence_transition(entity, previous_present, next_present);
-    }
-
-    /// Return the monotonic perf-only count of stable row fetches seen by this process.
-    #[cfg(test)]
-    pub(in crate::db) fn current_get_call_count() -> u64 {
-        DATA_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 
     fn visit_keys_in_bounds<E: From<InternalError>>(
@@ -1260,3 +1180,9 @@ impl EntityCardinality {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+use helper_tests::record_data_store_get_call;

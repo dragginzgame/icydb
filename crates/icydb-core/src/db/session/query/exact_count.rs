@@ -3,6 +3,8 @@
 //! Does not own: cardinality maintenance, accepted schema, or row execution.
 //! Boundary: admits only whole-entity or bounded strict indexed-prefix metadata proofs.
 
+// The test-only distinct check stays at count admission to qualify the same runtime decision.
+
 use crate::{
     db::{
         DbSession, DynamicQuery, DynamicTypedEntityBinding, QueryError,

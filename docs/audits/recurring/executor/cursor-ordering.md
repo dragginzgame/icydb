@@ -15,7 +15,7 @@ Canonical report scope:
 
 Use this exact scope for report files:
 
-* `docs/reports/recurring/YYYY/MM/DD/cursor-ordering/<run>/report.md`
+* `docs/reports/recurring/cursor-ordering.md`
 
 Do not introduce alternate names such as `continuation-cursors`,
 `pagination-cursors`, or `cursor-audit` for this recurring pass.

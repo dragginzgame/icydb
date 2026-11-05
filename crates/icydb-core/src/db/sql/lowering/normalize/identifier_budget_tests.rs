@@ -11,7 +11,7 @@ use crate::db::{
         },
         parser::{SqlExpr, SqlExprBinaryOp},
     },
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,

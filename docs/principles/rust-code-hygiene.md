@@ -27,6 +27,17 @@ architecture on another.
   substitute `include!` or generated path indirection to evade this rule.
   Attribute text in parser/scanner input fixtures is data, not permitted module
   wiring. Avoid ambiguous duplicate file/directory module shapes.
+- Do not embed Rust source as text or bytes to inject or replace executable
+  code, including in test canisters. This covers `include_str!`, `include_bytes!`,
+  runtime file reads and inline Rust strings used as source patches. Do not
+  overwrite generated entrypoints, compile them and restore the originals.
+  Use ordinary modules and explicit dependencies, with a dedicated fixture crate
+  where needed. Generators may expose explicit structured configuration or
+  module/crate selection; a raw Rust text injection hook is not an alternative.
+  This does not prohibit normal code generation or embedding data fixtures such
+  as JSON, SQL and expected output. Rust snippets used as parser/scanner input or
+  compiler qualification cases remain legitimate test data; they must not be
+  used to patch an application's executable implementation.
 - Keep a type, its inherent implementation, and its trait implementations near
   one another when that improves navigation.
 
@@ -126,8 +137,8 @@ or section banners.
 
 ## Tests
 
-- **Place Rust test bodies and test-only helpers in `tests.rs` or a `tests/`
-  directory wherever practical**, near the code they exercise. Prefer external
+- **Place Rust test bodies and test-only helpers in `tests.rs`, `*_tests.rs` or a
+  `tests/` directory**, near the code they exercise. Prefer external
   test modules over large inline `#[cfg(test)] mod tests { ... }` blocks so
   file-based tools such as `cloc` can distinguish test source from production
   source. Keep only small wiring declarations such as `#[cfg(test)] mod tests;`
@@ -136,14 +147,24 @@ or section banners.
   or `foo/tests/mod.rs`; a directory module can use its own `tests.rs` or
   `tests/mod.rs`. Keep integration tests under the crate's `tests/` directory.
   Put test-only fixtures and support modules beneath the corresponding test
-  directory where practical. Do not widen production visibility, introduce
+  directory. Do not widen production visibility, introduce
   `#[path]` attributes or change test semantics just to relocate tests.
 - Keep executable documentation examples beside their API docs. Retain other
   inline tests only for a concrete technical reason, documented briefly at the
-  owner. Adopt this layout for new tests and when substantially changing an
-  existing test module; unrelated work does not require a bulk test relocation.
-  File-based test LOC remains an approximation: report doctests, generated
-  fixtures and other exceptions separately when they matter to a requested count.
+  owner. Adoption is a hard cut: rename singular `test/` and `test.rs` owners to
+  `tests/` and `tests.rs`, updating Cargo paths, module declarations, imports,
+  includes, scripts and documentation together. Do not retain compatibility
+  directories, aliases or symlinks. Coordinate active work before the rename;
+  this policy does not itself authorize edits to sibling checkouts.
+- Put usage demonstrations in `examples/`, benchmark targets and their helpers
+  in `benches/`, Cargo build entrypoints at `build.rs`, and development utilities
+  under `tools/`, `scripts/` or an explicit tooling package. Keep approved package
+  placements; do not move whole workspaces merely to make LOC classification work.
+  A fixture-only, example-only, benchmark or tooling package must declare its role
+  in `[package.metadata.shared-tooling.loc]`; use `category = "tests"`,
+  `"examples"`, `"benchmarks"` or `"build_tooling"`. Names and `publish = false` are not declarations
+  of purpose. Explicit path classifications and generated flags follow the
+  [LOC reporting contract](https://github.com/dragginzgame/shared-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#source-classification).
 - Put cross-module behavior tests at the subsystem boundary they exercise.
 - Add negative coverage for public validation and trust boundaries.
 - Test maintained contracts rather than private implementation layout.

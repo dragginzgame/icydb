@@ -17,7 +17,7 @@ use crate::{
             preparation::PreparationWork,
         },
         schema::SchemaInfo,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

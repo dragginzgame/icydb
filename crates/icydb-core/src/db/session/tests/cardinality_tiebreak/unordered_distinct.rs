@@ -222,7 +222,7 @@ fn unordered_distinct_nullable_collection_projection_preserves_owned_keys() {
     let kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64));
     let decode = FieldStorageDecode::ByKind;
     let codec = kind.leaf_codec_for_storage(decode);
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             PersistedFieldSnapshot::new_initial(

@@ -402,7 +402,7 @@ fn branch_distinct_preserves_identity_primary_order_and_composite_controls() {
 // and non-unique catalog content in independent tests, rather than replacing
 // content beneath a retained identity/cache within one request thread.
 fn numeric_prefixes(unique: bool) {
-    super::scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "code", 1, AcceptedFieldKind::Nat64),

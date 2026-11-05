@@ -4,6 +4,7 @@
 //! Boundary: diagnostics/explain surface over intent/planner outputs.
 
 mod access_projection;
+mod admission;
 #[cfg(feature = "sql")]
 mod execution;
 #[cfg(feature = "sql")]
@@ -18,6 +19,7 @@ mod render;
 mod writer;
 
 pub(in crate::db) use access_projection::explain_access_plan;
+pub use admission::ExplainPublicReadAdmission;
 #[cfg(feature = "sql")]
 pub(in crate::db) use execution::{
     ExplainExecutionDescriptor, ExplainExecutionMode, ExplainExecutionNodeDescriptor,

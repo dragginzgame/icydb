@@ -7,13 +7,16 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 
-use crate::cli::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV};
+use crate::{
+    cli::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV},
+    diagnostic::{RawDiagnosticFact, parse_error_code, parse_fact},
+};
 
 ///
 /// DiagnosticArgs
 ///
 /// DiagnosticArgs selects a compact code or a complete public error payload.
-/// Manual codes remain strings so users can paste either `E7` or `7`.
+/// Domain value parsers accept pasted codes and numeric facts before dispatch.
 ///
 
 #[derive(Args, Debug)]
@@ -22,17 +25,18 @@ pub(crate) struct DiagnosticArgs {
     #[arg(
         value_name = "CODE",
         required_unless_present = "error_json",
-        conflicts_with = "error_json"
+        conflicts_with = "error_json",
+        value_parser = parse_error_code
     )]
-    code: Option<String>,
+    code: Option<u16>,
 
     /// Read one public IcyDB Error JSON object from regular-file PATH, or - for stdin (64 KiB maximum).
     #[arg(long, value_name = "PATH", conflicts_with_all = ["code", "facts"])]
     error_json: Option<PathBuf>,
 
     /// Add one numeric diagnostic fact as TAG=VALUE or LABEL=VALUE.
-    #[arg(long = "fact", value_name = "TAG=VALUE")]
-    facts: Vec<String>,
+    #[arg(long = "fact", value_name = "TAG=VALUE", value_parser = parse_fact)]
+    facts: Vec<RawDiagnosticFact>,
 
     /// Resolve accepted schema identities from a bounded exported artifact.
     #[arg(long, value_name = "PATH")]
@@ -47,20 +51,26 @@ pub(crate) struct DiagnosticArgs {
     canister: Option<String>,
 
     /// Target icp-cli environment for live schema resolution.
-    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, value_name = "ENV")]
-    environment: Option<String>,
+    #[arg(
+        short,
+        long,
+        env = ICP_ENVIRONMENT_ENV,
+        default_value = DEFAULT_ENVIRONMENT,
+        value_name = "ENV"
+    )]
+    environment: String,
 }
 
 impl DiagnosticArgs {
-    pub(crate) fn code(&self) -> Option<&str> {
-        self.code.as_deref()
+    pub(crate) const fn code(&self) -> Option<u16> {
+        self.code
     }
 
     pub(crate) fn error_json(&self) -> Option<&Path> {
         self.error_json.as_deref()
     }
 
-    pub(crate) const fn facts(&self) -> &[String] {
+    pub(crate) const fn facts(&self) -> &[RawDiagnosticFact] {
         self.facts.as_slice()
     }
 
@@ -76,7 +86,7 @@ impl DiagnosticArgs {
         self.canister.as_deref()
     }
 
-    pub(crate) fn environment(&self) -> &str {
-        self.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT)
+    pub(crate) const fn environment(&self) -> &str {
+        self.environment.as_str()
     }
 }

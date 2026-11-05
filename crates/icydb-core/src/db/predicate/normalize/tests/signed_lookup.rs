@@ -8,7 +8,7 @@ use crate::{
         },
         query::preparation::PreparationWork,
         schema::AcceptedFieldKind,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     types::EntityTag,
     value::Value,

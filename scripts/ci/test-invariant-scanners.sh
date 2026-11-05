@@ -21,6 +21,56 @@ for script in invariant-common.sh check-executor-no-production-panics.sh \
   cp "$ROOT/scripts/ci/$script" "$scratch/scripts/ci/"
 done
 
+# Source-input admission is independently selectable without building the Rust scanner.
+cases=0
+check() {
+  local name="$1" expected="$2" actual=0
+  shift 2
+  "$@" > "$scratch/$name.stdout" 2> "$scratch/$name.stderr" || actual=$?
+  if [[ "$actual" -ne "$expected" ]]; then
+    echo "Fixture $name: expected status $expected, got $actual" >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+}
+
+source_input_cases() {
+  local fixture="$scratch/source-inputs"
+  mkdir -p "$fixture/scripts/ci" "$fixture/crates/icydb-model/src/build/actor/db"
+  for script in invariant-common.sh check-generated-endpoint-invariants.sh \
+    check-schema-model-boundary-invariants.sh; do
+    cp "$ROOT/scripts/ci/$script" "$fixture/scripts/ci/"
+  done
+  local source
+  for source in audit/default_empty_metrics audit/sql_perf tests/sql demo/rpg; do
+    mkdir -p "$fixture/canisters/$source/src"
+    printf 'canic_icydb::mount! {}\n' > "$fixture/canisters/$source/src/lib.rs"
+  done
+  printf 'icydb::build::build_canister!();\n' > "$fixture/canisters/tests/sql/build.rs"
+  printf 'fn capability() {}\n' > "$fixture/crates/icydb-model/src/build/actor/db/sql.rs"
+  printf 'mod db;\n' > "$fixture/crates/icydb-model/src/build/actor/mod.rs"
+  local checker="$fixture/scripts/ci/check-generated-endpoint-invariants.sh"
+  check generated-valid 0 bash "$checker"
+  mv "$fixture/canisters" "$fixture/retained-canisters"
+  check generated-missing-discovery 2 bash "$checker"
+  mv "$fixture/retained-canisters" "$fixture/canisters"
+  rm "$fixture/canisters/tests/sql/src/lib.rs"
+  check generated-missing-mount 1 bash "$checker"
+  printf 'canic_icydb::mount! {}\n' > "$fixture/canisters/tests/sql/src/lib.rs"
+  rm -r "$fixture/crates/icydb-model/src/build/actor/db"
+  check generated-missing-capabilities 2 bash "$checker"
+  check schema-missing-input 2 bash "$fixture/scripts/ci/check-schema-model-boundary-invariants.sh"
+}
+source_input_cases
+case "${1:-all}" in
+  source-inputs)
+    fixture_complete=true
+    echo "[OK] $cases source-input scanner cases passed."
+    exit 0 ;;
+  all) ;;
+  *) echo "Usage: $0 [all|source-inputs]" >&2; exit 2 ;;
+esac
+
 # The copied gate independently verifies the shared scanner source. Copy its
 # authoritative manifest closure instead of maintaining another payload roster.
 cp "$ROOT/.shared-tooling.snapshot" "$scratch/.shared-tooling.snapshot"
@@ -50,18 +100,6 @@ exec "$TEST_RUNTIME_PANIC_CHECKER" "$@"
 CARGO
 chmod +x "$scratch/bin/cargo"
 export PATH="$scratch/bin:$PATH"
-
-cases=0
-check() {
-  local name="$1" expected="$2" actual=0
-  shift 2
-  "$@" > "$scratch/$name.stdout" 2> "$scratch/$name.stderr" || actual=$?
-  if [[ "$actual" -ne "$expected" ]]; then
-    echo "Fixture $name: expected status $expected, got $actual" >&2
-    exit 1
-  fi
-  cases=$((cases + 1))
-}
 
 # Qualify the actual private compiler package's structured CLI, not the shared
 # scanner's full semantic matrix. Help must not inspect the supplied source.

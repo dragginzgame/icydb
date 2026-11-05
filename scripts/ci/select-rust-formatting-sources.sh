@@ -10,7 +10,9 @@ helper="${BASH_SOURCE[0]}"
 [[ "$helper" == /* ]] || helper="$PWD/$helper"
 # shellcheck source=scripts/ci/fixture-lifecycle.sh
 source "${helper%/*}/fixture-lifecycle.sh"
-fixture="$(fixture_create "${TMPDIR:-/tmp}/rust-formatting-sources.XXXXXX")"
+scratch="${TMPDIR:-$root/target/tmp}"
+mkdir -p -- "$scratch"
+fixture="$(fixture_create "$scratch/rust-formatting-sources.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Rust source selection retained"' EXIT
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE

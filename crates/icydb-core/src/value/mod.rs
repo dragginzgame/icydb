@@ -413,33 +413,6 @@ impl From<()> for Value {
 pub struct ValueEnum(CanonicalEnumValue<Value>);
 
 impl ValueEnum {
-    #[cfg(test)]
-    pub(crate) const fn test_unit(type_id: u32, variant_id: u32) -> Self {
-        Self::new(
-            EnumTypeId::new(type_id).expect("test enum type ID must be non-zero"),
-            EnumVariantId::new(variant_id).expect("test enum variant ID must be non-zero"),
-            CanonicalEnumBody::Unit,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_payload(type_id: u32, variant_id: u32, payload: Value) -> Self {
-        Self::new(
-            EnumTypeId::new(type_id).expect("test enum type ID must be non-zero"),
-            EnumVariantId::new(variant_id).expect("test enum variant ID must be non-zero"),
-            CanonicalEnumBody::Payload(Box::new(payload)),
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_with_payload(self, payload: Value) -> Self {
-        Self::new(
-            self.type_id(),
-            self.variant_id(),
-            CanonicalEnumBody::Payload(Box::new(payload)),
-        )
-    }
-
     #[must_use]
     pub(crate) const fn from_canonical(value: CanonicalEnumValue<Value>) -> Self {
         Self(value)
@@ -534,3 +507,6 @@ Self::U256(field_0) => [field_0],
 crate::retained::retained_fields!(ValueEnum {
 Self(field_0) => [field_0],
 });
+
+#[cfg(test)]
+mod helper_tests;

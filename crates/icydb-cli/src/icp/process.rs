@@ -180,43 +180,4 @@ pub(super) fn output_stderr(stderr: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn external_stderr_is_escaped_for_presentation() {
-        let raw = b"bad\x1b[2J\r\n\tmessage";
-        let rendered = output_stderr(raw);
-        assert!(!rendered.chars().any(char::is_control));
-        assert!(rendered.contains("message"));
-        assert_eq!(raw[3], 27);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn probe_capture_preserves_nonzero_status_and_original_bytes() {
-        let mut command = Command::new("sh");
-        command.args(["-c", "printf '\\377'; printf failure >&2; exit 7"]);
-        let output = probe_output(&mut command).unwrap();
-        assert_eq!(output.status.code(), Some(7));
-        assert_eq!(output.stdout, [255]);
-        assert_eq!(output.stderr, b"failure");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn probe_capture_refuses_excess_machine_output() {
-        let mut command = Command::new("sh");
-        command.args(["-c", "dd if=/dev/zero bs=1048576 count=17 2>/dev/null"]);
-        let error = probe_output(&mut command).unwrap_err();
-        let cause = error
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<ic_host_process::tool::ToolError>()
-            .unwrap();
-        assert!(matches!(
-            cause.execution_error().unwrap().failure,
-            ExecutionFailure::OutputLimit { .. }
-        ));
-    }
-}
+mod tests;

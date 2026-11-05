@@ -72,9 +72,9 @@ pub(in crate::db::schema) fn schema_mutation_request_for_snapshots<'a>(
     }
 }
 
-// Return generated fields for the additive shape that can become an accepted
+// Return added fields for the additive shape that can become an accepted
 // mutation plan: stored fields and row-layout entries must be exact prefixes of
-// the generated proposal. Absence/default policy is validated by transition.
+// the candidate snapshot. Absence/default policy is validated by transition.
 fn append_only_additive_fields<'a>(
     actual: &PersistedSchemaSnapshot,
     expected: &'a PersistedSchemaSnapshot,
@@ -107,7 +107,7 @@ pub(in crate::db::schema) fn required_empty_entity_field_addition_matches(
 }
 
 // Validate the shared append-only shape after the caller has established the
-// operation-specific history-floor contract. Generic reconciliation requires
+// operation-specific history-floor contract. Ordinary addition requires
 // an unchanged floor; required SQL DDL may advance it only after proving the
 // entity is exactly empty.
 fn append_only_additive_fields_with_admitted_floor<'a>(

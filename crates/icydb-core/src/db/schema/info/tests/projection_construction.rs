@@ -16,7 +16,7 @@ use crate::{
             preparation::{PreparationWork, with_preparation_work},
         },
         schema::{AcceptedFieldKind, PersistedNestedLeafSnapshot, SchemaInfo},
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::Value,
 };

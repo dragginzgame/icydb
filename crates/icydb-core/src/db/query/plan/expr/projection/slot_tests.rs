@@ -1,7 +1,7 @@
 //! Local insertion checks distinguish budget rejection from duplicate slots.
 
 use super::*;
-use crate::db::test_support::request_with_limit;
+use crate::db::tests::support::request_with_limit;
 use icydb_diagnostic_code::{DiagnosticExecutionLane, DiagnosticFactTag};
 
 #[test]

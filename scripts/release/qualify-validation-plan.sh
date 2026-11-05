@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pilot only. Does not alter release-verify, release metadata, refs or publication.
+# Execute fresh qualification; the release adapter separately admits omissions.
 set -euo pipefail
 [[ $# == 3 ]] || { echo 'usage: qualify-validation-plan.sh GROUP GROUP-TAG auto|workspace' >&2; exit 2; }
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"

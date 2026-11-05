@@ -3,7 +3,10 @@
 use std::{fs, sync::mpsc, thread};
 
 fn allocation_report() -> u64 {
-    let report = runtime_api::db::memory_runtime().unwrap().memory_allocations().unwrap();
+    let report = runtime_api::db::memory_runtime()
+        .unwrap()
+        .memory_allocations()
+        .unwrap();
     println!("retained_allocations={report:?}");
     report.iter().map(|entry| entry.pages * 65_536).sum()
 }

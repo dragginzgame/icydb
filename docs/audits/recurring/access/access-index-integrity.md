@@ -12,7 +12,7 @@ Canonical report scope:
 
 Use this exact scope for report files:
 
-* `docs/reports/recurring/YYYY/MM/DD/index-integrity/<run>/report.md`
+* `docs/reports/recurring/index-integrity.md`
 
 Do not introduce alternate names such as `access-index-integrity`,
 `index-audit`, or `index-authority` for this recurring pass.

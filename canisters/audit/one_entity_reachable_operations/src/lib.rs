@@ -14,14 +14,11 @@ use icydb_testing_audit_one_simple_fixtures::one_simple::{
 use icydb_testing_wasm_helpers::execute_simple_reachable_entity_operation;
 
 // The final host grants namespaces; components request permanent keys.
-fn icydb_storage_grants()
--> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
-    icydb::db::AllocationGrants::new(
-        vec![icydb::db::MemoryAuthority::new(
-            "icydb_one_simple",
-            "icydb.one_simple.",
-        )?],
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![icydb::db::MemoryAuthority::new(
+        "icydb_one_simple",
+        "icydb.one_simple.",
+    )?])
 }
 
 canic_icydb::start!(icydb);

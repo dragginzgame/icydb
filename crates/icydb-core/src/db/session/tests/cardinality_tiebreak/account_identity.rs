@@ -21,7 +21,7 @@ fn default_account_identity_preserves_unique_index_refusal_and_sql_lookup() {
         )]),
         None,
     );
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "account", 1, AcceptedFieldKind::Account),

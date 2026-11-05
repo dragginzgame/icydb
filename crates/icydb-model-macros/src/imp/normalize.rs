@@ -254,10 +254,10 @@ fn normalizer_call(
             #context,
             #model::visitor::CallbackIdentity::new(
                 #model::visitor::CallbackKind::Normalizer,
-                ::core::any::type_name::<#callback_type>(),
+                ::std::any::type_name::<#callback_type>(),
             ),
         );
-        if let ::core::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
+        if let ::std::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
             &(#ctor), &mut #target, &mut __callback_ctx,
         ) {
             #model::visitor::VisitorContext::add_issue(

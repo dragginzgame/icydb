@@ -66,19 +66,7 @@ pub(in crate::db) enum ProjectionFunctionEvalError {
     Budget(ExecutionBudgetChargeError),
 }
 
-impl ProjectionFunctionEvalError {
-    /// Convert this function-evaluation failure into the query-facing error
-    /// taxonomy used by builder preview paths.
-    #[cfg(test)]
-    pub(in crate::db) fn into_query_error(self) -> QueryError {
-        match self {
-            Self::InvalidCall => QueryError::invariant(),
-            Self::InvalidProjection(reason) => QueryError::unsupported_projection(reason),
-            Self::Numeric(err) => QueryError::execute(err.into_internal_error()),
-            Self::Budget(err) => QueryError::execute(err.into()),
-        }
-    }
-}
+impl ProjectionFunctionEvalError {}
 
 impl From<NumericEvalError> for ProjectionFunctionEvalError {
     fn from(err: NumericEvalError) -> Self {
@@ -88,17 +76,6 @@ impl From<NumericEvalError> for ProjectionFunctionEvalError {
 
 const fn projection_unsupported(reason: QueryProjectionCode) -> ProjectionFunctionEvalError {
     ProjectionFunctionEvalError::InvalidProjection(reason)
-}
-
-/// Evaluate one bounded projection-function call over already-evaluated
-/// argument values.
-#[cfg(test)]
-pub(in crate::db) fn eval_projection_function_call(
-    function: Function,
-    args: &[Value],
-) -> Result<Value, QueryError> {
-    eval_projection_function_call_checked(function, args)
-        .map_err(ProjectionFunctionEvalError::into_query_error)
 }
 
 /// Evaluate one bounded projection-function call while preserving checked
@@ -534,3 +511,9 @@ fn optional_integer_literal_arg(
 const fn invalid_binary_operands() -> ProjectionFunctionEvalError {
     projection_unsupported(QueryProjectionCode::BinaryOperandsIncompatible)
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::eval_projection_function_call;

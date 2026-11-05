@@ -1,5 +1,5 @@
 # Common release commands
-<!-- Shared companions: docs/cargo-publication.md docs/release-validation-reuse.md docs/release-group-validation.md -->
+<!-- Shared companions: docs/cargo-publication.md docs/release-group-validation.md docs/release-validation-reuse.md rules/contributions.md rules/rust-workspaces.md scripts/ci/check-release-source.sh -->
 
 Every `dragginzgame` repository, including Shared Tooling and repositories without
 a publishable package, must provide these Make targets:

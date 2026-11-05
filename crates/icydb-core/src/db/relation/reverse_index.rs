@@ -1011,25 +1011,6 @@ pub(in crate::db::relation) struct AcceptedRelationTargetIdentity {
 }
 
 impl AcceptedRelationTargetIdentity {
-    #[cfg(test)]
-    fn try_new(
-        target_path: &str,
-        target_entity_name: &str,
-        target_entity_tag: EntityTag,
-        target_store_path: &str,
-        key_kinds: &[AcceptedFieldKind],
-    ) -> Result<Self, InternalError> {
-        Ok(Self {
-            authority: AcceptedRelationTargetAuthority::try_new(
-                target_path,
-                target_entity_name,
-                target_entity_tag,
-                target_store_path,
-            )?,
-            primary_key: AcceptedRelationTargetPrimaryKey::try_from_component_kinds(key_kinds)?,
-        })
-    }
-
     fn from_target_contract(
         contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
@@ -1994,3 +1975,6 @@ fn validate_scalar_relation_target_primary_key_kind(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod helper_tests;

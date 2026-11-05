@@ -1,0 +1,212 @@
+use crate::db::query::preparation::with_preparation_work;
+use crate::{
+    db::{
+        Predicate,
+        access::AccessPath,
+        predicate::MissingRowPolicy,
+        query::plan::{AccessPlannedQuery, LogicalPlan},
+    },
+    value::Value,
+};
+
+fn plan_with_bound_value(value: &str) -> AccessPlannedQuery {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+        panic!("test plan should remain scalar");
+    };
+    scalar.predicate = Some(Predicate::eq(
+        "label".to_string(),
+        Value::Text(value.to_string()),
+    ));
+
+    plan
+}
+
+#[test]
+fn continuation_signature_binds_current_parameter_values() {
+    let first = plan_with_bound_value("first");
+    let second = plan_with_bound_value("second");
+
+    assert_ne!(
+        with_preparation_work(|work| first.continuation_signature("tests::Entity", work)).unwrap(),
+        with_preparation_work(|work| second.continuation_signature("tests::Entity", work)).unwrap(),
+        "one template must not admit a cursor issued for different bound values",
+    );
+}
+
+#[test]
+fn continuation_order_identity_distinguishes_equal_labels_with_typed_literals() {
+    use crate::db::query::plan::{
+        OrderDirection, OrderSpec, OrderTerm,
+        expr::{BinaryOp, Expr},
+    };
+
+    let signature = |value| {
+        let mut plan = plan_with_bound_value("same");
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            unreachable!()
+        };
+        scalar.order = Some(OrderSpec {
+            fields: vec![OrderTerm::new(
+                Expr::Binary {
+                    op: BinaryOp::Div,
+                    left: Box::new(Expr::Field("score".into())),
+                    right: Box::new(Expr::Literal(value)),
+                },
+                OrderDirection::Asc,
+            )],
+        });
+        let label = scalar.order.as_ref().unwrap().fields[0].rendered_label();
+        let signature =
+            with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
+                .unwrap();
+        (label, signature)
+    };
+    let signed = signature(Value::Int64(2));
+    let unsigned = signature(Value::Nat64(2));
+    assert_eq!(signed.0, unsigned.0);
+    assert_ne!(signed.1, unsigned.1);
+    assert_eq!(signed, signature(Value::Int64(2)));
+}
+
+#[test]
+fn predicate_continuation_admission_is_cumulative_and_retryable() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+        DiagnosticFactTag,
+    };
+    let request = |resource, limit| {
+        RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                32_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(resource, limit),
+        )
+    };
+    let plan = plan_with_bound_value("account");
+    let snapshot = plan.clone();
+    for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+        let build = |root: &RequestExecutionRoot| {
+            PreparationWork::run(&root.scope(), lane, |work| {
+                plan.planned_continuation_contract_with_accepted_identity(
+                    "tests::Entity",
+                    None,
+                    work,
+                )
+                .map_err(QueryError::execute)
+            })
+        };
+        let measured = request(Resource::TemporaryBytes, 32_000_000);
+        let expected = build(&measured).unwrap().unwrap().continuation_signature();
+        for resource in [
+            Resource::TemporaryBytes,
+            Resource::PredicateExpressionSteps,
+            Resource::NestedValueSteps,
+        ] {
+            let cost = measured.observed(resource);
+            assert!(cost > 0);
+            let repeated = request(resource, 2 * cost);
+            for _ in 0..2 {
+                assert_eq!(
+                    build(&repeated).unwrap().unwrap().continuation_signature(),
+                    expected
+                );
+            }
+            let error = build(&repeated).unwrap_err();
+            assert!(
+                error
+                    .diagnostic_facts()
+                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+            );
+            assert!(
+                error
+                    .diagnostic_facts()
+                    .contains(&(DiagnosticFactTag::ExecutionLane, lane.raw(),))
+            );
+            assert_eq!(repeated.observed(Resource::RowsVisited), 0);
+            let fresh = request(resource, cost);
+            assert_eq!(
+                build(&fresh).unwrap().unwrap().continuation_signature(),
+                expected
+            );
+            assert_eq!(plan, snapshot);
+        }
+    }
+}
+
+#[test]
+fn expression_owned_and_absent_filters_skip_predicate_copy_admission() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        query::{plan::expr::Expr, preparation::PreparationWork},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+    };
+    let root = RequestExecutionRoot::new_for_tests(
+        HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        )
+        .with_limit_for_tests(Resource::TemporaryBytes, 0),
+    );
+    let signature = |plan: &AccessPlannedQuery| {
+        PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+            plan.continuation_signature("tests::Entity", work)
+                .map_err(QueryError::execute)
+        })
+    };
+    let mut plan = plan_with_bound_value("account");
+    let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+        unreachable!()
+    };
+    scalar.filter_expr = Some(Expr::Literal(Value::Bool(true)));
+    signature(&plan).unwrap();
+    let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+        unreachable!()
+    };
+    scalar.filter_expr = None;
+    scalar.predicate = None;
+    signature(&plan).unwrap();
+    assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+}
+
+#[test]
+fn continuation_construction_preserves_hash_failure_and_allows_retry() {
+    use crate::value::{test_hash_budget_error, with_test_hash_override};
+    let mut plan = plan_with_bound_value("account");
+    let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+        unreachable!()
+    };
+    scalar.filter_expr = Some(crate::db::query::plan::expr::Expr::Literal(Value::Nat64(7)));
+    let expected =
+        with_preparation_work(|work| plan.continuation_signature("tests::Entity", work)).unwrap();
+    for _ in 0..2 {
+        with_test_hash_override(Err(test_hash_budget_error), || {
+            let error = with_preparation_work(|work| {
+                plan.planned_continuation_contract_with_accepted_identity(
+                    "tests::Entity",
+                    None,
+                    work,
+                )
+            })
+            .expect_err("failed hash must not return a continuation contract");
+            assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
+            assert_eq!(
+                error.diagnostic_facts(),
+                test_hash_budget_error().diagnostic_facts()
+            );
+        });
+    }
+    assert_eq!(
+        with_preparation_work(|work| plan.continuation_signature("tests::Entity", work)).unwrap(),
+        expected
+    );
+}

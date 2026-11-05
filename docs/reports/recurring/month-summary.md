@@ -1,0 +1,79 @@
+> Historical assessment, not current-code qualification. Raw output and superseded runs
+> were retired from the working tree under Shared 0.30.4. Git history retains them.
+> Current follow-up authority is GitHub issues; selected results below retain their
+> original source, method and limitations, not a fresh measurement.
+
+# Audit Reports Summary - 2026-03
+
+## Overview
+
+- run days: `8`
+- report files: `118`
+- unique report types: `46`
+
+## Day Index
+
+- `2026-03-01`: 8 reports
+- `2026-03-02`: 6 reports
+- `2026-03-03`: 19 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-03/summary.md`)
+- `2026-03-05`: 25 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-05/summary.md`)
+- `2026-03-06`: 6 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-06/summary.md`)
+- `2026-03-08`: 15 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-08/summary.md`)
+- `2026-03-09`: 31 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-09/summary.md`)
+- `2026-03-10`: 8 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-10/summary.md`)
+
+## Coverage Frequency
+
+- `0.40-planner-executor-semantic-ownership.md`: `1` day(s)
+- `access-stream-anchor-interpretation-followup.md`: `1` day(s)
+- `boundary-semantics.md`: `4` day(s)
+- `complexity-accretion-2.md`: `2` day(s)
+- `complexity-accretion-3.md`: `1` day(s)
+- `complexity-accretion-4.md`: `1` day(s)
+- `complexity-accretion-5.md`: `1` day(s)
+- `complexity-accretion.md`: `8` day(s)
+- `cursor-ordering.md`: `4` day(s)
+- `decode-cursor-authority-followup.md`: `1` day(s)
+- `dry-consolidation-2.md`: `2` day(s)
+- `dry-consolidation.md`: `8` day(s)
+- `error-taxonomy.md`: `4` day(s)
+- `execution-routing-refactor-followup.md`: `1` day(s)
+- `index-integrity.md`: `4` day(s)
+- `invariant-preservation.md`: `4` day(s)
+- `layer-violation-2.md`: `2` day(s)
+- `layer-violation-results.md`: `2` day(s)
+- `layer-violation.md`: `5` day(s)
+- `load-entrypoints-continuation-contract-followup.md`: `1` day(s)
+- `load-entrypoints-cursor-resolution-followup.md`: `1` day(s)
+- `load-entrypoints-final-surface-followup.md`: `1` day(s)
+- `load-entrypoints-module-split-followup.md`: `1` day(s)
+- `load-entrypoints-shape-dispatch-followup.md`: `1` day(s)
+- `load-entrypoints-wrapper-typed-surface-followup.md`: `1` day(s)
+- `load-runtime-hub-split-followup.md`: `1` day(s)
+- `meta-audit.md`: `2` day(s)
+- `module-structure-2.md`: `2` day(s)
+- `module-structure.md`: `7` day(s)
+- `recovery-consistency.md`: `4` day(s)
+- `resource-model-compliance-0.36.3.md`: `1` day(s)
+- `resource-model-compliance.md`: `5` day(s)
+- `resource-model-followup-0.37.2.md`: `1` day(s)
+- `state-machine-integrity.md`: `4` day(s)
+- `structural-architecture-continuation-audit.md`: `1` day(s)
+- `summary-2.md`: `2` day(s)
+- `summary-3.md`: `2` day(s)
+- `summary-4.md`: `2` day(s)
+- `summary-5.md`: `1` day(s)
+- `summary-6.md`: `1` day(s)
+- `summary.md`: `6` day(s)
+- `velocity-preservation-2.md`: `3` day(s)
+- `velocity-preservation-3.md`: `1` day(s)
+- `velocity-preservation-4.md`: `1` day(s)
+- `velocity-preservation-5.md`: `1` day(s)
+- `velocity-preservation.md`: `8` day(s)
+
+## Notes
+
+- monthly summary is an index and coverage rollup
+- risk-index trends remain source-of-truth in each day-level `summary.md` and report set
+
+[Original report and recorded commands](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/reports/recurring/2026/03/month-summary/01/report.md).

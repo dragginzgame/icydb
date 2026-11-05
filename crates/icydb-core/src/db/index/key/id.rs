@@ -26,17 +26,6 @@ impl IndexId {
     pub(crate) const STORED_SIZE_USIZE: usize =
         size_of::<u64>() + size_of::<u16>() + size_of::<u64>();
 
-    /// Build one runtime index identity from data-only identity components.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) const fn new(entity_tag: EntityTag, ordinal: u16) -> Self {
-        Self {
-            entity_tag,
-            ordinal,
-            generation: 0,
-        }
-    }
-
     /// Build one runtime index identity in an isolated physical generation.
     #[must_use]
     pub(crate) const fn new_with_generation(
@@ -121,3 +110,6 @@ impl fmt::Display for IndexId {
         )
     }
 }
+
+#[cfg(test)]
+mod helper_tests;

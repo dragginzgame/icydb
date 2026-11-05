@@ -7,7 +7,7 @@ use crate::{
             plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
             preparation::PreparationWork,
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };

@@ -3,7 +3,7 @@
 use super::*;
 use crate::db::{
     RequestExecutionRoot, query::plan::project_explain_access_path,
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionLane as Lane, DiagnosticFactTag};
 

@@ -33,6 +33,30 @@ identity, configuration and actual stage recipes in the checkpoint inventory.
 Source admission, exclusive checkout ownership and tools/configuration admission
 remain with the existing release adapter.
 
+## Selection must reach the executed commands
+
+A group label alone does not narrow a gate. Each selected stage must pass its
+admitted package, feature, target and test selection through to its leaf commands.
+Do not route a narrow Host or adapter plan into unconditional workspace-wide
+lint, tests or packaging unless its affected contracts require that scope. Split
+large stages along existing product boundaries when necessary, using the same
+roster for full CI and selected releases. Keep reverse-consumer and installed
+coverage explicit; fewer stage names are not evidence of less work.
+
+Selection diagnostics must explain why a full gate was chosen, such as a missing
+baseline, changed shared inputs or unqualified host/configuration. Do not silently
+present a full fallback as a narrow group run. Qualification fixtures must inspect
+actual dispatched commands and demonstrate applicable coverage, omission of
+unrelated work, and conservative handling of unknown inputs.
+
+When several groups ship together, avoid multiplying unchanged common checks by
+the number of groups. Use qualified
+[stage-level reuse](release-validation-reuse.md) with fresh admission for each
+group, preserving supplier-first delivery and group-specific archive checks.
+Do not invent local receipt caches, skip flags or Cargo-version normalization to
+bypass that contract. Until reuse or narrower mapping is qualified, retain the
+complete gate and report the repeated work as an optimization opportunity.
+
 ## Shared mechanics and local policy
 
 Group adoption must not create a separate validation framework in every consumer.

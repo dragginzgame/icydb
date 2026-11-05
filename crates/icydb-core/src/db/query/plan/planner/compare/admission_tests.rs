@@ -4,7 +4,7 @@ use super::plan_pk_compare;
 use crate::{
     db::{
         QueryError, access::AccessPath, predicate::CompareOp, query::preparation::PreparationWork,
-        schema::FieldType, test_support::request_with_limit,
+        schema::FieldType, tests::support::request_with_limit,
     },
     value::Value,
 };

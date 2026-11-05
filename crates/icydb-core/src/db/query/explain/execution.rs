@@ -7,7 +7,7 @@ use crate::{
     db::QueryPlanCacheReuse,
     db::query::{
         admission::QueryAdmissionSummary,
-        explain::{ExplainAccessPath, ExplainPredicate},
+        explain::{ExplainAccessPath, ExplainPredicate, ExplainPublicReadAdmission},
         plan::{AggregateKind, ResidualFilterShape},
     },
     value::Value,
@@ -347,6 +347,13 @@ impl FinalizedQueryDiagnostics {
         self
     }
 
+    /// Project default public-read admission from the same frozen plan facts.
+    pub(in crate::db) fn public_read_admission(&self) -> Option<ExplainPublicReadAdmission> {
+        self.admission
+            .as_ref()
+            .and_then(ExplainPublicReadAdmission::from_summary)
+    }
+
     /// Borrow the admission summary carried by this artifact, if present.
     #[must_use]
     pub(in crate::db) const fn admission(&self) -> Option<&QueryAdmissionSummary> {
@@ -448,20 +455,6 @@ impl ExplainExecutionNodeDescriptor {
         for child in self.children() {
             child.for_each_preorder(visit);
         }
-    }
-
-    /// Return whether this descriptor tree contains the requested node type.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn contains_type(&self, target: ExplainExecutionNodeType) -> bool {
-        let mut found = false;
-        self.for_each_preorder(&mut |node| {
-            if node.node_type() == target {
-                found = true;
-            }
-        });
-
-        found
     }
 
     /// Return node type.
@@ -597,76 +590,7 @@ pub(in crate::db::query::explain) const fn ordering_source_label(
 ///
 
 #[cfg(test)]
-mod tests {
-    use crate::db::query::explain::{
-        ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-        ExplainPropertyMap,
-    };
+mod tests;
 
-    fn node(
-        node_type: ExplainExecutionNodeType,
-        children: Vec<ExplainExecutionNodeDescriptor>,
-    ) -> ExplainExecutionNodeDescriptor {
-        ExplainExecutionNodeDescriptor {
-            node_type,
-            execution_mode: ExplainExecutionMode::Materialized,
-            access_strategy: None,
-            predicate_pushdown: None,
-            filter_expr: None,
-            residual_filter_expr: None,
-            residual_filter_predicate: None,
-            projection: None,
-            ordering_source: None,
-            limit: None,
-            cursor: None,
-            covering_scan: None,
-            rows_expected: None,
-            children,
-            node_properties: ExplainPropertyMap::new(),
-        }
-    }
-
-    #[test]
-    fn execution_node_contains_type_scans_preorder_tree() {
-        let root = node(
-            ExplainExecutionNodeType::Union,
-            vec![
-                node(ExplainExecutionNodeType::FullScan, Vec::new()),
-                node(
-                    ExplainExecutionNodeType::Intersection,
-                    vec![node(ExplainExecutionNodeType::ResidualFilter, Vec::new())],
-                ),
-            ],
-        );
-
-        assert!(root.contains_type(ExplainExecutionNodeType::ResidualFilter));
-        assert!(!root.contains_type(ExplainExecutionNodeType::TopNSeek));
-    }
-
-    #[test]
-    fn execution_node_preorder_visits_parent_before_children() {
-        let root = node(
-            ExplainExecutionNodeType::Union,
-            vec![
-                node(ExplainExecutionNodeType::FullScan, Vec::new()),
-                node(
-                    ExplainExecutionNodeType::Intersection,
-                    vec![node(ExplainExecutionNodeType::ResidualFilter, Vec::new())],
-                ),
-            ],
-        );
-        let mut visited = Vec::new();
-
-        root.for_each_preorder(&mut |node| visited.push(node.node_type()));
-
-        assert_eq!(
-            visited,
-            vec![
-                ExplainExecutionNodeType::Union,
-                ExplainExecutionNodeType::FullScan,
-                ExplainExecutionNodeType::Intersection,
-                ExplainExecutionNodeType::ResidualFilter,
-            ],
-        );
-    }
-}
+#[cfg(test)]
+mod helper_tests;

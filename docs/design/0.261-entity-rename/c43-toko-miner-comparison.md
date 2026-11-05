@@ -27,7 +27,7 @@ improvement is established; query instruction costs remain unmeasured.
   same-release recovery/query probe twice against each sealed artefact set.
   Only host test code changes; production application source matches the frozen
   commit. The host-only patch and identities are retained in the
-  [structured evidence](c43-toko-miner-measurements.json).
+  [structured evidence](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/design/0.261-entity-rename/c43-toko-miner-measurements.json).
 
 The action gate uses eight ordered cases: 64 inventory transfers each,
 stationary and walking, with batch sizes 1, 8, 16 and 32. Caller aggregates are

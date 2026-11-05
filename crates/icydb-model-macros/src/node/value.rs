@@ -67,7 +67,7 @@ impl HasTypeExpr for Value {
 
         match self.cardinality() {
             Cardinality::One => quote!(#item),
-            Cardinality::Opt => quote!(::core::option::Option<#item>),
+            Cardinality::Opt => quote!(::std::option::Option<#item>),
             Cardinality::Many => quote!(::std::vec::Vec<#item>),
         }
     }

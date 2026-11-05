@@ -196,7 +196,10 @@ macro_rules! opaque_token {
             Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
         )]
         #[serde(transparent)]
-        #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
+        #[cfg_attr(
+            all(feature = "wire-schema", not(target_family = "wasm")),
+            derive(ic_wire::Wire)
+        )]
         pub struct $name([u8; 32]);
 
         impl $name {
@@ -241,33 +244,4 @@ opaque_token!(
 );
 
 #[cfg(test)]
-mod tests {
-
-    use super::{
-        ConstraintSourceKey, EntitySourceKey, FieldSourceKey, IndexSourceKey, RelationSourceKey,
-        RuleSourceKey, SchemaName, SchemaSubmissionKey, TypeSourceKey,
-    };
-
-    #[test]
-    fn text_backed_keys_delegate_their_wire_type() {
-        macro_rules! check {
-            ($($ty:ty),* $(,)?) => { $(
-                let value = <$ty>::try_new("sample").unwrap();
-                let bytes = crate::wire::encode_one(&value).unwrap();
-                assert_eq!(bytes, crate::wire::encode_one("sample").unwrap());
-                assert_eq!(crate::wire::decode_one::<$ty>(&bytes).unwrap(), value);
-            )* };
-        }
-        check!(
-            EntitySourceKey,
-            FieldSourceKey,
-            TypeSourceKey,
-            ConstraintSourceKey,
-            IndexSourceKey,
-            RelationSourceKey,
-            RuleSourceKey,
-            SchemaName,
-            SchemaSubmissionKey
-        );
-    }
-}
+mod tests;

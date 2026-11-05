@@ -269,25 +269,6 @@ impl CardinalityBuildAuthority {
                 .accepted_index_component_count(index)
                 .is_some_and(|component_count| prefix_component_count <= component_count)
     }
-
-    #[cfg(test)]
-    fn from_parts(
-        source: CardinalitySourceIdentity,
-        accepted_entities: BTreeSet<EntityTag>,
-        accepted_indexes: BTreeMap<IndexId, usize>,
-    ) -> Self {
-        let accepted_index_set =
-            CardinalityAcceptedIndexSetIdentity::derive(accepted_indexes.keys().copied())
-                .expect("test accepted index set should derive");
-        Self {
-            source,
-            domain: Some(Rc::new(CardinalityAcceptedDomain {
-                entities: accepted_entities,
-                indexes: accepted_indexes,
-                index_set: accepted_index_set,
-            })),
-        }
-    }
 }
 
 /// Unforgeable result of observing complete exhaustion of both canonical domains.
@@ -752,3 +733,6 @@ fn coalesce_count_increments(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod helper_tests;

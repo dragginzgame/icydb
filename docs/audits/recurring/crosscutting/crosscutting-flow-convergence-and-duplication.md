@@ -12,7 +12,7 @@ changed method identity; earlier reports remain historical and affected comparis
 
 - Report scope: `flow-convergence-and-duplication`.
 - Method: shared snapshot revision plus `ICYDB-FCD-2`; record both identities.
-- Reports: `docs/reports/recurring/YYYY/MM/DD/flow-convergence-and-duplication/<run>/report.md`.
+- Reports: `docs/reports/recurring/flow-convergence-and-duplication.md`.
 - Trigger: affected owners at minor-line closeout, or changes to frontends,
   prepared plans, generated boundaries, diagnostics, replay or public adapters.
   A whole-system baseline needs an explicit request.

@@ -8,6 +8,10 @@ description = "Bounded public schema proposal contract for IcyDB"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[features]
+default = []
+wire-schema = ["ic-wire/typescript", "dep:serde_json"]
+
 [dependencies]
 ethnum = { workspace = true }
 ic-platform-types = { workspace = true }
@@ -18,8 +22,7 @@ thiserror = { workspace = true }
 ulid = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-ic-wire = { workspace = true, features = ["typescript"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

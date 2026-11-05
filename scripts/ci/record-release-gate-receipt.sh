@@ -26,7 +26,17 @@ fi
 mkdir -p "$RELEASE_RECEIPT_DIR"
 receipt="$RELEASE_RECEIPT_DIR/$release_tag.commit"
 temporary_receipt="$receipt.tmp.$$"
-printf '%s\n' "$release_commit" > "$temporary_receipt"
+candidate="$RELEASE_RECEIPT_DIR/$release_tag.candidate"
+if [[ "$RELEASE_GROUP" == cli ]]; then
+    [[ -f "$candidate" && ! -L "$candidate" ]] || exit 1
+    RELEASE_COMMIT="$release_commit" bash "$ROOT_DIR/scripts/ci/release-candidate-receipt.sh" verify-commit
+fi
+if [[ "$RELEASE_GROUP" == cli && "$(sed -n '1p' "$candidate")" == format=3:cli ]]; then
+    candidate_sha="$(bash "$ROOT_DIR/scripts/ci/verify-file-checksum.sh" --print sha256 "$candidate")"
+    printf '%s\n' 'format=selected-cli/1' "$release_commit" "$candidate_sha" > "$temporary_receipt"
+else
+    printf '%s\n' "$release_commit" > "$temporary_receipt"
+fi
 mv "$temporary_receipt" "$receipt"
 
 echo "Recorded release-gate receipt for $release_tag at $release_commit"

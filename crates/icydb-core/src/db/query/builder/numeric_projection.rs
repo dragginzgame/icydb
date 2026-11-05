@@ -144,34 +144,6 @@ pub struct RoundProjectionExpr {
 impl RoundProjectionExpr {
     // Build one bounded `ROUND(expr, scale)` projection after validating that
     // `scale` stays on the admitted non-negative integer seam.
-    #[cfg(test)]
-    pub(in crate::db) fn new(
-        field: impl Into<String>,
-        inner: Expr,
-        scale: Value,
-    ) -> Result<Self, QueryError> {
-        match scale {
-            Value::Int64(value) if value < 0 => {
-                return Err(QueryError::unsupported_projection(
-                    icydb_diagnostic_code::QueryProjectionCode::NumericScaleArguments,
-                ));
-            }
-            Value::Int64(_) | Value::Nat64(_) => {}
-            _ => {
-                return Err(QueryError::unsupported_projection(
-                    icydb_diagnostic_code::QueryProjectionCode::NumericScaleArguments,
-                ));
-            }
-        }
-
-        Ok(Self {
-            field: field.into(),
-            expr: Expr::FunctionCall {
-                function: Function::Round,
-                args: vec![inner, Expr::Literal(scale)],
-            },
-        })
-    }
 
     // Build one rounded field projection from the intrinsically valid `u32`
     // public scale domain.
@@ -268,63 +240,7 @@ pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjec
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{RoundProjectionExpr, add};
-    use crate::{
-        db::{
-            QueryError,
-            query::plan::expr::{BinaryOp, Expr, FieldId},
-        },
-        types::U256,
-        value::Value,
-    };
-    use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryProjectionCode};
+mod tests;
 
-    fn assert_query_projection_error(err: QueryError, reason: QueryProjectionCode) {
-        let diagnostic = err.diagnostic();
-
-        assert_eq!(
-            diagnostic.code(),
-            DiagnosticCode::QueryUnsupportedProjection
-        );
-        assert_eq!(
-            diagnostic.detail(),
-            Some(&DiagnosticDetail::QueryProjection { reason }),
-        );
-    }
-
-    #[test]
-    fn fluent_numeric_projection_accepts_constructed_u256_literals() {
-        let projection = add("amount", U256::from(3_u64));
-
-        assert_eq!(
-            projection.expr(),
-            &Expr::Binary {
-                op: BinaryOp::Add,
-                left: Box::new(Expr::Field(FieldId::new("amount"))),
-                right: Box::new(Expr::Literal(Value::U256(U256::from(3_u64)))),
-            },
-        );
-    }
-
-    #[test]
-    fn round_projection_rejects_negative_scale_with_compact_projection_code() {
-        let err =
-            RoundProjectionExpr::new("age", Expr::Field(FieldId::new("age")), Value::Int64(-1))
-                .expect_err("negative ROUND scale should fail closed");
-
-        assert_query_projection_error(err, QueryProjectionCode::NumericScaleArguments);
-    }
-
-    #[test]
-    fn round_projection_rejects_non_integer_scale_with_compact_projection_code() {
-        let err = RoundProjectionExpr::new(
-            "age",
-            Expr::Field(FieldId::new("age")),
-            Value::Text("invalid".to_string()),
-        )
-        .expect_err("non-integer ROUND scale should fail closed");
-
-        assert_query_projection_error(err, QueryProjectionCode::NumericScaleArguments);
-    }
-}
+#[cfg(test)]
+mod helper_tests;

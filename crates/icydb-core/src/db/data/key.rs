@@ -337,8 +337,6 @@ impl Display for DecodedDataStoreKey {
 impl RawDataStoreKey {
     /// `EntityTag` binary-width contract for raw on-disk key framing.
     pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
-    #[cfg(test)]
-    pub(in crate::db) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
 
     /// Maximum compact on-disk size in bytes.
     pub(in crate::db) const MAX_STORED_SIZE_BYTES: u64 =
@@ -384,3 +382,6 @@ impl Storable for RawDataStoreKey {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod helper_tests;

@@ -8,7 +8,7 @@ use crate::{
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };

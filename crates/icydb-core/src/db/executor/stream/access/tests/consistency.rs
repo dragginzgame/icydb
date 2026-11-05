@@ -15,13 +15,7 @@ fn grouped_order_limit_policy_symbols_remain_planner_owned() {
     let mut violations = Vec::new();
 
     for source_path in sources {
-        if source_path
-            .components()
-            .any(|part| part.as_os_str() == "tests")
-            || source_path
-                .file_name()
-                .is_some_and(|name| name == "tests.rs")
-        {
+        if source_is_test_only(&source_path) {
             continue;
         }
 
@@ -56,13 +50,7 @@ fn runtime_scalar_plan_consistency_reads_stay_boundary_local() {
 
     let mut actual = BTreeSet::new();
     for source_path in sources {
-        if source_path
-            .components()
-            .any(|part| part.as_os_str() == "tests")
-            || source_path
-                .file_name()
-                .is_some_and(|name| name == "tests.rs")
-        {
+        if source_is_test_only(&source_path) {
             continue;
         }
 

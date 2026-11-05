@@ -15,7 +15,7 @@ use crate::{
             preparation::PreparationWork,
         },
         resource::construction::ConstructionBudget,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     error::InternalError,
     value::Value,

@@ -102,7 +102,7 @@ wait_for_registry_version() {
 release_receipt_matches() {
     local head_commit="$1"
     RELEASE_RECEIPT_DIR="$RELEASE_RECEIPT_DIR" \
-        scripts/ci/verify-release-gate-receipt.sh "$head_commit"
+        scripts/ci/verify-release-gate-receipt.sh "$head_commit" --publication
 }
 
 version="$(bash scripts/release/version.sh)" || exit 1

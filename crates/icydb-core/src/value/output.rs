@@ -60,16 +60,6 @@ impl<'de> Deserialize<'de> for OutputValue {
     }
 }
 
-#[cfg(test)]
-impl From<Value> for OutputValue {
-    fn from(value: Value) -> Self {
-        Self(
-            PublicValue::try_from_runtime_non_enum(&value)
-                .expect("test output conversion requires accepted enum catalog"),
-        )
-    }
-}
-
 /// Render one accepted output value into the stable row-projection text form.
 #[must_use]
 pub fn render_output_value_text(value: &OutputValue) -> String {
@@ -83,7 +73,7 @@ impl serde::Serialize for OutputValue {
 }
 
 // OutputValue delegates both Serde directions to the canonical recursive value.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
 impl ic_wire::typescript::Wire for OutputValue {
     fn native_schema(
         context: &mut ic_wire::typescript::SchemaContext,
@@ -93,25 +83,7 @@ impl ic_wire::typescript::Wire for OutputValue {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::value::{OutputValue, PublicValue, Value};
+mod tests;
 
-    #[test]
-    fn output_value_from_runtime_value_keeps_recursive_collection_shape() {
-        let runtime = Value::List(vec![
-            Value::Nat64(7),
-            Value::Map(vec![(Value::Text("x".to_string()), Value::Bool(true))]),
-        ]);
-
-        assert_eq!(
-            OutputValue::from(runtime),
-            OutputValue::list(vec![
-                PublicValue::Nat64(7),
-                PublicValue::Map(vec![(
-                    PublicValue::Text("x".to_string()),
-                    PublicValue::Bool(true),
-                )]),
-            ]),
-        );
-    }
-}
+#[cfg(test)]
+mod helper_tests;

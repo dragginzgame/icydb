@@ -30,7 +30,7 @@ fn historical_profiles(fill: Option<Value>) -> DbSession<TestCanister> {
         field(1, "id", 0, AcceptedFieldKind::Nat64),
         field(2, "bucket", 1, AcceptedFieldKind::Nat64),
     ];
-    scalar_page_limits::initialize_payload_schema(fields.clone(), vec![]);
+    initialize_field_schema(fields.clone(), vec![]);
     let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
     for id in 1..=2 {
         insert_profile(&session, id, None);

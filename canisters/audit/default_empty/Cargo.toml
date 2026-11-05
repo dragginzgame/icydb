@@ -23,8 +23,11 @@ icydb = { workspace = true }
 icydb-testing-audit-default-empty-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { workspace = true }
-icydb-testing-audit-default-empty-fixtures = { workspace = true }
+icydb = { workspace = true, features = ["build"] }
+icydb-testing-audit-default-empty-fixtures = { workspace = true, features = ["build"] }
 
 [lints]
 workspace = true
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

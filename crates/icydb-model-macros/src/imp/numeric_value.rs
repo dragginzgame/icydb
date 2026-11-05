@@ -24,11 +24,11 @@ impl Imp<Newtype> for NumericValueTrait {
         Some(TraitStrategy::from_impl(
             Implementor::new(node.def(), TraitKind::NumericValue)
                 .set_tokens(quote! {
-                    fn try_to_decimal(&self) -> ::core::option::Option<#model::schema::Decimal> {
+                    fn try_to_decimal(&self) -> ::std::option::Option<#model::schema::Decimal> {
                         #model::schema::NumericValue::try_to_decimal(&self.0)
                     }
 
-                    fn try_from_decimal(value: #model::schema::Decimal) -> ::core::option::Option<Self> {
+                    fn try_from_decimal(value: #model::schema::Decimal) -> ::std::option::Option<Self> {
                         <#item as #model::schema::NumericValue>::try_from_decimal(value).map(Self)
                     }
                 })

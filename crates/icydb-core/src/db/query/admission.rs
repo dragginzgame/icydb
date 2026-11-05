@@ -393,7 +393,6 @@ pub(in crate::db) enum QueryAdmissionRejection {
 impl QueryAdmissionRejection {
     /// Return a stable lowercase diagnostic label for this rejection.
     #[must_use]
-    #[cfg(feature = "sql")]
     pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::PublicQueryRequiresLimit => "public_query_requires_limit",
@@ -493,7 +492,6 @@ impl QueryAdmissionSummary {
 
     /// Return the scalar/grouped statement shape.
     #[must_use]
-    #[cfg(feature = "sql")]
     pub(in crate::db) const fn plan_shape(&self) -> QueryAdmissionPlanShape {
         self.plan_shape
     }

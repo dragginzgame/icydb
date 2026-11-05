@@ -15,7 +15,7 @@ use crate::{
                 SqlExprUnaryOp, SqlMembershipValue, SqlScalarFunction,
             },
         },
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };

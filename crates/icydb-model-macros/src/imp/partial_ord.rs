@@ -29,15 +29,15 @@ impl Imp<Newtype> for PartialOrdTrait {
 
 fn newtype_partial_ord_tokens(ident: &Ident, prim: &TokenStream) -> TokenStream {
     quote! {
-        impl ::core::cmp::PartialOrd<#prim> for #ident {
-            fn partial_cmp(&self, other: &#prim) -> ::core::option::Option<::core::cmp::Ordering> {
-                <#prim as ::core::cmp::PartialOrd>::partial_cmp(&self.0, other)
+        impl ::std::cmp::PartialOrd<#prim> for #ident {
+            fn partial_cmp(&self, other: &#prim) -> ::std::option::Option<::std::cmp::Ordering> {
+                <#prim as ::std::cmp::PartialOrd>::partial_cmp(&self.0, other)
             }
         }
 
-        impl ::core::cmp::PartialOrd<#ident> for #prim {
-            fn partial_cmp(&self, other: &#ident) -> ::core::option::Option<::core::cmp::Ordering> {
-                <#prim as ::core::cmp::PartialOrd>::partial_cmp(self, &other.0)
+        impl ::std::cmp::PartialOrd<#ident> for #prim {
+            fn partial_cmp(&self, other: &#ident) -> ::std::option::Option<::std::cmp::Ordering> {
+                <#prim as ::std::cmp::PartialOrd>::partial_cmp(self, &other.0)
             }
         }
     }

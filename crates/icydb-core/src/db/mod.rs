@@ -46,8 +46,6 @@ pub(in crate::db) mod positioned_overlay;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod sql_shared;
 #[cfg(test)]
-pub(in crate::db) mod test_support;
-#[cfg(test)]
 mod tests;
 
 use crate::{
@@ -140,8 +138,8 @@ pub use query::{
     },
     explain::{
         ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
-        ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
-        ExplainSelectedAccess,
+        ExplainEligibleAlternative, ExplainPlan, ExplainPublicReadAdmission, ExplainRejectedIndex,
+        ExplainResidualSummary, ExplainSelectedAccess,
     },
     expr::{
         CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
@@ -279,13 +277,6 @@ impl<C: CanisterKind> Db<C> {
     pub(crate) fn ensure_recovered_state(&self) -> Result<(), InternalError> {
         ensure_recovery_admitted(self)?;
         ensure_schema_migration_ready_for_ordinary_operations()
-    }
-
-    /// Advance startup recovery by one durable bounded page in focused tests.
-    #[cfg(test)]
-    pub(crate) fn drive_startup_recovery_page(&self) -> Result<bool, InternalError> {
-        commit::continue_recovery(self)
-            .map(|progress| progress == commit::RecoveryProgress::Complete)
     }
 
     /// Advance startup recovery while retaining the exact persisted authority
@@ -473,3 +464,6 @@ impl<C: CanisterKind> Clone for Db<C> {
         Self::new(self.store, self.request_scope.clone())
     }
 }
+
+#[cfg(test)]
+mod helper_tests;

@@ -12,7 +12,7 @@ use crate::{
         derive_sql_ddl_field_default_accepted_after, derive_sql_ddl_field_drop_accepted_after,
         derive_sql_ddl_field_rename_accepted_after,
     },
-    error::ErrorClass,
+    error::{ErrorClass, SchemaDdlAdmissionError},
 };
 
 fn field_drop_fixture() -> (AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation) {
@@ -74,6 +74,42 @@ fn field_drop_fixture() -> (AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDer
         .with_declared_schema_version(&before, SchemaVersion::new(2))
         .expect("declared version admission");
     (before, derivation)
+}
+
+#[test]
+fn field_drop_preserves_version_admission_errors() {
+    let (initial, admitted) = field_drop_fixture();
+    for (from, to, expected) in [
+        (
+            1,
+            1,
+            SchemaDdlAdmissionError::AcceptedSchemaChangeWithoutVersionBump,
+        ),
+        (1, 3, SchemaDdlAdmissionError::VersionGap),
+        (3, 2, SchemaDdlAdmissionError::VersionRollback),
+    ] {
+        let before = AcceptedSchemaSnapshot::try_new(
+            initial
+                .persisted_snapshot()
+                .clone()
+                .with_schema_version(SchemaVersion::new(from)),
+        )
+        .unwrap();
+        let error = derive_sql_ddl_field_drop_accepted_after(&before, "removed")
+            .unwrap()
+            .with_declared_schema_version(&before, SchemaVersion::new(to))
+            .unwrap_err();
+        assert_eq!(error.schema_ddl_admission_error(), expected);
+    }
+
+    let error = admitted
+        .clone()
+        .with_declared_schema_version(admitted.accepted_after(), SchemaVersion::new(3))
+        .unwrap_err();
+    assert_eq!(
+        error.schema_ddl_admission_error(),
+        SchemaDdlAdmissionError::EmptyVersionBump
+    );
 }
 
 #[test]

@@ -397,8 +397,6 @@ pub(super) fn derive_execution_capability_facts_for_model(
             load_route_capability_facts.requires_post_access_sort(),
         ),
     );
-    let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
-    let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
     Ok(RouteCapabilityFacts {
         load_order_route_decision: load_route_capability_facts.load_order_route_decision(),
@@ -410,10 +408,8 @@ pub(super) fn derive_execution_capability_facts_for_model(
             .composite_aggregate_fast_path_eligible(),
         residual_filter_present: load_route_capability_facts.residual_filter_present(),
         bounded_probe_hint_safe: bounded_probe_hint_is_safe(plan),
-        field_min_fast_path_eligible: field_min_eligibility.eligible,
-        field_max_fast_path_eligible: field_max_eligibility.eligible,
-        field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
-        field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
+        field_min_fast_path_eligible: aggregate_execution_policy.field_min_fast_path(),
+        field_max_fast_path_eligible: aggregate_execution_policy.field_max_fast_path(),
     })
 }
 

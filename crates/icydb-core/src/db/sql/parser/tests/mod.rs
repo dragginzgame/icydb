@@ -22,7 +22,6 @@ use super::{
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::types::U256;
 use crate::{
-    db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     db::sql_shared::{
         MAX_SQL_EXPR_DEPTH, MAX_SQL_INPUT_BYTES, MAX_SQL_TOKENS, SqlClauseOrderRule,
         SqlSyntaxErrorKind,
@@ -30,6 +29,24 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
+
+// Explicit test-owned defaults keep full-statement assertions independent of
+// parser construction while individual cases spell out their non-default syntax.
+fn sql_select_from(entity: &str) -> SqlSelectStatement {
+    SqlSelectStatement {
+        entity: entity.to_string(),
+        table_alias: None,
+        projection: SqlProjection::All,
+        projection_aliases: Vec::new(),
+        predicate: None,
+        distinct: false,
+        group_by: Vec::new(),
+        having: Vec::new(),
+        order_by: Vec::new(),
+        limit: None,
+        offset: None,
+    }
+}
 
 fn sql_write_literal(value: Value) -> SqlWriteValue {
     SqlWriteValue::Literal(value)
@@ -204,26 +221,9 @@ fn ddl_expression_key(
     })
 }
 
-macro_rules! option_sql_pred {
-    ($predicate:expr) => {
-        Some(sql_expr_from_runtime_predicate($predicate))
-    };
-}
-
-fn sql_order_expr(term: &str) -> SqlExpr {
-    let sql = format!("SELECT id FROM ParserOrderEntity ORDER BY {term}");
-    let SqlStatement::Select(statement) =
-        parse_sql(&sql).expect("ORDER BY term helper SQL should parse")
-    else {
-        unreachable!("ORDER BY term helper should always produce one SELECT");
-    };
-
-    statement
-        .order_by
-        .into_iter()
-        .next()
-        .expect("ORDER BY term helper SQL should carry one ORDER BY term")
-        .field
+// Keep ordering expectations independent of the parser under test.
+fn sql_order_term(field: SqlExpr, direction: SqlOrderDirection) -> SqlOrderTerm {
+    SqlOrderTerm { field, direction }
 }
 
 fn sql_scalar_function_expr(function: SqlScalarFunction, args: Vec<SqlExpr>) -> SqlExpr {
@@ -260,59 +260,6 @@ fn sql_round_item(input: SqlExpr, scale: Value) -> SqlSelectItem {
         function: SqlScalarFunction::Round,
         args: vec![input, SqlExpr::Literal(scale)],
     })
-}
-
-fn sql_expr_from_runtime_predicate(predicate: Predicate) -> SqlExpr {
-    match predicate {
-        Predicate::True => SqlExpr::Literal(Value::Bool(true)),
-        Predicate::False => SqlExpr::Literal(Value::Bool(false)),
-        Predicate::And(children) => fold_predicate_children(children, SqlExprBinaryOp::And),
-        Predicate::Or(children) => fold_predicate_children(children, SqlExprBinaryOp::Or),
-        Predicate::Not(inner) => SqlExpr::Unary {
-            op: super::SqlExprUnaryOp::Not,
-            expr: Box::new(sql_expr_from_runtime_predicate(*inner)),
-        },
-        Predicate::Compare(compare) => sql_expr_from_compare(compare),
-        Predicate::CompareFields(compare) => SqlExpr::Binary {
-            op: sql_binary_from_compare(compare.op()),
-            left: Box::new(SqlExpr::Field(compare.left_field().to_string())),
-            right: Box::new(SqlExpr::Field(compare.right_field().to_string())),
-        },
-        Predicate::IsNull { field } => SqlExpr::NullTest {
-            expr: Box::new(SqlExpr::Field(field)),
-            negated: false,
-        },
-        Predicate::IsNotNull { field } => SqlExpr::NullTest {
-            expr: Box::new(SqlExpr::Field(field)),
-            negated: true,
-        },
-        Predicate::IsMissing { field } => SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Contains,
-            args: vec![SqlExpr::Field(field), SqlExpr::Literal(Value::Null)],
-        },
-        Predicate::IsEmpty { field } => SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Length,
-            args: vec![SqlExpr::Field(field)],
-        },
-        Predicate::IsNotEmpty { field } => SqlExpr::Unary {
-            op: super::SqlExprUnaryOp::Not,
-            expr: Box::new(SqlExpr::FunctionCall {
-                function: SqlScalarFunction::Length,
-                args: vec![SqlExpr::Field(field)],
-            }),
-        },
-        Predicate::TextContains { field, value } => SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Contains,
-            args: vec![SqlExpr::Field(field), SqlExpr::Literal(value)],
-        },
-        Predicate::TextContainsCi { field, value } => SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Contains,
-            args: vec![
-                sql_scalar_function_field_expr(SqlScalarFunction::Lower, &field),
-                SqlExpr::Literal(value),
-            ],
-        },
-    }
 }
 
 #[test]
@@ -360,90 +307,6 @@ fn parse_sql_preserves_placeholder_slot_order_across_where_and_having() {
     std::assert_matches!(having_param.as_ref(), SqlExpr::Param { index: 2 });
 }
 
-fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
-    match compare.op() {
-        CompareOp::In | CompareOp::NotIn => {
-            let Value::List(values) = compare.value().clone() else {
-                panic!("IN/NOT IN compare expects list literal in parser tests");
-            };
-
-            SqlExpr::Membership {
-                expr: Box::new(SqlExpr::Field(compare.field().to_string())),
-                values: values
-                    .into_iter()
-                    .map(crate::db::sql::parser::SqlMembershipValue::Literal)
-                    .collect(),
-                negated: compare.op() == CompareOp::NotIn,
-            }
-        }
-        CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => {
-            SqlExpr::FunctionCall {
-                function: match compare.op() {
-                    CompareOp::StartsWith => SqlScalarFunction::StartsWith,
-                    CompareOp::EndsWith => SqlScalarFunction::EndsWith,
-                    CompareOp::Contains => SqlScalarFunction::Contains,
-                    _ => unreachable!(),
-                },
-                args: vec![
-                    if compare.coercion().id() == CoercionId::TextCasefold {
-                        sql_scalar_function_field_expr(SqlScalarFunction::Lower, compare.field())
-                    } else {
-                        SqlExpr::Field(compare.field().to_string())
-                    },
-                    SqlExpr::Literal(compare.value().clone()),
-                ],
-            }
-        }
-        op => SqlExpr::Binary {
-            op: sql_binary_from_compare(op),
-            left: Box::new(match compare.coercion().id() {
-                CoercionId::TextCasefold => {
-                    sql_scalar_function_field_expr(SqlScalarFunction::Lower, compare.field())
-                }
-                _ => SqlExpr::Field(compare.field().to_string()),
-            }),
-            right: Box::new(SqlExpr::Literal(compare.value().clone())),
-        },
-    }
-}
-
-fn fold_predicate_children(children: Vec<Predicate>, op: SqlExprBinaryOp) -> SqlExpr {
-    fold_exprs(
-        children
-            .into_iter()
-            .map(sql_expr_from_runtime_predicate)
-            .collect(),
-        op,
-    )
-}
-
-fn fold_exprs(mut exprs: Vec<SqlExpr>, op: SqlExprBinaryOp) -> SqlExpr {
-    let first = exprs.remove(0);
-    exprs
-        .into_iter()
-        .fold(first, |left, right| SqlExpr::Binary {
-            op,
-            left: Box::new(left),
-            right: Box::new(right),
-        })
-}
-
-const fn sql_binary_from_compare(op: CompareOp) -> SqlExprBinaryOp {
-    match op {
-        CompareOp::Eq
-        | CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => SqlExprBinaryOp::Eq,
-        CompareOp::Ne => SqlExprBinaryOp::Ne,
-        CompareOp::Lt => SqlExprBinaryOp::Lt,
-        CompareOp::Lte => SqlExprBinaryOp::Lte,
-        CompareOp::Gt => SqlExprBinaryOp::Gt,
-        CompareOp::Gte => SqlExprBinaryOp::Gte,
-    }
-}
-
 #[test]
 fn parse_select_statement_with_predicate_order_and_window() {
     let sql = "  SeLeCt DISTINCT name, COUNT(*) FROM users \
@@ -454,8 +317,6 @@ fn parse_select_statement_with_predicate_order_and_window() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -466,35 +327,27 @@ fn parse_select_statement_with_predicate_order_and_window() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: option_sql_pred!(Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Gte,
-                    Value::Int64(21),
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "active",
-                    CompareOp::Eq,
-                    Value::Bool(true),
-                    CoercionId::Strict,
-                )),
-            ])),
+            predicate: Some(sql_binary_expr(
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Literal(Value::Int64(21))
+                ),
+                SqlExprBinaryOp::And,
+                sql_binary_expr(
+                    SqlExpr::Field("active".to_string()),
+                    SqlExprBinaryOp::Eq,
+                    SqlExpr::Literal(Value::Bool(true))
+                )
+            )),
             distinct: true,
-            group_by: vec![],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("age"),
-                    direction: SqlOrderDirection::Desc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("name"),
-                    direction: SqlOrderDirection::Asc,
-                },
+                sql_order_term(SqlExpr::Field("age".to_string()), SqlOrderDirection::Desc),
+                sql_order_term(SqlExpr::Field("name".to_string()), SqlOrderDirection::Asc),
             ],
             limit: Some(10),
             offset: Some(5),
+            ..sql_select_from("users")
         }),
     );
 }
@@ -509,8 +362,6 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 sql_scalar_function_field_item(SqlScalarFunction::Trim, "name"),
                 sql_scalar_function_field_item(SqlScalarFunction::Ltrim, "name"),
@@ -521,13 +372,7 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
                 SqlSelectItem::Field("age".to_string()),
             ]),
             projection_aliases: vec![None, None, None, None, None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -541,8 +386,6 @@ fn parse_select_statement_with_abs_ceil_ceiling_and_floor_projection_items() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 sql_scalar_function_field_item(SqlScalarFunction::Abs, "age"),
                 sql_scalar_function_field_item(SqlScalarFunction::Ceiling, "age"),
@@ -551,13 +394,7 @@ fn parse_select_statement_with_abs_ceil_ceiling_and_floor_projection_items() {
                 SqlSelectItem::Field("name".to_string()),
             ]),
             projection_aliases: vec![None, None, None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -572,8 +409,6 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Abs,
@@ -609,13 +444,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
                 )),
             ]),
             projection_aliases: vec![None, None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -634,8 +463,6 @@ fn parse_select_statement_with_unary_text_expression_projection_items() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Lower,
@@ -676,13 +503,7 @@ fn parse_select_statement_with_unary_text_expression_projection_items() {
                 )),
             ]),
             projection_aliases: vec![None, None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -695,8 +516,6 @@ fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Coalesce,
@@ -715,13 +534,7 @@ fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
                 SqlSelectItem::Field("name".to_string()),
             ]),
             projection_aliases: vec![None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -734,21 +547,13 @@ fn parse_select_statement_with_scalar_add_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
                 SqlExpr::Literal(Value::Int64(1)),
             ))]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -761,8 +566,6 @@ fn parse_select_statement_with_field_path_projection_expr() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::FieldPath {
                     root: "profile".to_string(),
@@ -772,13 +575,7 @@ fn parse_select_statement_with_field_path_projection_expr() {
                 SqlExpr::Literal(Value::Int64(1)),
             ))]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         })
     );
 }
@@ -811,21 +608,13 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
         assert_eq!(
             statement,
             SqlStatement::Select(SqlSelectStatement {
-                entity: "users".to_string(),
-                table_alias: None,
                 projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                     SqlExpr::Field("age".to_string()),
                     op,
                     SqlExpr::Literal(literal),
                 ))]),
                 projection_aliases: vec![None],
-                predicate: None,
-                distinct: false,
-                group_by: vec![],
-                having: vec![],
-                order_by: vec![],
-                limit: None,
-                offset: None,
+                ..sql_select_from("users")
             }),
             "{context} should lower to one bounded arithmetic projection item",
         );
@@ -840,21 +629,13 @@ fn parse_select_statement_with_scalar_field_to_field_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("dexterity".to_string()),
                 SqlExprBinaryOp::Add,
                 SqlExpr::Field("charisma".to_string()),
             ))]),
             projection_aliases: vec![Some("total".to_string())],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -867,8 +648,6 @@ fn parse_select_statement_with_chained_scalar_projection_item_preserves_preceden
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
@@ -879,13 +658,7 @@ fn parse_select_statement_with_chained_scalar_projection_item_preserves_preceden
                 ),
             ))]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
         "chained scalar arithmetic projection should preserve operator precedence in the parser model",
     );
@@ -899,8 +672,6 @@ fn parse_select_statement_with_parenthesized_round_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![sql_round_item(
                 sql_binary_expr(
                     sql_binary_expr(
@@ -914,13 +685,7 @@ fn parse_select_statement_with_parenthesized_round_projection_item() {
                 Value::Int64(2),
             )]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
         "parenthesized ROUND projection should preserve nested arithmetic structure in the parser model",
     );
@@ -935,8 +700,6 @@ fn parse_select_statement_with_searched_case_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(SqlExpr::Case {
                 arms: vec![SqlCaseArm {
                     condition: SqlExpr::Binary {
@@ -951,13 +714,7 @@ fn parse_select_statement_with_searched_case_projection_item() {
                 ))),
             })]),
             projection_aliases: vec![Some("cohort".to_string())],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
         "searched CASE projection should stay on the shared SQL-expression boundary",
     );
@@ -973,8 +730,6 @@ fn parse_select_statement_with_searched_case_is_null_condition_projection_item()
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(SqlExpr::Case {
                 arms: vec![SqlCaseArm {
                     condition: SqlExpr::NullTest {
@@ -986,13 +741,7 @@ fn parse_select_statement_with_searched_case_is_null_condition_projection_item()
                 else_expr: Some(Box::new(SqlExpr::Field("guild_rank".to_string()))),
             })]),
             projection_aliases: vec![Some("guild_label".to_string())],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
         "searched CASE projection should keep IS NULL conditions on the shared SQL-expression boundary",
     );
@@ -1006,8 +755,6 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Sum,
                 input: Some(Box::new(SqlExpr::Case {
@@ -1025,13 +772,7 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
                 distinct: false,
             })]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
         "searched CASE aggregate inputs should stay on the shared SQL-expression boundary",
     );
@@ -1049,8 +790,6 @@ fn parse_select_statement_with_searched_case_where_expression() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
             projection_aliases: vec![None],
             predicate: Some(SqlExpr::Case {
@@ -1068,15 +807,11 @@ fn parse_select_statement_with_searched_case_where_expression() {
                     right: Box::new(SqlExpr::Literal(Value::Int64(20))),
                 })),
             }),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: None,
-            offset: None,
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
+            ..sql_select_from("users")
         }),
         "searched CASE WHERE should stay on the shared pre-aggregate SQL-expression boundary",
     );
@@ -1124,33 +859,24 @@ fn parse_select_statement_with_field_to_field_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: vec![],
-            predicate: option_sql_pred!(Predicate::And(vec![
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "age",
-                    CompareOp::Gt,
-                    "rank",
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "name",
-                    CompareOp::Eq,
-                    "label",
-                    CoercionId::Strict,
-                )),
-            ])),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: None,
-            offset: None,
+            predicate: Some(sql_binary_expr(
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Gt,
+                    SqlExpr::Field("rank".to_string())
+                ),
+                SqlExprBinaryOp::And,
+                sql_binary_expr(
+                    SqlExpr::Field("name".to_string()),
+                    SqlExprBinaryOp::Eq,
+                    SqlExpr::Field("label".to_string())
+                )
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1163,21 +889,12 @@ fn parse_select_statement_with_field_path_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: vec![],
             predicate: Some(sql_binary_expr(
                 SqlExpr::Field("profile.rank".to_string()),
                 SqlExprBinaryOp::Eq,
                 SqlExpr::Literal(Value::Int64(5)),
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1191,10 +908,6 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: vec![],
             predicate: Some(sql_binary_expr(
                 sql_binary_expr(
                     SqlExpr::Literal(Value::Int64(5)),
@@ -1208,15 +921,11 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
                     SqlExpr::Field("strength".to_string()),
                 ),
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: None,
-            offset: None,
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1260,17 +969,9 @@ fn parse_select_statement_with_round_projection_items() {
         assert_eq!(
             statement,
             SqlStatement::Select(SqlSelectStatement {
-                entity: "users".to_string(),
-                table_alias: None,
                 projection: SqlProjection::Items(vec![expected_item]),
                 projection_aliases: vec![None],
-                predicate: None,
-                distinct: false,
-                group_by: vec![],
-                having: vec![],
-                order_by: vec![],
-                limit: None,
-                offset: None,
+                ..sql_select_from("users")
             }),
             "{context} should lower to one bounded ROUND projection item",
         );
@@ -1285,21 +986,13 @@ fn parse_select_statement_with_scalar_field_plus_field_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
                 SqlExpr::Field("salary".to_string()),
             ))]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1365,26 +1058,18 @@ fn parse_select_statement_with_expression_order_terms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("LOWER(name)"),
-                    direction: SqlOrderDirection::Desc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("UPPER(email)"),
-                    direction: SqlOrderDirection::Asc,
-                },
+                sql_order_term(
+                    sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                    SqlOrderDirection::Desc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_field_expr(SqlScalarFunction::Upper, "email"),
+                    SqlOrderDirection::Asc,
+                ),
             ],
             limit: Some(2),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1399,30 +1084,40 @@ fn parse_select_statement_with_direct_bounded_computed_order_terms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("age + 1"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("age + salary"),
-                    direction: SqlOrderDirection::Desc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("ROUND(age / 3, 2)"),
-                    direction: SqlOrderDirection::Asc,
-                },
+                sql_order_term(
+                    sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Add,
+                        SqlExpr::Literal(Value::Int64(1)),
+                    ),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Add,
+                        SqlExpr::Field("salary".to_string()),
+                    ),
+                    SqlOrderDirection::Desc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Round,
+                        vec![
+                            sql_binary_expr(
+                                SqlExpr::Field("age".to_string()),
+                                SqlExprBinaryOp::Div,
+                                SqlExpr::Literal(Value::Int64(3)),
+                            ),
+                            SqlExpr::Literal(Value::Int64(2))
+                        ],
+                    ),
+                    SqlOrderDirection::Asc,
+                ),
             ],
             limit: Some(2),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1438,26 +1133,37 @@ fn parse_select_statement_with_direct_scalar_function_expression_order_terms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("ABS(age - 30)"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("COALESCE(NULLIF(age, 20), 99)"),
-                    direction: SqlOrderDirection::Desc,
-                },
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Abs,
+                        vec![sql_binary_expr(
+                            SqlExpr::Field("age".to_string()),
+                            SqlExprBinaryOp::Sub,
+                            SqlExpr::Literal(Value::Int64(30)),
+                        )],
+                    ),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Coalesce,
+                        vec![
+                            sql_scalar_function_expr(
+                                SqlScalarFunction::NullIf,
+                                vec![
+                                    SqlExpr::Field("age".to_string()),
+                                    SqlExpr::Literal(Value::Int64(20))
+                                ],
+                            ),
+                            SqlExpr::Literal(Value::Int64(99))
+                        ],
+                    ),
+                    SqlOrderDirection::Desc,
+                ),
             ],
             limit: Some(2),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1473,20 +1179,22 @@ fn parse_select_statement_with_direct_searched_case_order_terms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("CASE WHEN age >= 21 THEN rank ELSE age END"),
-                direction: SqlOrderDirection::Desc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Case {
+                    arms: vec![SqlCaseArm {
+                        condition: sql_binary_expr(
+                            SqlExpr::Field("age".to_string()),
+                            SqlExprBinaryOp::Gte,
+                            SqlExpr::Literal(Value::Int64(21)),
+                        ),
+                        result: SqlExpr::Field("rank".to_string()),
+                    }],
+                    else_expr: Some(Box::new(SqlExpr::Field("age".to_string()))),
+                },
+                SqlOrderDirection::Desc,
+            )],
             limit: Some(2),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1502,26 +1210,33 @@ fn parse_select_statement_with_direct_unary_text_function_expression_order_terms
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("LOWER(COALESCE(name, 'fallback'))"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("LENGTH(TRIM(name))"),
-                    direction: SqlOrderDirection::Desc,
-                },
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Lower,
+                        vec![sql_scalar_function_expr(
+                            SqlScalarFunction::Coalesce,
+                            vec![
+                                SqlExpr::Field("name".to_string()),
+                                SqlExpr::Literal(Value::Text("fallback".to_string()))
+                            ],
+                        )],
+                    ),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Length,
+                        vec![sql_scalar_function_expr(
+                            SqlScalarFunction::Trim,
+                            vec![SqlExpr::Field("name".to_string())],
+                        )],
+                    ),
+                    SqlOrderDirection::Desc,
+                ),
             ],
             limit: Some(2),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1536,42 +1251,45 @@ fn parse_select_statement_with_supported_scalar_text_order_terms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: vec![],
-            distinct: false,
-            predicate: None,
-            group_by: vec![],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("TRIM(name)"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("LTRIM(name)"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("RTRIM(name)"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("LENGTH(name)"),
-                    direction: SqlOrderDirection::Desc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("LEFT(name, 2)"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("POSITION('a', name)"),
-                    direction: SqlOrderDirection::Desc,
-                },
+                sql_order_term(
+                    sql_scalar_function_field_expr(SqlScalarFunction::Trim, "name"),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_field_expr(SqlScalarFunction::Ltrim, "name"),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_field_expr(SqlScalarFunction::Rtrim, "name"),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_field_expr(SqlScalarFunction::Length, "name"),
+                    SqlOrderDirection::Desc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Left,
+                        vec![
+                            SqlExpr::Field("name".to_string()),
+                            SqlExpr::Literal(Value::Int64(2))
+                        ],
+                    ),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Position,
+                        vec![
+                            SqlExpr::Literal(Value::Text("a".to_string())),
+                            SqlExpr::Field("name".to_string())
+                        ],
+                    ),
+                    SqlOrderDirection::Desc,
+                ),
             ],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1584,8 +1302,6 @@ fn parse_select_statement_with_left_and_right_projection_items() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Left,
@@ -1603,13 +1319,7 @@ fn parse_select_statement_with_left_and_right_projection_items() {
                 )),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1624,8 +1334,6 @@ fn parse_select_statement_with_starts_ends_and_position_projection_items() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::StartsWith,
@@ -1657,13 +1365,7 @@ fn parse_select_statement_with_starts_ends_and_position_projection_items() {
                 )),
             ]),
             projection_aliases: vec![None, None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1676,8 +1378,6 @@ fn parse_select_statement_with_replace_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_scalar_function_expr(
                 SqlScalarFunction::Replace,
                 vec![
@@ -1687,13 +1387,7 @@ fn parse_select_statement_with_replace_projection_item() {
                 ],
             ))]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1706,8 +1400,6 @@ fn parse_select_statement_with_substring_projection_item() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Substring,
@@ -1726,13 +1418,7 @@ fn parse_select_statement_with_substring_projection_item() {
                 )),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -1747,16 +1433,15 @@ fn parse_delete_statement_with_limit() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: None,
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
-                CompareOp::Lt,
-                Value::Int64(18),
-                CoercionId::NumericWiden,
-            ))),
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("age".to_string()),
+                SqlExprBinaryOp::Lt,
+                SqlExpr::Literal(Value::Int64(18))
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(3),
             offset: None,
             returning: None,
@@ -1774,16 +1459,15 @@ fn parse_delete_statement_with_limit_and_offset() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: None,
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
-                CompareOp::Lt,
-                Value::Int64(18),
-                CoercionId::NumericWiden,
-            ))),
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("age".to_string()),
+                SqlExprBinaryOp::Lt,
+                SqlExpr::Literal(Value::Int64(18))
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(3),
             offset: Some(1),
             returning: None,
@@ -1803,16 +1487,21 @@ fn parse_delete_statement_accepts_single_table_alias() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: Some("u".to_string()),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "u.age",
-                CompareOp::Lt,
-                Value::Int64(18),
-                CoercionId::NumericWiden,
-            ))),
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("LOWER(u.name)"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("u.age".to_string()),
+                SqlExprBinaryOp::Lt,
+                SqlExpr::Literal(Value::Int64(18))
+            )),
+            order_by: vec![sql_order_term(
+                sql_scalar_function_expr(
+                    SqlScalarFunction::Lower,
+                    vec![SqlExpr::FieldPath {
+                        root: "u".to_string(),
+                        segments: vec!["name".to_string()],
+                    }],
+                ),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(3),
             offset: Some(1),
             returning: None,
@@ -1864,10 +1553,10 @@ fn parse_delete_statement_with_direct_starts_with_family() {
                 entity: "users".to_string(),
                 table_alias: None,
                 predicate: Some(expected_predicate),
-                order_by: vec![SqlOrderTerm {
-                    field: sql_order_expr("id"),
-                    direction: SqlOrderDirection::Asc,
-                }],
+                order_by: vec![sql_order_term(
+                    SqlExpr::Field("id".to_string()),
+                    SqlOrderDirection::Asc,
+                )],
                 limit: Some(1),
                 offset: None,
                 returning: None,
@@ -1888,17 +1577,8 @@ fn parse_explain_json_wrapped_select() {
             mode: SqlExplainMode::Json,
             verbose: false,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
-                entity: "users".to_string(),
-                table_alias: None,
-                projection: SqlProjection::All,
-                projection_aliases: Vec::default(),
-                predicate: None,
-                distinct: false,
-                group_by: vec![],
-                having: vec![],
-                order_by: vec![],
                 limit: Some(1),
-                offset: None,
+                ..sql_select_from("users")
             }),
         }),
     );
@@ -1916,17 +1596,8 @@ fn parse_explain_execution_json_wrapped_select() {
             mode: SqlExplainMode::ExecutionJson,
             verbose: false,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
-                entity: "users".to_string(),
-                table_alias: None,
-                projection: SqlProjection::All,
-                projection_aliases: Vec::default(),
-                predicate: None,
-                distinct: false,
-                group_by: vec![],
-                having: vec![],
-                order_by: vec![],
                 limit: Some(1),
-                offset: None,
+                ..sql_select_from("users")
             }),
         }),
     );
@@ -1981,10 +1652,10 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                     entity: "users".to_string(),
                     table_alias: None,
                     predicate: Some(expected_predicate),
-                    order_by: vec![SqlOrderTerm {
-                        field: sql_order_expr("id"),
-                        direction: SqlOrderDirection::Asc,
-                    }],
+                    order_by: vec![sql_order_term(
+                        SqlExpr::Field("id".to_string()),
+                        SqlOrderDirection::Asc,
+                    )],
                     limit: Some(1),
                     offset: None,
                     returning: None,
@@ -2918,28 +2589,26 @@ fn parse_select_statement_with_qualified_identifiers() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "public.users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("users.name".to_string()),
                 SqlSelectItem::Field("users.age".to_string()),
             ]),
             projection_aliases: vec![None, None],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "users.age",
-                CompareOp::Gte,
-                Value::Int64(21),
-                CoercionId::NumericWiden,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("users.age"),
-                direction: SqlOrderDirection::Desc,
-            }],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("users.age".to_string()),
+                SqlExprBinaryOp::Gte,
+                SqlExpr::Literal(Value::Int64(21))
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::FieldPath {
+                    root: "users".to_string(),
+                    segments: vec!["age".to_string()],
+                },
+                SqlOrderDirection::Desc,
+            )],
             limit: Some(10),
             offset: Some(1),
+            ..sql_select_from("public.users")
         }),
     );
 }
@@ -2956,25 +2625,18 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 SqlExpr::Field("name".to_string()),
                 "Al%",
                 false,
                 false,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -2991,25 +2653,17 @@ fn parse_select_statement_with_angle_bracket_not_equal_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "active",
-                CompareOp::Ne,
-                Value::Bool(true),
-                CoercionId::Strict,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("active".to_string()),
+                SqlExprBinaryOp::Ne,
+                SqlExpr::Literal(Value::Bool(true))
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3026,25 +2680,21 @@ fn parse_select_statement_with_in_trailing_comma_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
-                CompareOp::In,
-                Value::List(vec![Value::Int64(10), Value::Int64(20), Value::Int64(30)]),
-                CoercionId::Strict,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(SqlExpr::Membership {
+                expr: Box::new(SqlExpr::Field("age".to_string())),
+                values: vec![
+                    super::SqlMembershipValue::Literal(Value::Int64(10)),
+                    super::SqlMembershipValue::Literal(Value::Int64(20)),
+                    super::SqlMembershipValue::Literal(Value::Int64(30))
+                ],
+                negated: false
+            }),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3092,65 +2742,49 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
     assert_eq!(
         between,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::And(vec![
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "age",
-                    CompareOp::Gte,
-                    "min_age",
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "age",
-                    CompareOp::Lte,
-                    "max_age",
-                    CoercionId::NumericWiden,
-                )),
-            ])),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Field("min_age".to_string())
+                ),
+                SqlExprBinaryOp::And,
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Lte,
+                    SqlExpr::Field("max_age".to_string())
+                )
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
     assert_eq!(
         not_between,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Or(vec![
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "age",
-                    CompareOp::Lt,
-                    "min_age",
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "age",
-                    CompareOp::Gt,
-                    "max_age",
-                    CoercionId::NumericWiden,
-                )),
-            ])),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Lt,
+                    SqlExpr::Field("min_age".to_string())
+                ),
+                SqlExprBinaryOp::Or,
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Gt,
+                    SqlExpr::Field("max_age".to_string())
+                )
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3167,25 +2801,18 @@ fn parse_select_statement_with_strict_not_like_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 SqlExpr::Field("name".to_string()),
                 "Al%",
                 true,
                 false,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3202,25 +2829,18 @@ fn parse_select_statement_with_ilike_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 SqlExpr::Field("name".to_string()),
                 "al%",
                 false,
                 true,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3237,25 +2857,18 @@ fn parse_select_statement_with_not_ilike_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 SqlExpr::Field("name".to_string()),
                 "al%",
                 true,
                 true,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3272,33 +2885,25 @@ fn parse_select_statement_with_strict_text_range_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::Gte,
-                    Value::Text("Al".to_string()),
-                    CoercionId::Strict,
-                )),
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::Lt,
-                    Value::Text("Am".to_string()),
-                    CoercionId::Strict,
-                )),
-            ])),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                sql_binary_expr(
+                    SqlExpr::Field("name".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Literal(Value::Text("Al".to_string()))
+                ),
+                SqlExprBinaryOp::And,
+                sql_binary_expr(
+                    SqlExpr::Field("name".to_string()),
+                    SqlExprBinaryOp::Lt,
+                    SqlExpr::Literal(Value::Text("Am".to_string()))
+                )
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3315,25 +2920,19 @@ fn parse_select_statement_with_direct_starts_with_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("Al".to_string()),
-                CoercionId::Strict,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    SqlExpr::Field("name".to_string()),
+                    SqlExpr::Literal(Value::Text("Al".to_string()))
+                ]
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3350,25 +2949,19 @@ fn parse_select_statement_with_direct_lower_starts_with_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("Al".to_string()),
-                CoercionId::TextCasefold,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                    SqlExpr::Literal(Value::Text("Al".to_string()))
+                ]
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3385,10 +2978,6 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(SqlExpr::FunctionCall {
                 function: SqlScalarFunction::StartsWith,
                 args: vec![
@@ -3396,15 +2985,12 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
                     SqlExpr::Literal(Value::Text("AL".to_string())),
                 ],
             }),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3421,25 +3007,18 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
                 "Al%",
                 false,
                 false,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3456,25 +3035,18 @@ fn parse_select_statement_with_lower_not_like_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
                 "Al%",
                 true,
                 false,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3491,25 +3063,18 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
                 sql_scalar_function_field_expr(SqlScalarFunction::Upper, "name"),
                 "AL%",
                 false,
                 false,
             )),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("id".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3566,8 +3131,6 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "public.users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("users.age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3578,21 +3141,22 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "users.age",
-                CompareOp::Gte,
-                Value::Int64(21),
-                CoercionId::NumericWiden,
-            ))),
-            distinct: false,
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("users.age".to_string()),
+                SqlExprBinaryOp::Gte,
+                SqlExpr::Literal(Value::Int64(21))
+            )),
             group_by: vec!["users.age".to_string()],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("users.age"),
-                direction: SqlOrderDirection::Desc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::FieldPath {
+                    root: "users".to_string(),
+                    segments: vec!["age".to_string()],
+                },
+                SqlOrderDirection::Desc,
+            )],
             limit: Some(5),
             offset: Some(1),
+            ..sql_select_from("public.users")
         }),
     );
 }
@@ -3612,27 +3176,24 @@ fn parse_explain_execution_with_qualified_identifiers() {
             mode: SqlExplainMode::Execution,
             verbose: false,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
-                entity: "public.users".to_string(),
-                table_alias: None,
                 projection: SqlProjection::Items(vec![SqlSelectItem::Field(
                     "users.name".to_string(),
                 )]),
                 projection_aliases: vec![None],
-                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                    "users.age",
-                    CompareOp::Gte,
-                    Value::Int64(21),
-                    CoercionId::NumericWiden,
-                ))),
-                distinct: false,
-                group_by: vec![],
-                having: vec![],
-                order_by: vec![SqlOrderTerm {
-                    field: sql_order_expr("users.age"),
-                    direction: SqlOrderDirection::Desc,
-                }],
+                predicate: Some(sql_binary_expr(
+                    SqlExpr::Field("users.age".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Literal(Value::Int64(21))
+                )),
+                order_by: vec![sql_order_term(
+                    SqlExpr::FieldPath {
+                        root: "users".to_string(),
+                        segments: vec!["age".to_string()],
+                    },
+                    SqlOrderDirection::Desc,
+                )],
                 limit: Some(1),
-                offset: None,
+                ..sql_select_from("public.users")
             }),
         }),
     );
@@ -3653,27 +3214,24 @@ fn parse_explain_execution_verbose_with_qualified_identifiers() {
             mode: SqlExplainMode::Execution,
             verbose: true,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
-                entity: "public.users".to_string(),
-                table_alias: None,
                 projection: SqlProjection::Items(vec![SqlSelectItem::Field(
                     "users.name".to_string(),
                 )]),
                 projection_aliases: vec![None],
-                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                    "users.age",
-                    CompareOp::Gte,
-                    Value::Int64(21),
-                    CoercionId::NumericWiden,
-                ))),
-                distinct: false,
-                group_by: vec![],
-                having: vec![],
-                order_by: vec![SqlOrderTerm {
-                    field: sql_order_expr("users.age"),
-                    direction: SqlOrderDirection::Desc,
-                }],
+                predicate: Some(sql_binary_expr(
+                    SqlExpr::Field("users.age".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Literal(Value::Int64(21))
+                )),
+                order_by: vec![sql_order_term(
+                    SqlExpr::FieldPath {
+                        root: "users".to_string(),
+                        segments: vec!["age".to_string()],
+                    },
+                    SqlOrderDirection::Desc,
+                )],
                 limit: Some(1),
-                offset: None,
+                ..sql_select_from("public.users")
             }),
         }),
     );
@@ -3693,8 +3251,6 @@ fn parse_select_grouped_statement_with_having_clauses() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3705,8 +3261,6 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
             group_by: vec!["age".to_string()],
             having: vec![SqlExpr::Binary {
                 op: SqlExprBinaryOp::And,
@@ -3726,12 +3280,12 @@ fn parse_select_grouped_statement_with_having_clauses() {
                     right: Box::new(SqlExpr::Literal(Value::Int64(1))),
                 }),
             }],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(10),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3750,8 +3304,6 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3762,8 +3314,6 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
             group_by: vec!["age".to_string()],
             having: vec![SqlExpr::Binary {
                 op: SqlExprBinaryOp::And,
@@ -3781,12 +3331,12 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                     negated: false,
                 }),
             }],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(10),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -3841,8 +3391,6 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3853,8 +3401,6 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
             group_by: vec!["age".to_string()],
             having: vec![SqlExpr::Binary {
                 op: SqlExprBinaryOp::Eq,
@@ -3876,12 +3422,12 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                 }),
                 right: Box::new(SqlExpr::Literal(Value::Int64(1))),
             }],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("age".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(10),
-            offset: None,
+            ..sql_select_from("users")
         }),
         "searched CASE HAVING values should stay on the shared post-aggregate SQL-expression boundary",
     );
@@ -3901,8 +3447,6 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3913,26 +3457,36 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
             group_by: vec!["age".to_string()],
-            having: vec![],
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("AVG(score)"),
-                    direction: SqlOrderDirection::Desc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("ROUND(AVG(score), 2)"),
-                    direction: SqlOrderDirection::Asc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("age"),
-                    direction: SqlOrderDirection::Asc,
-                },
+                sql_order_term(
+                    SqlExpr::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Avg,
+                        input: Some(Box::new(SqlExpr::Field("score".to_string()))),
+                        filter_expr: None,
+                        distinct: false,
+                    }),
+                    SqlOrderDirection::Desc,
+                ),
+                sql_order_term(
+                    sql_scalar_function_expr(
+                        SqlScalarFunction::Round,
+                        vec![
+                            SqlExpr::Aggregate(SqlAggregateCall {
+                                kind: SqlAggregateKind::Avg,
+                                input: Some(Box::new(SqlExpr::Field("score".to_string()))),
+                                filter_expr: None,
+                                distinct: false,
+                            }),
+                            SqlExpr::Literal(Value::Int64(2))
+                        ],
+                    ),
+                    SqlOrderDirection::Asc,
+                ),
+                sql_order_term(SqlExpr::Field("age".to_string()), SqlOrderDirection::Asc),
             ],
             limit: Some(10),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -4154,12 +3708,11 @@ fn parse_update_statement_with_assignments_and_predicate() {
                     value: sql_write_literal(Value::Int64(21)),
                 },
             ],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "id",
-                CompareOp::Eq,
-                Value::Int64(7),
-                CoercionId::Strict,
-            ))),
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("id".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Int64(7))
+            )),
             order_by: Vec::new(),
             limit: None,
             offset: None,
@@ -4244,12 +3797,11 @@ fn parse_update_statement_accepts_single_table_alias() {
                     value: sql_write_literal(Value::Int64(21)),
                 },
             ],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "u.id",
-                CompareOp::Eq,
-                Value::Int64(7),
-                CoercionId::Strict,
-            ))),
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("u.id".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Int64(7))
+            )),
             order_by: Vec::new(),
             limit: None,
             offset: None,
@@ -4274,21 +3826,14 @@ fn parse_update_statement_with_order_limit_and_offset() {
                 field: "age".to_string(),
                 value: sql_write_literal(Value::Int64(22)),
             }],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "active",
-                CompareOp::Eq,
-                Value::Bool(true),
-                CoercionId::Strict,
-            ))),
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("active".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Bool(true))
+            )),
             order_by: vec![
-                SqlOrderTerm {
-                    field: sql_order_expr("age"),
-                    direction: SqlOrderDirection::Desc,
-                },
-                SqlOrderTerm {
-                    field: sql_order_expr("id"),
-                    direction: SqlOrderDirection::Asc,
-                },
+                sql_order_term(SqlExpr::Field("age".to_string()), SqlOrderDirection::Desc),
+                sql_order_term(SqlExpr::Field("id".to_string()), SqlOrderDirection::Asc),
             ],
             limit: Some(2),
             offset: Some(1),
@@ -4360,7 +3905,11 @@ fn parse_update_statement_with_returning_star_parses() {
                 field: "alias.name".to_string(),
                 value: sql_write_literal(Value::Text("Ada".to_string())),
             }],
-            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int64(1))),
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("alias.id".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Int64(1))
+            )),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -4380,7 +3929,11 @@ fn parse_delete_statement_with_returning_field_list_parses() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: Some("alias".to_string()),
-            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int64(1),)),
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("alias.id".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Int64(1))
+            )),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -4402,7 +3955,11 @@ fn parse_delete_statement_with_returning_star_parses() {
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
             table_alias: None,
-            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int64(1),)),
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("id".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Int64(1))
+            )),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -4442,28 +3999,22 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
             table_alias: None,
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
-                entity: "users".to_string(),
-                table_alias: None,
                 projection: SqlProjection::Items(vec![
                     SqlSelectItem::Field("name".to_string()),
                     SqlSelectItem::Field("age".to_string()),
                 ]),
                 projection_aliases: vec![None, None],
-                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Gte,
-                    Value::Int64(21),
-                    CoercionId::NumericWiden,
-                ))),
-                distinct: false,
-                group_by: Vec::new(),
-                having: Vec::new(),
-                order_by: vec![SqlOrderTerm {
-                    field: sql_order_expr("id"),
-                    direction: SqlOrderDirection::Asc,
-                }],
+                predicate: Some(sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Literal(Value::Int64(21))
+                )),
+                order_by: vec![sql_order_term(
+                    SqlExpr::Field("id".to_string()),
+                    SqlOrderDirection::Asc,
+                )],
                 limit: Some(1),
-                offset: None,
+                ..sql_select_from("users")
             })),
             returning: None,
         }),
@@ -4485,28 +4036,22 @@ fn parse_insert_statement_with_computed_select_source_parses() {
             table_alias: None,
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
-                entity: "users".to_string(),
-                table_alias: None,
                 projection: SqlProjection::Items(vec![
                     sql_scalar_function_field_item(SqlScalarFunction::Lower, "name"),
                     SqlSelectItem::Field("age".to_string()),
                 ]),
                 projection_aliases: vec![None, None],
-                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Gte,
-                    Value::Int64(21),
-                    CoercionId::NumericWiden,
-                ))),
-                distinct: false,
-                group_by: Vec::new(),
-                having: Vec::new(),
-                order_by: vec![SqlOrderTerm {
-                    field: sql_order_expr("id"),
-                    direction: SqlOrderDirection::Asc,
-                }],
+                predicate: Some(sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Gte,
+                    SqlExpr::Literal(Value::Int64(21))
+                )),
+                order_by: vec![sql_order_term(
+                    SqlExpr::Field("id".to_string()),
+                    SqlOrderDirection::Asc,
+                )],
                 limit: Some(1),
-                offset: None,
+                ..sql_select_from("users")
             })),
             returning: None,
         }),
@@ -4806,8 +4351,6 @@ fn parse_sql_accepts_projection_aliases() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -4818,16 +4361,12 @@ fn parse_sql_accepts_projection_aliases() {
                 }),
             ]),
             projection_aliases: vec![Some("display_name".to_string()), Some("total".to_string())],
-            predicate: None,
-            distinct: false,
             group_by: vec!["name".to_string()],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("name"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: None,
-            offset: None,
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("name".to_string()),
+                SqlOrderDirection::Asc,
+            )],
+            ..sql_select_from("users")
         }),
     );
 }
@@ -4840,20 +4379,12 @@ fn parse_sql_accepts_bare_projection_aliases() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![sql_scalar_function_field_item(
                 SqlScalarFunction::Trim,
                 "name",
             )]),
             projection_aliases: vec![Some("trimmed_name".to_string())],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -4892,8 +4423,6 @@ fn parse_sql_accepts_coalesce_and_nullif_in_where() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
             projection_aliases: vec![None],
             predicate: Some(SqlExpr::Binary {
@@ -4913,12 +4442,7 @@ fn parse_sql_accepts_coalesce_and_nullif_in_where() {
                 )),
                 right: Box::new(SqlExpr::Literal(Value::Int64(99))),
             }),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -4931,8 +4455,6 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
                 input: Some(Box::new(SqlExpr::Field("age".to_string()))),
@@ -4940,13 +4462,7 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
                 distinct: true,
             })]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -4959,8 +4475,6 @@ fn parse_sql_accepts_aggregate_filter_clauses() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
                 input: None,
@@ -4972,13 +4486,7 @@ fn parse_sql_accepts_aggregate_filter_clauses() {
                 distinct: false,
             })]),
             projection_aliases: vec![None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -5005,8 +4513,6 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Avg,
@@ -5039,13 +4545,7 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
                 ),
             ]),
             projection_aliases: vec![None, None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -5064,8 +4564,6 @@ fn parse_select_grouped_statement_with_unary_text_having_exprs() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -5076,8 +4574,6 @@ fn parse_select_grouped_statement_with_unary_text_having_exprs() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
             group_by: vec!["name".to_string()],
             having: vec![sql_binary_expr(
                 sql_scalar_function_expr(
@@ -5093,12 +4589,12 @@ fn parse_select_grouped_statement_with_unary_text_having_exprs() {
                 SqlExprBinaryOp::Gte,
                 SqlExpr::Literal(Value::Text("b".to_string())),
             )],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("name"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            order_by: vec![sql_order_term(
+                SqlExpr::Field("name".to_string()),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(10),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -5132,8 +4628,6 @@ fn parse_sql_accepts_unary_text_function_wrapped_expression_aggregate_inputs() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Min,
@@ -5164,13 +4658,7 @@ fn parse_sql_accepts_unary_text_function_wrapped_expression_aggregate_inputs() {
                 }),
             ]),
             projection_aliases: vec![None, None],
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -5182,17 +4670,8 @@ fn parse_sql_accepts_table_alias_identifier_form() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
             table_alias: Some("u".to_string()),
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: None,
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![],
-            limit: None,
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -5207,25 +4686,26 @@ fn parse_sql_accepts_table_alias_as_form() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
             table_alias: Some("u".to_string()),
             projection: SqlProjection::Items(vec![SqlSelectItem::Field("u.name".to_string())]),
             projection_aliases: vec![None],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "u.age",
-                CompareOp::Gte,
-                Value::Int64(21),
-                CoercionId::NumericWiden,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("LOWER(u.name)"),
-                direction: SqlOrderDirection::Asc,
-            }],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("u.age".to_string()),
+                SqlExprBinaryOp::Gte,
+                SqlExpr::Literal(Value::Int64(21))
+            )),
+            order_by: vec![sql_order_term(
+                sql_scalar_function_expr(
+                    SqlScalarFunction::Lower,
+                    vec![SqlExpr::FieldPath {
+                        root: "u".to_string(),
+                        segments: vec!["name".to_string()],
+                    }],
+                ),
+                SqlOrderDirection::Asc,
+            )],
             limit: Some(1),
-            offset: None,
+            ..sql_select_from("users")
         }),
     );
 }
@@ -5240,28 +4720,25 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
-            entity: "public.users".to_string(),
             table_alias: Some("u".to_string()),
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("u.name".to_string()),
                 SqlSelectItem::Field("u.age".to_string()),
             ]),
             projection_aliases: vec![None, None],
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "u.age",
-                CompareOp::Gte,
-                Value::Int64(21),
-                CoercionId::NumericWiden,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("u.age"),
-                direction: SqlOrderDirection::Desc,
-            }],
-            limit: None,
-            offset: None,
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("u.age".to_string()),
+                SqlExprBinaryOp::Gte,
+                SqlExpr::Literal(Value::Int64(21))
+            )),
+            order_by: vec![sql_order_term(
+                SqlExpr::FieldPath {
+                    root: "u".to_string(),
+                    segments: vec!["age".to_string()],
+                },
+                SqlOrderDirection::Desc,
+            )],
+            ..sql_select_from("public.users")
         }),
     );
 }

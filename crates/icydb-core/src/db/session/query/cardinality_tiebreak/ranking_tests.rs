@@ -7,7 +7,7 @@ use crate::db::{
         preparation::{PreparationWork, with_preparation_work},
     },
     session::tests::cardinality_tiebreak::ranking_candidates_for_tests,
-    test_support::request_with_limit,
+    tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

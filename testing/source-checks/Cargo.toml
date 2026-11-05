@@ -9,6 +9,9 @@ description = "Shared development-only structural source checks"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.shared-tooling.loc]
+category = "build_tooling"
+
 [[bin]]
 name = "check_runtime_panics"
 path = "../../scripts/ci/check-runtime-panics.rs"

@@ -7,11 +7,6 @@ use crate::{
 };
 
 fn initialize_composite_store(key_fields: &[&str], kind: &AcceptedFieldKind) {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-    session.db.drive_startup_recovery_page().unwrap();
     let mut fields = key_fields
         .iter()
         .enumerate()
@@ -87,13 +82,7 @@ fn initialize_composite_store(key_fields: &[&str], kind: &AcceptedFieldKind) {
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
         bindings,
     );
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        session.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &candidate,
-    )
-    .unwrap();
+    initialize_schema_candidate(candidate);
 }
 
 const fn key_values(seed: u8, account: bool) -> (InputValue, OutputValue) {

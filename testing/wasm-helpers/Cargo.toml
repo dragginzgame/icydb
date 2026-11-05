@@ -6,6 +6,9 @@ license-file = { workspace = true }
 version = "0.297.0"
 publish = false
 
+[package.metadata.shared-tooling.loc]
+category = "build_tooling"
+
 [dependencies]
 ic-wire = { workspace = true }
 icydb = { workspace = true, default-features = true }

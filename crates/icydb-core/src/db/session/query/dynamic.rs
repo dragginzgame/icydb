@@ -3,6 +3,8 @@
 //! Does not own: query planning, accepted schema construction, or row projection.
 //! Boundary: entity-name requests converge on the shared structural read lane.
 
+// Test-only budget injection remains at page admission; fixtures and injected state live in helper_tests.
+
 use crate::{
     db::{
         DbSession, DynamicQuery, DynamicTypedEntityBinding, ExhaustiveQueryPageOutput,
@@ -46,25 +48,6 @@ use std::cell::Cell;
 
 #[cfg(not(test))]
 const SCALAR_PAGE_OUTPUT_ROWS: usize = 1_024;
-#[cfg(test)]
-const SCALAR_PAGE_OUTPUT_ROWS: usize = 2;
-#[cfg(test)]
-const SCALAR_PAGE_KEY_ENTRIES: u64 = 4;
-
-#[cfg(test)]
-std::thread_local! {
-    static SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE: Cell<Option<u64>> = const { Cell::new(None) };
-}
-
-#[cfg(test)]
-struct ScalarPageResultBytesLimitGuard(Option<u64>);
-
-#[cfg(test)]
-impl Drop for ScalarPageResultBytesLimitGuard {
-    fn drop(&mut self) {
-        SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE.with(|limit| limit.set(self.0));
-    }
-}
 
 #[derive(Clone, Copy)]
 enum DynamicReadLane {
@@ -851,19 +834,6 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(Self::live_page_error)
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn execute_trusted_live_page_with_result_bytes_limit_for_tests(
-        &self,
-        request: &DynamicQuery,
-        continuation: Option<&str>,
-        result_bytes_limit: u64,
-    ) -> Result<LiveQueryPageOutput, QueryError> {
-        let previous = SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE
-            .with(|limit| limit.replace(Some(result_bytes_limit)));
-        let _guard = ScalarPageResultBytesLimitGuard(previous);
-        self.execute_trusted_live_page(request, continuation)
-    }
-
     /// Execute one revision-strict bounded dynamic page.
     pub fn execute_public_exhaustive_page(
         &self,
@@ -937,3 +907,13 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+use helper_tests::SCALAR_PAGE_KEY_ENTRIES;
+#[cfg(test)]
+use helper_tests::SCALAR_PAGE_OUTPUT_ROWS;
+#[cfg(test)]
+use helper_tests::SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE;

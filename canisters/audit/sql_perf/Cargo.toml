@@ -29,8 +29,11 @@ icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [build-dependencies]
-icydb = { workspace = true }
-icydb-testing-audit-sql-perf-fixtures = { workspace = true }
+icydb = { workspace = true, features = ["build"] }
+icydb-testing-audit-sql-perf-fixtures = { workspace = true, features = ["build"] }
 
 [lints]
 workspace = true
+
+[package.metadata.shared-tooling.loc]
+category = "tests"

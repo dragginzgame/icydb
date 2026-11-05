@@ -9,6 +9,7 @@ use crate::db::query::{
     explain::{
         ExplainExecutionNodeDescriptor, FinalizedQueryDiagnostics,
         access_projection::write_access_json,
+        admission::write_public_read_admission,
         execution::{execution_mode_label, ordering_source_label},
         nodes::{
             execution_mode_detail_label, fast_path_reason, fast_path_selected,
@@ -36,6 +37,9 @@ fn write_execution_json(
     object.field_with("admission", |out| match diagnostics.admission() {
         Some(admission) => write_admission_json(admission, out),
         None => out.write_str("null"),
+    })?;
+    object.field_with("public_read_admission", |out| {
+        write_public_read_admission(diagnostics.public_read_admission(), out)
     })?;
     object.field_with("execution", |out| {
         let mut node_id_counter = 0_u64;

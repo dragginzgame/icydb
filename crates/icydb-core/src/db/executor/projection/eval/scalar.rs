@@ -318,18 +318,6 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_value_ref_reader<'a>(
     ValueRefSlotReader::new(std::slice::from_ref(expr), read_slot).evaluate(expr)
 }
 
-/// Evaluate one compiled expression through a canonical raw-row slot reader.
-#[cfg(test)]
-pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<'a>(
-    expr: &'a CompiledExpr,
-    slots: &'a dyn CanonicalSlotReader,
-    record_slot: &'a mut dyn FnMut(usize),
-) -> Result<Cow<'a, Value>, InternalError> {
-    CanonicalSlotExprReader::new(std::slice::from_ref(expr), slots, record_slot, true)
-        .evaluate_projection(expr)
-        .map(Cow::Owned)
-}
-
 // Evaluate direct `OCTET_LENGTH(field)` over scalar text/blob slots without
 // materializing `Value::Text` or `Value::Blob`. Unsupported slot shapes return
 // `None` so the normal compiled-expression evaluator preserves existing
@@ -411,85 +399,10 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        CompiledExpr, CompiledExprValueReader, PathCache, ValueCowSlotReader, ValueRefSlotReader,
-    };
-    use crate::{db::query::plan::expr::BinaryOp, value::Value};
-    use std::{borrow::Cow, cell::RefCell};
+mod tests;
 
-    struct SliceReader<'row> {
-        row: &'row [Value],
-    }
+#[cfg(test)]
+mod helper_tests;
 
-    impl CompiledExprValueReader for SliceReader<'_> {
-        fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
-            self.row.get(slot).map(Cow::Borrowed)
-        }
-
-        fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
-            None
-        }
-
-        fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
-            None
-        }
-    }
-
-    #[test]
-    fn compiled_expression_readers_agree_on_slot_arithmetic() {
-        let expr = reader_dispatch_expr();
-        for base in 0..4 {
-            let row = [
-                Value::Nat64(base + 1),
-                Value::Nat64(2),
-                Value::Nat64(base + 3),
-                Value::Nat64(5),
-            ];
-            let expected = expr
-                .evaluate(&SliceReader { row: &row })
-                .expect("slice expression")
-                .into_owned();
-            let mut borrowed = |slot| row.get(slot);
-            let mut cow = |slot| row.get(slot).map(Cow::Borrowed);
-            let mut owned = |slot| row.get(slot).cloned().map(Cow::Owned);
-            let readers: [&dyn CompiledExprValueReader; 3] = [
-                &ValueRefSlotReader {
-                    read_slot: RefCell::new(&mut borrowed),
-                    field_path_missing_is_null: true,
-                    paths: RefCell::new(PathCache::new(std::slice::from_ref(&expr))),
-                },
-                &ValueCowSlotReader {
-                    read_slot: RefCell::new(&mut cow),
-                    field_path_missing_is_null: true,
-                    paths: RefCell::new(PathCache::new(std::slice::from_ref(&expr))),
-                },
-                &ValueCowSlotReader {
-                    read_slot: RefCell::new(&mut owned),
-                    field_path_missing_is_null: true,
-                    paths: RefCell::new(PathCache::new(std::slice::from_ref(&expr))),
-                },
-            ];
-            for reader in readers {
-                assert_eq!(
-                    expr.evaluate(reader).expect("callback expression").as_ref(),
-                    &expected
-                );
-            }
-        }
-    }
-
-    fn reader_dispatch_expr() -> CompiledExpr {
-        CompiledExpr::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(CompiledExpr::Add {
-                left_slot: 0,
-                right_slot: 1,
-            }),
-            right: Box::new(CompiledExpr::Mul {
-                left_slot: 2,
-                right_slot: 3,
-            }),
-        }
-    }
-}
+#[cfg(test)]
+pub(in crate::db::executor) use helper_tests::eval_compiled_expr_with_required_slot_reader_cow;

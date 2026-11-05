@@ -1,5 +1,5 @@
 # Supported Hosts And Dependencies
-<!-- Shared companions: docs/ci-change-selection.md docs/rust-toolchains.md -->
+<!-- Shared companions: docs/ci-change-selection.md docs/rust-toolchains.md docs/tag-maintenance.md rules/agent-maintenance.md tasks/ci-health.md tasks/local-schedule.md -->
 
 For reviewed prose-only changes, use the [documentation-only CI selection](ci-change-selection.md)
 contract. Code and tooling changes retain the required native host coverage below.
@@ -201,9 +201,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | Tool | Additional dependencies |
 | --- | --- |
 | Evidence download and its portable fixture | GitHub CLI, jq, unzip and SHA-256 verification; the fixture also uses zip |
-| `scripts/dev/cloc.sh` | Git, Cargo, `cloc`, `jq`, `awk`, `find`, `grep`, and `sort` |
-| `scripts/dev/cloc-siblings.sh` | Git and the same prepared tools as `cloc.sh`; read-only root workspace summaries |
-| `scripts/dev/cloc-tooling.pl` | Git, cloc, and core Perl modules including JSON::PP and Digest::SHA; no Cargo or consumer command execution |
+| `scripts/dev/cloc.sh` | Git, Cargo, `cloc`, `jq`, Perl and core JSON::PP/File::Find/Cwd modules |
 | `scripts/dev/github-siblings.sh` | Git, jq, awk, sort, Perl core POSIX functions, system IANA timezone data (Europe/Paris), and an authenticated GitHub CLI |
 | `scripts/dev/gh-ci.sh` | Git and an authenticated GitHub CLI |
 | Local maintenance coordinator | Bash 3.2+, Git, prepared/authenticated Codex CLI with `exec --approve-for-me`, and a serial scheduler; the supplied user units require Linux systemd. Task tools remain optional consumer-qualified inputs; see [local scheduling](../tasks/local-schedule.md). The offline fixture substitutes Codex and starts no agent. |

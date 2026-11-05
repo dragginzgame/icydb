@@ -752,45 +752,6 @@ pub(in crate::db) struct AccessPlannedQuery {
 }
 
 impl AccessPlannedQuery {
-    /// Construct a minimal access-planned query with only an access path.
-    ///
-    /// Predicates, ordering, and pagination may be attached later.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
-        let access = AccessPlan::path(access);
-        let logical = LogicalPlan::Scalar(ScalarPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
-            filter_expr: None,
-            predicate_covers_filter_expr: false,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency,
-        });
-
-        Self::seeded_unfinalized(
-            logical,
-            access.clone(),
-            ProjectionSelection::All,
-            if access.has_selected_index_access_path() {
-                AccessChoiceExplainSnapshot::selected_index_not_projected()
-            } else {
-                non_index_access_choice_snapshot_for_access_plan(&access)
-            },
-        )
-    }
-
-    /// Construct one minimal full-scan access-planned query under the access
-    /// boundary for runtime tests that only need grouped execution shells.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn full_scan_for_test(consistency: MissingRowPolicy) -> Self {
-        Self::new(AccessPath::<Value>::FullScan, consistency)
-    }
-
     // Construct one seeded, unfinalized access-planned query shell so the
     // planner-owned access-choice seed and grouped/scalar route-profile seed
     // are initialized under one local authority.
@@ -1005,3 +966,6 @@ Self::Expression(field_0) => [field_0],
 crate::retained::retained_fields!(StaticExecutionPlanningContract {
 Self{primary_key_names,projection_spec,execution_preparation_predicate,execution_preparation_compiled_predicate,residual_filter_contract,predicate_pushdown_diagnostics,scalar_projection_plan,grouped_aggregate_execution_specs,grouped_distinct_execution_strategy,projection_direct_slots,projection_data_row_direct_slots,projection_referenced_slots,projection_is_model_identity,resolved_order,order_referenced_slots,slot_map,index_compile_targets} => [primary_key_names,projection_spec,execution_preparation_predicate,execution_preparation_compiled_predicate,residual_filter_contract,predicate_pushdown_diagnostics,scalar_projection_plan,grouped_aggregate_execution_specs,grouped_distinct_execution_strategy,projection_direct_slots,projection_data_row_direct_slots,projection_referenced_slots,projection_is_model_identity,resolved_order,order_referenced_slots,slot_map,index_compile_targets],
 });
+
+#[cfg(test)]
+mod helper_tests;

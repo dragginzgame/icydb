@@ -256,15 +256,6 @@ impl<'a> AcceptedFieldPersistenceContract<'a> {
         })
     }
 
-    /// Build an explicit paired contract for focused data-layer tests.
-    #[cfg(test)]
-    pub(in crate::db) fn new_for_tests(
-        value_catalog: &'a AcceptedValueCatalogHandle,
-        field: AcceptedFieldDecodeContract<'a>,
-    ) -> Result<Self, EnumCatalogBuildError> {
-        Self::new(value_catalog, field)
-    }
-
     /// Return the field codec facts admitted with this catalog.
     #[must_use]
     pub(in crate::db) const fn field(&self) -> AcceptedFieldDecodeContract<'a> {
@@ -872,3 +863,6 @@ crate::retained::retained_fields!(OwnedAcceptedRelationSourceContract {
 Self::Direct{field_slots} => [field_slots],
 Self::Nested{root_slot,steps} => [root_slot,steps],
 });
+
+#[cfg(test)]
+mod helper_tests;

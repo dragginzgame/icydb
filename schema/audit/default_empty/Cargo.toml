@@ -9,6 +9,13 @@ description = "Default-empty schema fixture crate for lightweight wasm canister 
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.shared-tooling.loc]
+category = "tests"
+
+[features]
+default = []
+build = ["icydb/build"]
+
 [dependencies]
 icydb = { workspace = true, default-features = true }
 icydb-testing-wasm-helpers = { workspace = true }

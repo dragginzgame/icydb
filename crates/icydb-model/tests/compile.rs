@@ -45,8 +45,11 @@ fn collection_normalizer_positions() {
 }
 
 #[test]
-fn generated_index_name_diagnostics() {
+fn index_name_diagnostics() {
     let tests = trybuild::TestCases::new();
     tests.compile_fail("tests/ui/index_names/collisions.rs");
     tests.pass("tests/ui/index_names/distinct.rs");
+    tests.pass("tests/ui/index_names/automatic.rs");
+    tests.compile_fail("tests/ui/index_names/invalid.rs");
+    tests.compile_fail("tests/ui/index_names/duplicate_definition.rs");
 }

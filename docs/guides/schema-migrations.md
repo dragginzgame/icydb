@@ -271,8 +271,8 @@ requires its complete accepted source meaning to match after reversing only
 relation-target entity names explicitly renamed by this plan. Unrelated field,
 type, index or constraint changes still reject, as do meaningless version bumps.
 Do not add a fake transform, rename Holder's own fields, or omit its transition.
-See the compiled [Item/Holder declarations](../../schema/test/sql/src/entity_rename.rs)
-and [canister plan](../../schema/test/sql/src/sql.rs).
+See the compiled [Item/Holder declarations](../../schema/tests/sql/src/entity_rename.rs)
+and [canister plan](../../schema/tests/sql/src/sql.rs).
 
 This metadata-only transition publishes atomically in one `Advance`, preserving
 accepted identities and stored rows/indexes. It does not enter physical rewrite

@@ -1,6 +1,6 @@
 //! Public scoped reads choose the accepted index that supplies their ordering.
 
-use super::{materialized_sort_admission::summary, scalar_page_limits, *};
+use super::{materialized_sort_admission::summary, *};
 use crate::{
     db::{OrderTerm, RequestExecutionRoot, desc, query::preparation::with_preparation_work},
     types::Ulid,
@@ -42,7 +42,7 @@ fn initialize_scoped_serials(unique: bool) {
             )
         })
         .collect();
-    scalar_page_limits::initialize_payload_schema(fields, indexes);
+    initialize_field_schema(fields, indexes);
 }
 
 fn scoped_filter() -> DynamicQuery {

@@ -1,5 +1,5 @@
 # Cargo dependency ownership
-<!-- Shared companions: ci/examples/platform-owner-boundaries.json -->
+<!-- Shared companions: ci/examples/platform-owner-boundaries.json rules/rust-workspaces.md -->
 
 These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md).
 The repository's root `Cargo.toml` is the authoritative catalog of direct

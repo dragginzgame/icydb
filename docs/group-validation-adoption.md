@@ -146,3 +146,24 @@ inputs change. Keep required native acceptance, but do not permanently run the
 full gate plus every selected gate on every ordinary CI change. Update baseline
 discovery when changing qualification jobs. Common parser/roster/evidence
 regressions stay in Shared; consumer fixtures cover actual policy and wiring.
+
+### Replacing existing release evidence parsers
+
+Use this ownership mapping when migrating a consumer that already seals its
+own release receipt (such as Canic or Platform):
+
+| Existing local work | Replacement or retained owner |
+| --- | --- |
+| Parse `plan-events.tsv`, `timings.tsv`, checkpoints and log paths | Call Shared `verify` once on the exact run and retain its complete result. Do not parse those runner files again. |
+| Assemble per-stage results | Read `stages` from that result: `target`, `state`, and for passing stages `seconds`, `log`, `log_sha256`; excluded stages retain their reason. |
+| Bind policy, source inputs and context | Retain the complete shared proof, including its `files` and `inputs` bindings, inside the consumer-owned protected receipt. A projected stage list alone is insufficient. |
+| Check an unchanged original attempt | Call Shared `check` against the original proof and physical source/run location. |
+| Admit reconstructed source, version preparation, relocation or later publication | Keep the consumer's independently qualified custody/projection contract. Shared `check` does not authorize or normalize those transitions. |
+| Host qualification, release intent and executed-versus-reused semantics | Keep the consumer admission and any separate stage-reuse proof; `PASS` alone does not prove fresh execution. |
+
+Shared stage `log` paths are relative to the proof's `run` directory. Preserve
+that base when projecting a diagnostic path; never reinterpret them relative to
+the repository root. Do not relabel every passing target as freshly executed.
+Replace the parser only after the actual caller qualifies successful and
+excluded stages, failed/interrupted runs, changed logs/context, source drift and
+its recovery path. This migration needs no new runner or generic proof format.

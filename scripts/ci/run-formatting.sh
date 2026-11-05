@@ -9,7 +9,10 @@ fi
 label='Checking formatting'
 [[ "$1" != --write ]] || label=Formatting
 shift
-log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/formatting.XXXXXX")"
+# Make invokes this wrapper in the consumer root; never use the helper checkout.
+scratch="${RUNNER_TEMP:-${TMPDIR:-$PWD/target/tmp}}"
+mkdir -p -- "$scratch"
+log="$(mktemp "$scratch/formatting.XXXXXX")"
 finish() {
     local status=$?
     if [[ "$status" == 0 ]]; then

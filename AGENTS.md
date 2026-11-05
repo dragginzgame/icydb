@@ -1,7 +1,7 @@
 # IcyDB Agent Rules
 
 For scope, delegated delivery, validation, compiler support and reporting, use
-[Shared policy at 628ccc7](https://github.com/dragginzgame/shared-tooling/blob/628ccc75d813bfd9bae777bfbaef55838d25b1b2/DRAGGINZGAME.md)
+[Shared policy at 2aa41c7](https://github.com/dragginzgame/shared-tooling/blob/2aa41c7394300302fe802b69b31b855bdc89b671/DRAGGINZGAME.md)
 and its revision-bound references over older snapshot or local-guide wording.
 This includes Rust 1.99.1 as minimum and pinned development/release compiler;
 check local declarations and qualification before claiming adoption is complete.
@@ -17,7 +17,9 @@ qualification uses `testing/canic-adapter/Cargo.toml` and its own lockfile, with
 no package-directory relocation ([#596](https://github.com/dragginzgame/icydb/issues/596)).
 Product packages and product gates remain in the root workspace; explicit Canic
 qualification owns its integration checks and may retain an older qualified stack.
-Ordinary adoption does not authorize further relocation or workspaces; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
+The maintainer authorized Shared 0.30's singular-to-plural test-directory cut on
+2026-11-05 (`canisters/tests/` and `schema/tests/`); package identities and workspace
+ownership remain unchanged. Ordinary adoption does not authorize further relocation or workspaces; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
 owns future placement decisions. See [shared-tooling adoption](docs/governance/shared-tooling.md)
 for provenance and consumer boundaries. Keep this file small; open detailed docs as needed.
 
@@ -141,9 +143,6 @@ rather than prohibiting retired names.
 - Preserve issue-linked outcome bullets in pending group ledgers when adding
   fixes; do not replace them with an omnibus summary. See the shared
   [readable layout](rules/changelogs.md#readable-release-layout).
-- Maintainer-approved presentation override (2026-11-03): keep fixed-issue links
-  in each group's main `releases/<group>/CHANGELOG.md`; root `CHANGELOG.md` is
-  navigation only. This overrides Shared's root fixed-issue index requirement.
 - Keep meaningful completed behavior/tooling notes in the selected release-group ledger
   and minor-line draft before handoff. Governance-only edits need no note unless
   requested. Never create an `Unreleased` section or a separate notes queue.

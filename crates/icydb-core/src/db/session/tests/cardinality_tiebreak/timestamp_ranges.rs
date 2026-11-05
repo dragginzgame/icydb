@@ -7,7 +7,7 @@ use crate::{
 };
 
 fn seed_timestamps(unique: bool) -> Vec<(i64, u64)> {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "stamp", 1, AcceptedFieldKind::Timestamp),

@@ -6,7 +6,7 @@ use crate::{
             CoercionId, CoercionSpec, CompareFieldsPredicate, CompareOp, ComparePredicate,
         },
         query::admission::input::MAX_QUERY_INPUT_DEPTH,
-        test_support::request_with_limit,
+        tests::support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };

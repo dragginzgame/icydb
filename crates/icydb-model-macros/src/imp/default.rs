@@ -43,8 +43,8 @@ impl Imp<Enum> for DefaultTrait {
         let inner = if let Some(value) = &default_variant.value {
             let value_type = value.type_expr(paths);
             implementor =
-                implementor.add_impl_constraint(quote!(#value_type: ::core::default::Default));
-            quote!(Self::#variant_ident(::core::default::Default::default()))
+                implementor.add_impl_constraint(quote!(#value_type: ::std::default::Default));
+            quote!(Self::#variant_ident(::std::default::Default::default()))
         } else {
             quote!(Self::#variant_ident)
         };
@@ -111,7 +111,7 @@ impl Imp<Newtype> for DefaultTrait {
             };
             expression
         } else {
-            quote!(::core::convert::Into::into(#default_expr))
+            quote!(::std::convert::Into::into(#default_expr))
         };
         let q = quote! {
             fn default() -> Self {
@@ -138,12 +138,12 @@ impl Imp<Tuple> for DefaultTrait {
         for value in &node.values {
             let value_type = value.type_expr(paths);
             implementor =
-                implementor.add_impl_constraint(quote!(#value_type: ::core::default::Default));
+                implementor.add_impl_constraint(quote!(#value_type: ::std::default::Default));
         }
         let values = node
             .values
             .iter()
-            .map(|_| quote!(::core::default::Default::default()));
+            .map(|_| quote!(::std::default::Default::default()));
         let tokens = implementor
             .set_tokens(quote! {
                 fn default() -> Self {

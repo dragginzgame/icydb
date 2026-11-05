@@ -1,5 +1,7 @@
 //! Structured proposal binding and canonicalization for `CheckExprV1`.
 
+// The test-only BETWEEN input and match arm remain in the binder enum to exercise its lowering boundary.
+
 use crate::db::schema::check::MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS;
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec},

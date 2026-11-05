@@ -6,7 +6,9 @@ This is the opt-in stage contract for
 with new stage evidence. Existing release runners, whole-gate receipts and
 complete gates keep their current behavior. A consumer must explicitly select
 and qualify a bounded stage before using this interface in its release gate.
-Cargo version projection is not implemented or enabled.
+The exact-input runner never normalizes Cargo versions. An explicitly qualified
+consumer can instead prepare the final candidate described below and run its
+stages against those exact prospective versions.
 
 [Group validation plans](release-group-validation.md) separately decide which
 obligations apply. An applicable stage may reuse evidence only through this
@@ -210,3 +212,76 @@ and admission at the same selected inputs. Report comparison overhead, which
 stages still execute and observed savings without promising the original full
 11.6 minutes will disappear. Substituted command fixtures prove ordering and
 failure propagation, not native acceptance, archive qualification or a speedup.
+
+## Prepared final Cargo candidates
+
+`prepare-cargo-stage-source.pl --root DIR --state target/STAGE-CANDIDATES
+--source COMMIT --editor ABSOLUTE` is an opt-in source producer, not a release
+runner or an equivalence rule for old binaries. It requires clean committed
+source/index, regular tracked files, the admitted IC Build editor, locked offline
+resolution and the ordinary Cargo configuration. Build/configuration overrides
+require ordinary execution rather than being silently discarded.
+
+The producer exports the selected source and uses the canonical group metadata
+transaction/editor to render each numbered `Unreleased` candidate. Finalized
+groups keep their current version. The resulting disposable source therefore
+compiles and tests the actual intended final versions, including package-version
+constants, checkpoints, build scripts and retained document fields. A later group
+can reach the same candidate bytes after earlier supplier groups have shipped.
+It cannot reuse evidence merely because a diff appears to contain only versions.
+
+Candidate-only ledgers and group metadata files are replaced with fixed,
+non-authorizing stage fixtures. Those inputs must not carry application data.
+The consumer must qualify that its selected stages do not require their original
+contents, and must retain fresh real metadata/receipt/rollback admission. A
+candidate's empty receipt cannot authorize delivery. Never deploy, package for
+publication or copy these stage-only records into the real checkout. Exact mixed-
+version package archives, source/index/group-policy and registry admission remain
+fresh in the owning checkout. Consumers also keep a small fresh check of actual
+intermediate version-sensitive integration surfaces where those differ from the
+final candidate; caching the prospective integration suite does not prove them.
+
+The identity binds the complete candidate file inventory, bytes and modes.
+Rendering changes no parent source/index. A retained candidate is checked for
+source/mode drift and dirty state before use; it is never silently repaired.
+Source, failed preparations and execution logs remain under the declared target
+state. This is reproducible validation scratch, not an additional implementation
+or delivery checkout. Managed tool selection stays with the caller through an explicit read-only
+tools root. The producer creates no tool-root symlink and performs no setup.
+
+`observe-cargo-stage.pl` inventories exact candidate files, expanded dependency
+sources, native compiler tools/headers and Rust toolchain payloads. It runs in an
+explicit bounded environment with caller-supplied tool inputs. Its current native
+contract is Linux; other hosts retain ordinary execution until separately
+qualified. The normal exact-input runner retains immutable executed proof and
+fresh admissions, including native host, tool, environment, command and working-
+directory bindings. `--admission-output FILE` writes a separate immutable machine-
+readable admission for thin callers; occupied or redirected destinations refuse.
+Executable aliases preserve their invocation name (for example the Cargo rustup
+proxy) while the resolved payload is hashed and re-admitted.
+
+`seal-validation-stage.pl ADMISSION SOURCE GROUP CANDIDATE_ID` verifies the original
+execution proof/log identities and produces compact self-contained custody
+bindings. Consumers embed those bindings in a new receipt kind, distinguish
+execution/reuse, and retain fresh source/selection and product evidence. This does
+not convert old whole-gate receipts or grant permission to reuse unrelated stages.
+
+Before publication can consume candidate lint, run
+`check-cargo-stage-closure.pl ACTUAL CANDIDATE PRIMARY`. It requires equality of
+the actual selected package's complete resolved package/target/feature/dependency
+closure, retaining versions and source identities. Different physical source roots
+are rebased only for that comparison. A not-yet-released dependency, changed
+feature or mismatched primary refuses equivalence; use ordinary current-source
+lint. The consumer must qualify its lint command's coverage of that primary.
+Actual archive creation/verification, upload admission and registry provenance
+never become cached stages.
+
+Publication may consume an existing completed lint qualification without treating
+it as a new execution on today's host. Verify its original proof/log custody and
+run `prepare-cargo-stage-source.pl --verify-projection ABSOLUTE_JSON` to recheck
+the retained candidate's complete file inventory, modes and clean state without
+rendering or tool setup. The projection must come from the admitted source-bound
+receipt, never an untrusted lookup. Re-admit the actual release source and exact
+primary closure as above; missing/damaged local evidence requires ordinary lint.
+This does not create a new generic exact-input admission, change the original
+qualification host or cache archive/registry checks.

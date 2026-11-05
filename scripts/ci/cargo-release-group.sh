@@ -50,7 +50,6 @@ admit() {
     [[ "${statuses[1]}" == 0 ]] || return "${statuses[1]}"
     "${YQ:-yq}" -p toml -o json '.' "$root/Cargo.toml" > "$evidence/root.json" || return
     "${YQ:-yq}" -p toml -o json '.' "$root/Cargo.lock" > "$evidence/lock.json" || return
-    printf '{}\n' > "$evidence/manifests.json"
     jq -er '. as $m | .packages[] | select(.id as $id | $m.workspace_members | index($id)) | [.name,.manifest_path] | @tsv' \
         "$evidence/metadata.json" > "$evidence/members" || return
     while IFS=$'\t' read -r package manifest; do
@@ -58,11 +57,18 @@ admit() {
         release_metadata_regular "$root" "$path" || return 1
         canonical="$(cd -P "${manifest%/*}" && pwd -P)/${manifest##*/}" || return
         [[ "$canonical" == "$manifest" ]] || return 1
-        "${YQ:-yq}" -p toml -o json '.' "$manifest" > "$evidence/member.json" || return
-        jq --arg package "$package" --slurpfile value "$evidence/member.json" '. + {($package):$value[0]}' \
-            "$evidence/manifests.json" > "$evidence/next.json" || return
-        mv "$evidence/next.json" "$evidence/manifests.json" || return
-    done < "$evidence/members"
+        "${YQ:-yq}" -p toml -o json '.' "$manifest" || return
+    done < "$evidence/members" > "$evidence/member-documents.json"
+    # Parse each admitted member once and assemble in one pass, avoiding a jq
+    # process and a growing JSON rewrite for every member. yq's TOML decoder
+    # reads only the first file even with eval-all, so keep per-file decoding.
+    # Every operation and prepared candidate still gets fresh Cargo admission.
+    jq -s --rawfile members "$evidence/members" '
+            ($members | split("\n") | map(select(length > 0) | split("\t")[0])) as $names |
+            if length != ($names | length) then error("member parser document count mismatch")
+            else . as $values | reduce range(0; $names | length) as $i
+                ({}; .[$names[$i]] = $values[$i]) end' "$evidence/member-documents.json" \
+        > "$evidence/manifests.json" || return
     jq -L "$script_dir" -e --slurpfile config "$root/$policy" --slurpfile root "$evidence/root.json" \
         --slurpfile manifests "$evidence/manifests.json" --slurpfile lock "$evidence/lock.json" --arg group "$group" '
         include "cargo-release-groups";
@@ -81,10 +87,11 @@ admit() {
         include "cargo-release-groups";
         . as $m | member_catalog($root[0];
           [.packages[] | select(.id as $id | $m.workspace_members | index($id))])[] |
-        [.package,.value.path] | @tsv' "$evidence/metadata.json" > "$evidence/dependencies" || return
-    while IFS=$'\t' read -r package path; do
+        . as $entry | [$entry.package,$entry.value.path,
+          ($m.packages[] | select(.name == $entry.package and .source == null) | .manifest_path)] | @tsv' \
+        "$evidence/metadata.json" > "$evidence/dependencies" || return
+    while IFS=$'\t' read -r package path manifest; do
         canonical="$(cd "$root/$path" && pwd -P)/Cargo.toml" || return
-        manifest="$(jq -er --arg name "$package" '.packages[] | select(.name == $name and .source == null) | .manifest_path' "$evidence/metadata.json")" || return
         [[ "$canonical" == "$manifest" ]] || { echo "root dependency path for $package is not its owned member" >&2; return 1; }
     done < "$evidence/dependencies"
     jq -r '(.shared_metadata_files // [])[], (.groups[] | .changelog, (.metadata_files // [])[])' "$root/$policy" > "$evidence/ledgers" || return

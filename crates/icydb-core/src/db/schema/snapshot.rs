@@ -58,17 +58,6 @@ impl AcceptedSchemaSnapshot {
         Ok(Self { snapshot })
     }
 
-    /// Wrap one persisted snapshot for owner-local test fixtures.
-    ///
-    /// This unchecked constructor exists only for tests that intentionally
-    /// construct inconsistent accepted metadata to prove accessor authority.
-    /// Runtime acceptance must use `try_new`.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn new(snapshot: PersistedSchemaSnapshot) -> Self {
-        Self { snapshot }
-    }
-
     /// Borrow the accepted persisted snapshot payload.
     #[must_use]
     pub(in crate::db) const fn persisted_snapshot(&self) -> &PersistedSchemaSnapshot {
@@ -162,13 +151,6 @@ impl AcceptedSchemaSnapshot {
             .iter()
             .find(|field| field.name() == name)
     }
-
-    /// Borrow one accepted field kind by persisted field name.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&AcceptedFieldKind> {
-        self.field_by_name(name).map(PersistedFieldSnapshot::kind)
-    }
 }
 
 ///
@@ -233,65 +215,6 @@ impl PersistedSchemaSnapshot {
     fn validate_constraint_candidate(&self) -> Result<(), AcceptedConstraintCatalogError> {
         validate_schema_snapshot_acceptance(self)
             .map_err(SchemaSnapshotAcceptanceError::into_constraint_error)
-    }
-
-    /// Build one persisted schema snapshot from already-validated pieces.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn new(
-        version: SchemaVersion,
-        entity_path: String,
-        entity_name: String,
-        primary_key_field_ids: impl IntoPrimaryKeyFieldIds,
-        row_layout: SchemaRowLayout,
-        fields: Vec<PersistedFieldSnapshot>,
-    ) -> Self {
-        let snapshot = Self::new_with_primary_key_fields_and_indexes(
-            version,
-            entity_path,
-            entity_name,
-            primary_key_field_ids.into_primary_key_field_ids(),
-            row_layout,
-            fields,
-            Vec::new(),
-        );
-        let catalog = AcceptedConstraintCatalog::initial(
-            snapshot.fields(),
-            snapshot.indexes(),
-            snapshot.relations(),
-        )
-        .expect("test structural constraint catalog should build");
-        snapshot.with_constraint_catalog(catalog)
-    }
-
-    /// Build one persisted schema snapshot with accepted index contracts.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn new_with_indexes(
-        version: SchemaVersion,
-        entity_path: String,
-        entity_name: String,
-        primary_key_field_ids: impl IntoPrimaryKeyFieldIds,
-        row_layout: SchemaRowLayout,
-        fields: Vec<PersistedFieldSnapshot>,
-        indexes: Vec<PersistedIndexSnapshot>,
-    ) -> Self {
-        let snapshot = Self::new_with_primary_key_fields_and_indexes(
-            version,
-            entity_path,
-            entity_name,
-            primary_key_field_ids.into_primary_key_field_ids(),
-            row_layout,
-            fields,
-            indexes,
-        );
-        let catalog = AcceptedConstraintCatalog::initial(
-            snapshot.fields(),
-            snapshot.indexes(),
-            snapshot.relations(),
-        )
-        .expect("test structural constraint catalog should build");
-        snapshot.with_constraint_catalog(catalog)
     }
 
     /// Build one persisted schema snapshot with ordered accepted primary-key
@@ -1301,16 +1224,6 @@ impl PersistedIndexSnapshot {
         self.predicate.as_ref()
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn clone_with_predicate_for_tests(
-        &self,
-        predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
-    ) -> Self {
-        let mut index = self.clone();
-        index.predicate = predicate;
-        index
-    }
-
     /// Return whether this index depends on one accepted field.
     ///
     /// Both key components and filtered-index predicates participate through
@@ -1417,18 +1330,6 @@ impl PersistedIndexKeySnapshot {
     #[must_use]
     pub(in crate::db) const fn new(items: Vec<PersistedIndexKeyItemSnapshot>) -> Self {
         Self { items }
-    }
-
-    /// Lower a field-only key through the same item representation.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn from_field_paths(paths: Vec<PersistedIndexFieldPathSnapshot>) -> Self {
-        Self::new(
-            paths
-                .into_iter()
-                .map(PersistedIndexKeyItemSnapshot::FieldPath)
-                .collect(),
-        )
     }
 
     /// Borrow accepted components in physical key order.
@@ -1867,114 +1768,6 @@ pub(in crate::db) struct PersistedFieldSnapshot {
 }
 
 impl PersistedFieldSnapshot {
-    /// Build one persisted field snapshot from already-validated pieces.
-    #[cfg(test)]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "schema snapshot construction keeps every persisted field contract explicit"
-    )]
-    #[must_use]
-    pub(in crate::db) const fn new_initial(
-        id: FieldId,
-        name: String,
-        slot: SchemaFieldSlot,
-        kind: AcceptedFieldKind,
-        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
-        nullable: bool,
-        insert_default: SchemaInsertDefault,
-        storage_decode: FieldStorageDecode,
-        leaf_codec: LeafCodec,
-    ) -> Self {
-        Self::new_with_write_policy_and_origin(
-            id,
-            name,
-            slot,
-            kind,
-            nested_leaves,
-            nullable,
-            RowLayoutVersion::INITIAL,
-            insert_default,
-            SchemaHistoricalFill::Reject,
-            SchemaFieldWritePolicy::none(),
-            PersistedFieldOrigin::Generated,
-            storage_decode,
-            leaf_codec,
-        )
-    }
-
-    /// Build one initial generated field with explicit database write policy.
-    #[cfg(test)]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "schema snapshot construction keeps every persisted field contract explicit"
-    )]
-    #[must_use]
-    pub(in crate::db) const fn new_initial_with_write_policy(
-        id: FieldId,
-        name: String,
-        slot: SchemaFieldSlot,
-        kind: AcceptedFieldKind,
-        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
-        nullable: bool,
-        insert_default: SchemaInsertDefault,
-        write_policy: SchemaFieldWritePolicy,
-        storage_decode: FieldStorageDecode,
-        leaf_codec: LeafCodec,
-    ) -> Self {
-        Self::new_with_write_policy_and_origin(
-            id,
-            name,
-            slot,
-            kind,
-            nested_leaves,
-            nullable,
-            RowLayoutVersion::INITIAL,
-            insert_default,
-            SchemaHistoricalFill::Reject,
-            write_policy,
-            PersistedFieldOrigin::Generated,
-            storage_decode,
-            leaf_codec,
-        )
-    }
-
-    /// Build one initial field with explicit write policy and durable origin.
-    #[cfg(test)]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "schema snapshot construction keeps every persisted field contract explicit"
-    )]
-    #[must_use]
-    pub(in crate::db) const fn new_initial_with_write_policy_and_origin(
-        id: FieldId,
-        name: String,
-        slot: SchemaFieldSlot,
-        kind: AcceptedFieldKind,
-        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
-        nullable: bool,
-        insert_default: SchemaInsertDefault,
-        write_policy: SchemaFieldWritePolicy,
-        origin: PersistedFieldOrigin,
-        storage_decode: FieldStorageDecode,
-        leaf_codec: LeafCodec,
-    ) -> Self {
-        Self::new_with_write_policy_and_origin(
-            id,
-            name,
-            slot,
-            kind,
-            nested_leaves,
-            nullable,
-            RowLayoutVersion::INITIAL,
-            insert_default,
-            SchemaHistoricalFill::Reject,
-            write_policy,
-            origin,
-            storage_decode,
-            leaf_codec,
-        )
-    }
-
     /// Build one persisted field snapshot with explicit write policy and origin.
     #[expect(
         clippy::too_many_arguments,
@@ -2324,16 +2117,6 @@ pub(in crate::db) struct SchemaFieldWritePolicy {
 }
 
 impl SchemaFieldWritePolicy {
-    /// Build one empty write-policy contract.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn none() -> Self {
-        Self {
-            insert_generation: None,
-            write_management: None,
-        }
-    }
-
     /// Build one write-policy contract from generated schema metadata.
     #[must_use]
     pub(in crate::db) const fn from_model_policies(
@@ -2390,3 +2173,6 @@ crate::retained::retained_fields!(SchemaInsertDefault {
 Self::None => [],
 Self::SlotPayload(field_0) => [field_0],
 });
+
+#[cfg(test)]
+mod helper_tests;

@@ -5012,7 +5012,7 @@ fn sql_canister_numeric_type_endpoint_executes_small_width_numeric_projection_qu
         ],
         &[&["alpha", "4", "17", "-2"], &["beta", "8", "23", "1"]],
         2,
-        "query(sql) should preserve Int8/Nat8/Nat16 arithmetic at the schema/test SQL canister boundary",
+        "query(sql) should preserve Int8/Nat8/Nat16 arithmetic at the schema/tests SQL canister boundary",
     );
 }
 
@@ -5047,7 +5047,7 @@ fn sql_canister_numeric_type_endpoint_executes_wide_integer_projection_queries()
             &["alpha", "33", "500", "1120"],
         ],
         2,
-        "query(sql) should preserve Int16/Int32/Int64 and Nat32/Nat64 arithmetic at the schema/test SQL canister boundary",
+        "query(sql) should preserve Int16/Int32/Int64 and Nat32/Nat64 arithmetic at the schema/tests SQL canister boundary",
     );
 }
 
@@ -5083,7 +5083,7 @@ fn sql_canister_numeric_type_endpoint_executes_decimal_float_projection_queries(
             &["alpha", "15.00", "0.05", "0.25", "1.25"],
         ],
         2,
-        "query(sql) should preserve Decimal/Float32/Float64 arithmetic at the schema/test SQL canister boundary",
+        "query(sql) should preserve Decimal/Float32/Float64 arithmetic at the schema/tests SQL canister boundary",
     );
 }
 
@@ -5114,7 +5114,7 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
         ],
         &[&["2", "10", "46.5", "-2", "9000"]],
         1,
-        "query(sql) should preserve mixed numeric global aggregates at the schema/test SQL canister boundary",
+        "query(sql) should preserve mixed numeric global aggregates at the schema/tests SQL canister boundary",
     );
 
     let grouped = expect_grouped(
@@ -5156,7 +5156,7 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
             row_count: 2,
             next_cursor: None,
         },
-        "query(sql) should preserve mixed numeric grouped aggregates at the schema/test SQL canister boundary",
+        "query(sql) should preserve mixed numeric grouped aggregates at the schema/tests SQL canister boundary",
     );
 }
 

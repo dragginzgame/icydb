@@ -3,6 +3,8 @@
 //! Does not own: reconciliation policy, schema proposal construction, or row decoding.
 //! Boundary: accepted domain types <-> current `SchemaStore` payload bytes.
 
+// Test decode counters stay at decoder entry; counter state and helpers live in helper_tests.
+
 mod constraint;
 mod field;
 mod index;
@@ -39,21 +41,6 @@ const MAX_SLOT_PAYLOAD_BYTES: usize = MAX_SCHEMA_SNAPSHOT_BYTES as usize;
 const MAX_SQL_TEXT_BYTES: usize = MAX_SCHEMA_SNAPSHOT_BYTES as usize;
 const MAX_CONSTRAINT_ACTIVATIONS: usize = 512;
 
-#[cfg(test)]
-thread_local! {
-    static PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(in crate::db) fn reset_persisted_schema_snapshot_decode_count_for_tests() {
-    PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(|calls| calls.set(0));
-}
-
-#[cfg(test)]
-pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
-    PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS.with(Cell::get)
-}
-
 /// Encode one accepted persisted-schema snapshot into its sole current format.
 pub(in crate::db) fn encode_persisted_schema_snapshot(
     snapshot: &PersistedSchemaSnapshot,
@@ -72,14 +59,6 @@ pub(in crate::db::schema) fn encode_persisted_schema_snapshot_with_version(
     validate_schema_snapshot_acceptance(snapshot)
         .map_err(SchemaSnapshotAcceptanceError::into_invariant_error)?;
     encode_snapshot(snapshot, version)
-}
-
-/// Encode an intentionally malformed domain fixture for decode-boundary tests.
-#[cfg(test)]
-pub(in crate::db) fn encode_unchecked_persisted_schema_snapshot_for_tests(
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<Vec<u8>, InternalError> {
-    encode_snapshot(snapshot, snapshot.version())
 }
 
 fn encode_snapshot(
@@ -291,3 +270,16 @@ pub(in crate::db::schema) fn encode_index_predicate_bytes(
     index_predicate::encode(&mut writer, predicate, 0)?;
     writer.finish()
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(in crate::db) use helper_tests::encode_unchecked_persisted_schema_snapshot_for_tests;
+#[cfg(test)]
+pub(in crate::db) use helper_tests::persisted_schema_snapshot_decode_count_for_tests;
+#[cfg(test)]
+pub(in crate::db) use helper_tests::reset_persisted_schema_snapshot_decode_count_for_tests;
+
+#[cfg(test)]
+use helper_tests::PERSISTED_SCHEMA_SNAPSHOT_DECODE_CALLS;

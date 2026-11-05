@@ -58,9 +58,9 @@ for my $document (@documents) {
     }
 }
 
-# README selects a supported release independently of metadata preparation.
-# Both dependency examples must agree on a canonical tag no newer than the
-# workspace; preparing a new release does not rewrite ordinary source prose.
+# Released examples agree on a supported tag independently of metadata
+# preparation. The pending hard cut instead documents the exact development
+# pair: runtime without generation and the same source with explicit build.
 unless (@ARGV) {
     my $manifest = read_file('crates/icydb/Cargo.toml');
     $manifest =~ /\[package\]([^\[]+)/s or die "missing database package\n";
@@ -69,9 +69,13 @@ unless (@ARGV) {
     my $version = $1;
     stable($version) or die "invalid database version\n";
     my $readme = read_file('README.md');
+    my @declarations = ($readme =~ /^icydb\s*=\s*(\{[^}\n]*\})\s*$/mg);
     my @tags = ($readme =~ /^icydb\s*=\s*\{[^}\n]*\btag\s*=\s*"([^"]*)"/mg);
-    if (@tags != 2) {
-        warn "README.md: expected runtime and build dependency release tags\n";
+    my $development = @declarations == 2
+        && $declarations[0] =~ /\A\{\s*git\s*=\s*"https:\/\/github\.com\/dragginzgame\/icydb\.git"\s*\}\z/
+        && $declarations[1] =~ /\A\{\s*git\s*=\s*"https:\/\/github\.com\/dragginzgame\/icydb\.git"\s*,\s*features\s*=\s*\[\s*"build"\s*\]\s*\}\z/;
+    if (@declarations != 2 || (@tags != 2 && !$development)) {
+        warn "README.md: expected matching released or explicit-build development dependencies\n";
         ++$failures;
     }
     for my $tag (@tags) {

@@ -49,14 +49,11 @@ use icydb_testing_audit_sql_perf_fixtures::{
 };
 
 // The final host grants namespaces; components request permanent keys.
-fn icydb_storage_grants()
--> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
-    icydb::db::AllocationGrants::new(
-        vec![icydb::db::MemoryAuthority::new(
-            "icydb_sql_perf",
-            "icydb.sql_perf.",
-        )?],
-    )
+fn icydb_storage_grants() -> Result<icydb::db::AllocationGrants, icydb::db::AdmissionError> {
+    icydb::db::AllocationGrants::new(vec![icydb::db::MemoryAuthority::new(
+        "icydb_sql_perf",
+        "icydb.sql_perf.",
+    )?])
 }
 
 #[cfg(not(feature = "test-admin-api"))]
@@ -3288,7 +3285,10 @@ icydb_testing_canic_adapter::export_wire!(update, "advance_journaled_user_mutati
 #[cfg(feature = "test-admin-api")]
 // This audit endpoint deliberately exposes the canonical typed integrity
 // error. Boxing it would change the native response contract.
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "the audit endpoint preserves the canonical typed integrity error"
+)]
 fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, SqlIntegrityError> {
     icydb::db::with_request_execution(|| {
         let session = db().map_err(SqlIntegrityError::Sql)?;
@@ -4247,22 +4247,4 @@ icydb_testing_canic_adapter::export_wire!(update, "publish_promotion_index_fixtu
 use icydb_testing_audit_sql_perf_fixtures::contracts::{ScaleFixtureFacts, ScalePayloadProfile};
 
 #[cfg(all(test, feature = "test-admin-api"))]
-mod tests {
-    use super::startup_watchdog_count;
-    use ic_timers::MeasurementCounter;
-
-    #[test]
-    fn startup_watchdog_counts_require_exact_u64_values() {
-        for (total, overflowed, expected) in [
-            (0, false, Some(0)),
-            (1, false, Some(1)),
-            (u128::from(u64::MAX), false, Some(u64::MAX)),
-            (u128::from(u64::MAX) + 1, false, None),
-            (u128::MAX, false, None),
-            (u128::MAX, true, None),
-        ] {
-            let counter = MeasurementCounter::from_parts(total, overflowed).unwrap();
-            assert_eq!(startup_watchdog_count(counter).ok(), expected);
-        }
-    }
-}
+mod tests;

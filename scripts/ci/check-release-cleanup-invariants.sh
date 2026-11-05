@@ -31,25 +31,26 @@ target_recipe() {
 }
 
 if ! target_recipe validate | awk '
-  /\$\(VALIDATION_RUNNER\).*--fail-fast/ { preflight_runner_line = NR }
-  /\$\(VALIDATION_RUNNER\)/ && $0 !~ /--fail-fast/ { long_runner_line = NR }
-  $1 == "fmt-check" { fmt_line = NR }
-  $1 == "lint-workflows" { workflow_line = NR }
-  $1 == "shellcheck" { shell_line = NR }
-  $1 == "check-invariants" { invariants_line = NR }
-  $1 == "check-feature-matrix" { features_line = NR }
-  $1 == "check" { check_line = NR }
-  $1 == "clippy" { clippy_line = NR }
-  $1 == "test" { test_line = NR }
-  END {
-    exit !(preflight_runner_line > 0 && fmt_line > preflight_runner_line &&
-           workflow_line > fmt_line && shell_line > workflow_line &&
-           clippy_line > shell_line && invariants_line > clippy_line &&
-           check_line > invariants_line && long_runner_line > check_line &&
-           features_line > long_runner_line && test_line > features_line)
-  }
+  /validation-stages.pl check/ { admission = NR }
+  /--fail-fast/ { fail_fast = NR }
+  /validation-stages.pl fast/ { fast = NR }
+  /validation-stages.pl collect/ { collect = NR }
+  END { exit !(admission > 0 && fail_fast > admission && fast > fail_fast && collect > fast) }
 '; then
-  echo "validate must fail-fast through clippy before accumulating later long-target failures" >&2
+  echo "validate must use the admitted canonical stage classification" >&2
+  exit 1
+fi
+perl "$ROOT/scripts/release/validation-stages.pl" fast > "$CLEANUP_TEST_ROOT/fast-stages"
+perl "$ROOT/scripts/release/validation-stages.pl" collect > "$CLEANUP_TEST_ROOT/collect-stages"
+awk '
+  $1 == "clippy" { lint = NR }
+  $1 == "check-invariants" { invariants = NR }
+  $1 == "check" { build = NR }
+  END { exit !(lint > 0 && invariants > lint && build > invariants) }
+' "$CLEANUP_TEST_ROOT/fast-stages"
+if grep -Eq '^(test|check-feature-matrix)$' "$CLEANUP_TEST_ROOT/fast-stages" ||
+   grep -Eq '^(clippy|check|check-invariants)$' "$CLEANUP_TEST_ROOT/collect-stages"; then
+  echo 'lint and build must finish before collecting test/feature failures' >&2
   exit 1
 fi
 
@@ -63,6 +64,17 @@ if ! target_recipe clippy | awk '
   echo "clippy must lint the complete workspace and test surface before feature-only lanes" >&2
   exit 1
 fi
+
+for lint_target in clippy _ci-workspace-clippy; do
+  if ! target_recipe "$lint_target" | awk '
+    /cargo clippy --locked --workspace --all-targets/ { runtime = NR }
+    /cargo clippy --locked -p icydb-model --all-targets --features build/ { model = NR }
+    END { exit !(runtime > 0 && model > runtime) }
+  '; then
+    echo "$lint_target must lint runtime selection and explicit model generation" >&2
+    exit 1
+  fi
+done
 
 if ! target_recipe ci-core | awk '
   $1 == "_ci-core-sql-clippy" { sql_line = NR }

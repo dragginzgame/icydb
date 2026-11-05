@@ -476,22 +476,6 @@ impl JournalBatch {
         Ok(batch)
     }
 
-    #[cfg(test)]
-    pub(in crate::db) fn new(
-        batch_id: JournalBatchId,
-        commit_marker_id: JournalCommitMarkerId,
-        journal_sequence: JournalSequence,
-        records: Vec<JournalRecord>,
-    ) -> Result<Self, InternalError> {
-        Self::new_with_database_commit_sequence(
-            batch_id,
-            commit_marker_id,
-            journal_sequence,
-            DatabaseCommitSequence::new(journal_sequence.get().max(1)),
-            records,
-        )
-    }
-
     #[must_use]
     pub(in crate::db) const fn batch_id(&self) -> JournalBatchId {
         self.batch_id
@@ -1965,3 +1949,6 @@ fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
 fn primitive_encode_error(_: ByteEncodeError) -> InternalError {
     InternalError::store_unsupported()
 }
+
+#[cfg(test)]
+mod helper_tests;

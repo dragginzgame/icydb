@@ -1,6 +1,6 @@
 //! Complete catalogue ranges retain public admission, budgets and paging.
 
-use super::{materialized_sort_admission::summary, scalar_page_limits, *};
+use super::{materialized_sort_admission::summary, *};
 use crate::db::{
     RequestExecutionRoot, desc,
     query::admission::{QueryAdmissionAccessKind, QueryBoundKind},
@@ -12,7 +12,7 @@ use icydb_diagnostic_code::{
 };
 
 fn seed_catalogue(count: u16, unique: bool) -> Vec<Vec<OutputValue>> {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             field(2, "catalog_order", 1, AcceptedFieldKind::Nat16),

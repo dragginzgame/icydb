@@ -30,7 +30,7 @@ fn seed_scalar_pairs(
     first: InputValue,
     second: InputValue,
 ) -> DbSession<TestCanister> {
-    scalar_page_limits::initialize_payload_schema(
+    initialize_field_schema(
         vec![
             field(1, "id", 0, AcceptedFieldKind::Nat64),
             nullable_scalar_field(2, "left_value", 1, kind.clone()),

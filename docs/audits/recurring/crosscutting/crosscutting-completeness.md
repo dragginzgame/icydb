@@ -35,7 +35,7 @@ That means the method must optimize for:
 - Report scope: `completeness`
 - Current method tag: `Completeness Method V3`
 - Report naming:
-  `docs/reports/recurring/YYYY/MM/DD/completeness/<run>/report.md`
+  `docs/reports/recurring/completeness.md`
 
 Run `01` remains the canonical daily baseline. Same-day reruns use the next run
 number and compare directly against run `01`.

@@ -196,25 +196,14 @@ pub(super) fn status_command(environment: &str, canister: &str) -> Command {
     command
 }
 
-#[cfg(test)]
-pub(super) fn fixtures_load_command(
-    environment: &str,
-    canister: &str,
-    argument_file: &std::path::Path,
-) -> Command {
-    fixtures::fixtures_load_command(environment, canister, argument_file)
-}
-
-#[cfg(test)]
-pub(super) fn top_up_command(environment: &str, canister: &str, amount: &str) -> Command {
-    fixtures::top_up_command(environment, canister, amount)
-}
-
-#[cfg(test)]
-pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
-    fixtures::parse_canister_cycles(status)
-}
-
 fn append_environment_args(command: &mut Command, environment: &str) {
     command.arg("--environment").arg(environment);
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+pub(super) use helper_tests::fixtures_load_command;
+#[cfg(test)]
+pub(super) use helper_tests::top_up_command;

@@ -28,14 +28,6 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
-    #[cfg(test)]
-    pub(in crate::db) fn compile_sql_query_for_tests(
-        &self,
-        sql: &str,
-    ) -> Result<(SqlCompiledCommandExecutionContext, String), QueryError> {
-        self.compile_sql_query_text_execution_context(sql)
-    }
-
     // Exact resident text has already passed syntax/input admission. Revalidate
     // lifecycle and the complete accepted root on every hit before resolving its
     // entity from current authority. Misses keep the ordinary parser/compiler.
@@ -226,3 +218,6 @@ fn sql_query_catalog_context(
     };
     Ok(AcceptedSchemaCatalogContext::new(root, entity))
 }
+
+#[cfg(test)]
+mod helper_tests;

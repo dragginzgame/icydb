@@ -12,7 +12,7 @@ use crate::{
         CanisterCommand, CliArgs, CliCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
         SchemaMigrationCommand,
     },
-    shell::test_support::sql_shell_config_inputs,
+    shell::support_tests::sql_shell_config_inputs,
 };
 
 #[test]
@@ -59,7 +59,43 @@ fn cli_args_group_diagnostic_lookup_under_top_level_keyword() {
         panic!("expected diagnostic command");
     };
 
-    assert_eq!(args.code(), Some("E7"));
+    assert_eq!(args.code(), Some(7));
+}
+
+#[test]
+fn cli_args_parse_diagnostic_values_before_dispatch() {
+    for (input, expected) in [("E7", 7), ("\"e7\"", 7), ("0007", 7), ("65535", u16::MAX)] {
+        let args = CliArgs::try_parse_from([
+            "icydb",
+            "diagnostic",
+            input,
+            "--fact",
+            "250=18446744073709551615",
+            "--fact",
+            "entity_tag=42",
+        ])
+        .expect("domain syntax and unknown numeric identities remain supported");
+        let CliCommand::Diagnostic(args) = args.into_command() else {
+            panic!("expected diagnostic command");
+        };
+        assert_eq!(args.code(), Some(expected));
+        assert_eq!(args.facts().len(), 2);
+    }
+    for input in ["banana", "E65536", "7.5"] {
+        let error = CliArgs::try_parse_from(["icydb", "diagnostic", input]).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+    for input in [
+        "entity_tag",
+        "missing=1",
+        "256=1",
+        "entity_tag=-1",
+        "entity_tag=18446744073709551616",
+    ] {
+        let error =
+            CliArgs::try_parse_from(["icydb", "diagnostic", "E7", "--fact", input]).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+    }
 }
 
 #[test]
@@ -135,7 +171,7 @@ fn cli_args_accept_exact_diagnostic_resolver_inputs() {
         panic!("expected diagnostic command");
     };
 
-    assert_eq!(args.code(), Some("E210"));
+    assert_eq!(args.code(), Some(210));
     assert_eq!(args.facts().len(), 2);
     assert_eq!(args.artifact(), Some(Path::new("schema.diagnostic.json")));
     assert_eq!(
@@ -384,6 +420,13 @@ fn cli_args_expose_deployed_schema_migration_operations() {
 #[test]
 fn cli_args_require_explicit_confirmation_for_destructive_migration_operations() {
     for operation in ["abort", "adopt"] {
+        let missing =
+            CliArgs::try_parse_from(["icydb", "schema", "migration", operation, "demo_rpg"])
+                .expect_err("confirmation must be required before dispatch");
+        assert_eq!(
+            missing.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
         let args = CliArgs::try_parse_from([
             "icydb",
             "schema",
@@ -404,7 +447,6 @@ fn cli_args_require_explicit_confirmation_for_destructive_migration_operations()
                 panic!("expected destructive migration command")
             }
         };
-        assert!(confirmed.confirmed());
         assert_eq!(confirmed.target().canister_name(), "demo_rpg");
     }
 }

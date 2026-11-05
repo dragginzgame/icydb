@@ -3,7 +3,7 @@
 //! Does not own: top-level clap parsing or ICP process command construction.
 //! Boundary: test-only assertions over shell helpers and decoded SQL payload text.
 
-use crate::shell::test_support::{
+use crate::shell::support_tests::{
     SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
     interactive_start_message, is_shell_exit_command, is_shell_help_command, render_sql_response,
     shell_help_text, sql_shell_call_kind,

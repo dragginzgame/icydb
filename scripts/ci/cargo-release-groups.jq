@@ -73,7 +73,7 @@ def admit_groups($config; $root; $manifests; $lock; $selected):
     then error("mismatched release-group versions/inheritance")
     else . + {previous:$version, shared_metadata_files:$shared} end)) as $admitted |
   if ([$lock.package[] | select(.source == null) | {name,version}] | sort_by(.name)) !=
-     ($owned | map({name,version}) | sort_by(.name))
+     ([$metadata.packages[] | select(.source == null) | {name,version}] | sort_by(.name))
   then error("stale or foreign local lock records") else . end |
   # Cargo permits a compatible lower bound to lag a path package. The root
   # catalog also serves as the visible version map, so require its full current

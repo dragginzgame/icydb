@@ -31,7 +31,7 @@ within these categories, rather than a separate execution lane.
 | Unit | Local module/type invariants | Owning crate's test modules | Native |
 | Native integration | Cross-module or public crate behavior | `crates/*/tests` and owning subsystem harnesses | Native |
 | Schema / planner | Accepted-schema, lowering and planning semantics | `crates/icydb-core` | Native |
-| Generated surface | Macro/model expansion, generated containers and adapter boundaries | `schema/test/fixtures`, `testing/model-*`, `testing/endpoint-installation`, model crate tests | Native or compile-only |
+| Generated surface | Macro/model expansion, generated containers and adapter boundaries | `schema/tests/fixtures`, `testing/model-*`, `testing/endpoint-installation`, model crate tests | Native or compile-only |
 | Canister E2E | Generated endpoints, authorization, persistence, message boundaries and lifecycle | `testing/integration/tests`, using actors under `canisters/test` and `canisters/audit` | PocketIC via IC Testkit |
 | Regression | A minimal reproduction of a repaired behavior | The category owning that behavior | Depends on the boundary |
 
@@ -249,7 +249,7 @@ many SQL/test helper surfaces intentionally unused.
 
 Use model crate tests, the `testing/model-*` adapter packages,
 [endpoint-installation fixtures](testing/endpoint-installation), and
-[generated-schema fixtures](schema/test/fixtures) to check expansion, public
+[generated-schema fixtures](schema/tests/fixtures) to check expansion, public
 container behavior and model/runtime dependency boundaries. These native or
 compile-only checks do not establish message, stable-memory or upgrade behavior.
 

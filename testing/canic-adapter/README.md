@@ -24,17 +24,30 @@ endpoint compile contracts, lifecycle and installed tests. Canic supplies the
 exports and host lifecycle; IC Testkit supplies simulator admission/lifecycle;
 IC Wire supplies encoding and admission. No supplier checkout overrides are used.
 
-The current forward-qualification candidate selects Canic 0.113.0 from
-`247ba9d3599658c478373cb0dfc74439a859dd8a`, Platform 0.8.3 and Timers
-0.32.4. Direct Wire is 0.14.2, Memory is 0.60.0 and Testkit is 0.75.0.
-The lockfile is authoritative. Current root paths additionally select Platform
-0.17.0, Wire 0.14.2, Memory/Storage 0.63.0 and Metrics 0.26.0. The older
-Canic-owned runtime dependencies remain selected; resolving both families is
-not proof that their public types compose.
+The retained forward-qualification candidate selects Canic 0.113.0, Platform
+0.8.3, Storage 0.64.0, Wire 0.14.2, Timers 0.32.4 and Testkit 0.75.0. Its manifest
+and lock remain unchanged by the root adoption; the lock is the source of truth.
+Current root path dependencies select Storage 0.67.1, Wire 0.17.2, Platform
+0.22.1, Runtime 0.19.2 and Types 0.18.1. This retained candidate still has its
+recorded executor-links conflict and does not qualify current-source composition.
 
-**This candidate does not yet qualify current-source Canic composition.**
-Canic's exposed Wire 0.7 limits and lifecycle encoders cannot consume the current
-root Wire API ([Canic #590](https://github.com/dragginzgame/canic/issues/590)).
+The official published adapter is now **canic-icydb 0.115.0**. Its verified
+archive selects Platform 0.22 but still requires Wire 0.16.1 for the endpoint
+limits it exchanges with IcyDB. Root Wire 0.17 is a different type identity.
+That publication does not establish a matching composed stack; do not substitute
+supplier paths or bridge those limits locally. Follow
+[IcyDB #373](https://github.com/dragginzgame/icydb/issues/373) and
+[Canic #590](https://github.com/dragginzgame/canic/issues/590).
+
+The server runner follows this workspace's locked Testkit, matching its native
+integration clients. Root Testkit 0.86 does not silently select another server
+for this retained graph.
+
+## Historical candidate evidence
+
+The observations below predate the root cohort above. They qualify only their
+recorded source and dependency selections, not current-source composition.
+
 Fixture-serving strict lint and native/Wasm compilation pass, as do both
 non-metrics endpoint-fixture tests. Metrics-enabled generated endpoints still
 fail four Wire-limit type checks; earlier integration lifecycle encoding failures

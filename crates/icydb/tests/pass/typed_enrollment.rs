@@ -138,5 +138,5 @@ fn generated_structural_input<C: CanisterKind>(
 
 #[test]
 fn typed_enrollment_example_compiles_without_sql() {
-    let _ = core::mem::size_of::<UserInsert>();
+    let _ = std::mem::size_of::<UserInsert>();
 }

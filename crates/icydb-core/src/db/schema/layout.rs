@@ -147,13 +147,6 @@ impl SchemaRowLayout {
         Self::new(version, version, field_to_slot)
     }
 
-    /// Build the sole initial physical layout for a new accepted entity.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn initial(field_to_slot: Vec<(FieldId, SchemaFieldSlot)>) -> Self {
-        Self::single_version(RowLayoutVersion::INITIAL, field_to_slot)
-    }
-
     /// Return the physical layout stamped by every current canonical writer.
     #[must_use]
     pub(in crate::db) const fn current_version(&self) -> RowLayoutVersion {
@@ -195,3 +188,6 @@ impl SchemaRowLayout {
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_copy!(RowLayoutVersion);
+
+#[cfg(test)]
+mod helper_tests;

@@ -6,9 +6,9 @@
 mod boundary;
 mod consistency;
 
-use crate::db::test_support::source_guard::{
+use crate::db::tests::support::source_guard::{
     collect_rust_sources, relative_rust_source_path,
-    runtime_source_without_test_items as strip_cfg_test_items,
+    runtime_source_without_test_items as strip_cfg_test_items, source_is_test_only,
 };
 
 use std::{

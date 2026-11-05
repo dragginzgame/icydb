@@ -6,16 +6,20 @@ maintainer-only workstation setup for this repository.
 ## Downstream Canisters
 
 Copy the runtime and build dependency declarations from
-[README's release-pinned example](README.md#add-icydb). README is the sole
-release-pin owner; choose its supported release deliberately and keep runtime
-and build examples aligned. Release tooling leaves README prose unchanged.
+[README's dependency example](README.md#add-icydb). Use the same selected source
+or release on both sides. The current development contract requires `build` on
+`[build-dependencies]`; ordinary runtime dependencies leave it disabled.
 
 The default crate feature set provides accepted-schema runtime support plus
 structural, typed, and dynamic reads and writes. Enable `sql` only when the
 canister uses session/library SQL APIs or generated SQL endpoints:
 
 Add `features = ["sql"]` to the runtime dependency when needed. The other
-optional features are `metrics` and `migration`.
+optional runtime features are `metrics` and `migration`. Native binding tools
+explicitly select `wire-schema`; native targets do not enable it automatically.
+Native canister tests can enable `testing` for the bounded typed startup helper
+described in the [facade guide](crates/icydb/README.md#startup-in-native-canister-tests).
+This selects Testkit only on native targets and exports no IC endpoint.
 
 Choose one direct IcyDB package for the consumer's needs:
 
@@ -62,7 +66,7 @@ that family is not yet qualified, as described in the adapter guide; product
 upgrades and releases remain independent. Published 0.291
 examples below refer to their original dependency set.
 
-Generated endpoint build scripts should depend on `icydb` with the same tag and
+Generated endpoint build scripts should depend on `icydb` with `features = ["build"]`, the same source, and
 call `icydb::build::build_canister!(SchemaCanister)`.
 The [compiled single-package example](testing/model-facade-only/) owns the
 complete host/runtime setup; [schema authoring](docs/guides/schema-authoring.md)
@@ -217,6 +221,13 @@ results to stdout and exit zero. Rejected SQL responses, transport failures and
 invalid replies report diagnostics on stderr and exit nonzero, so shell command
 chains stop on failure. The interactive shell reports a failed statement and
 continues accepting SQL.
+
+Diagnostic codes and individual `--fact TAG=VALUE` arguments are parsed by Clap
+before execution. Invalid values and missing `--yes` on migration `abort` or
+`adopt` print usage diagnostics to stderr and exit 2. Decoded-payload, domain and
+execution failures exit 1. Scripts should use exit status rather than parsing
+diagnostic wording. Diagnostic live resolution uses `--environment`, then
+`ICP_ENVIRONMENT`, then `local`, matching the other canister commands.
 
 For a canister that enables the optional `migration` capability, see
 [Schema Migrations](docs/guides/schema-migrations.md) for the explicit
@@ -583,6 +594,13 @@ successfully decoded endpoint errors retain their respective diagnostics.
 Machine IDs and cycle observations require valid UTF-8. A nonempty ID must be a
 valid principal before the CLI admits a canister call; a blank ID still means
 absent. External diagnostics are escaped for terminal display.
+
+Fixture funding reads `icp canister status --json` through Host Tools. Cycle
+balances accept plain decimal strings or ICP's groups of three digits separated
+by underscores. A public-only status without a balance skips automatic funding;
+malformed supplied balances stop before funding and fixture loading. Automatic
+funding still requires confirmed local-network project facts and a balance below
+the CLI's existing threshold.
 
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for the destructive reset flow

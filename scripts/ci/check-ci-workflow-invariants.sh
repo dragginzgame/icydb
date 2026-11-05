@@ -42,6 +42,7 @@ ci_provider_test_selection() {
   local target="$1" package="$2" recipe word value index=0
   local cargo_test=false workspace=false all_targets=false excluded=false
   local selected_package=false locked=false libtest=false adapter_manifest=false
+  local model_build=false
   local words=() expected_binaries=("${@:3}") selected_binaries=()
   # Join Make continuations before shell tokenization, including on Bash 3.2.
   recipe="$(make_target_recipe "$target" | awk '/^\t/ {
@@ -74,6 +75,11 @@ ci_provider_test_selection() {
       --verbose|-v|--no-fail-fast) ;;
       --workspace) workspace=true ;;
       --all-targets) all_targets=true ;;
+      --features)
+        [[ "$target" == _ci-workspace-tests && "$model_build" == false &&
+           "$index" -lt "${#words[@]}" && "${words[$index]}" == icydb-model/build ]] || return 1
+        index=$((index + 1)); model_build=true
+        ;;
       --) libtest=true ;;
       --exclude|-p|--package|--test)
         [[ "$index" -lt "${#words[@]}" ]] || return 1
@@ -95,7 +101,7 @@ ci_provider_test_selection() {
   if [[ "$package" == workspace ]]; then
     [[ "$workspace" == true && "$all_targets" == true ]] || return 1
     if [[ "$target" == _ci-workspace-tests ]]; then
-      [[ "$adapter_manifest" == false && "$excluded" == false ]]
+      [[ "$adapter_manifest" == false && "$excluded" == false && "$model_build" == true ]]
     else
       [[ "$adapter_manifest" == true && "$excluded" == true ]]
     fi
@@ -198,7 +204,16 @@ if ! make_target_recipe test-canister-artifact-contract |
 fi
 
 # Local/release validation must admit the same compiler before its Cargo gates.
-for target in validate validate-fast validate-adapter; do
+if ! make_target_recipe validate | rg -q --fixed-strings \
+     '$(shell perl scripts/release/validation-stages.pl fast)' ||
+   ! perl scripts/release/validation-stages.pl fast | awk '
+     $1 == "check-rust-compiler" { compiler = NR }
+     $1 == "clippy" { lint = NR }
+     END { exit !(compiler > 0 && lint > compiler) }
+   '; then
+  fail "validate must admit the policy-selected compiler through its canonical stages"
+fi
+for target in validate-fast validate-adapter; do
   if ! make_target_recipe "$target" | rg -q --fixed-strings \
     '$(MAKE) --no-print-directory check-rust-compiler'; then
     fail "$target must admit the policy-selected compiler"

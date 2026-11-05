@@ -3,6 +3,59 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.0]
+
+### 🛠️ Tooling
+
+- Adopt Shared Tooling 0.30.4 with the macOS LOC fix and an enforced Candid
+  source boundary. Compact historical experiments into topic summaries and
+  keep new raw Wasm captures under `target/evidence/`; preserve release and
+  recovery records. Report uncompressed module and code-section bytes.
+- Adopt Storage 0.67.1, Testkit 0.87, Wire 0.17.2, Platform 0.23.0 and
+  Host Tools 0.83 as one root dependency cohort; refresh Shared Tooling 0.30.4.
+  Preserve stored layouts and codec bytes; Canic composition remains separately
+  unqualified ([#373 — Canic adapter qualification](https://github.com/dragginzgame/icydb/issues/373)).
+- Adopt the current Shared LOC presentation: clearer column spacing, `???`
+  for unclassified source and diagnostic guidance in help. Preserve JSON
+  categories and source totals.
+- Restore exported Shared documentation links through the canonical upstream
+  repair, without copying central fleet inventories
+  ([Shared #355 — Complete exported documentation links](https://github.com/dragginzgame/shared-tooling/issues/355)).
+- Adopt Shared Tooling 0.30.0: explicit source categories, plural test directories,
+  external test/helper modules and checked lint expectations. Make source scans
+  reject missing inputs; retain the independent Canic qualification boundary.
+- Select independently qualified CLI-only release checks on Linux, keeping
+  database, shared-input and unqualified-host releases on full validation.
+  Carry selected evidence through release recovery and keep final Cargo package
+  verification before publication
+  ([#603 — Qualify separate database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603)).
+
+### ⚠️ Breaking
+
+- Parse diagnostic values and require migration abort/adopt confirmation in Clap
+  before execution. Invalid values and missing `--yes` now use usage diagnostics
+  and exit 2; payload, domain and execution failures retain exit 1
+  ([#627 — Move diagnostic parsing and migration confirmation into Clap](https://github.com/dragginzgame/icydb/issues/627)).
+
+### 🩹 Fixed
+
+- Escape rejected options, subcommands and extra tokens in Clap diagnostics;
+  prevent preformatted tips from echoing unsafe input while retaining ordinary
+  tips, usage, help and version output
+  ([#627 — Terminal-safe Clap parse refusals](https://github.com/dragginzgame/icydb/issues/627)).
+
+### 🧹 Cleanup
+
+- Use published Host Tools for bounded inventory and cycle-balance
+  decoding. Remove cycle display-text parsing; retain local funding thresholds,
+  unknown-balance handling, sorted inventory and manifest-fallback diagnostics
+  ([Tooling #335 — Share bounded ICP inventory and cycle decoding](https://github.com/dragginzgame/ic-tooling/issues/335)).
+- Delegate empty/odd-length response checks to Host while preserving response
+  normalization and terminal-safe diagnostics. Declare diagnostic environment
+  defaults in Clap and pass parsed codes/facts directly to handlers.
+
+[Detailed changes](0.296.md).
+
 ## [0.295.2] - 2026-11-04
 
 ### 🛠️ Tooling

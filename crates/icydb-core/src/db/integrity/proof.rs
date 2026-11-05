@@ -22,11 +22,6 @@ use crate::{
 #[cfg(test)]
 use std::cell::Cell;
 
-#[cfg(test)]
-thread_local! {
-    static TEST_ALLOCATION_REGISTRY_GENERATION: Cell<u64> = const { Cell::new(0) };
-}
-
 /// Exact physical state read for one participating journaled store.
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub(in crate::db) struct IntegrityStoreProof {
@@ -251,15 +246,6 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
     })
 }
 
-#[cfg(test)]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the test backend supplies generation zero while preserving the fallible production signature"
-)]
-fn allocation_registry_generation() -> Result<u64, InternalError> {
-    Ok(TEST_ALLOCATION_REGISTRY_GENERATION.with(Cell::get))
-}
-
 #[cfg(not(test))]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
     let runtime = memory_runtime().ok_or_else(InternalError::store_internal)?;
@@ -267,15 +253,6 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
     runtime
         .committed_generation()
         .map_err(|_| InternalError::store_internal())
-}
-
-#[cfg(test)]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the test backend has no default ic-storage runtime"
-)]
-pub(super) const fn validate_integrity_allocation_registry() -> Result<(), InternalError> {
-    Ok(())
 }
 
 #[cfg(not(test))]
@@ -287,3 +264,11 @@ pub(super) fn validate_integrity_allocation_registry() -> Result<(), InternalErr
         .map(|_| ())
         .map_err(|_| InternalError::store_internal())
 }
+
+#[cfg(test)]
+mod helper_tests;
+
+#[cfg(test)]
+use helper_tests::allocation_registry_generation;
+#[cfg(test)]
+pub(super) use helper_tests::validate_integrity_allocation_registry;
