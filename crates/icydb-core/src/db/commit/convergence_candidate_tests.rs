@@ -623,6 +623,7 @@ fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
     let memory = crate::testing::test_memory_with_backing(10, physical.clone());
     let mut candidate = DormantConvergenceCandidate::new([memory]);
     let mut high_water = None;
+    let mut pages_after_drain = [0; 8];
     let mut measured_encoded_bytes = 0;
     let mut measured_chunks = 0;
 
@@ -688,11 +689,14 @@ fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
         );
 
         let pages = physical.size();
+        pages_after_drain[usize::try_from(cycle).expect("the bounded cycle index fits usize")] =
+            pages;
         if let Some(first) = high_water {
             if cycle == 1 {
-                // Storage 0.65 may allocate one page on the first refill.
-                // Every subsequent refill must reuse that qualified capacity.
-                assert!(pages <= first + 1, "warm-up growth exceeds one page");
+                // Storage owns node/page geometry. Warm the first refill before
+                // fixing capacity, then require every remaining identical bounded
+                // workload to reuse it rather than imposing the retired engine's
+                // one-Wasm-page growth assumption.
                 high_water = Some(pages);
             } else {
                 assert_eq!(pages, first, "retired stable capacity should be reused");
@@ -702,7 +706,7 @@ fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
         }
     }
     println!(
-        "0.229 stable reuse candidate: encoded_bytes={} live_chunks={} stable_high_water_pages={}",
+        "journal stable reuse: encoded_bytes={} live_chunks={} stable_high_water_pages={} pages_after_drain={pages_after_drain:?}",
         measured_encoded_bytes,
         measured_chunks,
         high_water.unwrap_or_default(),

@@ -67,8 +67,11 @@ The separate Canic metadata check remains blocked by its Storage 0.64 /
 Platform 0.17 runtime-guard versus Platform 0.8.3 executor link conflict after
 locked source preparation. Its manifest and lock are unchanged; this is the
 existing independent [#373](https://github.com/dragginzgame/icydb/issues/373)
-qualification gap. Full release validation is selected for deployment; macOS
-and installed-IC acceptance remain separate qualification obligations.
+qualification gap. Release qualification remains incomplete: the corrected
+journal capacity-reuse control passes, but a lock change and concurrent source
+edits invalidated the full attempt. Preserve those edits and re-run the full gate
+on stable committed inputs before delivery. macOS and installed-IC acceptance
+remain separate qualification obligations.
 IC cycles/instructions and total/code-section Wasm-size deltas are unmeasured.
 
 ### Preceding published dependency cohort (2026-11-05)
