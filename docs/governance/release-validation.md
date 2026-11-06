@@ -246,6 +246,14 @@ This qualifies the frozen integration hooks on Linux, not a replacement product
 gate, real registry acceptance, macOS, or installed-canister behavior. The current
 mapping still selects the full product release gate as explained above.
 
+Database 0.300.0 subsequently passed that full Linux gate and was pushed and
+published at `ead6a522155770bf4c5d289a4d33c90a627ec798`. All six official archives
+match registry checksums, clean release source and original manifests. This real
+registry acceptance used the standard workflow for the mixed-increment delivery;
+it does not claim a real frozen publication run. The frozen default is enabled in
+the delivered source. See the
+[0.300 status](../design/0.300-testkit-frozen/0.300-status.md).
+
 ### Prepared post-cut native comparison
 
 The manual **Release mapping qualification** workflow

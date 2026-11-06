@@ -80,8 +80,12 @@ Focused strict lint and the real managed public startup-polling control pass on
 Linux with Rust 1.99.1. The control retains six polling dispositions, round
 boundaries and typed failures. The locked Testkit CLI prepared its own server,
 started it for the test and reaped it afterward; IcyDB adds no simulator owner.
-Full release validation and real registry delivery have not run for this candidate.
-macOS and installed-canister acceptance remain separate.
+The full Linux database release gate subsequently passed and database 0.300.0
+was tagged, pushed and published at `ead6a522155770bf4c5d289a4d33c90a627ec798`.
+All six official archives match registry checksums, clean source and original
+manifests; their locks retain Testkit 0.89.2 and Wire 0.17.4. See the
+[delivery status](../design/0.300-testkit-frozen/0.300-status.md). macOS and
+installed-canister acceptance remain separate.
 
 ### Current Build, Storage and Testkit adoption (2026-11-06)
 
