@@ -4,6 +4,9 @@ use strict;
 use warnings;
 use JSON::PP;
 use Digest::SHA qw(sha256_hex);
+use FindBin;
+use lib $FindBin::Bin;
+use ValidationScope qw(exclusions);
 my $json = JSON::PP->new->canonical->utf8;
 @ARGV == 2 or die "usage: compare-validation-plans.pl FULL-ATTEMPT SELECTED-ATTEMPT\n";
 sub bytes {
@@ -29,7 +32,7 @@ for my $attempt (@ARGV) {
     local $/; my $observed = <$verified>;
     close $verified or die "comparison receipt admission failed\n";
     $observed eq $raw or die "comparison receipt bytes changed\n";
-    $receipt->{group} eq 'cli' && !$receipt->{release_omission_admitted}
+    $receipt->{group} =~ /\A(?:cli|database)\z/ && !$receipt->{release_omission_admitted}
         && $receipt->{counts}{reused} == 0 or die "unexpected comparison receipt\n";
     push @receipts, $receipt;
     push @plans, $json->decode(bytes("$attempt/plan.json"));
@@ -42,17 +45,19 @@ for my $field (qw(source group baseline baseline_tag baseline_tag_object host ru
 }
 $plans[0]{scope} eq 'workspace' && $plans[1]{scope} eq 'group'
     && !grep(!$_->{required}, @{$plans[0]{stages}})
-    or die "comparison requires complete full and narrowed CLI plans\n";
+    or die "comparison requires complete full and selected group plans\n";
 my @excluded = grep { !$_->{required} } @{$plans[1]{stages}};
-@excluded == 4 && $identities[0]{executed} - $identities[1]{executed} == 4
-    or die "unexpected CLI exclusion mapping\n";
+my $expected=exclusions($receipts[0]{group});
+$json->encode([sort map {$_->{target}} @excluded]) eq $json->encode([sort @$expected])
+    && $identities[0]{executed} - $identities[1]{executed} == @$expected
+    or die "unexpected group exclusion mapping\n";
 open my $fingerprint, '-|', 'perl', 'scripts/release/validation-fingerprint.pl', $receipts[0]{source}
     or die "observe normalized mapping: $!\n";
 my $fingerprint_raw=do {local $/; <$fingerprint>};
 close $fingerprint or die "mapping observation failed\n";
 my $mapping=$json->decode($fingerprint_raw);
 print $json->encode({schema=>1, contract=>'icydb-release-mapping-comparison/1',
-    source=>$receipts[0]{source}, group=>'cli', baseline=>$receipts[0]{baseline}, host=>$receipts[0]{host},
+    source=>$receipts[0]{source}, group=>$receipts[0]{group}, baseline=>$receipts[0]{baseline}, host=>$receipts[0]{host},
     %$mapping,
     rustc=>$receipts[0]{rustc}, cargo=>$receipts[0]{cargo},
     full=>$identities[0], selected=>$identities[1],

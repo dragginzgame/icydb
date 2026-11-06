@@ -60,6 +60,24 @@ evidence publication also fails. Drift, interrupted execution or failed observat
 cannot create an admitted stage. This interface does not admit a release source,
 index, group policy, package archive, registry delivery or a complete gate.
 
+## Explain execution and reuse decisions
+
+For each reusable stage, report whether it executed or reused admitted evidence.
+When reuse is unavailable, report the specific reason alongside the stage result:
+for example, an unqualified group scope, host, jobserver/parallel setting, custom
+target directory, simulator selection, environment, missing proof or changed
+input identity. Emit this during normal release output and retain it with the
+attempt; do not require users to read the implementation to explain a full rerun.
+Keep paths and values redacted where they could expose secrets.
+
+Review recurring fallbacks against the configurations consumers actually use.
+Qualify useful group scopes and common parallel/target/simulator configurations
+when their complete inputs can be bounded. Never remove an eligibility condition,
+unset a user selection or normalize configuration just to force a cache hit.
+Source-only analysis identifies opportunities; compare matching executed/admitted
+attempt timings before claiming savings. Missing or invalid evidence still requires
+execution or refusal under the existing contract.
+
 ## Decision and existing boundary
 
 Reuse belongs to a validation **stage**, with fresh admission by every release

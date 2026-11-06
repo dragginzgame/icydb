@@ -4,6 +4,8 @@ set -euo pipefail
 # release gate, inherited command-line assignments otherwise override fixture
 # environment values (and can select the caller's group instead of its ledger).
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
+unset FROZEN_RELEASE_ACTIVE
+export RELEASE_FROZEN_GROUPS='' RELEASE_FROZEN_PUBLISH_TARGET=''
 export RELEASE_GROUP=database
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
@@ -79,6 +81,54 @@ for kind in patch minor major resume; do
         cmp "$fixture/expected" "$EVENTS"
     done
 done
+# The adopted frozen entrypoint must keep IcyDB's real Make routing, selected
+# roster and publication boundary. Substitute only the effectful batch runner;
+# this proves dispatch, not frozen product builds or publication qualification.
+export RELEASE_FIXTURE_PERL
+RELEASE_FIXTURE_PERL="$(command -v perl)"
+printf '#!%s\n' "$real_bash" > "$fixture/bin/perl"
+cat >> "$fixture/bin/perl" <<'FROZEN'
+set -euo pipefail
+if [[ "$1" == */scripts/ci/run-frozen-release.pl ]]; then
+    printf '%s\n' "$*" >> "$EVENTS"
+else
+    exec "$RELEASE_FIXTURE_PERL" "$@"
+fi
+FROZEN
+chmod +x "$fixture/bin/perl"
+: > "$EVENTS"
+env -u RELEASE_FROZEN_GROUPS PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory \
+    -f "$root/Makefile" release-patch RELEASE_GROUP=database RELEASE_REMOTE=reviewed \
+    RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-default.log" 2>&1
+printf '%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct\n' \
+    "$root/scripts/ci/run-frozen-release.pl" "$fixture" > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
+for groups in database cli database,cli; do
+    for kind in patch minor major; do
+        : > "$EVENTS"
+        PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" \
+            "release-$kind" RELEASE_GROUP="${groups%%,*}" RELEASE_FROZEN_GROUPS="$groups" \
+            RELEASE_FROZEN_PUBLISH_TARGET=publish RELEASE_REMOTE=reviewed RELEASE_BRANCH=main \
+            RELEASE_DELIVERY=direct > "$fixture/frozen-$groups-$kind.log" 2>&1
+        printf '%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish\n' \
+            "$root/scripts/ci/run-frozen-release.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
+        cmp "$fixture/expected" "$EVENTS"
+    done
+done
+: > "$EVENTS"
+PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
+    RELEASE_GROUP=cli RELEASE_FROZEN_GROUPS=cli RELEASE_FROZEN_PUBLISH_TARGET= \
+    RELEASE_REMOTE=reviewed RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-git-only.log" 2>&1
+printf '%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct\n' \
+    "$root/scripts/ci/run-frozen-release.pl" "$fixture" > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
+: > "$EVENTS"
+printf '_release-frozen-bootstrap:\n\t@:\n' > "$fixture/frozen-child.mk"
+PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" -f "$fixture/frozen-child.mk" release-patch \
+    RELEASE_GROUP=database RELEASE_FROZEN_GROUPS=database,cli FROZEN_RELEASE_ACTIVE=1 \
+    RELEASE_REMOTE=reviewed RELEASE_BRANCH=main > "$fixture/frozen-child.log" 2>&1
+printf '%s patch reviewed main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
 # Exercise routine qualification through the actual Make caller with script
 # substitutes. Keep snapshot admission and consumer release proofs selected;
 # a failed proof must stop dispatch before later fixtures. No gate runs here.
@@ -100,7 +150,7 @@ for failure in none scripts/release/test-release-groups.sh; do
     : > "$EVENTS"
     status=0
     PATH="$fixture/roster-bin:$PATH" ROSTER_ROOT="$root" ROSTER_FAILURE="$failure" \
-        "$real_make" --no-print-directory -f "$root/Makefile" check-portable-automation \
+        "$real_make" --no-print-directory -C "$root" -f "$root/Makefile" check-portable-automation \
         RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
     [[ "$(head -n 1 "$EVENTS")" == scripts/ci/verify-shared-tooling-snapshot.sh ]]
     for proof in scripts/ci/test-shared-tooling-adapters.sh scripts/release/test-standard-release.sh \
@@ -271,7 +321,9 @@ for stage in success fetch setup check; do
         "RELEASE_TMP_DIR=$fixture/release-tmp" > "$fixture/output" 2>&1 || status=$?
     if [[ "$status" == 0 ]]; then
         CARGO_NET_OFFLINE=true PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -j4 -f "$root/Makefile" \
-            release-verify "MAKE=$fixture/bin/make" "RELEASE_TMP_DIR=$fixture/release-tmp" \
+            release-verify RELEASE_SOURCE=1111111111111111111111111111111111111111 \
+            "RELEASE_RECEIPT_DIR=$fixture/receipts" \
+            "MAKE=$fixture/bin/make" "RELEASE_TMP_DIR=$fixture/release-tmp" \
             "RELEASE_EDITOR_CHECK=$fixture/bin/editor-selector" \
             >> "$fixture/output" 2>&1 || status=$?
     fi

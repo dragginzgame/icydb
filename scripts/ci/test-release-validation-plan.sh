@@ -26,7 +26,7 @@ cp "$root/ci/"{release-validation.json,release-validation-contract.json,cargo-re
 cp "$root/Makefile" "$fixture_repo/"
 cp "$root/scripts/release/"{validation-plan.pl,validation-receipt.pl,validation-stages.pl,compare-validation-plans.pl,qualify-validation-plan.sh,qualify-native-validation.sh,ValidationScope.pm,validation-fingerprint.pl} "$fixture_repo/scripts/release/"
 cp "$root/scripts/ci/"{run-validation-targets.sh,run-icydb-validation-targets.sh,check-make-execution.sh,verify-file-checksum.sh,validation-input-checkpoint.pl,release-validation-plan.pl,ValidationPlan.pm,validation-evidence.pl,release-receipts.sh} "$fixture_repo/scripts/ci/"
-cp "$root/scripts/release/group.sh" "$fixture_repo/scripts/release/"
+cp "$root/scripts/release/"{group.sh,prepare-extra.sh} "$fixture_repo/scripts/release/"
 cp "$root/scripts/ci/cargo-release-groups.jq" "$fixture_repo/scripts/ci/"
 cp "$root/scripts/ci/StableVersion.pm" "$fixture_repo/scripts/ci/"
 while IFS= read -r path; do
@@ -145,33 +145,33 @@ for group in database cli; do
     head="$(git rev-parse HEAD)"
     mkdir -p "target/$group"
     perl scripts/release/validation-plan.pl "$group" "$head" "$group-v1.0.0" "target/$group/auto.json" auto
-    jq -e --arg group "$group" '.scope == (if $group=="cli" then "group" else "workspace" end) and
-      ([.stages[] | select(.target=="clippy-cli" or .target=="check-cli" or .target=="test-cli" or .target=="package-cli") | .required] | all)' "target/$group/auto.json" > /dev/null
+    jq -e --arg group "$group" '.scope == "group" and
+      ([.stages[] | select(.target=="clippy-cli" or .target=="check-cli" or .target=="test-cli" or .target=="package-cli") | .required] | all == ($group=="cli"))' "target/$group/auto.json" > /dev/null
     : > target/executed
     bash scripts/release/qualify-validation-plan.sh "$group" "$group-v1.0.0" workspace > "$fixture/$group-full.log"
     jq -r '.stages[]' ci/release-validation.json > target/expected
     cmp target/expected target/executed
-    if [[ "$group" == cli ]]; then
+    if [[ "$group" == cli || "$group" == database ]]; then
         : > target/executed
-        FAIL_STAGE='test' bash scripts/release/qualify-validation-plan.sh cli cli-v1.0.0 auto > "$fixture/cli-selected.log"
-        jq -r '.stages[] | select(.required) | .target' target/cli/auto.json > target/expected
+        FAIL_STAGE="$( [[ "$group" == cli ]] && printf test || printf check-automation )" bash scripts/release/qualify-validation-plan.sh "$group" "$group-v1.0.0" auto > "$fixture/$group-selected.log"
+        jq -r '.stages[] | select(.required) | .target' target/$group/auto.json > target/expected
         cmp target/expected target/executed
-        receipt="$(sed -n '/\/receipt.json$/p' "$fixture/cli-selected.log")"
+        receipt="$(sed -n '/\/receipt.json$/p' "$fixture/$group-selected.log")"
         jq -e '.contract=="icydb-release-validation-qualification/2" and .counts.executed==11 and .counts.reused==0 and .release_omission_admitted==false' "$receipt" > /dev/null
         # The excluded-failure probe deliberately changes configuration. A real
         # matched comparison must reject it, then admit a same-source/config pair.
-        full="$(sed -n '\|/receipt.json$|p' "$fixture/cli-full.log")"
-        RELEASE_GROUP=cli RELEASE_SOURCE="$head" refuse perl scripts/release/compare-validation-plans.pl \
+        full="$(sed -n '\|/receipt.json$|p' "$fixture/$group-full.log")"
+        RELEASE_GROUP="$group" RELEASE_SOURCE="$head" refuse perl scripts/release/compare-validation-plans.pl \
             "${full%/receipt.json}" "${receipt%/receipt.json}"
-        bash scripts/release/qualify-validation-plan.sh cli cli-v1.0.0 auto > "$fixture/cli-matched.log"
-        selected="$(sed -n '\|/receipt.json$|p' "$fixture/cli-matched.log")"
-        RELEASE_GROUP=cli RELEASE_SOURCE="$head" perl scripts/release/compare-validation-plans.pl \
+        bash scripts/release/qualify-validation-plan.sh "$group" "$group-v1.0.0" auto > "$fixture/$group-matched.log"
+        selected="$(sed -n '\|/receipt.json$|p' "$fixture/$group-matched.log")"
+        RELEASE_GROUP="$group" RELEASE_SOURCE="$head" perl scripts/release/compare-validation-plans.pl \
             "${full%/receipt.json}" "${selected%/receipt.json}" > "$fixture/comparison.json"
-        jq -e '.full.executed==15 and .selected.executed==11 and (.excluded|length)==4 and .release_omission_admitted==false' \
+        jq -e '.full.executed==16 and .selected.executed==11 and (.excluded|length)==5 and .release_omission_admitted==false' \
             "$fixture/comparison.json" > /dev/null
         # Qualify the actual production caller with fixture-only mapping proof.
         # Its stages remain substitutes; no product/host qualification is claimed.
-        git checkout -qb production-gate
+        git checkout -qb "production-gate-$group"
         # Use real Cargo metadata and the real group editor for the complete
         # selected-gate -> prepared/staged/committed/tagged/publication boundary.
         printf '[workspace]\nresolver = "3"\nmembers = ["crates/*"]\n[workspace.package]\nedition = "2024"\nrust-version = "1.99.1"\n[workspace.dependencies]\n' > Cargo.toml
@@ -189,7 +189,8 @@ for group in database cli; do
           dependencies:($members|map(select(if $g=="cli" then .=="icydb-cli" else .!="icydb-cli" end))),
           changelog:("releases/"+$g+"/CHANGELOG.md"),metadata_files:["releases/"+$g+"/0.296.md"]})}' \
           "${mini_packages[@]}" > ci/cargo-release-groups.json
-        printf '[]\n' > ci/dependency-pinning-exceptions.json
+        jq -cn --args '$ARGS.positional | map(select(.!="icydb-cli") | {rule:"cargo-exact",file:"Cargo.toml",subject:.,value:"=0.295.2",reason:"Coordinated fixture contract.",evidence:"CHANGELOG.md"})' \
+            "${mini_packages[@]}" > ci/dependency-pinning-exceptions.json
         for mini_group in database cli; do
             mkdir -p "releases/$mini_group"
             printf '# Notes\n\n## [0.296.0]\n\nFixture release.\n' > "releases/$mini_group/CHANGELOG.md"
@@ -205,49 +206,61 @@ for group in database cli; do
           '{schema:1,comparisons:[. + $identity[0]]}' "$fixture/comparison.json" > ci/release-validation-qualified.json
         git add ci/release-validation-qualified.json
         git commit -qm 'fixture mapping admission'
-        git tag -am baseline cli-v0.295.2
-        printf '// production command\n' >> crates/icydb-cli/src/main.rs
+        git tag -am baseline "$group-v0.295.2"
+        printf '// production command\n' >> "$source_file"
         git commit -qam 'fixture private CLI change'
         production_source="$(git rev-parse HEAD)"
         : > target/production-dispatch
-        CARGO_PROFILE_DEV_DEBUG=0 RELEASE_GROUP=cli RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2 \
+        CARGO_PROFILE_DEV_DEBUG=0 RELEASE_GROUP="$group" RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2 \
             bash scripts/release/verify.sh > "$fixture/production-configuration.log" 2>&1
         [[ "$(cat target/production-dispatch)" == full ]]
         RUSTFLAGS='--cfg unqualified_mapping' GITHUB_STEP_SUMMARY="$fixture/fallback-summary.md" \
-            RELEASE_GROUP=cli RELEASE_SOURCE="$(git rev-parse HEAD)" RELEASE_PREVIOUS=0.295.2 \
+            RELEASE_GROUP="$group" RELEASE_SOURCE="$(git rev-parse HEAD)" RELEASE_PREVIOUS=0.295.2 \
             bash scripts/release/verify.sh > "$fixture/production-unqualified.log" 2>&1
         rg -F 'Native mapping, host/compiler or Cargo configuration is not qualified.' "$fixture/fallback-summary.md"
         rg -F 'Selection diagnostics retained:' "$fixture/production-unqualified.log"
-        RELEASE_GROUP=database GITHUB_STEP_SUMMARY="$fixture/database-summary.md" \
+        RELEASE_GROUP="$( [[ "$group" == cli ]] && printf database || printf cli )" GITHUB_STEP_SUMMARY="$fixture/database-summary.md" RELEASE_PREVIOUS=0.295.2 RELEASE_SOURCE="$production_source" \
             bash scripts/release/verify.sh > "$fixture/production-database.log" 2>&1
-        rg -F 'Database subsystem selections are not qualified for release omissions.' "$fixture/database-summary.md"
+        rg -F 'Native mapping, host/compiler or Cargo configuration is not qualified.' "$fixture/database-summary.md"
+        # A transitive automation helper is part of the omission mapping even
+        # when the top-level roster, Makefile and dependency graph stay fixed.
+        printf '\n# changed automation owner\n' >> scripts/ci/check-make-execution.sh
+        git commit -qam 'fixture automation owner drift'
+        perl scripts/release/validation-fingerprint.pl "$(git rev-parse HEAD)" > "$fixture/automation-fingerprint.json"
+        [[ "$(jq -r .mapping_sha256 "$fixture/automation-fingerprint.json")" != "$(jq -r .mapping_sha256 "$fixture/mini-fingerprint.json")" ]]
         : > target/production-dispatch
-        RELEASE_GROUP=cli RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2 \
+        RELEASE_GROUP="$group" RELEASE_SOURCE="$(git rev-parse HEAD)" RELEASE_PREVIOUS=0.295.2 \
+            bash scripts/release/verify.sh > "$fixture/automation-drift.log" 2>&1
+        [[ "$(cat target/production-dispatch)" == full ]]
+        git checkout -q --detach "$production_source"
+        : > target/production-dispatch
+        RELEASE_GROUP="$group" RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2 \
             bash scripts/release/verify.sh > "$fixture/production-selected.log" 2>&1
         [[ ! -s target/production-dispatch ]]
-        pointer="$(git rev-parse --absolute-git-dir)/release-state/receipts/cli-$production_source.gate"
+        pointer="$(git rev-parse --absolute-git-dir)/release-state/receipts/$group-$production_source.gate"
         durable="$(dirname "$pointer")/$(cat "$pointer")"
-        perl scripts/release/validation-gate.pl check "$durable" "$production_source" > "$fixture/durable-gate.json"
-        refuse perl scripts/release/validation-gate.pl check "$durable" "$base"
+        RELEASE_GROUP="$group" perl scripts/release/validation-gate.pl check "$durable" "$production_source" > "$fixture/durable-gate.json"
+        RELEASE_GROUP="$group" refuse perl scripts/release/validation-gate.pl check "$durable" "$base"
         mv target/release-validation "$fixture/removed-validation-cache"
-        perl scripts/release/validation-gate.pl check "$durable" "$production_source" > "$fixture/uncached-gate.json"
+        RELEASE_GROUP="$group" perl scripts/release/validation-gate.pl check "$durable" "$production_source" > "$fixture/uncached-gate.json"
         cmp "$fixture/durable-gate.json" "$fixture/uncached-gate.json"
         mv "$fixture/removed-validation-cache" target/release-validation
         selected_transition() {
-            local RELEASE_GROUP=cli RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2
+            local RELEASE_GROUP="$group" RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2
             local RELEASE_VERSION=0.296.0 RELEASE_DATE=2026-11-04 RELEASE_KIND=minor RELEASE_COMMIT
             export RELEASE_GROUP RELEASE_SOURCE RELEASE_PREVIOUS RELEASE_VERSION RELEASE_DATE RELEASE_KIND RELEASE_COMMIT
-            bash scripts/ci/cargo-release-group.sh prepare cli > "$fixture/selected-prepare.log" 2>&1
+            bash scripts/ci/cargo-release-group.sh prepare "$group" > "$fixture/selected-prepare.log" 2>&1
+            bash scripts/release/prepare-extra.sh >> "$fixture/selected-prepare.log" 2>&1
             bash scripts/release/finalize-notes.sh >> "$fixture/selected-prepare.log" 2>&1
             bash scripts/ci/release-candidate-receipt.sh record minor "$production_source"
-            candidate="$(dirname "$pointer")/cli-v0.296.0.candidate"
-            [[ "$(head -n 1 "$candidate")" == format=3:cli ]]
+            candidate="$(dirname "$pointer")/$group-v0.296.0.candidate"
+            [[ "$(head -n 1 "$candidate")" == "format=3:$group" ]]
             git add .
             bash scripts/ci/release-candidate-receipt.sh verify-staged
             git commit -qm 'fixture selected metadata release'
             RELEASE_COMMIT="$(git rev-parse HEAD)"
             bash scripts/ci/release-candidate-receipt.sh verify-commit
-            git tag -am 'fixture selected release' cli-v0.296.0
+            git tag -am 'fixture selected release' $group-v0.296.0
             bash scripts/ci/record-release-gate-receipt.sh
             bash scripts/ci/verify-release-gate-receipt.sh "$RELEASE_COMMIT"
             refuse bash scripts/ci/verify-release-gate-receipt.sh "$RELEASE_COMMIT" --publication
@@ -258,28 +271,43 @@ for group in database cli; do
             # Own-version preparation cannot invalidate mapping qualification.
             perl scripts/release/validation-fingerprint.pl "$RELEASE_COMMIT" > "$fixture/version-fingerprint.json"
             [[ "$(jq -r .mapping_sha256 "$fixture/version-fingerprint.json")" == "$(jq -r .mapping_sha256 "$fixture/mini-fingerprint.json")" ]]
+            # An interleaved other-group version is canonical metadata, not a
+            # dependency/feature change. It cannot invalidate the mapping.
+            other_group="$( [[ "$group" == cli ]] && printf database || printf cli )"
+            RELEASE_GROUP="$other_group" bash scripts/ci/cargo-release-group.sh prepare "$other_group" > "$fixture/other-prepare.log" 2>&1
+            RELEASE_GROUP="$other_group" bash scripts/release/prepare-extra.sh >> "$fixture/other-prepare.log" 2>&1
+            RELEASE_GROUP="$other_group" bash scripts/release/finalize-notes.sh >> "$fixture/other-prepare.log" 2>&1
+            git add .; git commit -qm 'fixture interleaved other-group metadata'
+            perl scripts/release/validation-fingerprint.pl "$(git rev-parse HEAD)" > "$fixture/other-fingerprint.json"
+            [[ "$(jq -r .mapping_sha256 "$fixture/other-fingerprint.json")" == "$(jq -r .mapping_sha256 "$fixture/mini-fingerprint.json")" ]]
+            if [[ "$group" == database ]]; then
+                printf '// next database correction\n' >> crates/icydb-core/src/lib.rs
+                git commit -qam 'fixture next database correction'
+                perl scripts/release/validation-plan.pl database "$(git rev-parse HEAD)" database-v0.296.0 target/interleaved.json auto
+                jq -e '.scope=="group"' target/interleaved.json > /dev/null
+            fi
         }
         selected_transition > "$fixture/selected-transition.log" 2>&1
         git checkout -q --detach "$production_source"
         retained_run="$(jq -r .run "$durable/gate.json")"
         cp "$durable/view/$retained_run/0.log" "$fixture/retained-original.log"
         printf 'changed proof\n' >> "$durable/view/$retained_run/0.log"
-        refuse perl scripts/release/validation-gate.pl check "$durable" "$production_source"
+        RELEASE_GROUP="$group" refuse perl scripts/release/validation-gate.pl check "$durable" "$production_source"
         cp "$fixture/retained-original.log" "$durable/view/$retained_run/0.log"
-        FAIL_STAGE=clippy-cli RELEASE_GROUP=cli RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2 \
+        FAIL_STAGE="$( [[ "$group" == cli ]] && printf clippy-cli || printf clippy )" RELEASE_GROUP="$group" RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2 \
             refuse bash scripts/release/verify.sh
         [[ ! -e "$pointer" ]]
         # Source ownership uncertainty routes through the original full gate.
-        printf '// engine change\n' >> crates/icydb-core/src/lib.rs
-        git commit -qam 'fixture shared input'
-        RELEASE_GROUP=cli RELEASE_SOURCE="$(git rev-parse HEAD)" RELEASE_PREVIOUS=0.295.2 \
+        printf '// uncertain input\n' > unclassified.rs
+        git add unclassified.rs; git commit -qm 'fixture shared input'
+        RELEASE_GROUP="$group" RELEASE_SOURCE="$(git rev-parse HEAD)" RELEASE_PREVIOUS=0.295.2 \
             bash scripts/release/verify.sh > "$fixture/production-full.log" 2>&1
         [[ "$(cat target/production-dispatch)" == full ]]
-        rg -F 'Shared or uncertain changes exceed the CLI-private boundary.' "$fixture/production-full.log"
-        rg -F 'Changed input: crates/icydb-core/src/lib.rs' "$fixture/production-full.log"
-        git checkout -q test-cli
+        rg -F 'Shared or uncertain changes exceed the selected group boundary.' "$fixture/production-full.log"
+        rg -F 'Changed input: unclassified.rs' "$fixture/production-full.log"
+        git checkout -q "test-$group"
     fi
-    FAIL_STAGE=clippy-cli refuse bash scripts/release/qualify-validation-plan.sh "$group" "$group-v1.0.0" auto
+    FAIL_STAGE="$( [[ "$group" == cli ]] && printf clippy-cli || printf clippy )" refuse bash scripts/release/qualify-validation-plan.sh "$group" "$group-v1.0.0" auto
     refuse perl scripts/release/validation-plan.pl unknown "$head" "$group-v1.0.0" "target/$group/unknown.json" auto
     refuse perl scripts/release/validation-plan.pl "$group" "$base" "$group-v1.0.0" "target/$group/stale.json" auto
     refuse perl scripts/release/validation-plan.pl "$group" "$head" other-v1.0.0 "target/$group/wrong-baseline.json" auto
@@ -287,6 +315,21 @@ for group in database cli; do
     git commit -qam 'shared lock change'
     perl scripts/release/validation-plan.pl "$group" "$(git rev-parse HEAD)" "$group-v1.0.0" "target/$group/shared.json" auto
     jq -e '.scope=="workspace" and ([.stages[].required] | all)' "target/$group/shared.json" > /dev/null
+done
+for database_change in added deleted dependency tooling fixture; do
+    git checkout -q -B database-expansion "$base"
+    case "$database_change" in
+      added) printf 'fn main() {}\n' > crates/icydb-core/src/new_target.rs ;;
+      deleted) rm crates/icydb-core/src/lib.rs ;;
+      dependency) printf '\n[features]\nnew_contract=[]\n' >> crates/icydb-core/Cargo.toml ;;
+      tooling) printf '// tooling\n' > scripts/new-tool.rs ;;
+      fixture) mkdir -p testing/build; printf '// artifact owner\n' > testing/build/new.rs ;;
+    esac
+    printf '// product change\n' >> crates/icydb/src/lib.rs
+    git add .; git commit -qm "database $database_change scope uncertainty"
+    perl scripts/release/validation-plan.pl database "$(git rev-parse HEAD)" database-v1.0.0 "target/db-$database_change.json" auto
+    jq -e '.scope=="workspace" and ([.stages[].required]|all)' "target/db-$database_change.json" >/dev/null
+    cases=$((cases+1))
 done
 # Shared's unavailable observation must remain a consumer refusal, never an
 # empty diff eligible for narrow validation.

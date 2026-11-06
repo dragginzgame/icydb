@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+// Shared companions: ci/cbor-dependencies.json
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -7,7 +8,10 @@ import { pathToFileURL } from 'node:url';
 // SDK Core and its legacy equivalents, not Auth providers or executable tools.
 const sdkPackages = ['@icp-sdk/core', '@dfinity/agent', '@dfinity/principal',
   '@dfinity/identity', '@dfinity/identity-secp256k1', '@dfinity/candid'];
-const packagePattern = sdkPackages.join('|');
+const cborInventory = JSON.parse(await readFile(new URL('../../ci/cbor-dependencies.json', import.meta.url), 'utf8'));
+assert(Array.isArray(cborInventory.browser) && cborInventory.browser.length > 0, 'Invalid CBOR inventory');
+const forbiddenPackages = [...sdkPackages, ...cborInventory.browser];
+const packagePattern = forbiddenPackages.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 const alias = new RegExp(`^npm:(${packagePattern})(?:@|/|$)`);
 const gap = String.raw`(?:\s|/\*[\s\S]*?\*/|//[^\r\n]*(?:\r?\n|$))*`;
 // Inspect literal source, including generated-source snippets and npm scripts.
@@ -20,7 +24,7 @@ function checkLiteralImports(source, path) {
   const match = sdkImport.exec(source);
   if (match) {
     const line = source.slice(0, match.index).split('\n').length;
-    throw new Error(`${path}:${line}: direct SDK import (${match[1]}); use @tokostudios/ic-platform`);
+    throw new Error(`${path}:${line}: direct SDK/CBOR import (${match[1]}); use @tokostudios/ic-platform`);
   }
 }
 
@@ -31,8 +35,8 @@ function checkManifest(manifest, path) {
     assert(dependencies && typeof dependencies === 'object' && !Array.isArray(dependencies), `${path}: invalid ${field}`);
     for (const [name, selector] of Object.entries(dependencies)) {
       assert(typeof selector === 'string', `${path}: invalid ${field}/${name}`);
-      assert(!sdkPackages.some(sdk => name === sdk || name.startsWith(`${sdk}/`)) && !alias.test(selector),
-        `${path}: direct SDK dependency (${field}/${name}); use @tokostudios/ic-platform`);
+      assert(!forbiddenPackages.some(sdk => name === sdk || name.startsWith(`${sdk}/`)) && !alias.test(selector),
+        `${path}: direct SDK/CBOR dependency (${field}/${name}); use @tokostudios/ic-platform`);
     }
   }
   for (const [name, script] of Object.entries(manifest.scripts ?? {})) {

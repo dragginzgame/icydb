@@ -44,12 +44,13 @@ perl "$ROOT/scripts/release/validation-stages.pl" fast > "$CLEANUP_TEST_ROOT/fas
 perl "$ROOT/scripts/release/validation-stages.pl" collect > "$CLEANUP_TEST_ROOT/collect-stages"
 awk '
   $1 == "clippy" { lint = NR }
-  $1 == "check-invariants" { invariants = NR }
+  $1 == "check-product-invariants" { invariants = NR }
+  $1 == "check-automation" { automation = NR }
   $1 == "check" { build = NR }
-  END { exit !(lint > 0 && invariants > lint && build > invariants) }
+  END { exit !(lint > 0 && invariants > lint && automation > invariants && build > automation) }
 ' "$CLEANUP_TEST_ROOT/fast-stages"
 if grep -Eq '^(test|check-feature-matrix)$' "$CLEANUP_TEST_ROOT/fast-stages" ||
-   grep -Eq '^(clippy|check|check-invariants)$' "$CLEANUP_TEST_ROOT/collect-stages"; then
+   grep -Eq '^(clippy|check|check-product-invariants|check-automation)$' "$CLEANUP_TEST_ROOT/collect-stages"; then
   echo 'lint and build must finish before collecting test/feature failures' >&2
   exit 1
 fi

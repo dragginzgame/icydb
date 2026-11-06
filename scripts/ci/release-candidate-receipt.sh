@@ -223,7 +223,7 @@ read_receipt() {
         [[ ${#lines[@]} -le 8 ]] || break
     done < "$receipt"
     if [[ ! ( "${#lines[@]}" == 6 && "${lines[0]}" == "format=2:$RELEASE_GROUP" ) &&
-          ! ( "${#lines[@]}" == 8 && "$RELEASE_GROUP" == cli && "${lines[0]}" == format=3:cli ) ]]; then
+          ! ( "${#lines[@]}" == 8 && "${lines[0]}" == "format=3:$RELEASE_GROUP" ) ]]; then
         echo "Malformed release candidate receipt: $receipt" >&2
         exit 1
     fi
@@ -239,7 +239,7 @@ read_receipt() {
         RECEIPT_VALIDATION="${lines[6]#validation=}"
         RECEIPT_VALIDATION_HASH="${lines[7]#validation_sha256=}"
         [[ "${lines[6]}" == "validation=$RECEIPT_VALIDATION" &&
-           "$RECEIPT_VALIDATION" =~ ^cli-[0-9a-f]{40}\.[A-Za-z0-9]+$ &&
+           "$RECEIPT_VALIDATION" =~ ^${RELEASE_GROUP}-[0-9a-f]{40}\.[A-Za-z0-9]+$ &&
            "${lines[7]}" == "validation_sha256=$RECEIPT_VALIDATION_HASH" &&
            "$RECEIPT_VALIDATION_HASH" =~ ^[0-9a-f]{64}$ ]] || exit 1
     fi
@@ -307,10 +307,10 @@ record_receipt() {
     receipt="$RELEASE_RECEIPT_DIR/$RELEASE_GROUP-v$release_version.candidate"
     temporary_receipt="$receipt.tmp.$$"
     local validation='' validation_hash='' pointer="$RELEASE_RECEIPT_DIR/$RELEASE_GROUP-$candidate_commit.gate"
-    if [[ "$RELEASE_GROUP" == cli && ( -e "$pointer" || -L "$pointer" ) ]]; then
+    if [[ -e "$pointer" || -L "$pointer" ]]; then
         [[ ! -L "$pointer" && -f "$pointer" ]]
         validation="$(cat "$pointer")"
-        [[ "$validation" =~ ^cli-[0-9a-f]{40}\.[A-Za-z0-9]+$ ]]
+        [[ "$validation" =~ ^${RELEASE_GROUP}-[0-9a-f]{40}\.[A-Za-z0-9]+$ ]]
         validation_hash="$(perl "$SCRIPT_DIR/../release/validation-gate.pl" check \
             "$RELEASE_RECEIPT_DIR/$validation" "$candidate_commit" | jq -er .gate_sha256)" || exit
     fi

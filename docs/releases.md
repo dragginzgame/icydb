@@ -1,6 +1,11 @@
 # Common release commands
 <!-- Shared companions: docs/cargo-publication.md docs/release-group-validation.md docs/release-validation-reuse.md rules/contributions.md rules/rust-workspaces.md scripts/ci/check-release-source.sh -->
 
+Grouped consumers may qualify [frozen release batches](frozen-releases.md) so
+normal-checkout `cargo update` writes affect the next release, not active delivery.
+Select the full affected group roster once and execute release and publication
+from that captured source; do not mix candidate validation with live publication.
+
 Every `dragginzgame` repository, including Shared Tooling and repositories without
 a publishable package, must provide these Make targets:
 
@@ -18,9 +23,9 @@ and execute necessary preparation and delivery without per-command confirmation.
 Preparing code/notes, asking how to deploy or checking readiness does not itself
 authorize execution. Preserve explicit target restrictions and required protections.
 Before execution, disclose the working checkout and branch, remote destination
-and release effects. Direct integration-branch pushes and alternate delivery
-checkouts need explicit authorization under the linked contribution rules; a
-generic deployment request does not silently select either. Preserve unique edits
+and release effects. A scoped deploy request authorizes direct integration-branch
+pushes under the linked contribution rules; alternate checkout locations still
+require explicit authorization. Preserve unique edits
 under the [durable work contract](../rules/contributions.md#durable-work-and-checkout-location).
 
 The names, version arithmetic and recovery contract are shared across repositories.

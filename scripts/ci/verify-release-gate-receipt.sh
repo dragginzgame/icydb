@@ -19,11 +19,11 @@ for receipt in "$RELEASE_RECEIPT_DIR"/"$RELEASE_GROUP"-v*.commit; do
     [[ ! -L "$receipt" && -f "$receipt" ]] || continue
     [[ "$(wc -c < "$receipt")" -le 1024 ]] || continue
     receipt_commit="$(sed -n '1p' "$receipt")"
-    if [[ "$receipt_commit" == format=selected-cli/1 ]]; then
+    if [[ "$receipt_commit" == "format=selected-$RELEASE_GROUP/1" ]]; then
         # Selected source validation permits the exact metadata transition and
         # push. Publication must still perform normal final-version Cargo archive
         # verification, rather than treating this as an old full-gate receipt.
-        [[ "$RELEASE_GROUP" == cli && "$publication" == false &&
+        [[ "$publication" == false &&
            "$(wc -l < "$receipt")" -eq 3 ]] || continue
         receipt_commit="$(sed -n '2p' "$receipt")"
         [[ "$receipt_commit" == "$EXPECTED_COMMIT" ]] || continue

@@ -157,8 +157,21 @@ fi
 
 if ! ci_job_runs macos_host | rg -q '(^|[[:space:]])make[[:space:]]+check-portable-automation([[:space:]]|$)' ||
    ! make_target_recipe check-invariants | rg -q --fixed-strings \
-     '$(MAKE) --no-print-directory check-portable-automation'; then
+     '$(MAKE) --no-print-directory check-automation' ||
+   ! make_target_recipe check-portable-automation | rg -q --fixed-strings \
+     '$(MAKE) --no-print-directory check-automation'; then
   fail "static and native CI must consume the same portable automation gate"
+fi
+
+# Database narrowing may omit fixture execution only. Its live source checks
+# remain a separate required owner, and full/static CI still executes both.
+if ! make_target_recipe check-invariants | rg -q --fixed-strings \
+     '$(MAKE) --no-print-directory check-product-invariants' ||
+   make_target_recipe check-product-invariants | rg 'scripts/(ci|release)/test-' |
+     rg -vq 'scripts/ci/test-(invariant-scanners|read-admission-invariants|documentation)\.(sh|pl)' ||
+   ! make_target_recipe check-product-invariants | rg -q --fixed-strings \
+     'bash scripts/ci/check-persisted-format-invariants.sh'; then
+  fail "product invariants and automation regression ownership must stay separate"
 fi
 
 if ! rg -q '^CORE_TEST_ENV := RUST_TEST_THREADS=8$' Makefile ||
@@ -222,7 +235,7 @@ done
 
 # Product dispatch must not acquire composition inputs or invoke its leaves.
 for target in ci-core ci-workspace ci-sql-tier-a test test-unit _test-workspace \
-  clippy validate validate-fast check-invariants check-portable-automation \
+  clippy validate validate-fast check-invariants check-portable-automation check-product-invariants check-automation \
   test-durability test-documentation release-preflight; do
   if make_target_recipe "$target" | rg -q '\$\(ADAPTER_|_test-adapter|_test-canister-libs|_test-durability-integration|_ci-adapter|_ci-workspace-integration|_ci-tier-a-integration|test-canister-artifact-contract|fetch-adapter|test-testkit-tooling|test-pocketic-server-wrapper|icydb-testing-model-facade-only'; then
     fail "$target routes product acceptance into adapter qualification"
@@ -284,7 +297,7 @@ done
 if [[ ! -x scripts/ci/run-icydb-validation-targets.sh ]] ||
    ! rg -q 'VALIDATION_RUNNER := .*run-icydb-validation-targets.sh' Makefile ||
    ! rg -q '^check-portable-automation: shared-tooling-check$' Makefile ||
-   ! make_target_recipe check-portable-automation | rg -q --fixed-strings \
+   ! make_target_recipe check-automation | rg -q --fixed-strings \
      'bash scripts/ci/test-shared-tooling-adapters.sh' ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||

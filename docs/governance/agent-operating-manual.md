@@ -62,6 +62,19 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   is not a release-readiness verdict. Human-owned release publication uses
   `make release-patch RELEASE_GROUP=database`, `make release-minor RELEASE_GROUP=database` or `make release-major RELEASE_GROUP=database`; the shared
   runner owns preparation, staging, commit, tag and atomic branch/tag push.
+- Release entrypoints capture the explicitly selected group through the shared
+  frozen runner by default. Select the whole affected roster with
+  `RELEASE_FROZEN_GROUPS=database,cli` in supplier-first order; a batch supports
+  only one increment. Select `RELEASE_FROZEN_PUBLISH_TARGET=publish` explicitly
+  when publication is authorized. For a mixed-increment delivery, clear
+  `RELEASE_FROZEN_GROUPS=` and use the standard group workflows.
+- Resume frozen delivery with `make release-batch-resume BATCH=<saved-id>`.
+  An uncertain publication requires inspecting the registry before supplying
+  `PUBLICATION_RESULT=published` or `not-published`. Durable intent and receipts
+  live under the actual Git directory; captured source lives under
+  `target/release-frozen/`. Normal-checkout edits stay deferred. Reconcile the
+  normal branch explicitly after delivery, preserving concurrent edits; never
+  reset or replace a dirty lockfile to make it resemble the delivered candidate.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`. `make install-hooks` installs the hook explicitly;
   `make install-dev` and `make update-dev` also ensure it is installed.

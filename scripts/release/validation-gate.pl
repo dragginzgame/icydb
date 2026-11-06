@@ -10,11 +10,13 @@ use File::Basename qw(dirname);
 use Cwd qw(abs_path);
 use FindBin;
 use lib $FindBin::Bin;
-use ValidationScope qw(cli_private);
+use ValidationScope qw(cli_private database_product exclusions);
 use lib "$FindBin::Bin/../ci";
 use ValidationPlan ();
 my $json=JSON::PP->new->canonical->utf8;
 my $root=abs_path('.');
+my $group=$ENV{RELEASE_GROUP}//'cli';
+my $expected_exclusions=exclusions($group);
 my ($operation,$directory,$argument)=@ARGV;
 @ARGV==3 && $operation =~ /\A(?:capture|check)\z/
     or die "usage: validation-gate.pl capture DIRECTORY ATTEMPT | check DIRECTORY SOURCE\n";
@@ -63,8 +65,8 @@ if ($operation eq 'capture') {
     my $run=$receipt->{evidence}{run};
     command('perl','scripts/release/validation-receipt.pl',"$argument/plan.json",$run,$proof_path)
         eq regular("$argument/receipt.json") or die "gate receipt readmission differs\n";
-    my $admission=$json->decode(command('perl','scripts/release/validation-qualified.pl',$receipt->{source}));
-    $receipt->{group} eq 'cli' && $receipt->{scope} eq 'group' or die "only qualified CLI gates may narrow\n";
+    my $admission=$json->decode(command('perl','scripts/release/validation-qualified.pl',$receipt->{source},$group));
+    $receipt->{group} eq $group && $receipt->{scope} eq 'group' or die "only qualified group gates may narrow\n";
     my $proof=document($proof_path);
     my $view="$directory/view";
     !-e $view && !-l $view or die "gate view already exists\n";
@@ -75,7 +77,7 @@ if ($operation eq 'capture') {
     my $logs={map { ("$run/$_" => $proof->{files}{$_}) } keys %{$proof->{files}}};
     open my $logs_out,'>:raw',"$directory/logs.json" or die "write retained log inventory: $!\n";
     print {$logs_out} $json->encode($logs),"\n"; close $logs_out or die "close log inventory\n";
-    $gate={schema=>1,source=>$receipt->{source},group=>'cli',mode=>'selected',
+    $gate={schema=>1,source=>$receipt->{source},group=>$group,mode=>'selected',
         plan=>"$argument/plan.json",context=>"$argument/plan.json.context.json",run=>$run,
         proof=>$proof_path,receipt=>"$argument/receipt.json",qualification=>$admission,
         logs_sha256=>sha256_hex(regular("$directory/logs.json")),
@@ -87,7 +89,7 @@ if ($operation eq 'capture') {
 } else {
     $gate=document("$directory/gate.json");
 }
-$gate->{schema}==1 && $gate->{source} eq $argument && $gate->{group} eq 'cli'
+$gate->{schema}==1 && $gate->{source} eq $argument && $gate->{group} eq $group
     && $gate->{mode} eq 'selected' or die "wrong source/group gate\n";
 my $view=abs_path("$directory/view")//die "missing retained view\n";
 my $plan=document("$view/$gate->{plan}");
@@ -100,7 +102,7 @@ my $proof=document("$view/$gate->{proof}");
 # Shared admitted the real run at its original physical location above. Its
 # absolute event paths are preserved verbatim. Recovery checks sealed bytes,
 # not a rewritten or newly parsed event/timing record at a different root.
-ValidationPlan::plan($view,$gate->{plan},$argument,'cli');
+ValidationPlan::plan($view,$gate->{plan},$argument,$group);
 sha256_hex(regular("$directory/logs.json")) eq $gate->{logs_sha256}
     && $json->encode($receipt->{evidence}) eq $json->encode($proof)
     or die "retained Shared admission differs\n";
@@ -108,8 +110,8 @@ command('perl',"$root/scripts/ci/validation-input-checkpoint.pl",$view,
     "$view/$gate->{run}/plan-inputs.json",'/dev/stdout',"$root/scripts/ci/verify-file-checksum.sh");
 command('perl',"$root/scripts/ci/validation-input-checkpoint.pl",$view,
     "$directory/logs.json",'/dev/stdout',"$root/scripts/ci/verify-file-checksum.sh");
-$receipt->{source} eq $argument && $receipt->{group} eq 'cli' && $receipt->{scope} eq 'group'
-    && $receipt->{counts}{executed}==11 && $receipt->{counts}{reused}==0
+$receipt->{source} eq $argument && $receipt->{group} eq $group && $receipt->{scope} eq 'group'
+    && $receipt->{counts}{executed}==scalar(grep {$_->{required}} @{$plan->{stages}}) && $receipt->{counts}{reused}==0
     && $receipt->{evidence_sha256} eq $gate->{proof_sha256}
     or die "wrong retained consumer receipt\n";
 my $baseline=$json->decode(command('perl',"$root/scripts/ci/validation-evidence.pl",'baseline',
@@ -117,14 +119,27 @@ my $baseline=$json->decode(command('perl',"$root/scripts/ci/validation-evidence.
 $baseline->{available} && $baseline->{baseline} eq $context->{baseline}
     && $baseline->{object} eq $context->{baseline_tag_object}
     && $json->encode($baseline->{changes}) eq $json->encode($context->{changed})
-    && cli_private('cli',$baseline->{changes}) or die "retained CLI scope no longer admitted\n";
+    or die "retained baseline no longer admitted\n";
+my ($source_metadata,$baseline_metadata);
+my $metadata_equal=sub {
+    my ($path)=@_;
+    return 0 unless $path eq 'Cargo.lock' || $path eq 'ci/dependency-pinning-exceptions.json'
+        || $path =~ m{(?:\A|/)Cargo\.toml\z};
+    $source_metadata //= $json->decode(command('perl',"$root/scripts/release/validation-fingerprint.pl",$argument))->{cargo_inputs};
+    $baseline_metadata //= $json->decode(command('perl',"$root/scripts/release/validation-fingerprint.pl",$baseline->{baseline}))->{cargo_inputs};
+    return exists($source_metadata->{$path}) && exists($baseline_metadata->{$path})
+        && $source_metadata->{$path} eq $baseline_metadata->{$path};
+};
+my %modified=map {$_=>1} split /\n/, command('git','diff','--no-renames','--diff-filter=M','--name-only',$baseline->{baseline},$argument,'--');
+(cli_private($group,$baseline->{changes}) || database_product($group,$baseline->{changes},$metadata_equal,sub {$modified{$_[0]}}))
+    or die "retained group scope no longer admitted\n";
 my @excluded=sort map {$_->{target}} grep {!$_->{required}} @{$plan->{stages}};
-$json->encode(\@excluded) eq $json->encode([sort qw(clippy check check-feature-matrix test)])
+$json->encode(\@excluded) eq $json->encode([sort @$expected_exclusions])
     or die "different retained omissions\n";
 my $cert=document("$view/ci/release-validation-qualified.json");
-grep($_->{mapping_sha256} eq $gate->{qualification}{mapping_sha256}
+grep($_->{group} eq $group && $_->{mapping_sha256} eq $gate->{qualification}{mapping_sha256}
     && $_->{host} eq $receipt->{host} && $_->{rustc} eq $receipt->{rustc}
     && $_->{cargo} eq $receipt->{cargo}, @{$cert->{comparisons}})
     or die "missing retained native qualification\n";
-print $json->encode({source=>$argument,group=>'cli',mode=>'selected',
+print $json->encode({source=>$argument,group=>$group,mode=>'selected',
     gate_sha256=>sha256_hex(regular("$directory/gate.json"))}),"\n";

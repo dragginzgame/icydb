@@ -57,6 +57,29 @@ Do not invent local receipt caches, skip flags or Cargo-version normalization to
 bypass that contract. Until reuse or narrower mapping is qualified, retain the
 complete gate and report the repeated work as an optimization opportunity.
 
+## Completing useful mappings
+
+Qualify selections for isolated implementation changes, not only presentation or
+test files. A group with no qualified implementation paths must be reported as
+full-gate-only; independent versioning alone does not make its releases selective.
+Prioritize demonstrated expensive fallbacks and retain the full gate until the
+replacement mapping is proven. Do not classify core runtime, schema or shared
+contracts as isolated merely to obtain a shorter run.
+
+Keep separable product surfaces explicit: for example, a viewer/client-only
+change need not rebuild a native recorder/provider when its unchanged integration
+inputs and required evidence are qualified. Conversely, changes to the recorder,
+provider binding or shared protocol retain the applicable native/installed checks.
+This applies within a release group too; it does not require splitting packages
+or creating additional release groups.
+
+Qualification must inspect actual leaf argv and prepared artifacts, including
+package archives, and prove both omission of unrelated work and expansion for
+shared/unknown inputs. A selected CLI plan must not quietly package every workspace
+member. Retain the selected package's real archive verification and explicitly
+required reverse-consumer archives. Use existing runner timing evidence to assess
+savings; stage counts and cache-hit labels do not establish elapsed-time gains.
+
 ## Shared mechanics and local policy
 
 Group adoption must not create a separate validation framework in every consumer.

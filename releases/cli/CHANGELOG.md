@@ -3,6 +3,23 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.2]
+
+### 🔧 Changed
+
+- Link the IcyDB 0.300 database family while preserving CLI commands, options
+  and output. Native Testkit types and logging ownership follow the database
+  contract; storage formats are unchanged.
+- Adopt Shared Tooling 0.30.8, including frozen release-batch support and CBOR
+  ownership checks. Qualify captured-source delivery and recovery on Linux;
+  default release dispatch to the explicitly selected group, keeping publication
+  explicit and normal-checkout dependency edits deferred.
+- Separate live product invariants from automation regression fixtures and
+  support qualified database/CLI selection through the existing proof and recovery
+  owners. Retain all affected product and consumer coverage; unknown inputs
+  keep the full gate and selected publication still verifies final archives
+  ([#603 — Qualify database and CLI release plans](https://github.com/dragginzgame/icydb/issues/603)).
+
 ## [0.296.1] - 2026-11-06
 
 ### 📝 Summary

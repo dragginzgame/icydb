@@ -1,0 +1,4 @@
+{
+  "rust": ["serde_cbor", "ciborium", "ciborium-io", "ciborium-ll", "minicbor", "minicbor-serde", "cbor4ii", "serde_ipld_dagcbor", "icrc-cbor"],
+  "browser": ["cbor", "cbor-x", "cbor-js", "borc", "cborg", "@dfinity/cbor", "@ipld/dag-cbor"]
+}

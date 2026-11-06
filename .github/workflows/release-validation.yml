@@ -3,6 +3,12 @@ on:
   # Explicit acceptance after contract/mapping changes; never an extra pair of
   # complete gates on every ordinary push, PR or release.
   workflow_dispatch:
+    inputs:
+      group:
+        description: Release group to qualify against its complete mapping
+        type: choice
+        default: database
+        options: [database, cli]
 
 permissions:
   contents: read
@@ -36,8 +42,10 @@ jobs:
         run: make install-dev
       - name: Prepare the fixed dependency cache
         run: make fetch
-      - name: Compare actual full and selected CLI plans
-        run: bash scripts/release/qualify-native-validation.sh
+      - name: Compare actual full and selected group plans
+        env:
+          QUALIFICATION_GROUP: ${{ inputs.group }}
+        run: bash scripts/release/qualify-native-validation.sh --group "$QUALIFICATION_GROUP"
       - name: Retain comparison, source bundle and raw execution evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

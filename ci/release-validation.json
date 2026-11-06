@@ -1,1 +1,1 @@
-{"groups":["cli","database"],"schema":1,"stages":["tools-check","check-rust-compiler","fmt-check","lint-workflows","shellcheck","check-dependency-pins","clippy","clippy-cli","check-invariants","check","check-cli","check-feature-matrix","test","test-cli","package-cli"]}
+{"groups":["cli","database"],"schema":1,"stages":["tools-check","check-rust-compiler","fmt-check","lint-workflows","shellcheck","check-dependency-pins","clippy","clippy-cli","check-product-invariants","check-automation","check","check-cli","check-feature-matrix","test","test-cli","package-cli"]}

@@ -241,6 +241,48 @@ an unqualified deploy has the defined fleet scope.
 - A missing released Wire capability requires an owning issue and qualification
   before adoption, or an expressly approved scoped exception. Do not introduce
   a local codec or a Candid fallback to bypass that work.
+- **CBOR belongs to IC Platform's typed external-protocol boundary.** Consumers
+  use its certificate, hash-tree, ingress-envelope, controller-leaf and other
+  named protocol APIs. Browser consumers use the corresponding explicit
+  `@tokostudios/ic-platform` exports. Do not add direct CBOR dependencies,
+  generic CBOR imports/re-exports, arbitrary-value serializers, local parsers or
+  copied protocol codecs outside that owner. This includes general-purpose
+  packages such as `serde_cbor`, Ciborium and Minicbor, even though they are not
+  IC-specific dependencies. Missing typed operations belong in a Platform
+  capability issue; a generic serialization facade is not the replacement.
+- Owned application CBOR payloads, persisted records, release plans and canonical
+  hash inputs migrate to bounded Wire encoding in their product owner; do not
+  move application models or commitment policy into Platform. Treat changes to
+  encoded records, digests, signatures and retry identities as an explicit
+  format/identity cut. Trace both producers and readers, retained artifacts and
+  uncertain effects; define admission or retirement of old records before
+  changing bytes. Preserve active recovery inputs and never silently reinterpret
+  or regenerate them. Existing retained-byte obligations are migration debt,
+  not permission for new CBOR formats or an implicit fallback reader. This rule
+  does not replace human-authored configuration formats or external protocol bytes.
+- CBOR ownership applies to production, tests, examples, benchmarks, generators
+  and development tooling, including Rust and JavaScript/TypeScript. Use typed
+  Platform fixtures for external IC packets and Wire for owned payload fixtures.
+  Consumer code retains authentication, trust roots, budgets, semantic validation
+  and effect/retry policy; decoding a packet does not authenticate it. Preserve
+  exact external bytes, tags and certified-leaf commitments when adopting APIs.
+  Codec-comparison or other temporary exceptions require explicit maintainer
+  approval with a named scope, reason and retirement/review condition; fixture
+  privacy is not an exemption.
+- Consumer validation must reject forbidden direct codec dependencies and imports
+  across normal, build, development, optional and target-specific declarations,
+  independent fixture workspaces and browser roots. Include aliases, generated
+  entrypoints and re-exports in coverage; review dynamic/generated uses beyond
+  the checker's capabilities. Reuse shared dependency/import checks and improve
+  their shared owner for missing coverage rather than copying scanners locally.
+  Record narrow approved exceptions and reject stale allowances. Legitimate
+  transitive codecs behind Platform and the specifically enumerated native
+  Testkit exception remain permitted; that exception grants no direct CBOR use.
+  Use the shared Cargo common inventory, optional Rust `--cbor` source mode and
+  browser SDK/CBOR check together. Default Candid-only checking does not enforce
+  CBOR ownership; none of these lexical checks proves external DTO provenance or
+  byte compatibility. Passing checks and complete migration are
+  separate claims; report uncovered roots and remaining source exceptions.
 - Remove Candid derives, conversions and codec helpers from internal types when
   no remaining Candid contract needs them. Do not wrap an unchanged Candid payload
   in Wire merely to claim adoption. Storage layouts and canonical hash inputs
@@ -446,6 +488,11 @@ contracts; ordinary development does not require rereading these mechanics.
   Prepare shared test artifacts once for their exact inputs, then let applicable
   suites consume them. Different features, targets, hosts, archives and installed
   contracts remain distinct obligations.
+- Do not follow Clippy with `cargo check` merely to repeat the same compilation.
+  Compare package, target, feature, profile, compiler/configuration and generated
+  inputs, and remove the duplicate stage only after qualifying that it owns no
+  distinct obligation. Default-feature, Wasm, separate host and archive checks
+  remain when they establish different contracts. Keep early fail-closed lint.
 - A later release or publication step must freshly admit its inputs, but need
   not automatically repeat every earlier check. Reuse only through the qualified
   [stage evidence contract](../docs/release-validation-reuse.md); missing or

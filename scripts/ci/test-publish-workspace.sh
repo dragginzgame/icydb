@@ -212,18 +212,26 @@ printf 'lookup %s 0.265.0\ncargo publish -p %s --locked --registry crates-io --n
     "${crates[0]}" "${crates[0]}" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 
-# A selected CLI completion permits push, but never suppresses final archive
-# verification. This orchestration fixture substitutes candidate admission;
-# test-release-validation-plan.sh owns the real metadata/evidence transition.
+# Selected completion permits push, never skipping final archive verification.
+# Candidate admission is substituted here; the plan fixture owns real recovery.
 cp "$root/scripts/ci/verify-file-checksum.sh" "$fixture/scripts/ci/"
 printf '#!/usr/bin/env bash\n[[ "$*" == verify-commit ]]\n' > "$fixture/scripts/ci/release-candidate-receipt.sh"
-printf 'admitted fixture candidate\n' > "$RELEASE_RECEIPT_DIR/cli-v0.265.0.candidate"
-candidate_sha="$(bash "$root/scripts/ci/verify-file-checksum.sh" --print sha256 "$RELEASE_RECEIPT_DIR/cli-v0.265.0.candidate")"
-printf '%s\n' format=selected-cli/1 "$HEAD_COMMIT" "$candidate_sha" > "$RELEASE_RECEIPT_DIR/cli-v0.265.0.commit"
-RELEASE_GROUP=cli bash "$fixture/scripts/ci/verify-release-gate-receipt.sh" "$HEAD_COMMIT"
-run_subject 0 RELEASE_GROUP=cli REGISTRY_MODE=absent PUBLISH_DRY_RUN=1
-printf 'lookup icydb-cli 0.265.0\ncargo publish -p icydb-cli --locked --registry crates-io --dry-run\n' > "$fixture/expected"
-cmp "$fixture/expected" "$EVENTS"
+for selected_group in database cli; do
+    printf 'admitted fixture candidate\n' > "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.candidate"
+    candidate_sha="$(bash "$root/scripts/ci/verify-file-checksum.sh" --print sha256 "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.candidate")"
+    printf '%s\n' "format=selected-$selected_group/1" "$HEAD_COMMIT" "$candidate_sha" > "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.commit"
+    RELEASE_GROUP="$selected_group" bash "$fixture/scripts/ci/verify-release-gate-receipt.sh" "$HEAD_COMMIT"
+    run_subject 0 "RELEASE_GROUP=$selected_group" REGISTRY_MODE=absent PUBLISH_DRY_RUN=1
+    : > "$fixture/expected"
+    if [[ "$selected_group" == cli ]]; then selected_crates=(icydb-cli)
+    else selected_crates=("${crates[@]}"); fi
+    for crate in "${selected_crates[@]}"; do
+        printf 'lookup %s 0.265.0\ncargo publish -p %s --locked --registry crates-io --dry-run\n' "$crate" "$crate" >> "$fixture/expected"
+    done
+    cmp "$fixture/expected" "$EVENTS"
+done
+# Restore the historical full-gate case for the maintained entrypoint probes.
+printf '%s\n' "$HEAD_COMMIT" > "$RELEASE_RECEIPT_DIR/database-v0.265.0.commit"
 
 # Qualify the maintained Make entry point as well as direct script invocation.
 : > "$EVENTS"

@@ -3,8 +3,13 @@
 use strict;
 use warnings;
 use JSON::PP;
+use FindBin;
+use lib $FindBin::Bin;
+use ValidationScope qw(exclusions);
 my $json=JSON::PP->new->canonical->utf8;
-@ARGV==1 or die "usage: validation-qualified.pl SOURCE\n";
+@ARGV>=1 && @ARGV<=2 or die "usage: validation-qualified.pl SOURCE [GROUP]\n";
+my $group=$ARGV[1]//'cli';
+my $excluded=exclusions($group);
 sub capture {
     open my $in,'-|',@_ or die "observe qualification: $!\n";
     binmode $in;
@@ -25,18 +30,19 @@ $raw eq $json->encode($admission)."\n" && $admission->{schema}==1
 my ($host,$rustc,$cargo)=(capture('uname','-sm'),capture('rustc','-vV'),capture('cargo','-V'));
 for my $record (@{$admission->{comparisons}}) {
     next unless $record->{host} eq $host && $record->{rustc} eq $rustc && $record->{cargo} eq $cargo;
-    $record->{contract} eq 'icydb-release-mapping-comparison/1' && $record->{group} eq 'cli'
-        && !$record->{release_omission_admitted} && $record->{full}{executed}==15
+    next unless $record->{group} eq $group && $record->{mapping_sha256} eq $fingerprint->{mapping_sha256};
+    $record->{contract} eq 'icydb-release-mapping-comparison/1' && $record->{group} eq $group
+        && !$record->{release_omission_admitted} && $record->{full}{executed}==16
         && $record->{selected}{executed}==11 && !$record->{full}{reused} && !$record->{selected}{reused}
         or die "invalid native mapping qualification\n";
     $json->encode([sort map {$_->{target}} @{$record->{excluded}}])
-        eq $json->encode([sort qw(clippy check check-feature-matrix test)])
+        eq $json->encode([sort @$excluded])
         or die "different qualified omissions\n";
     next unless $record->{mapping_sha256} eq $fingerprint->{mapping_sha256};
     $json->encode($record->{mapping_inputs}) eq $json->encode($fingerprint->{mapping_inputs})
         && $json->encode($record->{configuration}) eq $json->encode($fingerprint->{configuration})
         or die "mapping identity drift\n";
-    print $json->encode({source=>$ARGV[0],mapping_sha256=>$fingerprint->{mapping_sha256},host=>$host}),"\n";
+    print $json->encode({source=>$ARGV[0],group=>$group,mapping_sha256=>$fingerprint->{mapping_sha256},host=>$host}),"\n";
     exit 0;
 }
 die "no matching native mapping qualification; use full validation\n";

@@ -14,6 +14,9 @@ PUBLISH_POLL_SECS="${PUBLISH_POLL_SECS:-10}"
 PUBLISH_TIMEOUT_SECS="${PUBLISH_TIMEOUT_SECS:-300}"
 PUBLISH_VALIDATE_ONLY="${PUBLISH_VALIDATE_ONLY:-0}"
 PUBLISH_VERIFY="${PUBLISH_VERIFY:-auto}"
+# Source/receipt admission uses the cache that qualified this checkout. Cargo's
+# publication environment keeps its existing registry credential selection.
+metadata_cargo_home="${RELEASE_METADATA_CARGO_HOME:-${CARGO_HOME:-${HOME:?}/.cargo}}"
 RELEASE_RECEIPT_DIR="$(release_receipt_directory)" || exit
 
 PUBLISH_ORDER=(
@@ -101,11 +104,11 @@ wait_for_registry_version() {
 # version tag after verifying its tested candidate transition.
 release_receipt_matches() {
     local head_commit="$1"
-    RELEASE_RECEIPT_DIR="$RELEASE_RECEIPT_DIR" \
+    CARGO_HOME="$metadata_cargo_home" RELEASE_RECEIPT_DIR="$RELEASE_RECEIPT_DIR" \
         scripts/ci/verify-release-gate-receipt.sh "$head_commit" --publication
 }
 
-version="$(bash scripts/release/version.sh)" || exit 1
+version="$(CARGO_HOME="$metadata_cargo_home" bash scripts/release/version.sh)" || exit 1
 
 validate_publish_order
 # Preserve the checked topological order, selecting only this group's members.

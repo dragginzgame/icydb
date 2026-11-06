@@ -59,6 +59,14 @@ obtain authority for the specific recovery.
 
 ## Durable work and checkout location
 
+Qualified [frozen release batches](../docs/frozen-releases.md) are a narrow
+managed-delivery exception: committed source executes under the owning checkout's
+`target/release-frozen/BATCH`, with durable Git/recovery state under
+`.git/release-state/frozen/BATCH`. Normal delivery authority covers that adopted
+workflow without a per-batch location question. It does not authorize additional
+implementation checkouts. Announce the paths and preserve deferred normal-tree
+edits; never use stage-only validation candidates for publication.
+
 **The existing checkout is the default for implementation and delivery.**
 Use this order when choosing where and how to work:
 
@@ -85,7 +93,8 @@ PR approval. Approval of those phrases alone is not a location exception.
   (`~/projects`, currently `/home/adam/projects`).** This includes clones,
   worktrees, contribution containers, release copies, scratch and evidence
   directories, regardless of their name.
-- Additional implementation or delivery checkout locations anywhere require
+- Except for the qualified managed-delivery workflow above, additional
+  implementation or delivery checkout locations anywhere require
   explicit approval of the exact absolute path. A new top-level projects directory
   additionally requires the
   user to explicitly authorize that directory creation as an exception to this

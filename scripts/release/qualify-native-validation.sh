@@ -2,8 +2,14 @@
 # Explicit broad acceptance, never a release or an automatic routine-CI gate.
 set -euo pipefail
 working_tree=false
-if [[ $# == 1 && "$1" == --working-tree ]]; then working_tree=true; shift; fi
-[[ $# == 0 ]] || { echo 'usage: qualify-native-validation.sh [--working-tree]' >&2; exit 2; }
+group=cli
+while [[ $# != 0 ]]; do
+    case "$1" in
+      --working-tree) working_tree=true; shift ;;
+      --group) [[ $# -ge 2 && ( "$2" == cli || "$2" == database ) ]] || exit 2; group="$2"; shift 2 ;;
+      *) echo 'usage: qualify-native-validation.sh [--working-tree] [--group cli|database]' >&2; exit 2 ;;
+    esac
+done
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$root"
 bash scripts/ci/check-make-execution.sh
@@ -81,16 +87,21 @@ if [[ "$working_tree" == true ]]; then
     git commit --quiet --allow-empty -m 'Settled IcyDB candidate snapshot for local qualification'
     git rev-parse HEAD > "$attempt/evidence/candidate-source"
 fi
-baseline=cli-v999.0.0
+baseline="$group-v999.0.0"
 git tag -am 'Synthetic qualification baseline; never a release baseline' "$baseline"
-# A real CLI presentation edit exercises ownership selection while leaving every
-# engine, schema, dependency, generated identity and release input unchanged.
-perl -0777 -pe 's/about = "Developer CLI tools for IcyDB"/about = "Developer CLI tools for IcyDB (mapping qualification)"/g == 1 or die "CLI presentation fixture changed\n"' \
-    crates/icydb-cli/src/cli/mod.rs > "$attempt/cli-presentation.rs"
-cp "$attempt/cli-presentation.rs" crates/icydb-cli/src/cli/mod.rs
-git add -- crates/icydb-cli/src/cli/mod.rs
-git commit --quiet -m 'Controlled CLI-only presentation qualification'
-export RELEASE_GROUP=cli RELEASE_SOURCE
+# Controlled real-product edits exercise the ownership mapping without changing
+# dependencies, features, generated identities, retained bytes or release state.
+if [[ "$group" == cli ]]; then
+    perl -0777 -pe 's/about = "Developer CLI tools for IcyDB"/about = "Developer CLI tools for IcyDB (mapping qualification)"/g == 1 or die "CLI presentation fixture changed\n"' \
+        crates/icydb-cli/src/cli/mod.rs > "$attempt/cli-presentation.rs"
+    cp "$attempt/cli-presentation.rs" crates/icydb-cli/src/cli/mod.rs
+    git add -- crates/icydb-cli/src/cli/mod.rs
+else
+    printf '\n// Controlled database mapping qualification.\n' >> crates/icydb-core/src/db/database_format/mod.rs
+    git add -- crates/icydb-core/src/db/database_format/mod.rs
+fi
+git commit --quiet -m "Controlled $group ownership qualification"
+export RELEASE_GROUP="$group" RELEASE_SOURCE
 RELEASE_SOURCE="$(git rev-parse HEAD)"
 git bundle create "$attempt/evidence/source.bundle" HEAD "refs/tags/$baseline" "^$input_source" \
     > "$attempt/evidence/bundle.log" 2>&1
@@ -106,26 +117,33 @@ make --no-print-directory fetch >> "$attempt/evidence/setup.log" 2>&1
 git diff --exit-code --quiet
 export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/common/bin:$PATH"
 export CARGO_HOME="$PWD/.cache/cargo/icydb"
-cli_version="$(bash scripts/release/version.sh)"
+cli_version="$(RELEASE_GROUP=cli bash scripts/release/version.sh)"
 package_directory="$(make --no-print-directory -s print-cargo-target-dir)/package"
 # Admit the selected CLI archive before running the additional engine gates.
 for scope in auto workspace; do
-    bash scripts/release/qualify-validation-plan.sh cli "$baseline" "$scope" \
+    bash scripts/release/qualify-validation-plan.sh "$group" "$baseline" "$scope" \
         > "$attempt/evidence/$scope.log" 2>&1
     archive="$package_directory/icydb-cli-$cli_version.crate"
-    [[ -f "$archive" && ! -L "$archive" ]] || exit 1
-    cp -p "$archive" "$attempt/evidence/$scope-cli-package.crate"
+    # Database selection keeps CLI process/library consumers through workspace
+    # tests; only full scope adds its supplemental archive stage. Publication
+    # still verifies final database archives against freshly published siblings.
+    if [[ "$scope" == workspace || "$group" == cli ]]; then
+        [[ -f "$archive" && ! -L "$archive" ]] || exit 1
+        cp -p "$archive" "$attempt/evidence/$scope-cli-package.crate"
+    fi
 done
-cmp "$attempt/evidence/auto-cli-package.crate" "$attempt/evidence/workspace-cli-package.crate"
-tar -xOf "$attempt/evidence/auto-cli-package.crate" "icydb-cli-$cli_version/.cargo_vcs_info.json" \
+if [[ "$group" == cli ]]; then
+    cmp "$attempt/evidence/auto-cli-package.crate" "$attempt/evidence/workspace-cli-package.crate"
+fi
+tar -xOf "$attempt/evidence/workspace-cli-package.crate" "icydb-cli-$cli_version/.cargo_vcs_info.json" \
     > "$attempt/evidence/archive-vcs.json"
 jq -e --arg source "$RELEASE_SOURCE" '.git.sha1==$source and (.git.dirty // false)==false and
     .path_in_vcs=="crates/icydb-cli"' "$attempt/evidence/archive-vcs.json" > /dev/null
-tar -xOf "$attempt/evidence/auto-cli-package.crate" "icydb-cli-$cli_version/Cargo.toml.orig" \
+tar -xOf "$attempt/evidence/workspace-cli-package.crate" "icydb-cli-$cli_version/Cargo.toml.orig" \
     > "$attempt/evidence/archive-Cargo.toml.orig"
 git show "$RELEASE_SOURCE:crates/icydb-cli/Cargo.toml" > "$attempt/evidence/source-Cargo.toml"
 cmp "$attempt/evidence/source-Cargo.toml" "$attempt/evidence/archive-Cargo.toml.orig"
-bash scripts/ci/verify-file-checksum.sh --print sha256 "$attempt/evidence/auto-cli-package.crate" \
+bash scripts/ci/verify-file-checksum.sh --print sha256 "$attempt/evidence/workspace-cli-package.crate" \
     > "$attempt/evidence/archive-sha256"
 full="$(sed -n '\|^target/release-validation/qualification\.[A-Za-z0-9]*/receipt.json$|p' "$attempt/evidence/workspace.log")"
 selected="$(sed -n '\|^target/release-validation/qualification\.[A-Za-z0-9]*/receipt.json$|p' "$attempt/evidence/auto.log")"

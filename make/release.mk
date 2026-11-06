@@ -1,5 +1,5 @@
 # Standard entrypoints only; consumer metadata, validation and delivery policy stay local.
-# Shared companions: scripts/ci/run-release.sh scripts/ci/check-release-delivery.sh make/execution.mk
+# Shared companions: scripts/ci/run-release.sh scripts/ci/run-frozen-release.pl scripts/ci/check-release-delivery.sh make/execution.mk
 _shared_release_default_goal := $(.DEFAULT_GOAL)
 SHARED_TOOLING_ROOT ?= $(CURDIR)
 _shared_release_delivery_check := $(dir $(lastword $(MAKEFILE_LIST)))../scripts/ci/check-release-delivery.sh
@@ -9,6 +9,10 @@ RELEASE_BRANCH ?= main
 # Optional consumer-owned verification after a successful exact-version resume.
 # This is a check, not a second delivery or publication command.
 RELEASE_RESUME_CHECK_COMMAND ?= :
+# Opt in only after qualifying consumer hooks in the independent delivery checkout.
+# The full supplier-first roster is frozen once; do not loop individual commands.
+RELEASE_FROZEN_GROUPS ?=
+RELEASE_FROZEN_PUBLISH_TARGET ?=
 RELEASE_DELIVERY_POLICY ?=
 
 # Consumers can reuse this canonical interface roster without repeating hook names.
@@ -27,7 +31,16 @@ endif
 
 .PHONY: release-patch release-minor release-major release-resume
 release-patch release-minor release-major:
+ifneq ($(strip $(RELEASE_FROZEN_GROUPS)),)
+ifneq ($(FROZEN_RELEASE_ACTIVE),1)
+	+@perl "$(SHARED_TOOLING_ROOT)/scripts/ci/run-frozen-release.pl" --root "$(CURDIR)" --groups "$(RELEASE_FROZEN_GROUPS)" --kind "$(@:release-%=%)" --remote "$(RELEASE_REMOTE)" --branch "$(RELEASE_BRANCH)" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(RELEASE_FROZEN_PUBLISH_TARGET),--publish-target "$(RELEASE_FROZEN_PUBLISH_TARGET)",)
+else
 	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+endif
+else
+	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+
+endif
 
 release-resume:
 	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release.sh" resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"

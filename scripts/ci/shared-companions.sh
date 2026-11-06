@@ -9,6 +9,8 @@ read_shared_companions() {
     } < "$1"
     if [[ "$declaration" == '# Shared companions: '* ]]; then
         declaration="${declaration#'# Shared companions: '}"
+    elif [[ "$2" == *.mjs && "$declaration" == '// Shared companions: '* ]]; then
+        declaration="${declaration#'// Shared companions: '}"
     elif [[ "$2" == *.md && "$declaration" == '<!-- Shared companions: '*' -->' ]]; then
         declaration="${declaration#'<!-- Shared companions: '}"
         declaration="${declaration%' -->'}"

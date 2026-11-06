@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: ci/external-ic-dependencies.txt
+# Shared companions: ci/external-ic-dependencies.txt ci/cbor-dependencies.json
 set -euo pipefail
 [[ ( $# -eq 2 || ( $# -eq 3 && "$3" == --external-ic ) ) && "$1" == --consumer ]] || {
     echo 'usage: check-cargo-dependency-boundaries.sh --consumer ROOT [--external-ic]' >&2
@@ -7,9 +7,11 @@ set -euo pipefail
 }
 consumer="$2"
 common=''
+cbor=''
 if [[ $# == 3 ]]; then
     common="${BASH_SOURCE[0]}"
     [[ "$common" == /* ]] || common="$PWD/$common"
+    cbor="${common%/*}/../../ci/cbor-dependencies.json"
     common="${common%/*}/../../ci/external-ic-dependencies.txt"
 fi
 case "$consumer$PWD" in *$'\n'*|*$'\r'*) echo 'consumer directory contains CR/LF' >&2; exit 2 ;; esac
@@ -44,6 +46,18 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
             }
             close $file or die "cannot close common IC policy: $!\n";
             keys(%common) or die "empty common IC policy\n";
+        }
+        my %cbor;
+        if (length $ARGV[3]) {
+            open my $file, "<", $ARGV[3] or die "cannot read CBOR inventory: $!\n";
+            my $inventory = decode_json(<$file>);
+            close $file or die $!;
+            ref($inventory->{rust}) eq "ARRAY" && @{$inventory->{rust}}
+                or die "invalid CBOR inventory\n";
+            for my $name (@{$inventory->{rust}}) {
+                $name =~ /\A[A-Za-z0-9_-]+\z/ && !$cbor{$name}++
+                    or die "invalid or duplicate CBOR package\n";
+            }
         }
         my %rules;
         for my $rule (@$policy) {
@@ -95,6 +109,9 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                 $violations{"$package->{name} -> $name"} = 1
                     if $members{$package->{id}} && (
                         (exists($rules{$name}) && !$rules{$name}{$package->{name}})
+                        || ($cbor{$name} && $package->{name} ne "ic-platform"
+                            && !($package->{name} eq "ic-platform-types"
+                                && ($dependency->{kind} // "") eq "dev"))
                         || ($common{$name} && $package->{name} ne "ic-platform"
                             && !($package->{name} eq "ic-platform-types" && $name eq "ic_principal")
                             && !($package->{name} eq "ic-testkit"
@@ -107,4 +124,4 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
         die "Forbidden direct Cargo dependencies:\n" . join("\n", sort keys %violations) . "\n"
             if keys %violations;
         print "Cargo dependency boundaries passed.\n";
-    ' "$policy" "$PWD" "$common"
+    ' "$policy" "$PWD" "$common" "$cbor"

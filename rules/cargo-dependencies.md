@@ -126,6 +126,13 @@ compile does not prove installed IC or macOS behavior.
   automatic pre-commit formatting and independent CI/release checks; ordering
   must preserve the catalog and every inherited selection.
 
+The common option also enforces `ci/cbor-dependencies.json` independently of
+consumer allowlists. Platform owns direct CBOR codecs; Platform Types may use
+them only in development dependencies for serializer compatibility tests. The
+native Testkit exception never grants CBOR. Transitive dependencies are permitted.
+Use the [CBOR source mode](../docs/candid-boundary.md#optional-cbor-source-enforcement)
+and [browser check](../docs/node-tools.md) alongside Cargo declarations.
+
 ## External IC dependency boundary
 
 The Tooling-owned `ic-testkit` native PocketIC implementation may select
@@ -172,6 +179,12 @@ Cargo boundary checker does not inspect npm manifests or JavaScript imports.
   application codecs and resource admission. Platform owns the external dependency boundary;
   this rule does not move those product implementations into Platform. General
   purpose dependencies such as Serde remain with their consuming crates.
+
+CBOR is an explicit exception to that general-purpose allowance: its dependency,
+codec and fixture ownership follows the
+[application encoding contract](engineering-details.md#ic-application-encoding),
+even when a CBOR package is not IC-specific. The native Testkit exception above
+does not include CBOR codecs.
 
 Apply the baseline's [IC application encoding policy](../DRAGGINZGAME.md#ic-application-encoding)
 before adding or retaining a Candid dependency or requesting another Platform

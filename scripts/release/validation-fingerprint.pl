@@ -29,40 +29,40 @@ sub write_file {
 my $contract = $json->decode(blob('ci/release-validation-contract.json'));
 !-l 'target' or die "redirected fingerprint scratch\n";
 my $scratch = tempdir('fingerprint.XXXXXX', DIR=>'target', CLEANUP=>1);
-my $manifest = blob('crates/icydb-cli/Cargo.toml');
-write_file("$scratch/Cargo.toml", $manifest);
-write_file("$scratch/Cargo.lock", blob('Cargo.lock'));
-write_file("$scratch/workspace.toml", blob('Cargo.toml'));
-# Reuse Cargo metadata/group admission and its exact alias/precision projection;
-# root catalog references are CLI-owned metadata too.
-my $projection=$json->decode(capture('env',"RELEASE_COMMIT=$source",'RELEASE_VERSION=0.0.0',
-    'bash','scripts/ci/cargo-release-group.sh','plan','cli'));
-@{$projection->{members}}==1 && $projection->{members}[0] eq 'icydb-cli'
-    or die "unsupported CLI release family\n";
-my %edits=map {$_->{path}=>{version=>$_->{version},dependencies=>$_->{dependencies}}} @{$projection->{manifests}};
-write_file("$scratch/edit.json", $json->encode($edits{'crates/icydb-cli/Cargo.toml'}));
-write_file("$scratch/workspace-edit.json", $json->encode($edits{'Cargo.toml'}));
-my $version = capture($ENV{YQ}//'yq', '-p', 'toml', '-o', 'json', '.package.version', "$scratch/Cargo.toml");
-$version = $json->decode($version);
-!ref($version) && $version =~ /\A\d+\.\d+\.\d+\z/ or die "invalid CLI version\n";
+# Normalize only each release family's owned version metadata through the same
+# projection used by preparation/recovery. Dependency/features/tool changes stay
+# bound, while ordinary database/CLI patch preparation does not erase proof.
 my $editor = $ENV{CARGO_RELEASE_METADATA_EDITOR};
 unless (defined $editor) {
     $editor = capture('bash', 'scripts/release/select-editor.sh', $source);
     $editor =~ s/\n\z//;
 }
 $editor =~ m{\A/} && -x $editor or die "select admitted metadata editor\n";
-my %normalized = (
-    'Cargo.toml' => capture($editor, '--max-input-bytes', '8388608',
-        'group-manifest', "$scratch/workspace.toml", $version, '0.0.0', "$scratch/workspace-edit.json"),
-    'crates/icydb-cli/Cargo.toml' => capture($editor, '--max-input-bytes', '8388608',
-        'group-manifest', "$scratch/Cargo.toml", $version, '0.0.0', "$scratch/edit.json"),
-    'Cargo.lock' => capture($editor, '--max-input-bytes', '8388608',
-        'lock', "$scratch/Cargo.lock", $version, '0.0.0', 'icydb-cli'),
-);
-my %inputs;
-for my $path (@{$contract->{qualification_inputs}}) {
+my %normalized;
+for my $group (qw(database cli)) {
+    my $projection=$json->decode(capture('env',"RELEASE_COMMIT=$source",'RELEASE_VERSION=0.0.0',
+        'bash','scripts/ci/cargo-release-group.sh','plan',$group));
+    write_file("$scratch/plan.json",$json->encode($projection));
+    for my $path ((map {$_->{path}} @{$projection->{manifests}}),
+        'Cargo.lock','ci/dependency-pinning-exceptions.json') {
+        write_file("$scratch/input",exists($normalized{$path})?$normalized{$path}:blob($path));
+        $normalized{$path}=capture('env',"CARGO_RELEASE_METADATA_EDITOR=$editor",
+            'CARGO_RELEASE_METADATA_MAX_BYTES=8388608','bash','scripts/release/render-candidate.sh',
+            $path,"$scratch/input",$projection->{previous},'0.0.0',"$scratch/plan.json");
+    }
+}
+my %inputs = map {$_ => sha256_hex($normalized{$_})} keys %normalized;
+# Bind the complete automation owner, not only dispatch entrypoints. Otherwise a
+# later fixture/CI change could silently reuse an earlier omission mapping. The
+# reviewed certificate is the trust input and is checkpointed by every fresh run;
+# excluding it here avoids a self-referential fingerprint.
+my @automation=grep {$_ ne 'ci/release-validation-qualified.json'} split /\n/,
+    capture('git','ls-tree','-r','--name-only',$source,'--','scripts','ci','make','.github','AGENTS.md');
+my %seen;
+for my $path (@{$contract->{qualification_inputs}}, @automation) {
     $path =~ m{\A[.A-Za-z0-9_-][A-Za-z0-9_./-]*\z} && $path !~ m{(?:^|/)\.\.?(?:/|$)}
-        && !exists($inputs{$path}) or die "invalid mapping inventory\n";
+        or die "invalid mapping inventory\n";
+    next if $seen{$path}++;
     $inputs{$path} = sha256_hex(exists($normalized{$path}) ? $normalized{$path} : blob($path));
 }
 exists($inputs{'Cargo.lock'}) && exists($inputs{'crates/icydb-cli/Cargo.toml'})
@@ -80,4 +80,5 @@ for my $entry (['workspace-config','.cargo/config'], ['workspace-config-toml','.
     $configuration{$label} = -e $path ? sha256_hex(capture('cat', $path)) : 'absent';
 }
 my $identity = {mapping_inputs=>\%inputs, configuration=>\%configuration};
-print $json->encode({%$identity, mapping_sha256=>sha256_hex($json->encode($identity))}), "\n";
+my $cargo_inputs = {map {$_=>sha256_hex($normalized{$_})} keys %normalized};
+print $json->encode({%$identity, cargo_inputs=>$cargo_inputs, mapping_sha256=>sha256_hex($json->encode($identity))}), "\n";

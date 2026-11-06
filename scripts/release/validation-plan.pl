@@ -7,7 +7,7 @@ use Digest::SHA qw(sha256_hex);
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL);
 use FindBin;
 use lib $FindBin::Bin;
-use ValidationScope qw(cli_private);
+use ValidationScope qw(cli_private database_product exclusions);
 my $json = JSON::PP->new->canonical->utf8;
 my ($group, $source, $baseline, $output, $scope) = @ARGV;
 @ARGV == 5 && $scope =~ /\A(?:auto|workspace)\z/
@@ -69,13 +69,31 @@ my $observation = $json->decode(capture('perl', 'scripts/ci/validation-evidence.
 $observation->{available} or die "an annotated ancestor group baseline is required\n";
 my ($base, $baseline_object) = @{$observation}{qw(baseline object)};
 my @changed = @{$observation->{changes}};
-# The CLI is a binary-only reverse consumer. Only its existing private Rust
-# command/presentation/test surface may narrow. New library/build surfaces,
-# manifests, dependency locks, shared tooling, generated identities, fixtures and
-# any unknown path expand to the full roster. Database changes never narrow.
-my $narrow = $scope eq 'auto' && cli_private($group,\@changed);
-my %excluded = map { $_ => 'Only CLI-private Rust sources/tests and CLI notes changed since the group baseline; engine/schema/model/macros, manifests, features, generators, retained formats, dependencies and gate inputs are identical. CLI lint, build, process/library-consumer tests and archive verification remain required.' }
-    qw(clippy check check-feature-matrix test);
+# The database plan retains complete workspace/product coverage. Cargo's exact
+# release projection admits interleaved CLI version metadata, never new features,
+# dependency identities or another manifest contract.
+my ($current_metadata,$baseline_metadata);
+my $metadata_equal=sub {
+    my ($path)=@_;
+    return 0 unless $path eq 'Cargo.lock' || $path eq 'ci/dependency-pinning-exceptions.json'
+        || $path =~ m{(?:\A|/)Cargo\.toml\z};
+    # Failed Cargo admission cannot establish a metadata-only change. Expand to
+    # the full gate, which will diagnose the malformed/dependency input itself.
+    eval {
+        $current_metadata //= $json->decode(capture('perl','scripts/release/validation-fingerprint.pl',$source))->{cargo_inputs};
+        $baseline_metadata //= $json->decode(capture('perl','scripts/release/validation-fingerprint.pl',$base))->{cargo_inputs};
+        1;
+    } or return 0;
+    return exists($current_metadata->{$path}) && exists($baseline_metadata->{$path})
+        && $current_metadata->{$path} eq $baseline_metadata->{$path};
+};
+my %modified = map {$_=>1} split /\n/, capture('git','diff','--no-renames','--diff-filter=M','--name-only',$base,$source,'--');
+my $narrow = $scope eq 'auto' && (cli_private($group,\@changed)
+    || database_product($group,\@changed,$metadata_equal,sub {$modified{$_[0]}}));
+my $reason = $group eq 'cli'
+    ? 'CLI-private source retains CLI lint, build, process/library-consumer tests, archive and all live product scans; unchanged database aggregates and automation regression fixtures are not applicable.'
+    : 'Database product source retains all workspace lint/tests, no-default and feature checks, model/generated-code consumers, CLI process tests and live invariants. Unchanged automation regression fixtures and supplemental CLI duplicates are not applicable; final selected-group archives remain verified at publication.';
+my %excluded = map { $_ => $reason } @{exclusions($group)};
 my $index_inventory = capture('git','ls-files','--stage','-z');
 my @inputs;
 for my $entry (grep { length } split /\0/, $index_inventory) {

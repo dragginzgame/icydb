@@ -7,16 +7,49 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the **0.30.4 committed snapshot** at
-`2aa41c7394300302fe802b69b31b855bdc89b671`. The canonical revision-selected
-exporter installed it without modifying supplier files; all **156 payloads**
+IcyDB selects the **0.30.8 committed snapshot** at
+`dc9df707b3b1e616973494eab961c1c214d12260`. The canonical revision-selected
+exporter installed it without modifying supplier files; all **159 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
 minimum in the two workspace manifests and the pinned development compiler.
 No IcyDB package versions or release state change in this adoption; the incoming
 dirty candidate is preserved. Dependency selections are recorded below.
 
-The 0.30.4 refresh adopts the macOS Bash 3.2 LOC-array correction, the shared
+The 0.30.8 refresh adds the canonical frozen release-batch helper and its
+underscore-safe recovery identifiers. A qualified batch captures clean committed
+source once; later normal-checkout lock edits stay deferred while every selected
+group releases and publishes from that captured graph. Durable recovery state
+lives under `.git/release-state/frozen/`; the normal checkout is never reset or
+silently reconciled. See [frozen release batches](../../docs/frozen-releases.md).
+
+Ordinary release entrypoints default `RELEASE_FROZEN_GROUPS` to the explicitly
+selected `RELEASE_GROUP`. Select the complete affected roster in supplier-first
+order: `database`, `cli`, or `database,cli`. Publication remains explicit through
+`RELEASE_FROZEN_PUBLISH_TARGET=publish`; omitting it retains Git-only delivery.
+The shared runner supports one increment for the whole batch. Mixed database
+minor / CLI patch deliveries use the standard group workflows with
+`RELEASE_FROZEN_GROUPS=` until mixed increments have upstream support.
+
+Actual IcyDB hook qualification passed on Linux using captured source, a local
+bare remote, real metadata/receipts and verified native archives. During the
+first group's gate, a real dependency update in the normal fixture checkout
+remained deferred through the second group's gate. Interrupted validation,
+uncertain publication reconciliation, completed resume and remote conflicts
+retained their expected boundaries. Registry effects alone were substitutes;
+this does not claim real registry delivery or macOS qualification. See the
+[qualification evidence](release-validation.md#frozen-hook-qualification).
+Captured checkouts prepare tools and locked sources through the existing owners.
+Publication metadata uses the validated repository Cargo cache while actual Cargo
+publication retains its credential environment. No mutable normal-checkout cache
+or credential files are copied into the delivery checkout.
+
+Cargo and browser checks consume Shared's common CBOR ownership catalog. The
+existing Rust source-boundary gate also selects `--cbor`, with no new exceptions.
+This adds literal source-reference coverage alongside resolved Cargo dependency
+checks; it does not claim macro expansion or arbitrary alias resolution.
+
+The retained 0.30.4 cohort adopted the macOS Bash 3.2 LOC-array correction, the shared
 lexical Candid source check and bounded experimental-evidence retention.
 `check-candid-boundary` scans all first-party Rust roots through the existing
 invariant owner, with an empty exact-declaration allowance policy; macro/type
@@ -25,6 +58,30 @@ selected conclusions and original Git references, while new Wasm captures
 default to `target/evidence/`. Release/recovery records, saved review inputs,
 package versions and dependency selections are preserved. See the
 [report retention policy](../reports/README.md).
+
+### Requested Testkit 0.89 adoption (2026-11-06)
+
+The root selects published **Testkit 0.89.2**. Its official archive checksum is
+`65358cb9f4473db0f059e252d57d0d946b9d33c29c79b01fba34597024ab8e02`
+and its clean supplier source is `33c44602ec27c996ab67eb92458bf5022e630760`.
+The settled lock preserves incoming Storage 0.68.1, Platform 0.23.4 and
+Metrics 0.29.5 selections. The independent Canic manifest and lock are unchanged.
+
+Testkit no longer configures client logging from environment variables or owns
+logging workers/subscribers. Applications own their logging sinks; IcyDB used
+none of the removed setup. The native `icydb::testing` PocketIC and polling-error
+re-exports now have Testkit 0.89's crate identity. Consumers combining those types
+with direct Testkit imports must update to the same Testkit line. This is a
+pre-1.0 database minor boundary; the maintainer authorized database 0.300.0
+and CLI 0.296.2 delivery. No stored format or boot discriminator changes.
+See the [upstream migration](https://github.com/dragginzgame/ic-tooling/blob/33c44602ec27c996ab67eb92458bf5022e630760/docs/testkit/client-migration.md#application-owned-logging-in-089).
+
+Focused strict lint and the real managed public startup-polling control pass on
+Linux with Rust 1.99.1. The control retains six polling dispositions, round
+boundaries and typed failures. The locked Testkit CLI prepared its own server,
+started it for the test and reaped it afterward; IcyDB adds no simulator owner.
+Full release validation and real registry delivery have not run for this candidate.
+macOS and installed-canister acceptance remain separate.
 
 ### Current Build, Storage and Testkit adoption (2026-11-06)
 

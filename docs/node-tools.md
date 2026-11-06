@@ -52,7 +52,8 @@ caller inputs, not a filesystem sandbox.
 The checker reads `package.json` and JavaScript/TypeScript files (`js`, `mjs`,
 `cjs`, `jsx`, `ts`, `mts`, `cts`, `tsx`). It rejects SDK Core and the legacy
 `@dfinity/agent`, `principal`, `identity`, `identity-secp256k1` and `candid`
-packages in all four direct dependency sections, including npm aliases. It also
+packages, plus the CBOR packages in `ci/cbor-dependencies.json`, in all four
+direct dependency sections, including npm aliases. It also
 rejects plain literal imports, re-exports, `require`/`require.resolve`, dynamic
 imports and imports embedded in npm scripts or generated-source snippets.
 Literal import examples in source comments are also checked; this is a
@@ -76,6 +77,7 @@ Consumers can import `checkIcSdkBoundary(roots)` from the module; it returns
 `{ manifests, sources }` on success. Importing the module has no checking side
 effect. Adopt `scripts/ci/check-ic-sdk-boundary.mjs` as an explicit snapshot
 entrypoint using the [canonical exporter](consuming-snapshots.md#refresh).
-It has no external runtime dependencies or shared companions. Shared owns its
+It has no external runtime dependencies; the exporter includes the shared
+`ci/cbor-dependencies.json` inventory. Shared owns its
 regression matrix in `test-ic-sdk-boundary.mjs`; consumers retain their actual
 root selection and invocation proof rather than replaying that producer matrix.

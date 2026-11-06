@@ -78,8 +78,14 @@ reset
 mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("make check-portable-automation"; "make help")'
 check fail missing-native-portable-gate
 reset
-perl -pi -e 's/\$\(MAKE\) --no-print-directory check-portable-automation/\$\(MAKE\) --no-print-directory help/' "$fixture/Makefile"
+perl -pi -e 's/\$\(MAKE\) --no-print-directory check-automation/\$\(MAKE\) --no-print-directory help/' "$fixture/Makefile"
 check fail missing-static-portable-gate
+cp "$ROOT/Makefile" "$fixture/Makefile"
+perl -pi -e 's/\$\(MAKE\) --no-print-directory check-product-invariants/\$\(MAKE\) --no-print-directory help/' "$fixture/Makefile"
+check fail missing-product-invariant-owner
+cp "$ROOT/Makefile" "$fixture/Makefile"
+perl -0777 -pi -e 's/(check-product-invariants: shared-tooling-check\n)/$1\tbash scripts\/release\/test-standard-release.sh\n/' "$fixture/Makefile"
+check fail automation-in-product-owner
 cp "$ROOT/Makefile" "$fixture/Makefile"
 reset
 mutate '(.jobs.static.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/common/bin"; "/missing/bin")'

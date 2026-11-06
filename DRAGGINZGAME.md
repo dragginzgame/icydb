@@ -172,7 +172,10 @@ when adding, changing or reviewing metrics and logging.
 
 Owned application types must not derive or implement `CandidType`. Use `ic-wire`
 for owned RPC; keep unavoidable Candid in dedicated external-protocol boundary
-types, not our domain, state or RPC models. Read the [encoding contract](rules/engineering-details.md#ic-application-encoding)
+types, not our domain, state or RPC models. CBOR belongs to Platform's typed
+external-protocol APIs, including browser and test fixtures. Replace owned CBOR
+records and hash inputs with Wire through an explicit format/identity migration.
+Read the [encoding contract](rules/engineering-details.md#ic-application-encoding)
 and [RPC budgets](rules/rpc-budgets.md) for codecs, bindings or protocol changes.
 
 ## Wasm optimization

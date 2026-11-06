@@ -282,8 +282,15 @@ selects the group's own ledger; it does not finalize a shared historical file.
   bump on inspection-only tasks or create an empty release for each edit.
   Shared Tooling uses `make prepare-work [WORK_VERSION_KIND=patch|minor|major]`
   before adding the batch's notes, and `make check-version` rejects drift in CI.
-  Its release adapter derives the released base from the entry below the explicit
-  pending heading, then finalizes the prepared identity without a second bump.
+  A version already present on `origin/main` is delivered for this workflow,
+  even if its heading still says `Unreleased`; the next batch starts a new entry
+  and preserves the pushed notes. The helper reads local remote-tracking refs
+  without fetching. Honor the user's push confirmation and refresh stale remote
+  evidence before preparation; a local commit or topic-branch push alone does
+  not consume the version. Do not require a separate changelog/version request.
+  Its release adapter derives the released base from that delivery evidence or
+  the entry below a genuinely pending heading, then finalizes the prepared
+  identity without a second bump.
   This is Shared Tooling's local workflow, not a consumer adoption requirement.
   Do not introduce `VERSION` or pending-file release mode in sibling workspaces.
 - This pending-file authority does not extend to Cargo/npm package versions,

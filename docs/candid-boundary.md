@@ -33,11 +33,14 @@ external DTO, record its exact declaration prefix:
 ```
 
 Prefixes compare Rust tokens, ignoring comments and whitespace. They must name a
-struct, enum, union, trait, type, function, or trait implementation, contain no
-body/braces/semicolon, and match exactly once in the selected file. Use the
+struct, enum, union, trait, type, function, or named trait/inherent implementation.
+They contain no body/braces/semicolon and match exactly once in the selected file. Use the
 shortest unambiguous prefix covering the Candid reference. For example,
 `impl CandidType for HttpResponse` or `fn decode<T: CandidType>` admits that
-specific external implementation/helper. Conditional derives must include their
+specific external implementation/helper. An inherent implementation must include
+its complete named header through any where-clause, immediately before its body
+brace; for example `impl<T: CandidType> QueryArchiveFn<T>`. A partial trait-name
+prefix cannot admit a trait implementation. Conditional derives must include their
 attribute and the following named declaration. Every admitted trait reference
 must be covered once. Missing, stale, ambiguous, overlapping and unused entries
 fail. Directory globs and whole-module allowances are not supported. Adding a
@@ -51,6 +54,13 @@ Prefer existing Platform external types and explicit conversion before adding an
 allowance. Do not label a general application module an external adapter.
 
 ## Coverage and limitations
+
+The default mode covers Candid trait references only. It does not prove that an
+allowed DTO comes from Platform or establish protocol byte compatibility. The
+optional CBOR source mode below complements dependency admission. Apply the
+separate dependency/import obligations in
+the [encoding contract](../rules/engineering-details.md#ic-application-encoding)
+to Rust and browser roots; report adoption and coverage gaps explicitly.
 
 The checker detects literal `CandidType` references outside imports, including
 qualified paths, manual implementations, generic bounds and conditional derives
@@ -82,3 +92,26 @@ Do not run the same complete source inventory once per group or replay Shared's
 producer fixtures in consumers. Keep explicit source selection in reviewed Make/CI
 configuration, not a moving sibling checkout. Consumer adoption is separate from
 the supplying change; no automatic dependency refresh or release is required.
+
+## Optional CBOR source enforcement
+
+Run the same selected inventory with `--cbor` before the root argument to reject
+literal Rust crate references from `ci/cbor-dependencies.json`, including imports,
+re-exports, raw identifiers and paths in macro bodies. Comments and strings are
+masked. Typed `ic_platform::certification::cbor` calls remain permitted. Pair this
+with the Cargo `--external-ic` check: Cargo resolves renamed dependencies; the
+source check cannot resolve an arbitrary alias imported from another module or
+inspect generated strings, macro expansion, local copied parsers or blanket impls.
+Select generated Rust files explicitly and review unsupported dynamic paths.
+
+An optional `cbor_allowances` array in the same schema-1 policy records exact
+`path`, normalized Rust `crate` name, nonempty `reason` and `review` strings.
+For example, an approved Platform certificate implementation may name its exact
+source file and `serde_cbor`, with review on external-protocol change. Each entry
+must be in the selected inventory and have a live crate reference; duplicate,
+unknown and stale entries fail. This is a file-and-crate exception, not approval
+for other codecs or files. Consumers need explicit maintainer approval for a
+comparison exception, recorded in `reason` with its retirement/review condition
+in `review`. The tool validates fields and live use, not human authorization.
+Policies containing CBOR allowances require `--cbor`; they cannot silently run
+with that enforcement disabled. Cargo dependency restrictions remain independent.
