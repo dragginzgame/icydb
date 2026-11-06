@@ -41,6 +41,8 @@ struct RowConstraintSources<'a> {
     checks: Vec<CheckConstraintSource<'a>>,
     not_null: Vec<NotNullConstraintSource>,
     targeted: Vec<TargetedRuleSource<'a>>,
+    // Integrity traverses accepted CHECK/targeted rules, never pending write gates.
+    integrity_count: usize,
 }
 
 /// SQL three-valued truth returned by accepted check evaluation.
@@ -116,6 +118,38 @@ enum CompiledCheckExprV1 {
     },
     IsNull(CompiledCheckValueExprV1),
     IsNotNull(CompiledCheckValueExprV1),
+}
+
+impl CompiledCheckExprV1 {
+    // Dependency collection consumes the resolved program, avoiding another
+    // field-ID projection and intermediate per-expression dependency vectors.
+    fn try_for_each_slot<E>(
+        &self,
+        visit: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut visit_value = |value: &CompiledCheckValueExprV1| match value {
+            CompiledCheckValueExprV1::Field(slot)
+            | CompiledCheckValueExprV1::CharLength(slot)
+            | CompiledCheckValueExprV1::OctetLength(slot)
+            | CompiledCheckValueExprV1::Cardinality(slot) => visit(*slot),
+            CompiledCheckValueExprV1::Literal(_) => Ok(()),
+        };
+        match self {
+            Self::True | Self::False => Ok(()),
+            Self::Not(inner) => inner.try_for_each_slot(visit),
+            Self::And(children) | Self::Or(children) => {
+                for child in children {
+                    child.try_for_each_slot(visit)?;
+                }
+                Ok(())
+            }
+            Self::Compare { left, right, .. } => {
+                visit_value(left)?;
+                visit_value(right)
+            }
+            Self::IsNull(value) | Self::IsNotNull(value) => visit_value(value),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -211,6 +245,7 @@ impl CompiledAcceptedRowConstraints {
             checks,
             not_null,
             targeted,
+            integrity_count,
         } = row_constraint_sources(snapshot, work)?;
         let targeted_rules = CompiledAcceptedTargetedRules::compile_sources(
             schema,
@@ -218,9 +253,22 @@ impl CompiledAcceptedRowConstraints {
             targeted.into_iter(),
         )
         .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
-        // Both row-local families compile into one admitted destination. No
-        // intermediate compiled-family vectors need allocation or merging.
-        let constraints = work.vec_with_capacity(checks.len() + not_null.len())?;
+        // Source classification counts both exact destinations. Admit their
+        // backing before filling them; integrity entries share no source buffer.
+        let backing = (
+            work.vec_with_capacity(checks.len() + not_null.len())?,
+            work.vec_with_capacity(integrity_count)?,
+        );
+        // These two sorts run inside semantic compilation. Admit their exact
+        // scratch before entering its expression-error mapping; budget facts
+        // must not be flattened into accepted-program corruption.
+        work.admit_compact_sort(checks.len() + not_null.len())?;
+        work.admit_compact_sort(integrity_count)?;
+        // Validate bounds before recursively admitting tree construction. Keep
+        // budget refusal outside the following semantic-error mapping.
+        validate_check_sources(&checks, snapshot, value_catalog.composite_catalog())
+            .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        admit_row_program_construction(&checks, &not_null, snapshot, work)?;
         let mut compiled = Self::compile_sources(
             schema,
             value_catalog,
@@ -228,9 +276,25 @@ impl CompiledAcceptedRowConstraints {
             checks,
             not_null,
             targeted_rules,
-            constraints,
+            backing,
         )
-        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?
+        .with_required_slots(
+            |slots| {
+                work.charge(Resource::PredicateExpressionSteps, 1)?;
+                work.reserve_vec(slots, 1)
+            },
+            |entries| {
+                work.admit_compact_sort(entries)?;
+                // Deduplication visits adjacent slots and may move every
+                // retained shell. Admit that linear pass before mutation.
+                work.charge(
+                    Resource::PredicateExpressionSteps,
+                    (entries as u64).saturating_mul(2),
+                )
+            },
+        )?;
+        debug_assert_eq!(compiled.integrity_constraints.len(), integrity_count);
         // All activations share caller authority. Build locally and return no
         // partial program if any dependency admission or semantic check fails.
         work.charge(
@@ -269,6 +333,7 @@ impl CompiledAcceptedRowConstraints {
                     dependency_slots,
                 });
         }
+        work.admit_compact_sort(compiled.unique_write_barriers.len())?;
         icydb_schema::compact_sort_unstable_by(
             &mut compiled.unique_write_barriers,
             |left, right| left.id.cmp(&right.id),
@@ -311,6 +376,12 @@ impl CompiledAcceptedRowConstraints {
                 ));
             }
         };
+        validate_check_sources(
+            &checks,
+            schema.persisted_snapshot(),
+            value_catalog.composite_catalog(),
+        )
+        .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
         Self::compile_sources(
             schema,
             value_catalog,
@@ -318,8 +389,9 @@ impl CompiledAcceptedRowConstraints {
             checks,
             not_null,
             CompiledAcceptedTargetedRules::empty(),
-            Vec::with_capacity(1),
+            (Vec::with_capacity(1), Vec::new()),
         )
+        .and_then(|compiled| compiled.with_required_slots(|_| Ok(()), |_| Ok(())))
     }
 
     /// Compile exactly one pending targeted rule for historical validation.
@@ -339,8 +411,9 @@ impl CompiledAcceptedRowConstraints {
             Vec::new(),
             Vec::new(),
             targeted_rules,
-            Vec::new(),
+            (Vec::new(), Vec::new()),
         )
+        .and_then(|compiled| compiled.with_required_slots(|_| Ok(()), |_| Ok(())))
     }
 
     fn compile_sources(
@@ -350,17 +423,17 @@ impl CompiledAcceptedRowConstraints {
         check_sources: Vec<CheckConstraintSource<'_>>,
         not_null_sources: Vec<NotNullConstraintSource>,
         targeted_rules: CompiledAcceptedTargetedRules,
-        mut constraints: Vec<CompiledAcceptedRowConstraint>,
+        (mut constraints, integrity_constraints): (
+            Vec<CompiledAcceptedRowConstraint>,
+            Vec<CompiledIntegrityRowConstraint>,
+        ),
     ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
         let snapshot = schema.persisted_snapshot();
-        // Callers supply empty backing for the exact source count. Preserve
-        // CHECK-before-NOT-NULL validation while filling that destination once.
+        // Callers validate CHECK shape/bounds and supply empty exact backing.
+        // Preserve CHECK-before-NOT-NULL compilation while filling it once.
         debug_assert!(constraints.is_empty());
         debug_assert!(constraints.capacity() >= check_sources.len() + not_null_sources.len());
         for &(id, expression, validated) in &check_sources {
-            expression
-                .validate(snapshot, value_catalog.composite_catalog())
-                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
             constraints.push(CompiledAcceptedRowConstraint::Check(
                 CompiledAcceptedCheck {
                     id,
@@ -381,19 +454,49 @@ impl CompiledAcceptedRowConstraints {
         icydb_schema::compact_sort_unstable_by(&mut constraints, |left, right| {
             left.id().cmp(&right.id())
         });
-        let integrity_constraints = compile_integrity_constraints(snapshot, &constraints);
-        let required_slots =
-            compile_required_slots(snapshot, &check_sources, &not_null_sources, &targeted_rules)?;
-
+        let integrity_constraints =
+            compile_integrity_constraints(snapshot, &constraints, integrity_constraints);
         Ok(Self {
             fingerprint,
             constraints,
             integrity_constraints,
-            required_slots,
+            required_slots: Vec::new(),
             unique_write_barriers: Vec::new(),
             targeted_rules,
             field_count: snapshot.row_layout().allocated_slot_count(),
         })
+    }
+
+    // Whole-schema callers admit every growth under their existing authority.
+    // Single-activation callers retain their separate allocation contract. The
+    // destination is local until complete, then sorted/deduplicated in place.
+    fn with_required_slots<E>(
+        mut self,
+        mut admit: impl FnMut(&mut Vec<usize>) -> Result<(), E>,
+        admit_finish: impl FnOnce(usize) -> Result<(), E>,
+    ) -> Result<Self, E> {
+        let mut slots = Vec::new();
+        let mut push = |slot| {
+            admit(&mut slots)?;
+            slots.push(slot);
+            Ok(())
+        };
+        for constraint in &self.constraints {
+            match constraint {
+                CompiledAcceptedRowConstraint::Check(check) => {
+                    check.expression.try_for_each_slot(&mut push)?;
+                }
+                CompiledAcceptedRowConstraint::NotNull { slot, .. } => push(*slot)?,
+            }
+        }
+        for slot in self.targeted_rules.required_slots() {
+            push(slot)?;
+        }
+        admit_finish(slots.len())?;
+        icydb_schema::compact_sort_unstable_by(&mut slots, Ord::cmp);
+        slots.dedup();
+        self.required_slots = slots;
+        Ok(self)
     }
 
     /// Return whether this schema has any row-local constraints or gates.
@@ -611,62 +714,39 @@ impl CompiledAcceptedRowConstraints {
 fn compile_integrity_constraints(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     constraints: &[CompiledAcceptedRowConstraint],
+    mut compiled: Vec<CompiledIntegrityRowConstraint>,
 ) -> Vec<CompiledIntegrityRowConstraint> {
-    let mut compiled = constraints
-        .iter()
-        .enumerate()
-        .filter_map(|(ordinal, constraint)| {
-            let CompiledAcceptedRowConstraint::Check(CompiledAcceptedCheck {
-                id,
-                validated: true,
-                ..
-            }) = constraint
-            else {
-                return None;
-            };
-            Some(CompiledIntegrityRowConstraint::Check {
-                id: *id,
-                constraint_ordinal: ordinal,
+    debug_assert!(compiled.is_empty());
+    compiled.extend(
+        constraints
+            .iter()
+            .enumerate()
+            .filter_map(|(ordinal, constraint)| {
+                let CompiledAcceptedRowConstraint::Check(CompiledAcceptedCheck {
+                    id,
+                    validated: true,
+                    ..
+                }) = constraint
+                else {
+                    return None;
+                };
+                Some(CompiledIntegrityRowConstraint::Check {
+                    id: *id,
+                    constraint_ordinal: ordinal,
+                })
             })
-        })
-        .chain(snapshot.constraints().iter().filter_map(|constraint| {
-            matches!(
-                constraint.kind(),
-                AcceptedConstraintKind::TargetedRule { .. }
-            )
-            .then_some(CompiledIntegrityRowConstraint::TargetedRule {
-                id: constraint.id(),
-            })
-        }))
-        .collect::<Vec<_>>();
+            .chain(snapshot.constraints().iter().filter_map(|constraint| {
+                matches!(
+                    constraint.kind(),
+                    AcceptedConstraintKind::TargetedRule { .. }
+                )
+                .then_some(CompiledIntegrityRowConstraint::TargetedRule {
+                    id: constraint.id(),
+                })
+            })),
+    );
     icydb_schema::compact_sort_unstable_by(&mut compiled, |left, right| left.id().cmp(&right.id()));
     compiled
-}
-
-fn compile_required_slots(
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    check_sources: &[CheckConstraintSource<'_>],
-    not_null_sources: &[NotNullConstraintSource],
-    targeted_rules: &CompiledAcceptedTargetedRules,
-) -> Result<Vec<usize>, AcceptedRowConstraintEvaluationError> {
-    let mut slots = check_sources
-        .iter()
-        .flat_map(|(_, expression, _)| expression.dependencies())
-        .map(|field_id| {
-            slot_for_field(snapshot, field_id)
-                .map(|slot| usize::from(slot.get()))
-                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
-        })
-        .chain(not_null_sources.iter().map(|(_, field_id, _)| {
-            slot_for_field(snapshot, *field_id)
-                .map(|slot| usize::from(slot.get()))
-                .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)
-        }))
-        .chain(targeted_rules.required_slots().map(Ok))
-        .collect::<Result<Vec<_>, _>>()?;
-    icydb_schema::compact_sort_unstable_by(&mut slots, Ord::cmp);
-    slots.dedup();
-    Ok(slots)
 }
 
 fn targeted_rule_violation_error(
@@ -694,6 +774,7 @@ fn row_constraint_sources<'a>(
                 sources
                     .checks
                     .push((constraint.id(), expression.as_ref(), true));
+                sources.integrity_count += 1;
             }
             AcceptedConstraintKind::NotNull { field_id } => {
                 work.reserve_vec(&mut sources.not_null, 1)?;
@@ -704,6 +785,7 @@ fn row_constraint_sources<'a>(
                 sources
                     .targeted
                     .push((constraint.id(), *target, operation.as_ref(), true));
+                sources.integrity_count += 1;
             }
             AcceptedConstraintKind::PrimaryKey
             | AcceptedConstraintKind::Unique { .. }
@@ -799,6 +881,100 @@ pub(in crate::db) fn accepted_row_constraint_write_error(
     }
 }
 
+fn validate_check_sources(
+    sources: &[CheckConstraintSource<'_>],
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    catalog: &AcceptedCompositeCatalog,
+) -> Result<(), AcceptedCheckExprV1Error> {
+    for (_, expression, _) in sources {
+        expression.validate(snapshot, catalog)?;
+    }
+    Ok(())
+}
+
+// Reserve the bounded CHECK/NOT NULL construction phases before semantic
+// compilation. Validation, decoding and targeted-program work remain separate.
+fn admit_row_program_construction(
+    checks: &[CheckConstraintSource<'_>],
+    not_null: &[NotNullConstraintSource],
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    work: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    let fields = snapshot.fields().len();
+    for (_, expression, _) in checks {
+        admit_check_tree(expression, fields, work)?;
+    }
+    // NOT NULL dispatch and field lookup; integrity then visits the compiled
+    // schedule and the accepted catalog, including entries it filters out.
+    let not_null_steps = (not_null.len() as u64).saturating_mul((fields as u64).saturating_add(1));
+    let integrity_steps = checks
+        .len()
+        .saturating_add(not_null.len())
+        .saturating_add(snapshot.constraints().len()) as u64;
+    work.charge(
+        Resource::PredicateExpressionSteps,
+        not_null_steps.saturating_add(integrity_steps),
+    )
+}
+
+// Shape/bounds validation runs first. Literal decoding, validation scratch and
+// recursive stack cost retain their own scope.
+fn admit_check_tree(
+    expression: &AcceptedCheckExprV1,
+    fields: usize,
+    work: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    // Admission, compilation and the compiled dependency walk each visit it.
+    work.charge(Resource::PredicateExpressionSteps, 3)?;
+    match expression {
+        AcceptedCheckExprV1::True | AcceptedCheckExprV1::False => Ok(()),
+        AcceptedCheckExprV1::Not(inner) => {
+            work.charge(
+                Resource::TemporaryBytes,
+                size_of::<CompiledCheckExprV1>() as u64,
+            )?;
+            admit_check_tree(inner, fields, work)
+        }
+        AcceptedCheckExprV1::And(children) | AcceptedCheckExprV1::Or(children) => {
+            work.charge(
+                Resource::TemporaryBytes,
+                (children.len() as u64).saturating_mul(size_of::<CompiledCheckExprV1>() as u64),
+            )?;
+            for child in children {
+                admit_check_tree(child, fields, work)?;
+            }
+            Ok(())
+        }
+        AcceptedCheckExprV1::Compare { left, right, .. } => {
+            admit_check_value(left, fields, work)?;
+            admit_check_value(right, fields, work)
+        }
+        AcceptedCheckExprV1::IsNull(value) | AcceptedCheckExprV1::IsNotNull(value) => {
+            admit_check_value(value, fields, work)
+        }
+    }
+}
+
+fn admit_check_value(
+    value: &AcceptedCheckValueExprV1,
+    fields: usize,
+    work: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    // Reserve the full metadata scan even when field lookup can stop early.
+    // Literal dispatch has no field lookup; payload decoding is not included.
+    let resolution = match value {
+        AcceptedCheckValueExprV1::Literal(_) => 0,
+        AcceptedCheckValueExprV1::Field(_)
+        | AcceptedCheckValueExprV1::CharLength(_)
+        | AcceptedCheckValueExprV1::OctetLength(_)
+        | AcceptedCheckValueExprV1::Cardinality(_) => fields as u64,
+    };
+    work.charge(
+        Resource::PredicateExpressionSteps,
+        resolution.saturating_add(3),
+    )
+}
+
 fn compile_expr(
     expression: &AcceptedCheckExprV1,
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
@@ -812,16 +988,12 @@ fn compile_expr(
             snapshot,
             value_catalog,
         )?))),
-        AcceptedCheckExprV1::And(children) => children
-            .iter()
-            .map(|child| compile_expr(child, snapshot, value_catalog))
-            .collect::<Result<Vec<_>, _>>()
-            .map(CompiledCheckExprV1::And),
-        AcceptedCheckExprV1::Or(children) => children
-            .iter()
-            .map(|child| compile_expr(child, snapshot, value_catalog))
-            .collect::<Result<Vec<_>, _>>()
-            .map(CompiledCheckExprV1::Or),
+        AcceptedCheckExprV1::And(children) => {
+            compile_check_children(children, snapshot, value_catalog).map(CompiledCheckExprV1::And)
+        }
+        AcceptedCheckExprV1::Or(children) => {
+            compile_check_children(children, snapshot, value_catalog).map(CompiledCheckExprV1::Or)
+        }
         AcceptedCheckExprV1::Compare { left, op, right } => Ok(CompiledCheckExprV1::Compare {
             left: compile_value(left, snapshot, value_catalog)?,
             op: *op,
@@ -834,6 +1006,20 @@ fn compile_expr(
             compile_value(value, snapshot, value_catalog).map(CompiledCheckExprV1::IsNotNull)
         }
     }
+}
+
+fn compile_check_children(
+    children: &[AcceptedCheckExprV1],
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<Vec<CompiledCheckExprV1>, AcceptedRowConstraintEvaluationError> {
+    // One exact destination matches structural admission; fallible collection
+    // would use a separate geometric-growth policy and could exceed that backing.
+    let mut compiled = Vec::with_capacity(children.len());
+    for child in children {
+        compiled.push(compile_expr(child, snapshot, value_catalog)?);
+    }
+    Ok(compiled)
 }
 
 fn compile_value(

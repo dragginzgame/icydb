@@ -39,7 +39,8 @@ The default posture is a pre-1.0 hard cut:
 - an incompatible format change replaces the retired form rather than adding
   a compatibility reader;
 - the replacement keeps version 1 and replaces its encoder, decoder, and
-  canonical shape in place; the prior decoder is deleted;
+  canonical shape in place; the prior decoder is deleted. An incompatible
+  layout receives a distinct magic/identity, never a reused discriminator;
 - the current form either decodes exactly or fails closed; old internal forms
   do not receive compatibility decoders;
 - unknown future versions fail closed;

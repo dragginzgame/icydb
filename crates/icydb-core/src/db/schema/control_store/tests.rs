@@ -108,24 +108,28 @@ fn absent_control_inspection_preserves_marker_region_without_allocating() {
 fn previous_control_tree_framing_is_rejected_without_writing() {
     let memory = Rc::new(test_memory(243));
     SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application).unwrap();
-    memory.write(CONTROL_START_PAGE * 65_536, b"ICMAP001");
-    let pages = memory.size();
-    let mut before = vec![0; usize::try_from(pages * 65_536).unwrap()];
-    memory.read(0, &mut before);
+    for retired_frame in [b"ICMAP001", b"ICMAP002"] {
+        memory.write(CONTROL_START_PAGE * 65_536, retired_frame);
+        let pages = memory.size();
+        let mut before = vec![0; usize::try_from(pages * 65_536).unwrap()];
+        memory.read(0, &mut before);
 
-    assert!(
-        SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
-            .is_err()
-    );
-    assert_eq!(memory.size(), pages);
-    let mut after = vec![0; before.len()];
-    memory.read(0, &mut after);
-    assert_eq!(after, before);
+        assert!(
+            SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
+                .is_err()
+        );
+        assert_eq!(memory.size(), pages);
+        let mut after = vec![0; before.len()];
+        memory.read(0, &mut after);
+        assert_eq!(after, before);
+    }
 }
 
 #[test]
 fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing() {
-    for offset in 0..8 {
+    // Storage admits the BTR2 identity and explicit page-size marker. Other
+    // header bytes belong to its engine, which traps on malformed internals.
+    for offset in (0..4).chain(8..12) {
         let memory = Rc::new(test_memory(243));
         SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
             .unwrap();

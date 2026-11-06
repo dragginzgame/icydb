@@ -458,12 +458,14 @@ fn validate_boolean_children(
         if nested_is_same(child) {
             return Err(AcceptedCheckExprV1Error::NonCanonical);
         }
+        // Key extraction recursively serializes the child. Validate its bounds
+        // and local shape first, including every nested Boolean descendant.
+        child.validate_at(fields, composite_catalog, depth + 1, bounds)?;
         let key = child.canonical_key();
         if prior.as_ref().is_some_and(|prior| prior >= &key) {
             return Err(AcceptedCheckExprV1Error::NonCanonical);
         }
         prior = Some(key);
-        child.validate_at(fields, composite_catalog, depth + 1, bounds)?;
     }
     Ok(())
 }
@@ -627,9 +629,14 @@ fn write_children_key(bytes: &mut Vec<u8>, tag: u8, children: &[AcceptedCheckExp
     bytes.push(tag);
     write_len(bytes, children.len());
     for child in children {
-        let key = child.canonical_key();
-        write_len(bytes, key.len());
-        bytes.extend_from_slice(&key);
+        // Append into the parent and fill its fixed-width length prefix after
+        // writing. Offsets survive Vec growth; no child key buffer is needed.
+        let length_start = bytes.len();
+        write_len(bytes, 0);
+        let key_start = bytes.len();
+        child.write_canonical_key(bytes);
+        let length = key_len_bytes(bytes.len() - key_start);
+        bytes[length_start..key_start].copy_from_slice(&length);
     }
 }
 
@@ -774,7 +781,11 @@ fn write_tag_u32(bytes: &mut Vec<u8>, tag: u8, value: u32) {
 }
 
 fn write_len(bytes: &mut Vec<u8>, len: usize) {
-    bytes.extend_from_slice(&(len as u64).to_be_bytes());
+    bytes.extend_from_slice(&key_len_bytes(len));
+}
+
+const fn key_len_bytes(len: usize) -> [u8; size_of::<u64>()] {
+    (len as u64).to_be_bytes()
 }
 
 crate::retained::retained_fields!(AcceptedCheckLiteralV1 {

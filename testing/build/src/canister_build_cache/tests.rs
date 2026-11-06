@@ -4,10 +4,11 @@ use super::{
     ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
     CACHE_MAX_AGE, CACHE_MAX_BYTES, CARGO_CONFIGURATION_LIMITS, CargoSelection,
     CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
-    SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceFailureMode,
-    artifact_cache_prune_policy, build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
-    cache_post_link_wasm, cache_post_link_wasm_batch, cargo_wasm_batch_specs, cargo_wasm_spec,
-    shared_incremental_target_maintenance_config, wasm_build_progress_config,
+    SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceConfig,
+    SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
+    build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
+    cache_post_link_wasm_batch, cargo_wasm_batch_specs, cargo_wasm_spec,
+    wasm_build_progress_config,
 };
 
 fn workspace_root() -> PathBuf {
@@ -168,18 +169,38 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
     assert_eq!(artifact_policy.max_age(), Some(CACHE_MAX_AGE));
     assert_eq!(artifact_policy.max_size_bytes(), Some(CACHE_MAX_BYTES));
 
-    let maintenance = shared_incremental_target_maintenance_config();
-    let shared_target_policy = maintenance.policy();
-    assert_eq!(shared_target_policy.max_age(), Some(CACHE_MAX_AGE));
-    assert_eq!(
-        shared_target_policy.max_size_bytes(),
-        Some(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
+    // Inspect the supported spec contract at the actual consumer wiring.
+    // Batch builds own maintenance once, so individual batch specs omit it.
+    let expected = SharedIncrementalTargetMaintenanceConfig::new(
+        ic_build::artifacts::CacheRetentionLimits::new()
+            .with_max_age(CACHE_MAX_AGE)
+            .with_max_size_bytes(SHARED_INCREMENTAL_TARGET_MAX_BYTES),
+        CACHE_MAINTENANCE_INTERVAL,
+    )
+    .with_failure_mode(SharedIncrementalTargetMaintenanceFailureMode::BestEffort);
+    let root = workspace_root();
+    let target = root.join("target/cache-policy-probe");
+    let single = cargo_wasm_spec(
+        &root,
+        &target,
+        &["probe"],
+        &CargoSelection::default(),
+        None,
+        true,
     );
-    assert_eq!(maintenance.minimum_interval(), CACHE_MAINTENANCE_INTERVAL);
-    assert_eq!(
-        maintenance.failure_mode(),
-        SharedIncrementalTargetMaintenanceFailureMode::BestEffort
+    let batch = cargo_wasm_spec(
+        &root,
+        &target,
+        &["probe"],
+        &CargoSelection::default(),
+        None,
+        false,
     );
+    assert_eq!(
+        single.shared_incremental_target_maintenance(),
+        Some(expected),
+    );
+    assert_eq!(batch.shared_incremental_target_maintenance(), None);
 }
 
 #[test]

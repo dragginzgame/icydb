@@ -3,6 +3,7 @@ mod boolean_truth;
 mod dependency_budget;
 #[cfg(feature = "sql")]
 mod float_literals;
+mod key_encoding;
 mod source_bounds;
 mod source_partition;
 

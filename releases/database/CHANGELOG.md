@@ -3,6 +3,49 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.299.0]
+
+### ⚠️ Breaking
+
+- Adopt Storage 0.68.0 collection engines and Testkit 0.88.0 public testing types.
+  Require fresh installations; reject earlier database images before recovery
+  without rewriting or deleting them. Preserve current-image recovery and
+  application codecs; engine/codec failures now follow Storage’s trap contract.
+
+### 🩹 Fixed
+
+- Admit row-constraint integrity metadata backing through the caller's existing
+  construction budget before allocation, preserving accepted-rule scope and
+  typed exhaustion diagnostics
+  ([#76 — Constraint integrity backing](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit row-program dependency-slot collection through the same cumulative
+  construction budget and remove intermediate dependency vectors, preserving
+  sorted unique slots and activation scope
+  ([#76 — Dependency-slot backing](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit row-program ordering and compact-sort scratch through the caller's
+  existing construction budget before sorting, preserving constraint order
+  and typed refusal
+  ([#76 — Row-program sort admission](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit CHECK-tree structural backing and construction visits before compiling,
+  with exact Boolean child-vector capacities and unchanged evaluation
+  ([#76 — CHECK-tree construction](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit row-program metadata lookup, integrity and dependency scan work through
+  the existing caller budget, preserving required slots and evaluation
+  ([#76 — Row-program scan admission](https://github.com/dragginzgame/icydb/issues/76)).
+- Validate Boolean CHECK children before constructing recursive ordering keys,
+  preserving depth, node and literal bounds on malformed input
+  ([#76 — Boolean validation bounds](https://github.com/dragginzgame/icydb/issues/76)).
+- Remove intermediate Boolean CHECK child-key vectors and copies while
+  preserving exact canonical key bytes
+  ([#76 — CHECK-key buffer reuse](https://github.com/dragginzgame/icydb/issues/76)).
+
+### 🔧 Changed
+
+- Adopt IC Build 0.75.0 and keep cache-maintenance qualification on its supported
+  single/batch specification API. Product runtime and storage contracts are unchanged.
+
+[Detailed changes](0.299.md).
+
 ## [0.298.0] - 2026-11-05
 
 ### ⚠️ Breaking

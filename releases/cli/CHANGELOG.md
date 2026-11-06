@@ -3,6 +3,16 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.1]
+
+### 📝 Summary
+
+- Adopt the published IcyDB 0.299 database family and current Build dependency.
+  Preserve CLI commands, options and output; the database family owns its
+  Storage 0.68 fresh-installation cut and Testkit 0.88 testing contract.
+
+See [detailed notes](0.296.md).
+
 ## [0.296.0] - 2026-11-05
 
 ### 🛠️ Tooling

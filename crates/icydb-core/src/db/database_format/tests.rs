@@ -68,26 +68,28 @@ fn retired_boot_identity_refuses_without_rewriting_any_retained_bytes() {
     select_commit_memory_allocation(246, "icydb.test.retired-format.commit.v1");
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     memory.grow(1);
-    let mut retired = DatabaseBootRecord::current().encode();
-    retired[..8].copy_from_slice(b"ICYDBCTL");
-    let checksum = crc32c(&retired[..DATABASE_BOOT_CHECKSUM_OFFSET]);
-    retired[DATABASE_BOOT_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_be_bytes());
-    memory.write(0, &retired);
-    // Retained bytes beyond the gate must never be decoded or reinitialized.
-    memory.write(128, &[0xa5; 32]);
-    let mut before = vec![0; usize::try_from(WASM_PAGE_BYTES).unwrap()];
-    memory.read(0, &mut before);
-    let observed = observe_database_format(&STORES).unwrap_err();
-    let admitted = admit_or_initialize_database_format(&memory, &[])
-        .map_err(map_admission_error)
-        .unwrap_err();
-    let validated = validate_current_boot_record(&memory).unwrap_err();
-    assert_eq!(observed.diagnostic(), admitted.diagnostic());
-    assert_eq!(observed.diagnostic(), validated.diagnostic());
-    let mut after = vec![0; before.len()];
-    memory.read(0, &mut after);
-    assert_eq!(after, before);
-    assert_eq!(memory.size(), 1);
+    for retired_magic in [b"ICYDBCTL", b"ICYDBRT\0"] {
+        let mut retired = DatabaseBootRecord::current().encode();
+        retired[..8].copy_from_slice(retired_magic);
+        let checksum = crc32c(&retired[..DATABASE_BOOT_CHECKSUM_OFFSET]);
+        retired[DATABASE_BOOT_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_be_bytes());
+        memory.write(0, &retired);
+        // Retained bytes beyond the gate must never be decoded or reinitialized.
+        memory.write(128, &[0xa5; 32]);
+        let mut before = vec![0; usize::try_from(WASM_PAGE_BYTES).unwrap()];
+        memory.read(0, &mut before);
+        let observed = observe_database_format(&STORES).unwrap_err();
+        let admitted = admit_or_initialize_database_format(&memory, &[])
+            .map_err(map_admission_error)
+            .unwrap_err();
+        let validated = validate_current_boot_record(&memory).unwrap_err();
+        assert_eq!(observed.diagnostic(), admitted.diagnostic());
+        assert_eq!(observed.diagnostic(), validated.diagnostic());
+        let mut after = vec![0; before.len()];
+        memory.read(0, &mut after);
+        assert_eq!(after, before);
+        assert_eq!(memory.size(), 1);
+    }
 }
 
 #[test]

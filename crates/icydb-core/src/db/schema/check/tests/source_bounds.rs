@@ -6,6 +6,84 @@ use icydb_schema::{
     FieldSourceKey, MAX_SOURCE_CHECK_INSTRUCTIONS, SourceCheckExpr, SourceCheckInstruction,
 };
 
+fn unchecked_boolean_child_cases(
+    and: bool,
+) -> [(AcceptedCheckExprV1, AcceptedCheckExprV1Error); 3] {
+    let mut deep = AcceptedCheckExprV1::True;
+    for _ in 0..MAX_CHECK_EXPR_V1_DEPTH {
+        deep = AcceptedCheckExprV1::Not(Box::new(deep));
+    }
+    let mut child = AcceptedCheckExprV1::True;
+    let mut wide = Vec::new();
+    for _ in 0..MAX_CHECK_EXPR_V1_DEPTH - 2 {
+        wide.push(child.clone());
+        child = AcceptedCheckExprV1::Not(Box::new(child));
+    }
+    let wide = if and {
+        AcceptedCheckExprV1::Or(wide)
+    } else {
+        AcceptedCheckExprV1::And(wide)
+    };
+    let oversized = AcceptedCheckExprV1::IsNull(AcceptedCheckValueExprV1::Literal(
+        AcceptedCheckLiteralV1::from_accepted_parts(
+            AcceptedFieldKind::Text { max_len: None },
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+            vec![0; MAX_CHECK_EXPR_V1_LITERAL_BYTES + 1],
+        ),
+    ));
+    [
+        (deep, AcceptedCheckExprV1Error::DepthExceeded),
+        (wide, AcceptedCheckExprV1Error::NodeCountExceeded),
+        (oversized, AcceptedCheckExprV1Error::UnsupportedFieldKind),
+    ]
+}
+
+#[test]
+fn boolean_child_bounds_are_checked_before_canonical_key_ordering() {
+    let snapshot = snapshot();
+    let catalog = value_catalog();
+    for and in [false, true] {
+        for (child, expected) in unchecked_boolean_child_cases(and) {
+            // This valid prefix sorts after the malformed child. Ordering must
+            // not serialize that child before its own depth/node/literal checks.
+            let children = vec![
+                AcceptedCheckExprV1::IsNotNull(AcceptedCheckValueExprV1::Field(FieldId::new(2))),
+                child,
+            ];
+            let expression = if and {
+                AcceptedCheckExprV1::And(children)
+            } else {
+                AcceptedCheckExprV1::Or(children)
+            };
+            assert_eq!(
+                expression.validate(&snapshot, catalog.composite_catalog()),
+                Err(expected)
+            );
+            assert_eq!(
+                expression.validate_snapshot_local(snapshot.fields()),
+                Err(expected)
+            );
+        }
+        let mut child = AcceptedCheckExprV1::True;
+        for _ in 0..MAX_CHECK_EXPR_V1_DEPTH - 2 {
+            child = AcceptedCheckExprV1::Not(Box::new(child));
+        }
+        let children = vec![AcceptedCheckExprV1::False, child];
+        let expression = if and {
+            AcceptedCheckExprV1::And(children)
+        } else {
+            AcceptedCheckExprV1::Or(children)
+        };
+        expression
+            .validate(&snapshot, catalog.composite_catalog())
+            .unwrap();
+        expression
+            .validate_snapshot_local(snapshot.fields())
+            .unwrap();
+    }
+}
+
 fn bind_source(
     instructions: Vec<SourceCheckInstruction>,
 ) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {

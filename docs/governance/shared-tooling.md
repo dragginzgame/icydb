@@ -26,7 +26,51 @@ default to `target/evidence/`. Release/recovery records, saved review inputs,
 package versions and dependency selections are preserved. See the
 [report retention policy](../reports/README.md).
 
-### Current published dependency cohort (2026-11-05)
+### Current Build, Storage and Testkit adoption (2026-11-06)
+
+The root selects published **IC Build 0.75.0**. Its official archive matches the
+registry checksum and records supplier source
+`1239e9a824689839a9c1a945a1d011071a8e2377`. Only the Build lock entry changes
+relative to the incoming candidate; its Platform 0.23.2, Wire/Derive 0.17.3 and
+cc 1.11.1 selections are preserved. The shared snapshot remains unchanged.
+
+Build removes unused inspection/configuration readers. IcyDB uses its retained
+builders and checks the actual single/batch maintenance specification instead
+of the removed readers. Six focused cache/input-identity controls and strict
+all-target Build-consumer lint pass on Rust 1.99.1. The locked release-metadata
+editor is prepared and admitted through the existing Shared installer. Root
+metadata, dependency declarations and selected native/Wasm graphs pass; Build
+does not enter the public facade's Wasm normal/build graph.
+
+The authorized 0.299 candidate selects Storage **0.68.0** and Testkit **0.88.0**.
+Official archives match registry checksums and record supplier sources
+`6f87f363a09e20086cbf76fd4dc9caff8bf877ff` and
+`0bc2cc4c9b95b6badc9283d5d92abf08036d0dc3`, respectively. Storage replaces all
+collection images and changes engine/codec failures to traps. IcyDB admits a
+new boot identity before recovery and rejects older images without modifying
+them. Native mutation panics poison the Storage runtime; retain no runtime or
+leases after such a panic. Explicit collection framing admission remains typed.
+Testkit changes the PocketIC type exposed by the public testing helper; IcyDB
+uses its retained async client and managed polling/lifecycle owner. See the
+[Storage contract](https://github.com/dragginzgame/ic-storage/blob/6f87f363a09e20086cbf76fd4dc9caff8bf877ff/releases/storage/0.68.md)
+and [Testkit release](https://github.com/dragginzgame/ic-tooling/blob/0bc2cc4c9b95b6badc9283d5d92abf08036d0dc3/releases/testkit/CHANGELOG.md).
+No existing backing is reset or deleted. All-target workspace lint, testing-feature
+lint and model/core feature lint pass. Sixteen database-format/recovery controls,
+four shared control-map controls, nine public bootstrap/admission controls and
+one Testkit-managed startup-polling test pass on Linux with Rust 1.99.1. The latter
+covers six polling dispositions with the current public PocketIC type; Testkit
+started and reaped its owned local server. This is not installed IcyDB lifecycle
+acceptance. The full release gate remains required.
+
+The separate Canic metadata check remains blocked by its Storage 0.64 /
+Platform 0.17 runtime-guard versus Platform 0.8.3 executor link conflict after
+locked source preparation. Its manifest and lock are unchanged; this is the
+existing independent [#373](https://github.com/dragginzgame/icydb/issues/373)
+qualification gap. Full release validation is selected for deployment; macOS
+and installed-IC acceptance remain separate qualification obligations.
+IC cycles/instructions and total/code-section Wasm-size deltas are unmeasured.
+
+### Preceding published dependency cohort (2026-11-05)
 
 The root catalog adopts Storage **0.67.1**, Testkit **0.87.0**, Wire **0.17.2**,
 Platform **0.23.0**, Runtime **0.19.2**, Types **0.18.1** and Host Tools **0.83.0**.

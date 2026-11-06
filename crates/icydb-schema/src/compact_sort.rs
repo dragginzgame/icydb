@@ -7,6 +7,21 @@
 
 use std::cmp::Ordering;
 
+/// Return cumulative backing bytes for this sorter's two index buffers.
+///
+/// Empty and singleton slices allocate no scratch. The byte count saturates
+/// rather than wrapping, so callers can admit construction before sorting.
+#[doc(hidden)]
+#[must_use]
+pub const fn compact_sort_scratch_bytes(entries: usize) -> u64 {
+    if entries < 2 {
+        return 0;
+    }
+    (entries as u64)
+        .saturating_mul(size_of::<usize>() as u64)
+        .saturating_mul(2)
+}
+
 /// Sort one bounded control-plane slice without retaining the standard
 /// library's large per-type unstable-sort implementation.
 ///

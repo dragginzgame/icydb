@@ -304,11 +304,45 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   charges each accepted/pending catalog visit and admits all three borrowed-source
   vectors' growth before allocation, including retained-prefix copies. Its errors
   preserve the caller's typed budget diagnostic before downstream compilation.
-  Whole-schema CHECK/NOT NULL compilation also admits one exact-size destination
-  before building entries, without intermediate compiled-family vectors or a
-  merge allocation. Single-activation compilation shares the same fill path;
-  its existing allocation authority remains separate. Expression trees, targeted
-  programs and integrity/dependency containers are not covered by this admission.
+  Whole-schema compilation also admits exact-size CHECK/NOT NULL and integrity
+  metadata destinations before filling their entries. The existing source pass
+  counts accepted CHECK/targeted-rule integrity entries; pending write gates do
+  not contribute. No intermediate compiled-family vectors, merge allocation or
+  separate catalog-sizing walk is needed. Single-activation compilation shares
+  the same fill path; its existing allocation authority remains separate.
+  Required row slots are collected directly from the resolved CHECK/NOT NULL
+  programs and targeted-rule roots into one destination. Each emitted slot
+  consumes a construction step; vector growth, including retained-prefix copies,
+  is admitted before allocation. Deduplication reuses the sorted destination;
+  there are no intermediate per-expression field-dependency vectors or repeated
+  field-ID-to-slot projections. Whole-schema schedule, integrity, required-slot
+  and unique-write-barrier ordering admit compact-sort entries and the existing
+  comparison allowance before sorting. The sorter's own scratch-byte projection
+  admits both index buffers through SortTemporaryBytes and cumulative
+  TemporaryBytes, including already ordered inputs. Empty/singleton slices need
+  no sort allowance. Single-activation allocation authority remains separate.
+  CHECK shape/bounds validation precedes recursive structural admission. Each
+  Boolean child is validated before constructing its canonical ordering key,
+  so key extraction cannot bypass that child's depth, node or literal checks.
+  Boolean key serialization writes children directly into the parent buffer and
+  fills their fixed-width length prefixes afterward. It retains the same bytes
+  without intermediate child-key vectors or copies; root-key backing and growth
+  still require complete admission.
+  Each expression/value node reserves dispatch steps for admission, compilation and
+  traversal of the compiled dependencies;
+  NOT boxes and exact-capacity AND/OR child vectors reserve fixed-size shell
+  backing through TemporaryBytes before compilation. No literal payload copy
+  is included in that structural reservation. Whole-schema and single-activation
+  compilation share the exact-capacity fill path, with their separate authority.
+  CHECK field/length operands and NOT NULL compilation reserve a full lookup
+  bound over field metadata, even when the lookup can stop early. Integrity metadata
+  reserves visits over the compiled schedule and accepted catalog, including
+  filtered entries. Required-slot deduplication reserves a conservative linear
+  comparison/movement pass before sorting or mutating its destination. These
+  reservations share the same cumulative PredicateExpressionSteps authority;
+  they are logical allowances, not measured instructions. Recursive stack cost,
+  validation/canonical-key construction and scans, literal-decoder backing and
+  targeted-program allocation/internal ordering are not covered.
   Decoder allocation, schema validation and the remaining compiled-program
   construction are not fully charged by this projection contract. Display/canonical validation
   and retained replay/rebuild explicitly select no fresh construction ceiling.

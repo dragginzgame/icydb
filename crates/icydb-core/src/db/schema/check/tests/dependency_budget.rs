@@ -29,11 +29,21 @@ fn unique_dependencies_need_only_projection_and_slot_bookkeeping_allowance() {
                 std::convert::identity,
             )
             .unwrap();
-        // Source classification, activation/candidate selection, bitmap, accepted fields,
-        // two bitmap passes and surviving-field visits. The projection owner
+        // Classification and integrity each visit the catalog. Each NOT NULL
+        // contributes field resolution, dispatch, integrity, slot emission and
+        // deduplication. Unique selection then owns its bitmap/field passes.
+        // The projection owner
         // admits its own traversal; dependency selection has no serialized-key consumer.
         let slots = snapshot.row_layout().allocated_slot_count() as u64;
-        let steps = snapshot.constraints().len() as u64
+        let steps = 2 * snapshot.constraints().len() as u64
+            + snapshot
+                .constraints()
+                .iter()
+                .filter(|constraint| {
+                    matches!(constraint.kind(), AcceptedConstraintKind::NotNull { .. })
+                })
+                .count() as u64
+                * (snapshot.fields().len() as u64 + 5)
             + 2 * snapshot.constraint_activations().len() as u64
             + snapshot.candidate_indexes().len() as u64
             + 3 * slots

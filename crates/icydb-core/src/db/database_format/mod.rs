@@ -26,10 +26,11 @@ use std::cell::RefCell;
 pub(in crate::db) use entropy::set_boot_entropy_for_tests;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
-const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBRT\0";
+// Storage 0.68 replaces collection images. A distinct boot identity refuses
+// earlier incarnations before collection or recovery decoding can observe them.
+const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBST\0";
 const DATABASE_BOOT_CHECKSUM_OFFSET: usize = 11;
 const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;
-// The sole current pre-1.0 database boot format uses version 1.
 const DATABASE_FORMAT_VERSION_CURRENT: DatabaseFormatVersion = DatabaseFormatVersion(1);
 const CRC32C_REVERSED_POLYNOMIAL: u32 = 0x82f6_3b78;
 const CRC32C_TABLE: [u32; 256] = crc32c_table();

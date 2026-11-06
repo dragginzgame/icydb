@@ -21,6 +21,23 @@ pub(in crate::db) trait ConstructionBudget {
 }
 
 impl dyn ConstructionBudget + '_ {
+    /// Admit compact-sort work and its owner's index-buffer backing before
+    /// calling the infallible sorter. This reserves the existing comparison
+    /// allowance, not measured comparator invocations or operand payload work.
+    pub(in crate::db) fn admit_compact_sort(&self, entries: usize) -> Result<(), InternalError> {
+        if entries < 2 {
+            return Ok(());
+        }
+        let scratch = icydb_schema::compact_sort_scratch_bytes(entries);
+        self.charge(Resource::SortEntries, entries as u64)?;
+        self.charge(
+            Resource::SortComparisons,
+            crate::db::resource::budget::sort_comparison_allowance(entries),
+        )?;
+        self.charge(Resource::SortTemporaryBytes, scratch)?;
+        self.charge(Resource::TemporaryBytes, scratch)
+    }
+
     /// Admit the destination before copying its elements and their payloads.
     pub(in crate::db) fn copy_slice<T, U>(
         &self,
