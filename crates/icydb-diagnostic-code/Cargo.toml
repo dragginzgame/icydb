@@ -2,7 +2,7 @@
 name = "icydb-diagnostic-code"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.299.0"
+version = "0.300.0"
 license-file = { workspace = true }
 description = "Compact diagnostic codes for IcyDB"
 repository = { workspace = true }

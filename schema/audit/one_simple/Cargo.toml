@@ -3,7 +3,7 @@ name = "icydb-testing-audit-one-simple-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
 license-file = { workspace = true }
-version = "0.299.0"
+version = "0.300.0"
 publish = false
 description = "One-entity simple schema fixture crate for wasm SQL auditing"
 
