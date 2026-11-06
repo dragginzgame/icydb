@@ -68,6 +68,14 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   only one increment. Select `RELEASE_FROZEN_PUBLISH_TARGET=publish` explicitly
   when publication is authorized. For a mixed-increment delivery, clear
   `RELEASE_FROZEN_GROUPS=` and use the standard group workflows.
+- Shared invokes `release-candidate-setup` before group version discovery and
+  resumed hooks. Preparation uses existing tool/source owners; recovery checks
+  the saved source's selected metadata editor offline. Never duplicate setup in
+  outer release recipes or install from partially prepared recovery metadata.
+- Inspect saved delivery with `make release-batch-status BATCH=<saved-id>`;
+  `release-batch-reconcile` admits a clean normal checkout and fast-forwards only.
+  `release-batch-retire` is explicit deletion authority for that completed batch;
+  it refuses IcyDB's ignored `.cache/` and preserves all evidence by default.
 - Resume frozen delivery with `make release-batch-resume BATCH=<saved-id>`.
   An uncertain publication requires inspecting the registry before supplying
   `PUBLICATION_RESULT=published` or `not-published`. Durable intent and receipts

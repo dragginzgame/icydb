@@ -35,6 +35,7 @@ export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 FORMAT_RUST_ARGS := --sort-derives
 # Reject ambiguous release/publication selections before included setup rules run.
 RELEASE_FROZEN_GROUPS ?= $(RELEASE_GROUP)
+RELEASE_FROZEN_SETUP_TARGET := release-candidate-setup
 _icydb_release_selection_mode :=
 ifneq ($(filter release-patch release-minor release-major,$(MAKECMDGOALS)),)
 ifneq ($(FROZEN_RELEASE_ACTIVE),1)
@@ -44,7 +45,7 @@ endif
 endif
 endif
 ifneq ($(filter release-% publish,$(MAKECMDGOALS)),)
-ifneq ($(filter-out release-clean release-editor-check release-batch-resume,$(filter release-% publish,$(MAKECMDGOALS))),)
+ifneq ($(filter-out release-clean release-editor-check release-batch-%,$(filter release-% publish,$(MAKECMDGOALS))),)
 ifneq ($(shell RELEASE_GROUP='$(subst ','"'"',$(RELEASE_GROUP))' RELEASE_FROZEN_GROUPS='$(subst ','"'"',$(RELEASE_FROZEN_GROUPS))' bash "$(ROOT_DIR)/scripts/release/group.sh" $(_icydb_release_selection_mode) && printf admitted),admitted)
 $(error Select an explicit valid RELEASE_GROUP)
 endif
@@ -143,6 +144,7 @@ help:
 	@echo "  release-major    Confirm and run the shared major release workflow"
 	@echo "  release-resume VERSION=X.Y.Z  Resume the exact saved release candidate"
 	@echo "  release-batch-resume BATCH=<id> Resume a captured release/publication batch"
+	@echo "  release-batch-status/reconcile/retire BATCH=<id> Inspect, integrate, or explicitly retire a batch"
 	@echo "  RELEASE_FROZEN_GROUPS=database,cli selects a supplier-first batch; publication is explicit"
 	@echo "  package          Build publishable crate tarballs"
 	@echo "  publish          Publish crates; reuse the exact shared release receipt when available"
@@ -771,23 +773,23 @@ release-preflight release-prepare-version release-prepared-check release-commit-
 release-verify release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: RELEASE_EDITOR_CHECK = bash "$(ROOT_DIR)/scripts/release/select-editor.sh" "$${RELEASE_COMMIT:-$${RELEASE_SOURCE:-HEAD}}"
 
 .PHONY: release-verify
-ifeq ($(FROZEN_RELEASE_ACTIVE),1)
-# Version discovery is manifest-only. Before real hooks, a captured checkout
-# prepares its local selections and locked sources through their existing owners.
-release-patch release-minor release-major release-resume: _release-frozen-bootstrap
-endif
-.PHONY: _release-frozen-bootstrap test-frozen-release release-batch-resume
-_release-frozen-bootstrap:
+.PHONY: release-candidate-setup test-frozen-release
+# Shared invokes setup before version discovery and checks saved tools on resume.
+# Recovery never installs a tool from partially prepared working metadata.
+release-candidate-setup:
 	@bash scripts/ci/verify-shared-tooling-snapshot.sh >&2
-	+@$(MAKE) --no-print-directory host-tools-check >/dev/null 2>&1 || $(MAKE) --no-print-directory install-host-tools >&2
-	+@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory fetch >/dev/null 2>&1 || $(MAKE) --no-print-directory fetch >&2
+	+@case "$(RELEASE_FROZEN_SETUP_MODE)" in \
+		prepare) \
+			{ $(MAKE) --no-print-directory host-tools-check >/dev/null 2>&1 || $(MAKE) --no-print-directory install-host-tools >&2; } && \
+			{ CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory fetch >/dev/null 2>&1 || $(MAKE) --no-print-directory fetch >&2; } ;; \
+		check) \
+			$(MAKE) --no-print-directory host-tools-check >&2 && \
+			$(CARGO_WORK_ENV) bash scripts/release/select-editor.sh "$(RELEASE_SOURCE)" >&2 && \
+			CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory fetch >&2 ;; \
+		*) echo 'Select RELEASE_FROZEN_SETUP_MODE=prepare or check' >&2; exit 2 ;; \
+	 esac
 test-frozen-release:
 	+bash scripts/release/test-frozen-release.sh
-release-batch-resume:
-	+@test -n "$$ICYDB_FROZEN_BATCH" || { echo 'BATCH must select the retained frozen release batch' >&2; exit 2; }
-	+@perl scripts/ci/run-frozen-release.pl --root "$(CURDIR)" --resume "$$ICYDB_FROZEN_BATCH" $(if $(PUBLICATION_RESULT),--publication-result "$$ICYDB_FROZEN_PUBLICATION_RESULT",)
-release-batch-resume: export ICYDB_FROZEN_BATCH := $(BATCH)
-release-batch-resume: export ICYDB_FROZEN_PUBLICATION_RESULT := $(PUBLICATION_RESULT)
 release-version:
 	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/release/version.sh
 release-preflight:

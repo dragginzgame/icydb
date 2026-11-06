@@ -100,7 +100,7 @@ chmod +x "$fixture/bin/perl"
 env -u RELEASE_FROZEN_GROUPS PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory \
     -f "$root/Makefile" release-patch RELEASE_GROUP=database RELEASE_REMOTE=reviewed \
     RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-default.log" 2>&1
-printf '%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct\n' \
+printf '%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
     "$root/scripts/ci/run-frozen-release.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 for groups in database cli database,cli; do
@@ -110,7 +110,7 @@ for groups in database cli database,cli; do
             "release-$kind" RELEASE_GROUP="${groups%%,*}" RELEASE_FROZEN_GROUPS="$groups" \
             RELEASE_FROZEN_PUBLISH_TARGET=publish RELEASE_REMOTE=reviewed RELEASE_BRANCH=main \
             RELEASE_DELIVERY=direct > "$fixture/frozen-$groups-$kind.log" 2>&1
-        printf '%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish\n' \
+        printf '%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish --setup-target release-candidate-setup\n' \
             "$root/scripts/ci/run-frozen-release.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
         cmp "$fixture/expected" "$EVENTS"
     done
@@ -119,16 +119,25 @@ done
 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
     RELEASE_GROUP=cli RELEASE_FROZEN_GROUPS=cli RELEASE_FROZEN_PUBLISH_TARGET= \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-git-only.log" 2>&1
-printf '%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct\n' \
+printf '%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
     "$root/scripts/ci/run-frozen-release.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 : > "$EVENTS"
-printf '_release-frozen-bootstrap:\n\t@:\n' > "$fixture/frozen-child.mk"
-PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" -f "$fixture/frozen-child.mk" release-patch \
+PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
     RELEASE_GROUP=database RELEASE_FROZEN_GROUPS=database,cli FROZEN_RELEASE_ACTIVE=1 \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main > "$fixture/frozen-child.log" 2>&1
 printf '%s patch reviewed main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
+# Shared owns saved-batch operations; they need no new group selection.
+for operation in status resume reconcile retire; do
+    : > "$EVENTS"
+    env -u RELEASE_GROUP PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory \
+        -f "$root/Makefile" "release-batch-$operation" BATCH=batch_reviewed \
+        RELEASE_DELIVERY=direct > "$fixture/batch-$operation.log" 2>&1
+    printf '%s --root %s --%s batch_reviewed --delivery direct\n' \
+        "$root/scripts/ci/run-frozen-release.pl" "$fixture" "$operation" > "$fixture/expected"
+    cmp "$fixture/expected" "$EVENTS"
+done
 # Exercise routine qualification through the actual Make caller with script
 # substitutes. Keep snapshot admission and consumer release proofs selected;
 # a failed proof must stop dispatch before later fixtures. No gate runs here.

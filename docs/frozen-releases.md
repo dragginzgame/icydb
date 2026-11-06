@@ -18,7 +18,22 @@ hooks in the independent checkout. After adoption, its ordinary `release-patch`,
 ```make
 RELEASE_FROZEN_GROUPS := types,runtime,platform
 RELEASE_FROZEN_PUBLISH_TARGET := publish
+RELEASE_FROZEN_SETUP_TARGET := release-candidate-setup
 ```
+
+The optional setup target runs inside the captured checkout before group-version
+lookup, and before resumed release/publication hooks. Shared passes
+`RELEASE_FROZEN_SETUP_MODE=prepare` for a fresh group, or `check` for recovery.
+Prepare only the selected tools needed by that group; recovery must admit the
+saved tool selection offline without installing from partially prepared metadata.
+Make setup idempotent and keep source/lock inputs unchanged. Do not duplicate it
+in each consumer's outer release recipe or run a full product gate there.
+
+Setup, version lookup, release and publication receive the saved group, remote,
+branch, kind and source through `RELEASE_*`, with `FROZEN_RELEASE_ACTIVE=1`.
+After version selection, `RELEASE_VERSION` is populated; publication also receives
+the delivered `RELEASE_COMMIT`. Values not yet known are empty. The underlying
+standard release runner still owns its complete preparation hook context.
 
 Select the complete affected roster in supplier-first order, not all groups by
 default. The same requested increment applies to each selected group. Omit the
@@ -52,14 +67,40 @@ lockfiles are imported from the normal checkout. Hooks prepare their own tools
 and locked sources through their existing owners; do not add unconditional
 reinstallation or copy mutable caches to compensate for missing adoption.
 
-The runner never rewrites, stages, stashes or resets the normal checkout, even
-after delivery. It prints the delivered commit and recovery locations. Deferred
+Normal delivery never rewrites, stages, stashes or resets the normal checkout.
+It prints the delivered commit and recovery locations. Deferred
 lock edits remain where the user made them. Reconcile the normal branch with the
 published release and then reapply/refresh the dependency update for the next
 candidate; a dirty lock must not be silently replaced or treated as released.
-This reconciliation is currently explicit: the helper does not promise automatic
-merging of a concurrently written lockfile. The active deployment still finishes
-from the candidate when normal-checkout edits occur.
+Reconciliation remains explicit; the helper never merges a concurrently written
+lockfile automatically. The active deployment still finishes from the candidate
+when normal-checkout lock edits occur.
+
+Use the shared Make commands, removing equivalent local wrapper recipes during
+adoption. `BATCH` always selects one existing batch, including its saved hooks:
+
+```sh
+make release-batch-status BATCH=batch-XXXXXXXX
+make release-batch-resume BATCH=batch-XXXXXXXX
+make release-batch-reconcile BATCH=batch-XXXXXXXX
+make release-batch-retire BATCH=batch-XXXXXXXX
+```
+
+Status displays saved intent without running consumer hooks or changing it.
+Reconcile requires a completed batch, the selected normal branch and a clean
+normal checkout. It imports candidate commits/tags without force and fast-forwards
+only. Preserve deferred work on a durable branch before reconciling, then reapply
+it deliberately; the command never stashes, resets or resolves conflicts.
+
+Retire is explicit deletion authority for the selected completed batch's managed
+checkout, ignored `target/` and `.tools/` build outputs, Git store and recovery
+records. Preserve any still-required evidence elsewhere before selecting it.
+It requires the delivered commit already integrated into the normal branch,
+imports tags without force, and refuses pending candidate edits, extra refs or
+non-build ignored files. It removes the source pin only after those checks.
+Release commits/tags remain in the normal repository. It never cleans another
+batch. Status and retirement remain available when retained-state age/size
+admission blocks new delivery.
 
 Resume using `--root DIR --resume BATCH`. An interrupted release with a saved
 standard plan uses its exact-version resume; a clean pre-mutation failure may
@@ -68,7 +109,9 @@ publication requires the consumer's receipt reconciliation, never automatic
 redispatch. After verifying the registry and consumer receipts, resume with
 `--publication-result published` to advance, or `--publication-result not-published`
 to retry the publication target. These are explicit assertions of verified remote
-state, not ways to skip checking it. Completed batches do not republish on resume. Initialization failure
+state, not ways to skip checking it. The Make equivalent is
+`make release-batch-resume BATCH=batch-XXXXXXXX PUBLICATION_RESULT=published`
+(or `not-published`). Completed batches do not republish on resume. Initialization failure
 or checkout deletion requires inspecting retained state before recovery; do not
 remove the durable Git store or source pin. `cargo clean` can interrupt active
 work by removing the disposable checkout; this feature isolates `cargo update`,

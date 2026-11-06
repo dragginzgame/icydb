@@ -254,6 +254,31 @@ it does not claim a real frozen publication run. The frozen default is enabled i
 the delivered source. See the
 [0.300 status](../design/0.300-testkit-frozen/0.300-status.md).
 
+### Shared 0.30.9 setup and custody acceptance
+
+The subsequent 0.30.9 refresh uses Shared's saved setup context and batch
+status/resume/reconcile/retire interfaces, removing the old local wrappers.
+Actual IcyDB hooks passed on Linux with evidence in
+`target/tmp/frozen-icydb.3nZ3GS56/` and
+`target/tmp/shared-0309/frozen-hooks-prepared.log`. Shared setup and saved-source
+offline recovery preserve captured input bytes. Both groups retain the captured
+Testkit/Wire graph after a real dependency update in the normal fixture.
+Verified native archives, metadata transitions, exact receipts, uncertain
+publication reconciliation, completed resume and remote-conflict refusal pass.
+Status preserves intent; dirty normal-tree reconciliation refuses; clean
+reconciliation fast-forwards; retirement refuses the ignored `.cache/` directory
+and retains state/evidence. Only registry effects are substitutes.
+
+The initial attempt stopped because the fixture updater's acquisition cache
+lacked a newly locked Wire version. The fixture now prepares that captured graph
+through its existing fetch owner; the corrected run passes. Dispatch, snapshot
+source integrity, documentation and shell checks pass. No production release or
+publication was executed for this refresh, and no further broad product gate or
+native full/selected pair was run. Current-mapping omissions and macOS remain
+unqualified. The real incoming Wire 0.17.5 lock edit was preserved byte-for-byte
+through adoption; the maintainer subsequently authorized including it in the
+pending CLI 0.296.2 deployment. That release requires its own actual gate.
+
 ### Prepared post-cut native comparison
 
 The manual **Release mapping qualification** workflow

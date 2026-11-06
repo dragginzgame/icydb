@@ -3,6 +3,16 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.300.1]
+
+### 🔧 Changed
+
+- Adopt Shared Tooling 0.30.9 and its saved-context candidate setup, status,
+  recovery and guarded reconciliation commands. Remove equivalent local
+  orchestration; recovery checks saved tools offline and preserves deferred edits.
+
+[Detailed changes](0.300.md).
+
 ## [0.300.0] - 2026-11-06
 
 ### ⚠️ Breaking

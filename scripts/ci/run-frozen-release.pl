@@ -3,22 +3,28 @@
 use strict;
 use warnings;
 use Cwd qw(abs_path);
-use File::Path qw(make_path);
+use File::Path qw(make_path remove_tree);
 use File::Temp qw(tempdir);
 use Fcntl qw(:flock);
 use JSON::PP;
 use Getopt::Long qw(GetOptions);
 use FindBin qw($RealBin);
 
-my ($root,$groups,$resume,$publish,$publication_result);
+my ($root,$groups,$resume,$publish,$publication_result,$setup,$status,$reconcile,$retire);
 my $delivery=$ENV{RELEASE_DELIVERY}//'direct';
 my ($kind,$remote,$branch)=('patch','origin','main');
 GetOptions('root=s'=>\$root,'groups=s'=>\$groups,'resume=s'=>\$resume,
     'kind=s'=>\$kind,'remote=s'=>\$remote,'branch=s'=>\$branch,
     'publish-target=s'=>\$publish,'delivery=s'=>\$delivery,
-    'publication-result=s'=>\$publication_result) && !@ARGV
-    or die "usage: run-frozen-release.pl --root DIR --groups GROUP[,GROUP...] [--kind patch|minor|major] [--publish-target TARGET] | --root DIR --resume ID\n";
+    'publication-result=s'=>\$publication_result,'setup-target=s'=>\$setup,
+    'status=s'=>\$status,'reconcile=s'=>\$reconcile,'retire=s'=>\$retire) && !@ARGV
+    or die "usage: run-frozen-release.pl --root DIR --groups GROUP[,GROUP...] [--kind patch|minor|major] [--setup-target TARGET] [--publish-target TARGET] | --root DIR --resume|--status|--reconcile|--retire ID\n";
 $root=abs_path($root//'') // die "missing repository root\n";
+my @operations=grep {defined} ($resume,$status,$reconcile,$retire);
+@operations<=1 or die "select one batch operation\n";
+my $operation=defined($status)?'status':defined($reconcile)?'reconcile':defined($retire)?'retire':'resume';
+$resume=$operations[0] if @operations;
+(!defined($publication_result) || $operation eq 'resume') or die "publication reconciliation belongs to resume\n";
 $delivery eq 'direct' or die "frozen batches currently require direct delivery; PR policy is not overridden\n";
 !defined($publication_result) || (defined($resume) && $publication_result =~ /\A(?:published|not-published)\z/)
     or die "publication-result requires resume and verified published or not-published status\n";
@@ -65,10 +71,10 @@ regular_route("$state/lock");
 open my $lock,'>>',"$state/lock" or die $!;
 print "Waiting for frozen release queue: $state\n";
 flock($lock,LOCK_EX) or die $!;
-run($^X,"$RealBin/check-retained-state.pl",'--root',$state);
+run($^X,"$RealBin/check-retained-state.pl",'--root',$state) if $operation eq 'resume';
 my ($record,$id);
 if (defined $resume) {
-    !defined($groups) && !defined($publish) or die "resume uses the saved group and publication roster\n";
+    !defined($groups) && !defined($publish) && !defined($setup) or die "batch operations use the saved hook and group roster\n";
     $resume =~ /\Abatch-[A-Za-z0-9_]+\z/ or die "invalid batch identity\n";
     $id=$resume; $record=read_json("$state/$id/intent.json");
 } else {
@@ -82,19 +88,20 @@ if (defined $resume) {
     my %seen;
     for (@groups) { /\A[A-Za-z0-9][A-Za-z0-9_-]*\z/ && !$seen{$_}++ or die "invalid or duplicate group\n"; }
     if (defined $publish) { $publish =~ /\A[a-z][a-z0-9-]*\z/ or die "invalid publication target\n"; }
+    if (defined $setup) { $setup =~ /\A[a-z][a-z0-9-]*\z/ or die "invalid setup target\n"; }
     my $source=output('git','-C',$root,'rev-parse','HEAD');
     my $url=output('git','-C',$root,'remote','get-url','--push','--all',$remote);
     length($url) && $url !~ /[\r\n]/ or die "one push destination required\n";
     my $dir=tempdir('batch-XXXXXXXX',DIR=>$state,CLEANUP=>0); ($id)=$dir =~ m{/([^/]+)\z};
     $record={schema=>1,root=>$root,source=>$source,kind=>$kind,remote=>$remote,branch=>$branch,
-        destination=>$url,groups=>\@groups,publish=>$publish,index=>0,phase=>'initialize'};
+        destination=>$url,groups=>\@groups,publish=>$publish,setup=>$setup,index=>0,phase=>'initialize'};
     # Protect the base and its ancestors while the candidate borrows their objects.
     run('git','-C',$root,'update-ref',"refs/releases/frozen/$id",$source);
     write_json("$dir/intent.json",$record);
 }
 ref($record) eq 'HASH' && ($record->{schema}//0)==1
     && ($record->{root}//'') eq $root
-    && ($record->{source}//'') =~ /\A[0-9a-f]{40,64}\z/
+    && ($record->{source}//'') =~ /\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
     && ($record->{kind}//'') =~ /\A(?:patch|minor|major)\z/
     && ($record->{remote}//'') =~ /\A[A-Za-z0-9._-]+\z/
     && ($record->{phase}//'') =~ /\A(?:initialize|release|releasing|publish|publishing|complete)\z/
@@ -105,10 +112,20 @@ ref($record) eq 'HASH' && ($record->{schema}//0)==1
 my %unique;
 for (@{$record->{groups}}) { /\A[A-Za-z0-9][A-Za-z0-9_-]*\z/ && !$unique{$_}++ or die "invalid saved group\n"; }
 !defined($record->{publish}) || $record->{publish} =~ /\A[a-z][a-z0-9-]*\z/ or die "invalid saved publication target\n";
+!defined($record->{setup}) || $record->{setup} =~ /\A[a-z][a-z0-9-]*\z/ or die "invalid saved setup target\n";
+my $count=@{$record->{groups}};
+($record->{phase} ne 'complete' || $record->{index}==$count)
+    && ($record->{phase} ne 'initialize' || $record->{index}==0)
+    && ($record->{phase} !~ /\A(?:releasing|publish|publishing)\z/ || $record->{index}<$count)
+    && ($record->{phase} ne 'publishing' || defined($record->{publish}))
+    or die "inconsistent batch phase and group index\n";
+if ($record->{phase} eq 'complete') {
+    ($record->{commit}//'') =~ /\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/ or die "missing completion identity\n";
+}
 run('git','check-ref-format',"refs/heads/$record->{branch}");
 if ($record->{phase} =~ /\A(?:releasing|publish|publishing)\z/) {
     ($record->{candidate}//'') =~ /\A[0-9]+\.[0-9]+\.[0-9]+\z/
-        && ($record->{group_source}//'') =~ /\A[0-9a-f]{40,64}\z/ or die "invalid saved candidate\n";
+        && ($record->{group_source}//'') =~ /\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/ or die "invalid saved candidate\n";
 }
 my $dir="$state/$id";
 my $work="$root/target/release-frozen/$id";
@@ -117,6 +134,52 @@ regular_route($_) for ($dir,$work,$gitdir);
 print "Frozen batch $id: $record->{source}; groups: ",join(', ',@{$record->{groups}}),"\n";
 print "Delivery checkout: $work; durable recovery: $dir\n";
 sub save { write_json("$dir/intent.json",$record); }
+if ($operation eq 'status') {
+    print JSON::PP->new->canonical->pretty->encode($record);
+    exit 0;
+}
+if ($operation eq 'reconcile' || $operation eq 'retire') {
+    $record->{phase} eq 'complete' or die "only completed batches may be reconciled or retired\n";
+    output('git','-C',$root,'symbolic-ref','--short','HEAD') eq $record->{branch}
+        or die "select the batch branch before reconciliation\n";
+    output('git','-C',$root,'status','--porcelain','--untracked-files=all') eq ''
+        or die "deferred edits remain: preserve/commit them before reconciliation; no automatic stash or reset\n";
+    output('git','--git-dir',$gitdir,'rev-parse','HEAD') eq $record->{commit}
+        or die "candidate changed after completion\n";
+    run('git','--git-dir',$gitdir,'diff','--cached','--quiet','HEAD','--');
+    if (-d $work) {
+        output('git','-C',$work,'rev-parse','--absolute-git-dir') eq $gitdir or die "candidate Git directory changed\n";
+        output('git','-C',$work,'status','--porcelain','--untracked-files=all') eq '' or die "candidate has pending edits\n";
+    }
+    # Import objects and tags before any removal. Ref conflicts refuse without
+    # force, and merge --ff-only never overwrites deferred normal-tree work.
+    run('git','-C',$root,'fetch','--no-write-fetch-head','--no-tags',$gitdir,
+        "refs/heads/$record->{branch}", 'refs/tags/*:refs/tags/*');
+    if ($operation eq 'reconcile') {
+        run('git','-C',$root,'merge','--ff-only',$record->{commit});
+        print "Reconciled $id; deferred updates can now be reapplied.\n";
+        exit 0;
+    }
+    run('git','-C',$root,'merge-base','--is-ancestor',$record->{commit},'HEAD');
+    my $heads=output('git','--git-dir',$gitdir,'for-each-ref','--format=%(refname)','refs/heads/');
+    $heads eq "refs/heads/$record->{branch}" or die "candidate has additional branches; preserve them before retirement\n";
+    my $refs=output('git','--git-dir',$gitdir,'for-each-ref','--format=%(refname)');
+    for (split /\n/,$refs) {
+        next if m{\Arefs/(?:heads|tags)/};
+        m{\Arefs/remotes/} or die "candidate has additional refs; preserve them before retirement: $_\n";
+        my $tracked=output('git','--git-dir',$gitdir,'rev-parse',"$_^{commit}");
+        run('git','-C',$root,'merge-base','--is-ancestor',$tracked,'HEAD');
+    }
+    if (-d $work) {
+        my $ignored=output('git','-C',$work,'ls-files','--others','--ignored','--exclude-standard');
+        for (split /\n/,$ignored) { m{\A(?:target|\.tools)/} or die "non-build ignored file requires preservation: $_\n"; }
+        remove_tree($work,{error=>\my $errors}); @$errors==0 or die "candidate cleanup failed; durable state retained\n";
+    }
+    run('git','-C',$root,'update-ref','-d',"refs/releases/frozen/$id",$record->{source});
+    remove_tree($dir,{error=>\my $errors}); @$errors==0 or die "batch cleanup incomplete\n";
+    print "Retired $id; release commits and tags are retained in the normal repository.\n";
+    exit 0;
+}
 if (defined $publication_result) {
     $record->{phase} eq 'publishing' or die "publication reconciliation requires uncertain publication\n";
     # Explicit caller assertion after consulting the consumer's registry receipts.
@@ -152,13 +215,38 @@ if (defined $ENV{SHARED_TOOLING_ROOT}) {
 }
 # Consumer adoption must qualify the real hooks in this independent checkout.
 # Do not copy live locks, configuration, tools or evidence from the normal tree.
+sub hook_context {
+    my ($group)=@_;
+    return ("RELEASE_GROUP=$group","RELEASE_REMOTE=$record->{remote}","RELEASE_BRANCH=$record->{branch}",
+        "RELEASE_KIND=$record->{kind}","RELEASE_SOURCE=".($record->{group_source}//$record->{source}),
+        "RELEASE_VERSION=".($record->{candidate}//''),"RELEASE_COMMIT=".($record->{release_commit}//''),
+        'RELEASE_DELIVERY=direct','FROZEN_RELEASE_ACTIVE=1');
+}
+sub candidate_source_state {
+    return JSON::PP->new->encode([
+        output('git','-C',$work,'rev-parse','HEAD'),
+        output('git','-C',$work,'diff','--binary'),
+        output('git','-C',$work,'diff','--cached','--binary'),
+        output('git','-C',$work,'ls-files','--others','--exclude-standard','-z')]);
+}
 while ($record->{index}<@{$record->{groups}}) {
     my $group=$record->{groups}[$record->{index}];
+    if ($record->{phase} eq 'release') {
+        delete @{$record}{qw(candidate release_commit)};
+        $record->{group_source}=output('git','-C',$work,'rev-parse','HEAD');
+    }
+    if (defined($record->{setup}) && $record->{phase} ne 'publishing') {
+        my $setup_mode=$record->{phase} eq 'release'?'prepare':'check';
+        my $inputs=candidate_source_state();
+        run('make','-C',$work,'--no-print-directory',$record->{setup},hook_context($group),
+            "RELEASE_FROZEN_SETUP_MODE=$setup_mode");
+        candidate_source_state() eq $inputs or die "candidate setup changed release source or lock inputs\n";
+    }
     if ($record->{phase} eq 'release' || $record->{phase} eq 'releasing') {
         my $target="release-$record->{kind}";
         my @version;
         if ($record->{phase} eq 'release') {
-            my $previous=output('make','-C',$work,'--no-print-directory','-s','release-version',"RELEASE_GROUP=$group");
+            my $previous=output('make','-C',$work,'--no-print-directory','-s','release-version',hook_context($group));
             $record->{candidate}=output($^X,"$RealBin/validate-release-inputs.pl",'next-version',$previous,$record->{kind});
             $record->{group_source}=output('git','-C',$work,'rev-parse','HEAD');
             $record->{phase}='releasing'; save();
@@ -174,15 +262,19 @@ while ($record->{index}<@{$record->{groups}}) {
                     or die "missing release plan after candidate mutation; reconcile retained state before resume\n";
             }
         }
-        run('make','-C',$work,'--no-print-directory',$target,@version,"RELEASE_GROUP=$group",
-            "RELEASE_REMOTE=$record->{remote}","RELEASE_BRANCH=$record->{branch}",
-            'RELEASE_DELIVERY=direct','FROZEN_RELEASE_ACTIVE=1');
+        run('make','-C',$work,'--no-print-directory',$target,@version,hook_context($group));
+        $record->{release_commit}=output('git','-C',$work,'rev-parse','HEAD');
         $record->{phase}='publish'; save();
     }
     if ($record->{phase} eq 'publish') {
         if (defined $record->{publish}) {
+            $record->{release_commit}//=output('git','-C',$work,'rev-parse','HEAD');
+            output('git','-C',$work,'rev-parse','HEAD') eq $record->{release_commit}
+                or die "candidate changed before publication; reconcile release identity\n";
             $record->{phase}='publishing'; save();
-            run('make','-C',$work,'--no-print-directory',$record->{publish},"RELEASE_GROUP=$group",'FROZEN_RELEASE_ACTIVE=1');
+            # Older journals did not retain this identity. Their current checkout
+            # still needs the consumer's exact tag/archive admission.
+            run('make','-C',$work,'--no-print-directory',$record->{publish},hook_context($group));
         }
         $record->{index}++; $record->{phase}='release'; save();
     } elsif ($record->{phase} eq 'publishing') {

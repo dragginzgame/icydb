@@ -7,14 +7,44 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the **0.30.8 committed snapshot** at
-`dc9df707b3b1e616973494eab961c1c214d12260`. The canonical revision-selected
+IcyDB selects the **0.30.9 committed snapshot** at
+`18ba8d1fdbc76a5c8334d1ad1c71f9bfcd4580a1`. The canonical revision-selected
 exporter installed it without modifying supplier files; all **159 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
 minimum in the two workspace manifests and the pinned development compiler.
 No IcyDB package versions or release state change in this adoption; the incoming
 dirty candidate is preserved. Dependency selections are recorded below.
+
+The 0.30.9 refresh moves captured-checkout setup into Shared's saved batch
+context. `release-candidate-setup` prepares the selected host tools and locked
+sources through their existing owners; recovery checks the saved-source metadata
+editor offline and never installs from a partially prepared lockfile. Shared owns
+batch status, resume, fast-forward reconciliation and explicit retirement. The
+old local bootstrap prerequisite and batch-resume wrapper are removed.
+
+A new batch still requires clean committed source. Mid-run edits are deferred
+only after capture; the update does not authorize adding unrelated incoming edits
+to a release or discarding them. Reconciliation also requires a clean normal
+checkout. Retirement deliberately refuses IcyDB's ignored `.cache/` directory,
+which is outside Shared's narrow `target/` and `.tools/` allowance. Preserve that
+cache and delivery evidence unless separately authorized to remove them.
+
+The 0.30.9 consumer qualification passed on Linux with Rust 1.99.1. Evidence is
+retained in `target/tmp/frozen-icydb.3nZ3GS56/` and
+`target/tmp/shared-0309/frozen-hooks-prepared.log`: real setup, metadata, verified
+native archives, receipts and local Git delivery retained the captured graph
+across a real normal-fixture dependency update. Interrupted/uncertain recovery,
+completed resume, status, remote refusal, dirty reconciliation refusal, clean
+fast-forward reconciliation and cache-retirement refusal passed. Registry effects
+were substitutes. The first attempt exposed missing sources in the fixture
+updater's acquisition cache; preparation now uses the existing fetch owner.
+Snapshot/source integrity, dispatch controls, documentation and shell checks also
+pass. The incoming real Wire/Derive 0.17.5 lock edit is unchanged. No package
+versions, production Git delivery or registry state changed in the adoption
+checks. The maintainer subsequently authorized the preserved Wire/Derive 0.17.5
+edit for CLI 0.296.2 deployment. macOS and current-mapping release qualification
+remain separate.
 
 The 0.30.8 refresh adds the canonical frozen release-batch helper and its
 underscore-safe recovery identifiers. A qualified batch captures clean committed

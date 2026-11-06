@@ -38,7 +38,7 @@ done < "$fixture/source-paths"
 # candidate's minor/patch selection. These are disposable fixture inputs only.
 for group in database cli; do
     primary="$(jq -r --arg group "$group" '.groups[] | select(.name==$group) | .primary' "$normal/ci/cargo-release-groups.json")"
-    current="$("$root/.tools/host/bin/yq" -p toml -r '.package.version' "$normal/crates/$primary/Cargo.toml")"
+    current="$("$root/.tools/host/bin/yq" -p toml -o json -r '.package.version' "$normal/crates/$primary/Cargo.toml")"
     next="${current%.*}.$((${current##*.} + 1))"
     detail="releases/$group/${next%.*}.md"
     for notes in "releases/$group/CHANGELOG.md" "$detail"; do
@@ -49,6 +49,9 @@ for group in database cli; do
         "$normal/ci/cargo-release-groups.json" > "$fixture/groups.json"
     cp "$fixture/groups.json" "$normal/ci/cargo-release-groups.json"
 done
+# The updater's acquisition cache must contain this captured graph too. A
+# newly deferred root lock may not have been fetched by its author yet.
+make --no-print-directory -C "$normal" fetch "CARGO_WORK_HOME=$FROZEN_TEST_SOURCE_CACHE"
 cp "$normal/Cargo.lock" "$fixture/captured-Cargo.lock"
 export FROZEN_TEST_TESTKIT FROZEN_TEST_ITOA
 FROZEN_TEST_TESTKIT="$("$root/.tools/host/bin/yq" -p toml -o json -r '.package[] | select(.name=="ic-testkit") | .version' "$normal/Cargo.lock")"
@@ -76,7 +79,7 @@ if [[ "$RELEASE_GROUP" == database ]]; then
     CARGO_NET_OFFLINE=false make --no-print-directory package-cli
     "$FROZEN_TEST_CARGO" package --locked --offline -p icydb-diagnostic-code
     for package in icydb-cli icydb-diagnostic-code; do
-        version="$("$yq" -p toml -r '.package.version' "crates/$package/Cargo.toml")"
+        version="$("$yq" -p toml -o json -r '.package.version' "crates/$package/Cargo.toml")"
         archive="$CARGO_TARGET_DIR/package/$package-$version.crate"
         cp "$archive" "$FROZEN_TEST_RECORD/archives/"
         tar -xOf "$archive" "$package-$version/.cargo_vcs_info.json" |
@@ -111,7 +114,7 @@ while [[ $# != 0 ]]; do
     shift
 done
 [[ -n "$package" ]]
-version="$(.tools/host/bin/yq -p toml -r '.package.version' "crates/$package/Cargo.toml")"
+version="$(.tools/host/bin/yq -p toml -o json -r '.package.version' "crates/$package/Cargo.toml")"
 printf '%s\t%s\t%s\n' "$package" "$version" "$(git rev-parse HEAD)" >> "$FROZEN_TEST_RECORD/published"
 CARGO
 cat > "$fixture/bin/curl" <<'REGISTRY'
@@ -180,10 +183,20 @@ done
 make --no-print-directory -C "$normal" release-batch-resume "BATCH=$batch" > "$fixture/completed-resume.log" 2>&1
 [[ "$(wc -l < "$fixture/published")" == 7 ]]
 cmp "$fixture/expected-publications" "$fixture/publications"
+make --no-print-directory -C "$normal" release-batch-status "BATCH=$batch" > "$fixture/status.log" 2>&1
+if make --no-print-directory -C "$normal" release-batch-reconcile "BATCH=$batch" > "$fixture/dirty-reconcile.log" 2>&1; then exit 1; fi
+[[ "$(git -C "$normal" rev-parse HEAD)" == "$source" ]]
+cmp "$normal/Cargo.lock" "$fixture/expected-deferred-Cargo.lock"
 # Only this disposable normal checkout is restored for a stale-source probe.
 git -C "$normal" restore --source=HEAD -- Cargo.lock
 remote_before="$(git --git-dir="$fixture/remote.git" rev-parse main)"
 if make --no-print-directory -C "$normal" release-patch RELEASE_GROUP=cli > "$fixture/remote-conflict.log" 2>&1; then exit 1; fi
 [[ "$(git --git-dir="$fixture/remote.git" rev-parse main)" == "$remote_before" && "$(wc -l < "$fixture/published")" == 7 ]]
-printf 'Frozen IcyDB hooks passed: supplier order, captured graph, deferred update, interrupted/uncertain recovery, archive identities, exact receipts, completed resume and remote conflict. Registry effects were substitutes.\n'
+make --no-print-directory -C "$normal" release-batch-reconcile "BATCH=$batch" > "$fixture/reconciled-normal.log" 2>&1
+[[ "$(git -C "$normal" rev-parse HEAD)" == "$remote_before" ]]
+# IcyDB's repository-local Cargo cache is outside Shared's narrow retirement
+# allowance. Keep it and the delivery evidence until separately authorized.
+if make --no-print-directory -C "$normal" release-batch-retire "BATCH=$batch" > "$fixture/retire-refusal.log" 2>&1; then exit 1; fi
+[[ -d "$work/.cache" && -f "${intents[0]}" && "$(wc -l < "$fixture/published")" == 7 ]]
+printf 'Frozen IcyDB hooks passed: shared setup/recovery, supplier order, captured graph, deferred update, archive identities, exact receipts, completed resume, remote conflict, guarded reconciliation and cache-retirement refusal. Registry effects were substitutes.\n'
 complete=true
