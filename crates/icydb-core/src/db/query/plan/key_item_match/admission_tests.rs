@@ -8,13 +8,12 @@ use crate::{
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::{Value, lower_text_construction_allowance},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 #[test]
@@ -64,10 +63,7 @@ fn selected_lookup_conversion_obeys_exact_and_cumulative_admission() {
                                     assert_eq!(root.observed(resource), exact * (attempt + 1));
                                 } else {
                                     let error = QueryError::execute(result.unwrap_err());
-                                    assert!(error.diagnostic_facts().contains(&(
-                                        DiagnosticFactTag::BudgetResource,
-                                        resource.raw(),
-                                    )));
+                                    assert_budget_resource(&error.diagnostic_facts(), resource);
                                     break;
                                 }
                             }

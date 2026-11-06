@@ -13,13 +13,12 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
-    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag, QueryFieldRole,
+    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane, QueryFieldRole,
 };
 
 fn infer(expr: &Expr, root: &RequestExecutionRoot, lane: Lane) -> Result<ExprType, QueryError> {
@@ -32,11 +31,7 @@ fn infer(expr: &Expr, root: &RequestExecutionRoot, lane: Lane) -> Result<ExprTyp
 
 fn assert_resource(error: QueryError, resource: Resource) {
     assert!(matches!(error, QueryError::Execute(_)));
-    assert!(
-        error
-            .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-    );
+    assert_budget_resource(&error.diagnostic_facts(), resource);
     assert_eq!(error.query_field_context(), None);
 }
 

@@ -12,11 +12,10 @@ use crate::db::{
         plan::AccessPlannedQuery,
         preparation::PreparationWork,
     },
-    tests::support::request_with_limit,
+    tests::support::{assert_budget_resource, request_with_limit},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn project(
@@ -125,11 +124,7 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
         for limit in [0, used / 2, used - 1] {
             let short = request_with_limit(resource, limit);
             let error = project(&query, &short).unwrap_err();
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
-            );
+            assert_budget_resource(&error.diagnostic_facts(), resource);
             assert_eq!(query, before);
             assert_eq!(
                 with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
@@ -142,11 +137,7 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
         assert_eq!(project(&query, &exact).unwrap(), expected);
         assert_eq!(project(&query, &exact).unwrap(), expected);
         let error = project(&query, &exact).unwrap_err();
-        assert!(
-            error
-                .diagnostic_facts()
-                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-        );
+        assert_budget_resource(&error.diagnostic_facts(), resource);
         assert_eq!(query, before);
         assert_eq!(
             with_preparation_work(|work| query.continuation_signature("tests::Entity", work))

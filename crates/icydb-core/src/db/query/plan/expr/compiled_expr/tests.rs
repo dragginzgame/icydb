@@ -1,3 +1,4 @@
+use crate::db::tests::support::assert_budget_resource;
 use crate::{
     db::query::plan::expr::{
         BinaryOp, CompiledExpr, CompiledExprValueReader, Function, ProjectionEvalError, UnaryOp,
@@ -206,11 +207,7 @@ fn grouped_compilation_preserves_exact_cumulative_resource_failures() {
                 result.unwrap();
                 let error =
                     PreparationWork::run(&root.scope(), Lane::PublicRead, compile).unwrap_err();
-                assert!(
-                    error
-                        .diagnostic_facts()
-                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-                );
+                assert_budget_resource(&error.diagnostic_facts(), resource);
             } else {
                 assert!(
                     result

@@ -8,13 +8,12 @@ use crate::{
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::{Value, lower_text_construction_allowance},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 #[test]
@@ -76,13 +75,10 @@ fn equality_prefix_duplicates_borrow_identity_and_admit_normalized_values() {
                                     assert_eq!(result.unwrap(), Some(vec![expected.clone()]));
                                     assert_eq!(root.observed(resource), exact * (attempt + 1));
                                 } else {
-                                    assert!(
-                                        QueryError::execute(result.unwrap_err())
-                                            .diagnostic_facts()
-                                            .contains(&(
-                                                DiagnosticFactTag::BudgetResource,
-                                                resource.raw()
-                                            ))
+                                    assert_budget_resource(
+                                        &QueryError::execute(result.unwrap_err())
+                                            .diagnostic_facts(),
+                                        resource,
                                     );
                                     break;
                                 }

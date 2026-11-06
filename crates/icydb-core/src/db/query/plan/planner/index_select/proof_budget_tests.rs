@@ -15,14 +15,13 @@ use crate::{
             preparation::PreparationWork,
         },
         resource::construction::ConstructionBudget,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     error::InternalError,
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn run<T>(
@@ -35,11 +34,7 @@ fn run<T>(
 }
 
 fn assert_resource(error: &QueryError, resource: Resource) {
-    assert!(
-        error
-            .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
-    );
+    assert_budget_resource(&error.diagnostic_facts(), resource);
 }
 
 fn assert_step_bound<T: PartialEq + std::fmt::Debug>(

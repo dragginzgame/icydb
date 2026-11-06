@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::tests::support::assert_budget_resource;
 use crate::{
     db::{
         RequestExecutionRoot,
@@ -79,11 +80,7 @@ fn failed_ordering_preserves_operands_and_retains_request_charges() {
                     sort_bool_children(&mut actual, work)
                 })
                 .expect_err("request exhaustion must abort sorting");
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-            );
+            assert_budget_resource(&error.diagnostic_facts(), resource);
             assert_eq!(actual, original);
             assert!(root.observed(resource) > observed);
             observed = root.observed(resource);

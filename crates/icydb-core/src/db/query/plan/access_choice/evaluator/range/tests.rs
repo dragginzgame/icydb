@@ -14,13 +14,12 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::{Value, lower_text_construction_allowance},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn compare(field: &str, op: CompareOp, value: i64) -> Predicate {
@@ -196,13 +195,9 @@ fn range_equality_matching_borrows_raw_values_and_admits_conversion_cumulatively
                                 );
                                 assert_eq!(root.observed(resource), attempt * exact);
                             } else {
-                                assert!(
-                                    QueryError::execute(result.unwrap_err())
-                                        .diagnostic_facts()
-                                        .contains(&(
-                                            DiagnosticFactTag::BudgetResource,
-                                            resource.raw()
-                                        ))
+                                assert_budget_resource(
+                                    &QueryError::execute(result.unwrap_err()).diagnostic_facts(),
+                                    resource,
                                 );
                                 break;
                             }

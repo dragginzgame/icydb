@@ -18,7 +18,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::Value,
 };
@@ -61,11 +61,7 @@ fn casefold_literal_normalization_is_idempotent_and_preserves_budget_failures() 
         assert!(used > 0);
         let short = request_with_limit(resource, used - 1);
         let error = run(&short).unwrap_err();
-        assert!(
-            error
-                .diagnostic_facts()
-                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-        );
+        assert_budget_resource(&error.diagnostic_facts(), resource);
         let exact = request_with_limit(resource, used);
         assert_eq!(run(&exact).unwrap(), canonical);
         assert_eq!(exact.observed(resource), used);

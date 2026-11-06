@@ -9,13 +9,12 @@ use crate::{
             plan::{OrderDirection, OrderSpec, OrderTerm, VisibleIndexes, exact_metadata_schema},
             preparation::PreparationWork,
         },
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn prefix(index: &SemanticIndexAccessContract, values: &[i64]) -> AccessPlan<Value> {
@@ -100,13 +99,9 @@ fn exact_intersection_admits_only_retained_prefixes_and_preserves_order_and_cap(
                                 assert_eq!(result.unwrap().unwrap(), expected);
                                 assert_eq!(root.observed(resource), attempt * exact);
                             } else {
-                                assert!(
-                                    QueryError::execute(result.unwrap_err())
-                                        .diagnostic_facts()
-                                        .contains(&(
-                                            DiagnosticFactTag::BudgetResource,
-                                            resource.raw()
-                                        ))
+                                assert_budget_resource(
+                                    &QueryError::execute(result.unwrap_err()).diagnostic_facts(),
+                                    resource,
                                 );
                                 break;
                             }

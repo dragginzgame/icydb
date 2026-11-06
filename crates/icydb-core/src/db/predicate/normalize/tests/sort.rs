@@ -7,13 +7,12 @@ use crate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, normalize, normalize_with_budget,
         },
         query::preparation::PreparationWork,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_exceeded, request_with_limit},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn predicates() -> [Predicate; 4] {
@@ -110,15 +109,7 @@ fn assert_resource_boundary(predicate: &Predicate, resource: Resource) {
                 }
                 let error = result.unwrap_err();
                 let actual = root.observed(resource);
-                assert!(actual > limit);
-                for fact in [
-                    (DiagnosticFactTag::BudgetResource, resource.raw()),
-                    (DiagnosticFactTag::ExecutionLane, lane.raw()),
-                    (DiagnosticFactTag::Limit, limit),
-                    (DiagnosticFactTag::Actual, actual),
-                ] {
-                    assert!(error.diagnostic_facts().contains(&fact));
-                }
+                assert_budget_exceeded(&error.diagnostic_facts(), resource, lane, limit, actual);
                 break;
             }
         }

@@ -44,6 +44,14 @@ begin with 0.295.0 below.
 - Adopt IC Build 0.75.0 and keep cache-maintenance qualification on its supported
   single/batch specification API. Product runtime and storage contracts are unchanged.
 
+### 🧪 Testing
+
+- Qualify maximum journal fill/drain/refill reuse with Storage 0.68: retain
+  exact backlog limits, empty tails after every drain and stable high-water
+  capacity across repeated refills after the first warm refill.
+- Share budget-diagnostic assertions across planner and normalization tests,
+  retaining their independent expected results, limits and refusal checks.
+
 [Detailed changes](0.299.md).
 
 ## [0.298.0] - 2026-11-05

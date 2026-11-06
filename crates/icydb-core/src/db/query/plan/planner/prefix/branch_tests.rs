@@ -10,7 +10,7 @@ use crate::{
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -178,13 +178,9 @@ fn branch_values_admit_backing_and_conversion_before_canonicalization() {
                                 );
                                 assert_eq!(root.observed(resource), attempt * exact);
                             } else {
-                                assert!(
-                                    QueryError::execute(result.unwrap_err())
-                                        .diagnostic_facts()
-                                        .contains(&(
-                                            DiagnosticFactTag::BudgetResource,
-                                            resource.raw()
-                                        ))
+                                assert_budget_resource(
+                                    &QueryError::execute(result.unwrap_err()).diagnostic_facts(),
+                                    resource,
                                 );
                                 break;
                             }
@@ -257,13 +253,10 @@ fn exclusion_normalizes_once_and_borrows_raw_values_for_all_branches() {
                                     assert_eq!(branches, expected);
                                     assert_eq!(root.observed(resource), attempt * exact);
                                 } else {
-                                    assert!(
-                                        QueryError::execute(result.unwrap_err())
-                                            .diagnostic_facts()
-                                            .contains(&(
-                                                DiagnosticFactTag::BudgetResource,
-                                                resource.raw()
-                                            ))
+                                    assert_budget_resource(
+                                        &QueryError::execute(result.unwrap_err())
+                                            .diagnostic_facts(),
+                                        resource,
                                     );
                                     break;
                                 }

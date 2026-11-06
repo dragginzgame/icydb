@@ -1,7 +1,8 @@
 use crate::{
     db::{
         predicate::normalize::admission::admit_enum_input_construction,
-        query::preparation::PreparationWork, tests::support::request_with_limit,
+        query::preparation::PreparationWork,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::{Value, ValueEnum},
 };
@@ -69,11 +70,7 @@ fn enum_input_preflight_covers_nested_payloads_and_preserves_canonical_detection
                 admit_enum_input_construction(&value, work)
             })
             .unwrap_err();
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-            );
+            assert_budget_resource(&error.diagnostic_facts(), resource);
         }
     }
 }
@@ -110,11 +107,7 @@ fn enum_preflight_admits_nested_collection_ordering_before_payload_work() {
                 admit_enum_input_construction(&value, work)
             })
             .unwrap_err();
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-            );
+            assert_budget_resource(&error.diagnostic_facts(), resource);
             // Only the root and an optional enum shell are visited. The
             // refused collection never inspects or copies its large payloads.
             assert_eq!(

@@ -14,7 +14,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -191,13 +191,9 @@ fn branch_views_and_expression_conversion_obey_cumulative_admission() {
                                 assert_eq!(prefix_len(result.unwrap()), Ok(1));
                                 assert_eq!(root.observed(resource), attempt * exact);
                             } else {
-                                assert!(
-                                    QueryError::execute(result.unwrap_err())
-                                        .diagnostic_facts()
-                                        .contains(&(
-                                            DiagnosticFactTag::BudgetResource,
-                                            resource.raw()
-                                        ))
+                                assert_budget_resource(
+                                    &QueryError::execute(result.unwrap_err()).diagnostic_facts(),
+                                    resource,
                                 );
                                 break;
                             }

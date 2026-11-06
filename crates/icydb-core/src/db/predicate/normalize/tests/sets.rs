@@ -8,13 +8,12 @@ use crate::{
         },
         query::preparation::PreparationWork,
         schema::AcceptedFieldKind,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_exceeded, assert_budget_resource, request_with_limit},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 #[test]
@@ -101,15 +100,13 @@ fn assert_admission(
                     } else {
                         let error = result.unwrap_err();
                         let actual = root.observed(resource);
-                        assert!(actual > limit);
-                        for fact in [
-                            (DiagnosticFactTag::BudgetResource, resource.raw()),
-                            (DiagnosticFactTag::ExecutionLane, lane.raw()),
-                            (DiagnosticFactTag::Limit, limit),
-                            (DiagnosticFactTag::Actual, actual),
-                        ] {
-                            assert!(error.diagnostic_facts().contains(&fact));
-                        }
+                        assert_budget_exceeded(
+                            &error.diagnostic_facts(),
+                            resource,
+                            lane,
+                            limit,
+                            actual,
+                        );
                         break;
                     }
                 }
@@ -205,11 +202,7 @@ fn recursive_set_payload_allowances_accumulate_above_ordinary_list_construction(
             assert_eq!(exact.observed(resource), amount);
             for root in [&exact, &request_with_limit(resource, amount - 1)] {
                 let error = run(&kind, root).unwrap_err();
-                assert!(
-                    error
-                        .diagnostic_facts()
-                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-                );
+                assert_budget_resource(&error.diagnostic_facts(), resource);
             }
         }
     }

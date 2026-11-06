@@ -14,12 +14,11 @@ use crate::db::{
         },
         preparation::PreparationWork,
     },
-    tests::support::request_with_limit,
+    tests::support::{assert_budget_resource, request_with_limit},
 };
 use crate::value::Value;
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn fixture(exprs: Vec<Expr>, limit: Option<u32>) -> (ScalarPlan, GroupSpec) {
@@ -67,11 +66,7 @@ fn assert_policy(error: QueryError, expected: GroupPlanError) {
 
 fn assert_resource(error: QueryError, resource: Resource) {
     assert!(matches!(error, QueryError::Execute(_)));
-    assert!(
-        error
-            .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-    );
+    assert_budget_resource(&error.diagnostic_facts(), resource);
 }
 
 #[test]

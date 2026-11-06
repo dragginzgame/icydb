@@ -1,3 +1,4 @@
+use crate::db::tests::support::assert_budget_resource;
 use crate::db::{
     query::plan::{FieldSlot, GroupField, GroupFieldSet},
     schema::AcceptedFieldKind,
@@ -89,7 +90,7 @@ fn rejected_group_key_insertion_preserves_the_existing_tuple() {
         resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
-        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
     };
 
     let direct = FieldSlot::from_test_accepted_kind(0, "rank", AcceptedFieldKind::Int32);
@@ -115,11 +116,7 @@ fn rejected_group_key_insertion_preserves_the_existing_tuple() {
                     fields.push(incoming.clone(), work)
                 })
                 .unwrap_err();
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-            );
+            assert_budget_resource(&error.diagnostic_facts(), resource);
             assert_eq!(fields, before);
         }
         crate::db::query::preparation::with_preparation_work(|work| fields.push(incoming, work))

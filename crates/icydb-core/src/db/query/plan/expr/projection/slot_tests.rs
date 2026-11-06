@@ -1,8 +1,8 @@
 //! Local insertion checks distinguish budget rejection from duplicate slots.
 
 use super::*;
-use crate::db::tests::support::request_with_limit;
-use icydb_diagnostic_code::{DiagnosticExecutionLane, DiagnosticFactTag};
+use crate::db::tests::support::{assert_budget_resource, request_with_limit};
+use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[test]
 fn rejected_slot_insertion_preserves_existing_entries_and_capacity() {
@@ -18,11 +18,7 @@ fn rejected_slot_insertion_preserves_existing_entries_and_capacity() {
                 insert_projection_slot(&mut slots, 3, work)
             })
             .unwrap_err();
-        assert!(
-            error
-                .diagnostic_facts()
-                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-        );
+        assert_budget_resource(&error.diagnostic_facts(), resource);
         assert_eq!(slots, [2, 4]);
         assert_eq!((slots.as_ptr(), slots.capacity()), (pointer, capacity));
     }

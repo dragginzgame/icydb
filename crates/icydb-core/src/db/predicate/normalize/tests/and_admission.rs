@@ -8,7 +8,7 @@ use crate::{
             simplify::simplify_and_compare_constraints,
         },
         query::preparation::PreparationWork,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_exceeded, request_with_limit},
     },
     value::{Value, ValueEnum, lower_text_construction_allowance},
 };
@@ -42,15 +42,13 @@ fn assert_boundary(input: &Predicate, resource: Resource, amount: u64) {
                 } else {
                     let error = result.unwrap_err();
                     let actual = root.observed(resource);
-                    assert!(actual > limit);
-                    for fact in [
-                        (DiagnosticFactTag::BudgetResource, resource.raw()),
-                        (DiagnosticFactTag::ExecutionLane, lane.raw()),
-                        (DiagnosticFactTag::Limit, limit),
-                        (DiagnosticFactTag::Actual, actual),
-                    ] {
-                        assert!(error.diagnostic_facts().contains(&fact));
-                    }
+                    assert_budget_exceeded(
+                        &error.diagnostic_facts(),
+                        resource,
+                        lane,
+                        limit,
+                        actual,
+                    );
                     break;
                 }
             }

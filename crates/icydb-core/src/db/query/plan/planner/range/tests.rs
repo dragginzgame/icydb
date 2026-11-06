@@ -6,14 +6,13 @@ use crate::{
         query::{
             plan::planner::range::bounds::compare_range_bound_values, preparation::PreparationWork,
         },
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     error::InternalError,
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 use std::cmp::Ordering;
 
@@ -28,11 +27,7 @@ fn run<T>(
 }
 
 fn assert_resource(error: QueryError, resource: Resource) {
-    assert!(
-        error
-            .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-    );
+    assert_budget_resource(&error.diagnostic_facts(), resource);
 }
 
 #[test]

@@ -12,7 +12,7 @@ use crate::{
         },
         query::preparation::PreparationWork,
         schema::{AcceptedFieldKind, FieldStorageDecode, SchemaInfo, TestEnumVariant},
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_exceeded, assert_budget_resource, request_with_limit},
     },
     value::{CanonicalEnumBody, Value, ValueEnum},
 };
@@ -126,11 +126,7 @@ fn schema_normalization_admits_shapes_before_copying_and_shares_request_limits()
                     assert_eq!(run(&schema, &input, &root, lane).unwrap(), expected);
                 }
                 let error = run(&schema, &input, &root, lane).unwrap_err();
-                assert!(
-                    error
-                        .diagnostic_facts()
-                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-                );
+                assert_budget_resource(&error.diagnostic_facts(), resource);
                 assert!(
                     error
                         .diagnostic_facts()
@@ -176,11 +172,7 @@ fn enum_normalization_admits_loose_canonical_and_collection_operands() {
                 let exact = measured.observed(resource);
                 let root = request_with_limit(resource, exact - 1);
                 let error = run(&schema, input, &root, Lane::Diagnostic).unwrap_err();
-                assert!(
-                    error
-                        .diagnostic_facts()
-                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-                );
+                assert_budget_resource(&error.diagnostic_facts(), resource);
             }
         }
     }
@@ -230,11 +222,7 @@ fn enum_membership_ordering_uses_existing_request_admission() {
             );
             for root in [&exact, &request_with_limit(resource, amount - 1)] {
                 let error = run(&schema, &input, root, Lane::PublicRead).unwrap_err();
-                assert!(
-                    error
-                        .diagnostic_facts()
-                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-                );
+                assert_budget_resource(&error.diagnostic_facts(), resource);
             }
         }
     }
@@ -448,15 +436,13 @@ fn assert_enum_collection_boundary(schema: &SchemaInfo, input: &Predicate, expec
                     } else {
                         let error = result.unwrap_err();
                         let actual = root.observed(resource);
-                        assert!(actual > limit);
-                        for fact in [
-                            (DiagnosticFactTag::BudgetResource, resource.raw()),
-                            (DiagnosticFactTag::ExecutionLane, lane.raw()),
-                            (DiagnosticFactTag::Limit, limit),
-                            (DiagnosticFactTag::Actual, actual),
-                        ] {
-                            assert!(error.diagnostic_facts().contains(&fact));
-                        }
+                        assert_budget_exceeded(
+                            &error.diagnostic_facts(),
+                            resource,
+                            lane,
+                            limit,
+                            actual,
+                        );
                         break;
                     }
                 }

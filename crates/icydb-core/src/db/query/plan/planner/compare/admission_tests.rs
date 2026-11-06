@@ -3,14 +3,17 @@
 use super::plan_pk_compare;
 use crate::{
     db::{
-        QueryError, access::AccessPath, predicate::CompareOp, query::preparation::PreparationWork,
-        schema::FieldType, tests::support::request_with_limit,
+        QueryError,
+        access::AccessPath,
+        predicate::CompareOp,
+        query::preparation::PreparationWork,
+        schema::FieldType,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 use icydb_schema::ScalarKind;
 
@@ -55,10 +58,7 @@ fn primary_key_copies_admit_payload_list_and_path_before_publication() {
                                 }
                             } else {
                                 let error = QueryError::execute(result.unwrap_err());
-                                assert!(error.diagnostic_facts().contains(&(
-                                    DiagnosticFactTag::BudgetResource,
-                                    resource.raw(),
-                                )));
+                                assert_budget_resource(&error.diagnostic_facts(), resource);
                                 break;
                             }
                         }

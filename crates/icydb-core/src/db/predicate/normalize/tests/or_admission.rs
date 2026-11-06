@@ -9,13 +9,12 @@ use crate::{
             normalize_with_budget,
         },
         query::preparation::PreparationWork,
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_exceeded, assert_budget_resource, request_with_limit},
     },
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 #[test]
@@ -75,15 +74,13 @@ fn assert_boundary(input: &Predicate, expected: &Predicate, resource: Resource, 
                 } else {
                     let error = result.unwrap_err();
                     let actual = root.observed(resource);
-                    assert!(actual > limit);
-                    for fact in [
-                        (DiagnosticFactTag::BudgetResource, resource.raw()),
-                        (DiagnosticFactTag::ExecutionLane, lane.raw()),
-                        (DiagnosticFactTag::Limit, limit),
-                        (DiagnosticFactTag::Actual, actual),
-                    ] {
-                        assert!(error.diagnostic_facts().contains(&fact));
-                    }
+                    assert_budget_exceeded(
+                        &error.diagnostic_facts(),
+                        resource,
+                        lane,
+                        limit,
+                        actual,
+                    );
                     break;
                 }
             }
@@ -106,11 +103,7 @@ fn or_comparison_refusal_preserves_operands_before_consumption() {
             })
         })
         .unwrap_err();
-        assert!(
-            error
-                .diagnostic_facts()
-                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-        );
+        assert_budget_resource(&error.diagnostic_facts(), resource);
         assert_eq!(children, before);
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
         assert_eq!(root.observed(Resource::SortEntries), 0);

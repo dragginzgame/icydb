@@ -6,13 +6,12 @@ use crate::{
         QueryError,
         access::{AccessPath, AccessPlan},
         query::{plan::PlannedNonIndexAccessReason as Reason, preparation::PreparationWork},
-        tests::support::request_with_limit,
+        tests::support::{assert_budget_resource, request_with_limit},
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
-    DiagnosticFactTag,
 };
 
 fn check_admission(
@@ -42,10 +41,9 @@ fn check_admission(
                             assert_eq!(result, expected);
                             assert_eq!(root.observed(resource), attempt * exact);
                         } else {
-                            assert!(
-                                QueryError::execute(result.unwrap_err())
-                                    .diagnostic_facts()
-                                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                            assert_budget_resource(
+                                &QueryError::execute(result.unwrap_err()).diagnostic_facts(),
+                                resource,
                             );
                             break;
                         }

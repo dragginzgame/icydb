@@ -10,7 +10,9 @@ use crate::db::{
     RequestExecutionRoot,
     resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
-use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+use icydb_diagnostic_code::{
+    DiagnosticExecutionBudgetResource, DiagnosticExecutionLane, DiagnosticFactTag,
+};
 
 /// Construct the shared uniform test profile with one resource overridden.
 ///
@@ -28,4 +30,43 @@ pub(in crate::db) fn request_with_limit(
         )
         .with_limit_for_tests(resource, limit),
     )
+}
+
+/// Assert the selected resource in an internal or query error's diagnostic facts.
+///
+/// # Panics
+///
+/// Panics if the expected resource fact is absent.
+#[track_caller]
+pub(in crate::db) fn assert_budget_resource(
+    facts: &[(DiagnosticFactTag, u64)],
+    resource: DiagnosticExecutionBudgetResource,
+) {
+    assert!(facts.contains(&(DiagnosticFactTag::BudgetResource, resource.raw())));
+}
+
+/// Assert cumulative exhaustion facts supplied by the caller's boundary test.
+///
+/// Charge calculations and failure-order checks remain with each test.
+///
+/// # Panics
+///
+/// Panics if the observed charge is within the limit or an expected fact is absent.
+#[track_caller]
+pub(in crate::db) fn assert_budget_exceeded(
+    facts: &[(DiagnosticFactTag, u64)],
+    resource: DiagnosticExecutionBudgetResource,
+    lane: DiagnosticExecutionLane,
+    limit: u64,
+    actual: u64,
+) {
+    assert!(actual > limit);
+    assert_budget_resource(facts, resource);
+    for fact in [
+        (DiagnosticFactTag::ExecutionLane, lane.raw()),
+        (DiagnosticFactTag::Limit, limit),
+        (DiagnosticFactTag::Actual, actual),
+    ] {
+        assert!(facts.contains(&fact));
+    }
 }
