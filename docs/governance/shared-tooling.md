@@ -30,9 +30,10 @@ package versions and dependency selections are preserved. See the
 
 The root selects published **IC Build 0.75.0**. Its official archive matches the
 registry checksum and records supplier source
-`1239e9a824689839a9c1a945a1d011071a8e2377`. Only the Build lock entry changes
-relative to the incoming candidate; its Platform 0.23.2, Wire/Derive 0.17.3 and
-cc 1.11.1 selections are preserved. The shared snapshot remains unchanged.
+`1239e9a824689839a9c1a945a1d011071a8e2377`. Build advances from the locked
+0.74.4 selection. Incoming Platform 0.23.2, Wire/Derive 0.17.3 and cc 1.11.1
+selections are preserved; the settled lock also retains flate2 1.1.11. The shared
+snapshot remains unchanged.
 
 Build removes unused inspection/configuration readers. IcyDB uses its retained
 builders and checks the actual single/batch maintenance specification instead
@@ -67,12 +68,14 @@ The separate Canic metadata check remains blocked by its Storage 0.64 /
 Platform 0.17 runtime-guard versus Platform 0.8.3 executor link conflict after
 locked source preparation. Its manifest and lock are unchanged; this is the
 existing independent [#373](https://github.com/dragginzgame/icydb/issues/373)
-qualification gap. Release qualification remains incomplete: the corrected
-journal capacity-reuse control passes, but a lock change and concurrent source
-edits invalidated the earlier full attempt. The maintainer confirmed those edits
-finished; the reviewed cleanup and preserved lock selection now join the stable
-candidate for a fresh full gate before delivery. macOS and installed-IC acceptance
-remain separate qualification obligations.
+qualification gap. The settled full Linux database release gate passed on
+Rust 1.99.1, including all 2,723 no-default core cases and 3,883 core workspace
+cases. The corrected journal reuse control preserves exact steady capacity after
+the first warm refill. Database 0.299.0 is tagged, pushed and published; all six
+official crate archives match their checksums and clean release source
+`5144ea0f97d2c1365d29a957e9811eac87274a11`. CLI delivery uses its independent
+group workflow and ledger. macOS CI and installed-IC acceptance remain separate
+qualification obligations.
 IC cycles/instructions and total/code-section Wasm-size deltas are unmeasured.
 
 ### Preceding published dependency cohort (2026-11-05)
