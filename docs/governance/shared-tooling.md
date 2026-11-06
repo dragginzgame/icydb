@@ -56,8 +56,9 @@ uses its retained async client and managed polling/lifecycle owner. See the
 and [Testkit release](https://github.com/dragginzgame/ic-tooling/blob/0bc2cc4c9b95b6badc9283d5d92abf08036d0dc3/releases/testkit/CHANGELOG.md).
 No existing backing is reset or deleted. All-target workspace lint, testing-feature
 lint and model/core feature lint pass. Sixteen database-format/recovery controls,
-four shared control-map controls, nine public bootstrap/admission controls and
-one Testkit-managed startup-polling test pass on Linux with Rust 1.99.1. The latter
+four shared control-map controls, nine public bootstrap/admission controls,
+12 malformed-format corpus controls and one Testkit-managed startup-polling
+test pass on Linux with Rust 1.99.1. The latter
 covers six polling dispositions with the current public PocketIC type; Testkit
 started and reaped its owned local server. This is not installed IcyDB lifecycle
 acceptance. The full release gate remains required.

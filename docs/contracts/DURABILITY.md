@@ -234,8 +234,12 @@ pages reserved for bounded commit control. A fixed key prefix separates
 application and checkpoint records; lineage and migration retain their
 reserved checkpoint keys. One checksummed version-1 `ICYSCMAP` header owns
 the tree, with no fixed partition between record families. The current
-`ICYDBRT\0` version-1 boot identity requires database recreation when replacing
-an incompatible layout; there is no conversion or compatibility reader.
+`ICYDBST\0` version-1 boot identity requires fresh installations for Storage
+0.68 collection images. Earlier boot identities refuse before collection or
+recovery decoding, without rewriting retained bytes; there is no conversion,
+automatic reset or compatibility reader. Current images retain interruption
+recovery. Storage engine/codec failures trap; a native mutation panic poisons
+its runtime, which must be discarded along with its leases.
 The marker and metadata regions cannot overlap. The current version-1 marker carries at most four
 canonically ordered exact before/after database-control effects. Normal apply
 and recovery accept only each recorded compare value or its already-applied
