@@ -2,7 +2,7 @@
 name = "icydb-core"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.301.0"
+version = "0.302.0"
 license-file = { workspace = true }
 description = { workspace = true }
 repository = { workspace = true }

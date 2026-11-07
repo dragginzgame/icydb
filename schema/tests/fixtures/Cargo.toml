@@ -2,7 +2,7 @@
 name = "icydb-testing-test-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.301.0"
+version = "0.302.0"
 publish = false
 license-file = { workspace = true }
 description = "Shared schema and seed fixtures for IcyDB test surfaces"
