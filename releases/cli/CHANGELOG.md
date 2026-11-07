@@ -7,6 +7,8 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Make release-recovery fixtures select their intended inner runner explicitly,
+  so ordinary CI and captured release validation exercise the same contract.
 - Link the published IcyDB 0.301 database family while preserving CLI commands,
   options and output.
 - Keep release preflight aligned with the pending database notes while preserving

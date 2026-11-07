@@ -163,6 +163,9 @@ mkdir make
 cp "$root/make/"{release,execution}.mk make/
 cat > Makefile <<'MAKE'
 .DEFAULT_GOAL := release-version
+# Exercise the inner saved runner explicitly; ordinary CI has no parent batch.
+# Automatic capture is qualified separately by the release-batch fixtures.
+RELEASE_BATCH_ACTIVE := 1
 include make/release.mk
 release-version:
 	@bash scripts/release/version.sh
