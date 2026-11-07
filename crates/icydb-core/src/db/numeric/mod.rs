@@ -335,6 +335,14 @@ pub(in crate::db) fn compare_numeric_or_strict_order(
 /// equality.
 #[must_use]
 pub(in crate::db) fn canonical_value_compare(left: &Value, right: &Value) -> Ordering {
+    // Query ordering treats absent/null slots as first, including cursor replay.
+    // Wire variant ranks must not move Null across the shared numeric block.
+    match (left, right) {
+        (Value::Null, Value::Null) => return Ordering::Equal,
+        (Value::Null, _) => return Ordering::Less,
+        (_, Value::Null) => return Ordering::Greater,
+        _ => {}
+    }
     // Numeric equality must form a single rank block relative to other values.
     // Otherwise equal Int/Nat keys can straddle Text and violate transitivity.
     let rank = |value: &Value| {

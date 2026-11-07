@@ -526,7 +526,9 @@ These lock in accidental behavior and will change as the planner evolves.
 ### Exact numeric comparison hard cut (0.302)
 
 Predicates, computed comparisons and SQL numeric ordering share one comparison
-owner. SQL orders numeric values as one rank group relative to nonnumeric values,
+owner. Query ordering keeps NULL before present values so materialized sorting,
+index traversal and cursor replay agree. SQL orders numeric values as one rank
+group relative to nonnumeric values,
 so equal Int/Nat/Decimal keys cannot straddle a Text key. Raw Value identity,
 collection identity and arithmetic conversion retain their separate contracts.
 Literal normalization and fingerprint encoding may use Decimal only when that

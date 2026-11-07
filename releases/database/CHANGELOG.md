@@ -27,8 +27,8 @@ begin with 0.295.0 below.
 - Compare mixed numeric values exactly across predicates, projections and SQL
   sorting; preserve distinct float/Decimal predicate identities. Cover exact
   range boundaries, MIN/MAX and grouped top-K ordering with regression tests.
-  Reject prior
-  database images and cursor tokens without deleting retained data
+  Preserve NULL-first query ordering across live-page and DISTINCT continuation.
+  Reject prior database images and cursor tokens without deleting retained data
   ([#110 — Exact numeric comparison and ordering](https://github.com/dragginzgame/icydb/issues/110)).
 
 - Adopt Testkit 0.92 for public native testing types and Platform 0.24 client

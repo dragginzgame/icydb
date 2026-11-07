@@ -299,6 +299,29 @@ fn canonical_value_ordering_uses_value_canonical_order() {
 }
 
 #[test]
+fn canonical_query_order_keeps_null_before_present_values() {
+    assert_eq!(
+        canonical_value_compare(&Value::Null, &Value::Null),
+        Ordering::Equal
+    );
+    for value in [
+        Value::Int64(-1),
+        Value::Nat64(1),
+        Value::Bool(false),
+        Value::Text("x".into()),
+    ] {
+        assert_eq!(
+            canonical_value_compare(&Value::Null, &value),
+            Ordering::Less
+        );
+        assert_eq!(
+            canonical_value_compare(&value, &Value::Null),
+            Ordering::Greater
+        );
+    }
+}
+
+#[test]
 fn canonical_value_ordering_prefers_shared_numeric_or_strict_authority() {
     assert_eq!(
         canonical_value_compare(&Value::Int64(7), &Value::Nat64(7)),
