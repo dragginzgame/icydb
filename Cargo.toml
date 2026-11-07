@@ -73,30 +73,30 @@ repository = "https://github.com/dragginzgame/icydb"
 [workspace.dependencies]
 # Database release group
 # Changelog : releases/database/CHANGELOG.md
-icydb = { path = "crates/icydb", version = "=0.300.0", default-features = false }
-icydb-core = { path = "crates/icydb-core", version = "=0.300.0" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.300.0" }
-icydb-model = { path = "crates/icydb-model", version = "=0.300.0" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.300.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "=0.300.0" }
-icydb-testing-audit-default-empty-fixtures = { version = "0.300.0", path = "schema/audit/default_empty" }
-icydb-testing-audit-group-path-fixtures = { version = "0.300.0", path = "schema/audit/group_path" }
-icydb-testing-audit-one-simple-fixtures = { version = "0.300.0", path = "schema/audit/one_simple" }
-icydb-testing-audit-sql-perf-fixtures = { version = "0.300.0", path = "schema/audit/sql_perf" }
-icydb-testing-audit-ten-simple-fixtures = { version = "0.300.0", path = "schema/audit/ten_simple" }
-icydb-testing-build = { version = "0.300.0", path = "testing/build" }
-icydb-testing-codec-query = { version = "0.300.0", path = "testing/codec-query" }
-icydb-testing-demo-rpg-fixtures = { version = "0.300.0", path = "schema/demo/rpg" }
-icydb-testing-model-schema-only = { path = "testing/model-schema-only", version = "0.300.0" }
-icydb-testing-model-typed-adapter = { path = "testing/model-typed-adapter", version = "0.300.0" }
-icydb-testing-source-checks = { path = "testing/source-checks", version = "0.300.0" }
+icydb = { path = "crates/icydb", version = "=0.301.0", default-features = false }
+icydb-core = { path = "crates/icydb-core", version = "=0.301.0" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.301.0" }
+icydb-model = { path = "crates/icydb-model", version = "=0.301.0" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.301.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.301.0" }
+icydb-testing-audit-default-empty-fixtures = { version = "0.301.0", path = "schema/audit/default_empty" }
+icydb-testing-audit-group-path-fixtures = { version = "0.301.0", path = "schema/audit/group_path" }
+icydb-testing-audit-one-simple-fixtures = { version = "0.301.0", path = "schema/audit/one_simple" }
+icydb-testing-audit-sql-perf-fixtures = { version = "0.301.0", path = "schema/audit/sql_perf" }
+icydb-testing-audit-ten-simple-fixtures = { version = "0.301.0", path = "schema/audit/ten_simple" }
+icydb-testing-build = { version = "0.301.0", path = "testing/build" }
+icydb-testing-codec-query = { version = "0.301.0", path = "testing/codec-query" }
+icydb-testing-demo-rpg-fixtures = { version = "0.301.0", path = "schema/demo/rpg" }
+icydb-testing-model-schema-only = { path = "testing/model-schema-only", version = "0.301.0" }
+icydb-testing-model-typed-adapter = { path = "testing/model-typed-adapter", version = "0.301.0" }
+icydb-testing-source-checks = { path = "testing/source-checks", version = "0.301.0" }
 icydb-testing-sql-generator = { path = "testing/sql-generator" }
 icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }
-icydb-testing-test-fixtures = { path = "schema/tests/fixtures", version = "0.300.0" }
-icydb-testing-test-sql-fixtures = { version = "0.300.0", path = "schema/tests/sql" }
-icydb-testing-wasm-helpers = { version = "0.300.0", path = "testing/wasm-helpers" }
-model_api = { version = "0.300.0", package = "icydb-model", path = "crates/icydb-model" }
-runtime_api = { version = "0.300.0", package = "icydb", path = "crates/icydb", default-features = false }
+icydb-testing-test-fixtures = { path = "schema/tests/fixtures", version = "0.301.0" }
+icydb-testing-test-sql-fixtures = { version = "0.301.0", path = "schema/tests/sql" }
+icydb-testing-wasm-helpers = { version = "0.301.0", path = "testing/wasm-helpers" }
+model_api = { version = "0.301.0", package = "icydb-model", path = "crates/icydb-model" }
+runtime_api = { version = "0.301.0", package = "icydb", path = "crates/icydb", default-features = false }
 
 # CLI release group
 # Changelog : releases/cli/CHANGELOG.md
