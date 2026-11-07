@@ -7,15 +7,20 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Link the published IcyDB 0.301 database family while preserving CLI commands,
+  options and output.
 - Keep release preflight aligned with the pending database notes while preserving
   full-validation fallback and the CLI's independent release identity.
 - Remove duplicate generic tool-command fixtures from macOS CI while retaining
   the CLI's native checks and IcyDB-owned setup/automation qualification.
 - Select the published Build 0.77 metadata editor through the existing Shared
   installer, retaining CLI release metadata and artifact preparation ownership.
-- Adopt Shared Tooling 0.31.0: use the renamed release-batch settings and
-  schema-2 journals, automatic group capture and strict checksum verification.
+- Adopt Shared Tooling 0.31.3: restore macOS system-Bash checksum admission and
+  clearly refuse disappeared LOC scratch inputs. Use the renamed release-batch
+  settings and schema-2 journals, automatic group capture and strict checksum verification.
   Keep completed older delivery state with its original reviewed tooling.
+
+[Detailed changes](0.296.md).
 
 ## [0.296.2] - 2026-11-06
 

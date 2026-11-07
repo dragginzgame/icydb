@@ -7,11 +7,19 @@ use File::Find;
 use File::Basename qw(dirname basename);
 use Cwd qw(abs_path);
 use Digest::SHA qw(sha256_hex);
+use Errno qw(ENOENT);
+my $scratch;
 my $json = JSON::PP->new->canonical;
 my @categories = qw(library_app tests examples benchmarks build_tooling unclassified);
 my %valid = map { $_ => 1 } @categories;
 sub read_file {
-    my $path=shift; open my $f, '<', $path or die "read $path: $!\n";
+    my $path=shift;
+    open my $f, '<', $path or do {
+        if ($! == ENOENT && defined($scratch) && index($path,"$scratch/")==0) {
+            die "LOC scratch input disappeared: $path; rerun after cargo clean or other cleanup has finished. No partial report was produced.\n";
+        }
+        die "read $path: $!\n";
+    };
     my $text='';
     while (1) {my $n=read($f,my $chunk,65536); defined($n) or die "read $path: $!\n"; last unless $n; $text.=$chunk;}
     close $f or die "close $path: $!\n"; return $text;
@@ -56,7 +64,8 @@ if (($ARGV[0] // '') eq '--table') {
     exit;
 }
 @ARGV == 3 or die "usage: cloc-classify.pl METADATA MANIFEST SCRATCH | --table REPORT [--subcrates]\n";
-my ($metadata_file,$manifest,$scratch)=@ARGV;
+my ($metadata_file,$manifest);
+($metadata_file,$manifest,$scratch)=@ARGV;
 my $metadata=$json->decode(read_file($metadata_file));
 my %members=map {$_=>1} @{$metadata->{workspace_members}};
 my @packages=sort {$a->{name} cmp $b->{name}} grep {$members{$_->{id}}} @{$metadata->{packages}};

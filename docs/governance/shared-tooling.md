@@ -7,14 +7,23 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the **0.31.0 committed snapshot** at
-`74313941af2fce4399bec0e6909ca6229673c3f8`. The canonical revision-selected
+IcyDB selects the **0.31.3 committed snapshot** at
+`d2a2f395bc06b22cb3f18afc7d2978a150726360`. The canonical revision-selected
 exporter installed it without modifying supplier files; all **159 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
 minimum in the two workspace manifests and the pinned development compiler.
-No IcyDB package versions or release state change in this adoption; the incoming
-dirty candidate is preserved. Dependency selections are recorded below.
+No IcyDB package versions or release state change in this snapshot refresh;
+the published database and retained batches are preserved. Dependency selections
+are recorded below.
+
+The database 0.301.0 deployment exposed the upstream checksum helper's Bash 3.2
+parse failure in both macOS hosts. This canonical refresh restores system-Bash
+admission, retains NUL/backend refusal and reports missing LOC scratch inputs
+without partial totals. The three changed payloads come only from committed
+GitHub source; unrelated producer edits are excluded. The database crates remain
+0.301.0, with this CI repair carried by CLI 0.296.3. Native-host results must be
+observed on that corrected candidate before claiming qualification.
 
 The 0.31.0 hard cut renames the batch runner and configuration settings, removes
 old-name aliases and requires schema-2 intent with an explicitly recorded commit
@@ -140,8 +149,8 @@ lock, at declared floor 0.23.6. Its registry/lock/archive checksum is
 and supplier source is `51f5fbb7c53000fbb6f7bc3219ee3c2978c08521`.
 The published patch shares Candid admission's child-reference buffer, retaining
 bytes, traversal, quotas and depth limits. Runtime 0.19.5, Types 0.18.2 and all
-other locked selections remain unchanged. Platform's own Shared 0.31.1 adoption
-does not refresh IcyDB's executable Shared 0.31.0 snapshot.
+other locked selections remain unchanged. Platform's own Shared adoption was
+independent; IcyDB's subsequent 0.31.3 refresh is recorded above.
 
 The root selects published **Build 0.77.0** and **Testkit 0.90.0**. Their
 official archives match both registry and lock checksums and record supplier

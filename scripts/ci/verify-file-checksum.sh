@@ -40,19 +40,19 @@ else
 fi
 # Reject NUL before command substitution can discard it. Pipefail preserves a
 # selected backend's failure even if it emitted a plausible digest first.
-output="$(
-    LC_ALL=C "${hash_command[@]}" < "$file" | {
-        record=''
-        if IFS= read -r -d '' record; then
-            # Drain the producer so rejecting output cannot induce SIGPIPE and
-            # conceal the backend's own exit status. This marker is not a digest.
-            while IFS= read -r -d '' record; do :; done
-            printf 'NUL'
-            exit 0
-        fi
-        printf '%s' "$record"
-    }
-)" || {
+# Keep the reader outside quoted command substitution for Bash 3.2 parsing.
+read_checksum_record() {
+    local record=''
+    if IFS= read -r -d '' record; then
+        # Drain the producer so rejecting output cannot induce SIGPIPE and
+        # conceal the backend's own exit status. This marker is not a digest.
+        while IFS= read -r -d '' record; do :; done
+        printf 'NUL'
+        return 0
+    fi
+    printf '%s' "$record"
+}
+output="$(LC_ALL=C "${hash_command[@]}" < "$file" | read_checksum_record)" || {
     status=$?
     echo "$algorithm backend failed for $file" >&2; exit "$status";
 }
