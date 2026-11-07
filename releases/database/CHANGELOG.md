@@ -48,7 +48,8 @@ begin with 0.295.0 below.
   retaining IcyDB's automation, setup and Canic adapter checks.
 - Adopt Build 0.77's complete batch results and raise declared Platform,
   Runtime and Types floors to the selected 0.23.6, 0.19.5 and 0.18.2 versions.
-  Retain cache identity, artifact custody and complete failure reporting.
+  Retain cache identity, artifact custody and complete failure reporting; align
+  the post-link invariant with the shared error-and-details accessor.
 - Keep release preflight aligned with the pending database notes while retaining
   full validation for changed dependencies, workflows and unqualified mappings.
 - Adopt Shared Tooling 0.31.0 and its saved-context setup, status, recovery

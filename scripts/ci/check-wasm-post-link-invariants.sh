@@ -32,8 +32,8 @@ require_text \
     'whole-fleet Cargo validation must retain stable caller labels across batch reports.'
 require_text \
     testing/build/src/lib.rs \
-    'entry.failure_details(),' \
-    'whole-fleet Cargo failures must retain partial phase timings.'
+    'entry.failure().map(|(error, details)| {' \
+    'whole-fleet Cargo failures must retain the paired error and partial phase details.'
 require_text \
     testing/build/src/lib.rs \
     'let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(root));' \
