@@ -133,6 +133,17 @@ jobs:
           MAKE_TARGET: ${{ matrix.make_target }}
         run: |
           make "$MAKE_TARGET"
+      - name: Retain failed CLI process call traces
+        if: failure() && matrix.lane == 'workspace'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-fixtures-${{ matrix.lane }}-${{ github.run_attempt }}
+          # Select regular trace/script files: other fixtures may contain FIFOs.
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/tmp/icydb-command-status*/calls
+            ${{ env.CARGO_TARGET_DIR }}/tmp/icydb-command-status*/icp
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Retain tooling failure evidence
         if: failure()
         uses: ./.github/actions/retain-failure-evidence
@@ -196,6 +207,7 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb shell::render::tests::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status migration_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status canister_id
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status ambient_fixture_controls_cannot_change_canister_observations
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status malformed_inventory_cannot_fall_back_to_the_manifest
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status inventory_preserves_empty_success_and_failed_command_fallback
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status external_
@@ -210,6 +222,17 @@ jobs:
           make fmt-check
           icp --version
           ic-wasm --version
+      - name: Retain failed CLI process call traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-fixtures-${{ matrix.os }}-${{ github.run_attempt }}
+          # Select regular trace/script files: other fixtures may contain FIFOs.
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/tmp/icydb-command-status*/calls
+            ${{ env.CARGO_TARGET_DIR }}/tmp/icydb-command-status*/icp
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Retain tooling failure evidence
         if: failure()
         uses: ./.github/actions/retain-failure-evidence

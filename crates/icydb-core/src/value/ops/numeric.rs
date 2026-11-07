@@ -5,45 +5,10 @@
 //! Boundary: low-level helpers consumed by database numeric semantics.
 
 use crate::{
-    traits::Repr,
-    types::{Decimal, NumericValue},
+    types::{Decimal, NumericValue, U256},
     value::{Value, semantics},
 };
 use std::cmp::Ordering;
-
-const F64_SAFE_I64: i64 = 1i64 << 53;
-const F64_SAFE_U64: u64 = 1u64 << 53;
-const F64_SAFE_I128: i128 = 1i128 << 53;
-const F64_SAFE_U128: u128 = 1u128 << 53;
-
-///
-/// NumericRepr
-///
-/// Represents the comparable numeric form available for one `Value`. Decimal
-/// is preferred when exact conversion is available; otherwise a lossless `f64`
-/// is used only for values inside the well-defined integer safety envelope.
-///
-
-enum NumericRepr {
-    Decimal(Decimal),
-    F64(f64),
-    None,
-}
-
-fn numeric_repr(value: &Value) -> NumericRepr {
-    // Numeric comparison eligibility is registry-authoritative.
-    if !semantics::supports_numeric_coercion(value) {
-        return NumericRepr::None;
-    }
-
-    if let Some(decimal) = to_decimal(value) {
-        return NumericRepr::Decimal(decimal);
-    }
-    if let Some(float) = to_f64_lossless(value) {
-        return NumericRepr::F64(float);
-    }
-    NumericRepr::None
-}
 
 fn to_decimal(value: &Value) -> Option<Decimal> {
     match value {
@@ -64,30 +29,6 @@ fn to_decimal(value: &Value) -> Option<Decimal> {
 // Internal numeric coercion helper for aggregate arithmetic.
 pub(crate) fn to_numeric_decimal(value: &Value) -> Option<Decimal> {
     to_decimal(value)
-}
-
-// This helper only returns `Some` inside the integer range exactly representable
-// by `f64`, or for finite float wrappers that already own their precision.
-#[expect(clippy::cast_precision_loss)]
-fn to_f64_lossless(value: &Value) -> Option<f64> {
-    match value {
-        Value::Duration(value) if value.repr() <= F64_SAFE_U64 => Some(value.repr() as f64),
-        Value::Float64(value) => Some(value.get()),
-        Value::Float32(value) => Some(f64::from(value.get())),
-        Value::Int64(value) if (-F64_SAFE_I64..=F64_SAFE_I64).contains(value) => {
-            Some(*value as f64)
-        }
-        Value::Int128(value) if (-F64_SAFE_I128..=F64_SAFE_I128).contains(value) => {
-            Some(*value as f64)
-        }
-        Value::Timestamp(value) if (-F64_SAFE_I64..=F64_SAFE_I64).contains(&value.repr()) => {
-            Some(value.repr() as f64)
-        }
-        Value::Nat64(value) if *value <= F64_SAFE_U64 => Some(*value as f64),
-        Value::Nat128(value) if *value <= F64_SAFE_U128 => Some(*value as f64),
-
-        _ => None,
-    }
 }
 
 /// Compare the exact same-type numeric domains before widening. Database and
@@ -112,37 +53,118 @@ pub(crate) fn compare_native_numeric_pair(left: &Value, right: &Value) -> Option
     }
 }
 
-/// Compare two runtime values under value-local numeric coercion semantics.
-#[must_use]
-fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
-    if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
-        return None;
-    }
-    if let Some(ordering) = compare_native_numeric_pair(left, right) {
-        return Some(ordering);
+// A finite numeric magnitude is coefficient * 2^exponent / 5^scale.
+// Decimal scale is at most 28; cross coefficients fit in 194 bits.
+struct ExactNumeric {
+    negative: bool,
+    coefficient: u128,
+    exponent: i32,
+    scale: u32,
+}
+
+impl ExactNumeric {
+    fn signed(value: i128, scale: u32) -> Option<Self> {
+        Some(Self {
+            negative: value < 0,
+            coefficient: value.unsigned_abs(),
+            exponent: -i32::try_from(scale).ok()?,
+            scale,
+        })
     }
 
-    match (numeric_repr(left), numeric_repr(right)) {
-        (NumericRepr::Decimal(left), NumericRepr::Decimal(right)) => left.partial_cmp(&right),
-        (NumericRepr::F64(left), NumericRepr::F64(right)) => left.partial_cmp(&right),
-        _ => None,
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Int64(value) => Self::signed(i128::from(*value), 0),
+            Value::Int128(value) => Self::signed(*value, 0),
+            Value::Nat64(value) => Some(Self::unsigned(u128::from(*value))),
+            Value::Nat128(value) => Some(Self::unsigned(*value)),
+            Value::Timestamp(value) => Self::signed(i128::from(value.as_millis()), 0),
+            Value::Duration(value) => Some(Self::unsigned(u128::from(value.as_millis()))),
+            Value::Decimal(value) => Self::signed(value.mantissa(), value.scale()),
+            Value::Float32(value) => Some(Self::float(f64::from(value.get()))),
+            Value::Float64(value) => Some(Self::float(value.get())),
+            _ => None,
+        }
+    }
+
+    const fn unsigned(coefficient: u128) -> Self {
+        Self {
+            negative: false,
+            coefficient,
+            exponent: 0,
+            scale: 0,
+        }
+    }
+
+    fn float(value: f64) -> Self {
+        let bits = value.to_bits();
+        let encoded_exponent = ((bits >> 52) & 0x7ff) as u16;
+        let fraction = bits & ((1_u64 << 52) - 1);
+        let coefficient = if encoded_exponent == 0 {
+            fraction
+        } else {
+            fraction | (1_u64 << 52)
+        };
+        Self {
+            negative: value < 0.0,
+            coefficient: u128::from(coefficient),
+            exponent: if encoded_exponent == 0 {
+                -1074
+            } else {
+                i32::from(encoded_exponent) - 1075
+            },
+            scale: 0,
+        }
     }
 }
 
-/// Compare exact same-type numeric pairs natively; other pairs use Decimal.
+// Normalize a nonzero fixed-width coefficient without materializing its binary
+// exponent. This handles subnormals and extreme floats without oversized shifts.
+fn normalized_magnitude(value: U256, exponent: i32) -> (i64, U256) {
+    let (high, low) = value.into_words();
+    let zeros = if high == 0 {
+        128 + low.leading_zeros()
+    } else {
+        high.leading_zeros()
+    };
+    let normalized = match zeros {
+        0 => value,
+        1..=127 => U256::from_words((high << zeros) | (low >> (128 - zeros)), low << zeros),
+        128..=255 => U256::from_words(low << (zeros - 128), 0),
+        _ => U256::ZERO,
+    };
+    (i64::from(exponent) + 256 - i64::from(zeros), normalized)
+}
+
+/// Compare the exact represented value of finite broad numeric operands.
 #[must_use]
 pub(crate) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
-    if let Some(ordering) = compare_native_numeric_pair(left, right) {
-        return Some(ordering);
-    }
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;
     }
-
-    let left = to_decimal(left)?;
-    let right = to_decimal(right)?;
-
-    left.partial_cmp(&right)
+    if let Some(ordering) = compare_native_numeric_pair(left, right) {
+        return Some(ordering);
+    }
+    let left = ExactNumeric::from_value(left)?;
+    let right = ExactNumeric::from_value(right)?;
+    if left.negative != right.negative {
+        return Some(right.negative.cmp(&left.negative));
+    }
+    let magnitude = if left.coefficient == 0 || right.coefficient == 0 {
+        left.coefficient.cmp(&right.coefficient)
+    } else {
+        let left_coefficient = U256::from(left.coefficient)
+            .checked_mul(U256::from(5_u128.checked_pow(right.scale)?))?;
+        let right_coefficient = U256::from(right.coefficient)
+            .checked_mul(U256::from(5_u128.checked_pow(left.scale)?))?;
+        normalized_magnitude(left_coefficient, left.exponent)
+            .cmp(&normalized_magnitude(right_coefficient, right.exponent))
+    };
+    Some(if left.negative {
+        magnitude.reverse()
+    } else {
+        magnitude
+    })
 }
 
 impl Value {
@@ -158,6 +180,6 @@ impl Value {
     /// comparison primitive that those higher-level helpers are tested against.
     #[must_use]
     pub fn cmp_numeric(&self, other: &Self) -> Option<Ordering> {
-        cmp_numeric(self, other)
+        compare_numeric_order(self, other)
     }
 }

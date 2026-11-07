@@ -80,3 +80,11 @@ fn authenticated_route_pin_corruption_fails_closed() {
     zero_arity[ROUTE_ARITY_OFFSET] = 0;
     assert!(ScalarPageToken::decode(resign(zero_arity, &key).as_slice(), &key).is_err());
 }
+
+#[test]
+fn authenticated_tokens_reject_previous_numeric_semantics() {
+    let key = [0x55; 32];
+    let mut bytes = authenticated_without_mac(&key);
+    bytes[..4].copy_from_slice(b"ICYQ");
+    assert!(decode_scalar_token(&resign(bytes, &key), &key).is_err());
+}

@@ -160,3 +160,18 @@ fn digest_structural(predicate: &Predicate) -> [u8; 32] {
     });
     crate::db::codec::finalize_hash_sha256(hasher)
 }
+
+#[test]
+fn numeric_fingerprints_preserve_inexact_decimal_distinctions() {
+    let predicate = |value| {
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "amount",
+            CompareOp::Eq,
+            value,
+            CoercionId::NumericWiden,
+        ))
+    };
+    let float = predicate(Value::Float64(crate::types::Float64::try_new(0.3).unwrap()));
+    let decimal = predicate(Value::Decimal(crate::types::Decimal::new(3, 1)));
+    assert_ne!(digest(&float), digest(&decimal));
+}

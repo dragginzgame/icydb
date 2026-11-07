@@ -3,6 +3,51 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.302.0]
+
+### 🩹 Fixed
+
+- Skip rewriting the live schema checkpoint when recovery replays an already
+  materialized identity advance, preserving validation of conflicting advances
+  ([#102 — Identity checkpoint writes](https://github.com/dragginzgame/icydb/issues/102)).
+
+### 🧹 Cleanup
+
+- Simplify targeted-rule tests around budget refusal and stable results, removing
+  duplicated cases and assumptions about internal allocation/scan formulas.
+
+- Withdraw the pending per-allocation schema accounting expansion. Retain
+  existing input size/depth limits, bounded decoding and normalization budgets;
+  remove allocation-specific callbacks, metadata copying and bookkeeping tests.
+  Close the original normalization finding on its delivered bounded-work fix
+  ([#76 — Bounded predicate normalization](https://github.com/dragginzgame/icydb/issues/76)).
+
+### ⚠️ Breaking
+
+- Compare mixed numeric values exactly across predicates, projections and SQL
+  sorting; preserve distinct float/Decimal predicate identities. Cover exact
+  range boundaries, MIN/MAX and grouped top-K ordering with regression tests.
+  Reject prior
+  database images and cursor tokens without deleting retained data
+  ([#110 — Exact numeric comparison and ordering](https://github.com/dragginzgame/icydb/issues/110)).
+
+- Adopt Testkit 0.92 for public native testing types and Platform 0.24 client
+  errors. Direct consumers sharing those types must align.
+
+### 🔧 Changed
+
+- Adopt Build 0.78's heartbeat-only progress configuration while preserving
+  build labels, phases, cache admission and complete failure reporting
+  ([#630 — Adopt heartbeat-only Build progress](https://github.com/dragginzgame/icydb/issues/630)).
+- Adopt Host Foundation 0.75, Host Tools 0.85, Platform 0.25, Storage 0.68.7,
+  Wire 0.17.12 and Metrics 0.29.6. Align direct Runtime dependencies with Storage
+  on 0.20, removing the duplicate 0.19 identity. Retain Wasm feature separation.
+  Native Host Tools/Testkit retain their supplier-owned Platform 0.24 dependency.
+- Adopt Shared Tooling 0.31.5 and its complete release-guide export and isolated
+  release-command checks. Preserve full validation fallback for changed inputs.
+
+[Detailed changes](0.302.md).
+
 ## [0.301.0] - 2026-11-07
 
 ### ⚠️ Breaking

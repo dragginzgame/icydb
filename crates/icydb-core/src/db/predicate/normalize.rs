@@ -636,8 +636,13 @@ fn normalize_numeric_value_for_target(
     };
 
     match normalized {
-        Some(value) => Ok(value),
-        None => work.copy_value(value),
+        Some(normalized)
+            if coercion.id != CoercionId::NumericWiden
+                || crate::db::numeric::compare_numeric_eq(value, &normalized) == Some(true) =>
+        {
+            Ok(normalized)
+        }
+        _ => work.copy_value(value),
     }
 }
 

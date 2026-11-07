@@ -35,7 +35,8 @@ pub(in crate::db::cursor) const MAX_CURSOR_TOKEN_BYTES: usize = 8 * 1024;
 
 const TOKEN_VARIANT_GROUPED: u8 = 2;
 const TOKEN_VARIANT_SCALAR: u8 = 1;
-const TOKEN_WIRE_MAGIC: &[u8; 4] = b"ICYQ";
+const TOKEN_WIRE_MAGIC: &[u8; 4] = b"ICYN";
+// The current magic binds continuations to exact numeric comparison semantics.
 const TOKEN_WIRE_VERSION: u8 = 1;
 const TOKEN_MAC_BYTES: usize = 32;
 const TOKEN_HEADER_BYTES: usize = 10;

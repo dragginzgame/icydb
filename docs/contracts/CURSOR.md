@@ -26,7 +26,8 @@ without a cursor. Database rows and the current version-1 encoding are unchanged
 ## Current Wires
 
 Grouped continuation and scalar live/exhaustive pages retain their sole current
-bounded version-1 wires. No compatibility decoder or translation path exists.
+bounded `ICYN` version-1 wires, binding exact numeric ordering. Earlier `ICYQ`
+tokens reject. No compatibility decoder or translation path exists.
 
 Both token variants share the authenticated envelope: magic, version, variant,
 payload length, payload, and a 32-byte HMAC-SHA256. The existing durable cursor

@@ -476,18 +476,20 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   stops before later work and returns no partial predicate. General encoding/sorting
   and numeric conversion remain
   separately qualified comparison obligations.
-  Complete normalization/payload-comparison and recovery accounting remain
-  separate obligations
+  Exhaustive allocation and visit accounting is not a completion requirement.
+  Maintain input node/depth/byte ceilings and the existing expensive-operation
+  budgets; additional accounting requires a concrete resource-exhaustion case
   ([#76](https://github.com/dragginzgame/icydb/issues/76)).
 - Cold accepted-runtime and inspection-plan construction has its own admitted
   boundaries. A shared request profile is not proof of complete schema compilation,
   journal replay or publication accounting. Atomic candidate publication and
   independent persisted-data verification remain required.
 
-Full allocation/stack bounds for boolean normalization, payload comparisons,
+Full allocation/stack accounting for boolean normalization, payload comparisons,
 schema lookup/validation, proof/scoring internals and parser/normalizer scratch
-remain separately qualified work. Endpoint decoding and the final application
-response also remain application responsibilities. Partial construction guards
+is not promised. Extend guards only for a concrete resource-exhaustion scenario.
+Endpoint decoding and the final application response remain application
+responsibilities. Partial construction guards
 must not be described as a whole-pipeline bound. The pinned-toolchain lowercase
 expansion allowance must be requalified on toolchain changes.
 

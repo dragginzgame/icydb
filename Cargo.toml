@@ -118,18 +118,18 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.74.3", default-features = false }
-ic-host-fs = { version = "0.74.3", default-features = false }
-ic-host-process = "0.74.3"
+ic-host-artifacts = { version = "0.75.0", default-features = false }
+ic-host-fs = { version = "0.75.0", default-features = false }
+ic-host-process = "0.75.0"
 ic-host-text = "0.74.2"
-ic-host-tools = "0.83.0"
-ic-metrics = { version = "0.29.0", default-features = false }
-ic-platform = { version = "0.23.6", default-features = false }
-ic-platform-runtime = { version = "0.19.5", default-features = false }
+ic-host-tools = "0.85.0"
+ic-metrics = { version = "0.29.6", default-features = false }
+ic-platform = { version = "0.25.0", default-features = false }
+ic-platform-runtime = { version = "0.20.0", default-features = false }
 ic-platform-types = { version = "0.18.2", default-features = false }
-ic-storage = "0.68.0"
-ic-testkit = { version = "0.90.0", default-features = false }
-ic-wire = "0.17.2"
+ic-storage = "0.68.7"
+ic-testkit = { version = "0.92.0", default-features = false }
+ic-wire = "0.17.12"
 libc = "0.2"
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0"
@@ -153,7 +153,7 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 ] }
 
 # Tests and tooling only
-ic-build = "0.77.0"
+ic-build = "0.78.0"
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 rusqlite = { version = "=0.41.1", default-features = false, features = [
     "bundled",

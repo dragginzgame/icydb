@@ -7,8 +7,8 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the **0.31.3 committed snapshot** at
-`d2a2f395bc06b22cb3f18afc7d2978a150726360`. The canonical revision-selected
+IcyDB selects the **0.31.5 committed snapshot** at
+`b2026a118e38de4af1555c527af327cb604eacdf`. The canonical revision-selected
 exporter installed it without modifying supplier files; all **159 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
@@ -16,6 +16,12 @@ minimum in the two workspace manifests and the pinned development compiler.
 No IcyDB package versions or release state change in this snapshot refresh;
 the published database and retained batches are preserved. Dependency selections
 are recorded below.
+
+The current refresh adds the release-batch guide to the export closure and
+isolates inherited release settings in the command checker while substituting
+both runner layers. Four payloads change from 0.31.3; all 159 payloads match the
+reviewed committed source and modes. This does not requalify selected-stage
+omissions or native macOS hosts for the new dependency cohort.
 
 The database 0.301.0 deployment exposed the upstream checksum helper's Bash 3.2
 parse failure in both macOS hosts. This canonical refresh restores system-Bash
@@ -140,6 +146,49 @@ selected conclusions and original Git references, while new Wasm captures
 default to `target/evidence/`. Release/recovery records, saved review inputs,
 package versions and dependency selections are preserved. See the
 [report retention policy](../reports/README.md).
+
+### Current 0.302 cohort (2026-11-07)
+
+The root catalog selects Build **0.78.0**, Host Artifacts/Fs/Process **0.75.0**,
+Host Tools **0.85.0**, Platform **0.25.0**, Storage **0.68.7**, Wire/Derive
+**0.17.12**, Metrics **0.29.6** and Testkit **0.92.0**. Runtime **0.20.0**, Types
+**0.18.2** and Host Text **0.74.2** remain current. Official registry archive checksums and
+supplier source identities were verified for requested updates before adoption;
+the incoming compatible Wire patch is preserved. Runtime 0.20 aligns IcyDB's
+direct IC0 consumers with Storage, removing the duplicate Runtime 0.19 identity.
+Host Tools and native Testkit
+now share Platform 0.24, including bounded Candid limits and CBOR client errors.
+Canonical Runtime/Types identities are shared. The old Platform 0.23 facade and
+Foundation 0.74 identities leave the root lock. Host Tools 0.85 archive checksum is
+`7f0fe55f656678940b38567ba06429ad17cec9f7b4ff6a1a0480b09203a75c2c`,
+with clean source `07ef09c8723ab79fc9e764fa77d7f1ccfc0482b6`.
+Testkit 0.92 archive checksum is
+`6a45ed18109c81668ab742d2c3ed9f762331730be294ebaa6682ba28b4fa1113`,
+with clean source `ceb99e1c682a92026a80d743bfccada350319c08`.
+PocketIC protocol, deadlines and exactly 0.11.0 management DTOs are unchanged.
+
+Platform 0.25's published source is `0a32e8a2f7977a71062d4edec542bea96d63c508`.
+Its removed facade entrypoint macros/`cdk` feature are not used by the root
+consumer. IcyDB directly selects only BLAKE3; IC0 remains Runtime-owned.
+Host Tools/Testkit's published requirements retain Platform 0.24 alongside the
+direct 0.25 facade. This supplier split does not duplicate Runtime or Types.
+
+Build progress now configures heartbeat intervals directly; its Cargo-output
+switch is retired. Testkit's native execution/cleanup identity changes require
+the explicitly authorized 0.302 line. Keep finite request budgets and the sole
+Testkit provisioning/admission/lifecycle owner. Existing database storage and
+recovery contracts are unchanged. The
+[0.302 tracker](../design/0.302-native-cohort/0.302-status.md) owns this adoption.
+The maintainer also included independent Canic qualification, owned by
+[#373](https://github.com/dragginzgame/icydb/issues/373); preceding exclusions in
+historical adoption records do not limit that new scope.
+
+The published Canic adapter remains 0.115.0 with Wire 0.16. Its endpoint
+limits exchange fails E0308 against the actual IcyDB Wire 0.17.8 facade in a
+disposable consumer. Supplier alignment blocks the independent stack migration;
+its manifest/lock and integration clients remain unchanged. See
+[#373's compiler evidence](https://github.com/dragginzgame/icydb/issues/373#issuecomment-6706757018).
+Root adoption does not establish generated-actor or installed acceptance.
 
 ### Requested Build, Platform and Testkit adoption (2026-11-07)
 

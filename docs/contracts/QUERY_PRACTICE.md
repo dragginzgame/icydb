@@ -167,7 +167,10 @@ There is **no implicit coercion**.
 #### CoercionId (Baseline Set)
 
 * `Strict` — no conversion; types must match.
-* `NumericWiden` — numeric values are widened to a common numeric form.
+* `NumericWiden` — compare exact represented numeric values across finite floats,
+  integers and Decimal. Binary floats keep their binary value: Float64 `0.3`
+  is less than Decimal `0.3`, not equal by decimal spelling. Time values use
+  their maintained millisecond numeric representation; U256 remains separate.
 * `TextCasefold` — text comparisons use canonical casefolding.
 * `CollectionElement` — element-level coercion for list/set membership.
 
@@ -193,7 +196,7 @@ the strict lookup does not prove the casefolded exclusion.
 The evaluator uses a static, declarative conversion table:
 
 * `(Text, Text, TextCasefold)` → casefold both operands
-* `(Numeric, Numeric, NumericWiden)` → promote to common numeric type
+* `(Numeric, Numeric, NumericWiden)` → exact numeric comparison
 * `(Any, Any, Strict)` → no conversion
 
 Unsupported conversions **never occur at runtime**.
@@ -519,3 +522,16 @@ Avoid asking for tests of:
 - index selection heuristics
 
 These lock in accidental behavior and will change as the planner evolves.
+
+### Exact numeric comparison hard cut (0.302)
+
+Predicates, computed comparisons and SQL numeric ordering share one comparison
+owner. SQL orders numeric values as one rank group relative to nonnumeric values,
+so equal Int/Nat/Decimal keys cannot straddle a Text key. Raw Value identity,
+collection identity and arithmetic conversion retain their separate contracts.
+Literal normalization and fingerprint encoding may use Decimal only when that
+conversion preserves the exact compared value.
+
+Database boot identity `ICYDBNX\0` and cursor identity `ICYN`, both version 1, reject previous images/tokens; no
+legacy interpretation or automatic deletion is performed. Same-format recovery
+retains its existing contract.

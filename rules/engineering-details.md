@@ -1,5 +1,5 @@
 # Engineering contracts by task
-<!-- Shared companions: docs/candid-boundary.md docs/principles/rust-code-hygiene.md docs/tool-store-maintenance.md rules/agent-maintenance.md rules/change-reporting.md rules/contributions.md rules/rust-workspaces.md tasks/README.md tasks/cargo-tool-versions.md -->
+<!-- Shared companions: docs/candid-boundary.md docs/release-batches.md docs/principles/rust-code-hygiene.md docs/tool-store-maintenance.md rules/agent-maintenance.md rules/change-reporting.md rules/contributions.md rules/rust-workspaces.md tasks/README.md tasks/cargo-tool-versions.md -->
 
 These contracts supplement the [engineering baseline](../DRAGGINZGAME.md).
 Read the applicable sections when the task touches their subject. This file is

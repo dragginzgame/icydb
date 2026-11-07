@@ -3,6 +3,23 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.4]
+
+### 🩹 Fixed
+
+- Retain failed CLI process call traces and fixture scripts in Linux/macOS CI artifacts,
+  and run the existing environment-isolation regression on both macOS hosts
+  ([#599 — CLI process failure diagnosis](https://github.com/dragginzgame/icydb/issues/599)).
+
+### 🔧 Changed
+
+- Select Build 0.78 and Host Tools 0.85 with Platform 0.24 for native CLI tooling,
+  preserving CLI commands, options and output.
+- Adopt Shared Tooling 0.31.5 with the complete release-guide export and isolated
+  release-command checks; retain independent group identity and full fallback.
+
+[Detailed changes](0.296.md).
+
 ## [0.296.3] - 2026-11-07
 
 ### 🔧 Changed

@@ -838,3 +838,225 @@ fn sql_issue_case_compound_conditions_preserve_rows_and_null_results() {
         }
     }
 }
+
+#[test]
+fn sql_mixed_numeric_comparisons_preserve_exact_values() {
+    for (left_kind, left, right_kind, right) in [
+        (
+            AcceptedFieldKind::Float32,
+            InputValue::float32(Float32::try_new(f32::MAX).unwrap()),
+            AcceptedFieldKind::Float64,
+            InputValue::float64(Float64::try_new(f64::MAX).unwrap()),
+        ),
+        (
+            AcceptedFieldKind::Int128,
+            InputValue::int128(i128::MAX),
+            AcceptedFieldKind::Nat128,
+            InputValue::nat128(u128::MAX),
+        ),
+        (
+            AcceptedFieldKind::Float64,
+            InputValue::float64(Float64::try_new(0.3).unwrap()),
+            AcceptedFieldKind::Decimal { scale: 1 },
+            InputValue::decimal(Decimal::new(3, 1)),
+        ),
+    ] {
+        crate::testing::run_isolated(move || {
+            initialize_field_schema(
+                vec![
+                    field(1, "id", 0, AcceptedFieldKind::Nat64),
+                    nullable_scalar_field(2, "left_value", 1, left_kind),
+                    nullable_scalar_field(3, "right_value", 2, right_kind),
+                ],
+                Vec::new(),
+            );
+            let session =
+                new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
+            session
+                .execute_trusted_dynamic_insert_batch(
+                    ENTITY_NAME,
+                    (1..=3)
+                        .map(|id| {
+                            DynamicStructuralPatch::new(vec![
+                                ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                                ("left_value".into(), DynamicWriteCell::Value(left.clone())),
+                                ("right_value".into(), DynamicWriteCell::Value(right.clone())),
+                            ])
+                        })
+                        .collect(),
+                )
+                .unwrap();
+            // Mixed CASE keys exercise the actual materialized sort and top-K
+            // consumers, including equal keys that require a primary-key tie.
+            for limit in [2, 3] {
+                assert_eq!(
+                    projection_rows(
+                        &session,
+                        &format!(
+                            "SELECT id FROM PlannerRow ORDER BY CASE WHEN id = 1 THEN right_value ELSE left_value END, id LIMIT {limit}"
+                        )
+                    ),
+                    [2, 3, 1]
+                        .into_iter()
+                        .take(limit)
+                        .map(|id| vec![OutputValue::nat64(id)])
+                        .collect::<Vec<_>>()
+                );
+            }
+            assert_mixed_numeric_aggregates(&session);
+            for (op, expected) in [
+                ("<", true),
+                ("<=", true),
+                ("=", false),
+                ("!=", true),
+                (">", false),
+                (">=", false),
+            ] {
+                let comparison = format!("left_value {op} right_value");
+                assert_eq!(
+                    projection_rows(&session, &format!("SELECT {comparison} FROM PlannerRow")),
+                    vec![vec![OutputValue::boolean(expected)]; 3]
+                );
+                let rows = if expected {
+                    (1..=3)
+                        .map(|id| vec![OutputValue::nat64(id)])
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                for condition in [
+                    comparison.clone(),
+                    format!("CASE WHEN {comparison} THEN true ELSE false END"),
+                ] {
+                    assert_eq!(
+                        projection_rows(
+                            &session,
+                            &format!("SELECT id FROM PlannerRow WHERE {condition}")
+                        ),
+                        rows
+                    );
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn sql_mixed_numeric_bounds_agree_with_and_without_secondary_index() {
+    for indexed in [false, true] {
+        crate::testing::run_isolated(move || {
+            let kind = AcceptedFieldKind::Float64;
+            let indexes = if indexed {
+                vec![PersistedIndexSnapshot::new(
+                    SchemaIndexId::new(1).unwrap(),
+                    1,
+                    "amount_idx".into(),
+                    STORE_PATH.into(),
+                    false,
+                    PersistedIndexKeySnapshot::from_field_paths(vec![
+                        PersistedIndexFieldPathSnapshot::new(
+                            FieldId::new(2),
+                            SchemaFieldSlot::new(1),
+                            vec!["amount".into()],
+                            kind.clone(),
+                            false,
+                        ),
+                    ]),
+                    None,
+                )]
+            } else {
+                Vec::new()
+            };
+            let session = initialize_field_schema(
+                vec![
+                    field(1, "id", 0, AcceptedFieldKind::Nat64),
+                    field(2, "amount", 1, kind),
+                ],
+                indexes,
+            );
+            for (id, value) in [
+                (1, 0.3_f64),
+                (2, f64::from_bits(0.3_f64.to_bits() + 1)),
+                (3, 0.5),
+            ] {
+                session
+                    .execute_trusted_dynamic_insert_batch(
+                        ENTITY_NAME,
+                        vec![DynamicStructuralPatch::new(vec![
+                            ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                            (
+                                "amount".into(),
+                                DynamicWriteCell::Value(InputValue::float64(
+                                    Float64::try_new(value).unwrap(),
+                                )),
+                            ),
+                        ])],
+                    )
+                    .unwrap();
+            }
+            // Decimal 0.3 lies strictly between the two adjacent binary floats.
+            for (predicate, ids) in [
+                ("amount < 0.3", vec![1]),
+                ("amount <= 0.3", vec![1]),
+                ("amount > 0.3", vec![2, 3]),
+                ("amount >= 0.3", vec![2, 3]),
+                ("amount BETWEEN 0.3 AND 0.5", vec![2, 3]),
+                ("amount NOT BETWEEN 0.3 AND 0.5", vec![1]),
+                ("amount >= FLOAT64 '0.5'", vec![3]),
+            ] {
+                let expected = ids
+                    .into_iter()
+                    .map(|id| vec![OutputValue::nat64(id)])
+                    .collect::<Vec<_>>();
+                for _ in 0..2 {
+                    assert_eq!(
+                        projection_rows(
+                            &session,
+                            &format!("SELECT id FROM PlannerRow WHERE {predicate} ORDER BY id")
+                        ),
+                        expected,
+                        "indexed={indexed}: {predicate}"
+                    );
+                }
+            }
+            if indexed {
+                // NumericWiden SQL predicates remain residual even with an index.
+                for predicate in ["amount >= 0.3", "amount >= FLOAT64 '0.5'"] {
+                    let plan = explain(&session, predicate);
+                    assert!(plan.contains("fallback(non_strict_compare_coercion)"));
+                    assert!(plan.contains("selected_access=full_scan"));
+                }
+            }
+        });
+    }
+}
+
+fn assert_mixed_numeric_aggregates(session: &DbSession<TestCanister>) {
+    let key = "CASE WHEN id = 1 THEN right_value ELSE left_value END";
+    let expected = projection_rows(
+        session,
+        "SELECT left_value, right_value FROM PlannerRow ORDER BY id LIMIT 1",
+    );
+    assert_eq!(
+        projection_rows(
+            session,
+            &format!("SELECT MIN({key}), MAX({key}) FROM PlannerRow")
+        ),
+        expected
+    );
+    for limit in [2, 3] {
+        let SqlStatementResult::Grouped { rows, .. } = session.execute_trusted_sql_query(&format!(
+            "SELECT id, MIN({key}) FROM PlannerRow GROUP BY id ORDER BY MIN({key}), id LIMIT {limit}"
+        )).unwrap() else { panic!("expected grouped rows") };
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.group_key().to_vec())
+                .collect::<Vec<_>>(),
+            [2, 3, 1]
+                .into_iter()
+                .take(limit)
+                .map(|id| vec![OutputValue::nat64(id)])
+                .collect::<Vec<_>>()
+        );
+    }
+}

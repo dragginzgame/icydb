@@ -244,7 +244,10 @@ fn canonicalize_compare_literal_for_coercion(
     match coercion {
         CoercionId::Strict | CoercionId::CollectionElement => Cow::Borrowed(value),
         CoercionId::NumericWiden => {
-            if let Some(decimal) = coerce_numeric_decimal(value) {
+            if let Some(decimal) = coerce_numeric_decimal(value)
+                && crate::db::numeric::compare_numeric_eq(value, &Value::Decimal(decimal))
+                    == Some(true)
+            {
                 return Cow::Owned(Value::Decimal(decimal));
             }
 

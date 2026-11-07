@@ -186,6 +186,20 @@ fn prepared_identity_checkpoint_combines_owners_and_matches_replay_bytes() {
     }
     let replayed = store.map.get(&key).unwrap().unwrap().0;
     assert_eq!(prepared.bytes, replayed);
+    // Exact replay remains idempotent; a different marker cannot claim the
+    // same materialized range. Both leave the accepted checkpoint untouched.
+    for (range, advance) in &ranges {
+        store
+            .apply_identity_range(STORE_PATH, *range, *advance)
+            .unwrap();
+        let other = IdentityAdvanceId::try_new([9; 16], [4; 16], 1, 0).unwrap();
+        assert!(
+            store
+                .apply_identity_range(STORE_PATH, *range, other)
+                .is_err()
+        );
+        assert_eq!(store.map.get(&key).unwrap().unwrap().0, replayed);
+    }
     store
         .map
         .insert(key, super::SchemaControlBytes(before))

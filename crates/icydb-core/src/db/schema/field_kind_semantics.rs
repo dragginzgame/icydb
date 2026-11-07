@@ -39,14 +39,9 @@ const fn scalar_kind_supports_stable_group_key(kind: ScalarKind) -> bool {
 
 /// Return true when lossless predicate numeric widening supports this kind.
 const fn scalar_kind_supports_predicate_numeric_widen(kind: ScalarKind) -> bool {
-    matches!(
-        kind,
-        ScalarKind::Decimal
-            | ScalarKind::Float32
-            | ScalarKind::Float64
-            | ScalarKind::Int
-            | ScalarKind::Nat
-    )
+    // Time fields retain their separate strict equality admission contract.
+    kind.supports_numeric_coercion()
+        && !matches!(kind, ScalarKind::Duration | ScalarKind::Timestamp)
 }
 
 ///

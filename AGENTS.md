@@ -1,7 +1,7 @@
 # IcyDB Agent Rules
 
 For scope, delegated delivery, validation, compiler support and reporting, use
-[Shared policy at d2a2f39](https://github.com/dragginzgame/shared-tooling/blob/d2a2f395bc06b22cb3f18afc7d2978a150726360/DRAGGINZGAME.md)
+[Shared policy at b2026a1](https://github.com/dragginzgame/shared-tooling/blob/b2026a118e38de4af1555c527af327cb604eacdf/DRAGGINZGAME.md)
 and its revision-bound references over older snapshot or local-guide wording.
 This includes Rust 1.99.1 as minimum and pinned development/release compiler;
 check local declarations and qualification before claiming adoption is complete.

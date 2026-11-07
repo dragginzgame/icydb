@@ -11,7 +11,7 @@ mod tests;
 use crate::error::InternalError;
 use crate::{
     types::{Decimal, U256},
-    value::{Value, ops::numeric::compare_native_numeric_pair},
+    value::Value,
 };
 use std::cmp::Ordering;
 
@@ -309,17 +309,11 @@ fn apply_u256_arithmetic_checked(
 
 /// Compare two values under numeric-widen coercion semantics.
 ///
-/// Returns `None` when either side is outside numeric coercion domain or when
-/// conversion cannot produce a comparable numeric representation.
+/// Returns `None` when either side is outside numeric coercion domain or
+/// either operand is outside the supported numeric representation family.
 #[must_use]
 pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
-    if let Some(ordering) = compare_native_numeric_pair(left, right) {
-        return Some(ordering);
-    }
-
-    let left = coerce_numeric_decimal(left)?;
-    let right = coerce_numeric_decimal(right)?;
-    left.partial_cmp(&right)
+    crate::value::ops::numeric::compare_numeric_order(left, right)
 }
 
 /// Compare values with numeric widening first, then strict same-variant ordering.
@@ -341,8 +335,19 @@ pub(in crate::db) fn compare_numeric_or_strict_order(
 /// equality.
 #[must_use]
 pub(in crate::db) fn canonical_value_compare(left: &Value, right: &Value) -> Ordering {
-    compare_numeric_or_strict_order(left, right)
-        .unwrap_or_else(|| Value::canonical_cmp(left, right))
+    // Numeric equality must form a single rank block relative to other values.
+    // Otherwise equal Int/Nat keys can straddle Text and violate transitivity.
+    let rank = |value: &Value| {
+        if value.supports_numeric_coercion() {
+            Value::Int64(0).canonical_rank()
+        } else {
+            value.canonical_rank()
+        }
+    };
+    rank(left).cmp(&rank(right)).then_with(|| {
+        compare_numeric_or_strict_order(left, right)
+            .unwrap_or_else(|| Value::canonical_cmp(left, right))
+    })
 }
 
 /// Compare two values for numeric equality under numeric-widen semantics.

@@ -1,4 +1,5 @@
 # Contributions, commits and pull requests
+<!-- Shared companions: docs/release-batches.md -->
 
 These rules are part of the [engineering baseline](../DRAGGINZGAME.md).
 Direct local edits are the default; requested or required review contributions

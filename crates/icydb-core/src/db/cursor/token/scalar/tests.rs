@@ -49,7 +49,7 @@ fn authenticated_scalar_token_round_trips_complete_mixed_order_contract() {
 }
 
 #[test]
-fn current_version_one_scalar_token_round_trips_exact_route_pin() {
+fn current_scalar_token_round_trips_exact_route_pin() {
     let key = [0x66; 32];
     let mut token = token();
     token.route_pin = CardinalityTiebreakRoutePin::new(

@@ -92,7 +92,7 @@ fn grouped_continuation_token_wire_vector_is_frozen() {
     let actual_text = encode_cursor(encoded.as_slice());
     assert_eq!(
         actual_text,
-        "SUNZUQECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAAAAAAQAAAADEAAAAAh0ZW5hbnQtYRIAAAAAAAAABwIByPNC9-MoQ1d1PvanJFh8hhhkwfVLDtfKsmICPrPS6b0"
+        "SUNZTgECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAAAAAAQAAAADEAAAAAh0ZW5hbnQtYRIAAAAAAAAABwIBqZckel8SjqCa4SM5dAfPNaAj41TSBUy3xNmS6cdjtX4"
     );
 }
 
@@ -106,7 +106,7 @@ fn grouped_continuation_token_desc_wire_vector_is_frozen() {
     let actual_text = encode_cursor(encoded.as_slice());
     assert_eq!(
         actual_text,
-        "SUNZUQECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAQAAAAQAAAADEAAAAAh0ZW5hbnQtYRIAAAAAAAAABwIB0y5zMwR2lTzClppGLZVpr_a4ENOD443LPJnrQIxC8Kc",
+        "SUNZTgECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAQAAAAQAAAADEAAAAAh0ZW5hbnQtYRIAAAAAAAAABwIBGcTjbDo2jqcN4c8nQtN_wdd6vfEZfQty1-VLPfXuMS4",
         "grouped continuation token DESC wire encoding must remain stable",
     );
 }
@@ -153,7 +153,7 @@ fn grouped_continuation_token_unit_enum_wire_vector_is_frozen() {
         .expect("grouped unit-enum continuation token should encode");
     assert_eq!(
         encode_cursor(&encoded),
-        "SUNZUQECAAAAMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzAAAAAAAAAAABBgAAAAIAAAADAEws5_vccCXKgyFCG2e0lWfBWF5UCCaRvkKV__eYyG9w"
+        "SUNZTgECAAAAMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzAAAAAAAAAAABBgAAAAIAAAADAAqrcmtNxdKOUC9UQ1vyOvww1tQpGv_o0SY6RCbw2yBt"
     );
 }
 

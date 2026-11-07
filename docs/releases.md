@@ -1,5 +1,5 @@
 # Common release commands
-<!-- Shared companions: docs/cargo-publication.md docs/release-group-validation.md docs/release-validation-reuse.md rules/contributions.md rules/rust-workspaces.md scripts/ci/check-release-source.sh -->
+<!-- Shared companions: docs/cargo-publication.md docs/release-batches.md docs/release-group-validation.md docs/release-validation-reuse.md rules/contributions.md rules/rust-workspaces.md scripts/ci/check-release-source.sh -->
 
 Grouped increment commands use [frozen release batches](release-batches.md) by
 default: `RELEASE_GROUP=engine` captures that group automatically, so

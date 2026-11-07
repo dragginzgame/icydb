@@ -204,13 +204,12 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
 }
 
 #[test]
-fn cargo_cache_progress_reports_long_quiet_phases_without_raw_output() {
+fn cargo_cache_progress_keeps_selected_heartbeat_interval() {
     let config = wasm_build_progress_config();
     assert_eq!(
         config.heartbeat_interval(),
-        Some(BUILD_PROGRESS_HEARTBEAT_INTERVAL)
+        BUILD_PROGRESS_HEARTBEAT_INTERVAL
     );
-    assert!(!config.emits_cargo_output());
 }
 
 #[test]

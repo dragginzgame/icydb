@@ -422,11 +422,16 @@ impl LiveSchemaCheckpointStore {
             .load(store_path)?
             .ok_or_else(InternalError::identity_state_corruption)?;
         let key = (range.owner().entity_tag(), range.owner().field_id());
-        let state = checkpoint
+        let current = checkpoint
             .identity_states
             .get(&key)
-            .ok_or_else(InternalError::identity_state_corruption)?
-            .apply_range_advance(range, advance_id)?;
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        let state = current.apply_range_advance(range, advance_id)?;
+        // Replay validation belongs to IdentityState. Once it confirms the
+        // same advance is materialized, the retained checkpoint needs no write.
+        if state == *current {
+            return Ok(());
+        }
         checkpoint.identity_states.insert(key, state);
         let checkpoint_key = LiveSchemaCheckpointKey::for_store(store_path)?;
         self.map.insert(

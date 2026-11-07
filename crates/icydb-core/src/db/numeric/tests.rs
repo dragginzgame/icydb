@@ -19,91 +19,85 @@ use crate::{
 use std::cmp::Ordering;
 
 #[test]
-fn numeric_order_preserves_decimal_coercion_outside_native_numeric_pairs() {
-    let mut cases = Vec::new();
-    for value in [i64::MIN, -1, 0, 1, i64::MAX] {
-        cases.push(Value::Int64(value));
-        cases.push(Value::Timestamp(Timestamp::from_millis(value)));
-    }
-    for value in [i128::MIN, -1, 0, 1, i128::MAX] {
-        cases.push(Value::Int128(value));
-        cases.push(Value::Decimal(Decimal::from_i128_with_scale(value, 2)));
-    }
-    for value in [0, 1, u64::MAX] {
-        cases.push(Value::Nat64(value));
-        cases.push(Value::Duration(Duration::from_millis(value)));
-    }
-    for value in [
-        0,
-        1,
-        u128::from(u64::MAX),
-        u128::from(u64::MAX) + 1,
-        i128::MAX.cast_unsigned() - 1,
-        i128::MAX.cast_unsigned(),
-        i128::MAX.cast_unsigned() + 1,
-        u128::MAX,
-    ] {
-        cases.push(Value::Nat128(value));
-    }
-    cases.extend([
-        Value::Float32(F32::try_new(0.0).unwrap()),
+fn exact_mixed_numeric_order_and_canonical_ties_are_transitive() {
+    let cases = [
+        Value::Float64(F64::try_new(-f64::MAX).unwrap()),
+        Value::Int128(i128::MIN),
+        Value::Int64(-1),
+        Value::Int64(0),
+        Value::Float64(F64::try_new(f64::from_bits(1)).unwrap()),
         Value::Float32(F32::try_new(f32::from_bits(1)).unwrap()),
-        Value::Float32(F32::try_new(f32::MAX).unwrap()),
-        Value::Float64(F64::try_new(0.0).unwrap()),
-        Value::Float64(F64::try_new(1.0e-30).unwrap()),
+        Value::Decimal(Decimal::new(1, 28)),
+        Value::Float64(F64::try_new(0.3).unwrap()),
+        Value::Decimal(Decimal::new(3, 1)),
+        Value::Decimal(Decimal::new(300_000_001, 9)),
+        Value::Float64(F64::try_new(0.300_000_005).unwrap()),
+        Value::Float32(F32::try_new(0.3).unwrap()),
+        Value::Nat64(1),
+        Value::Duration(Duration::from_millis(2)),
+        Value::Timestamp(Timestamp::from_millis(3)),
+        Value::Int128(i128::MAX),
+        Value::Nat128(1_u128 << 127),
+        Value::Nat128(u128::MAX),
         Value::Float64(F64::try_new(f64::MAX).unwrap()),
-        Value::Text("1".to_string()),
-        Value::Null,
-    ]);
-    for left in &cases {
-        for right in &cases {
-            let expected = match (left, right) {
-                (Value::Nat128(left), Value::Nat128(right)) => Some(left.cmp(right)),
-                (Value::Float32(left), Value::Float32(right)) => Some(left.cmp(right)),
-                (Value::Float64(left), Value::Float64(right)) => Some(left.cmp(right)),
-                _ => coerce_numeric_decimal(left)
-                    .zip(coerce_numeric_decimal(right))
-                    .map(|(left, right)| left.cmp(&right)),
-            };
+    ];
+    for (i, left) in cases.iter().enumerate() {
+        for (j, right) in cases.iter().enumerate() {
+            let expected = i.cmp(&j);
             assert_eq!(
                 compare_numeric_order(left, right),
-                expected,
+                Some(expected),
                 "{left:?}, {right:?}"
             );
-            assert_eq!(
-                compare_numeric_eq(left, right),
-                expected.map(Ordering::is_eq)
-            );
-            if std::mem::discriminant(left) == std::mem::discriminant(right) {
-                assert_eq!(left.cmp_numeric(right), expected, "{left:?}, {right:?}");
-                if left.supports_numeric_coercion() {
-                    assert_eq!(
-                        value_ordering::eq(left, right),
-                        expected.map(Ordering::is_eq)
-                    );
-                    assert_eq!(
-                        value_ordering::order(left, right).map(Ordering::is_lt),
-                        expected.map(Ordering::is_lt)
-                    );
-                }
+            assert_eq!(left.cmp_numeric(right), Some(expected));
+            assert_eq!(value_ordering::order(left, right), Some(expected));
+            assert_eq!(canonical_value_compare(left, right), expected);
+        }
+    }
+    let historical = [
+        Value::Float64(F64::try_new(-1.0e40).unwrap()),
+        Value::Float64(F64::try_new(2.0).unwrap()),
+        Value::Decimal(Decimal::new(5, 0)),
+    ];
+    for (i, left) in historical.iter().enumerate() {
+        for (j, right) in historical.iter().enumerate() {
+            assert_eq!(canonical_value_compare(left, right), i.cmp(&j));
+        }
+    }
+    let ties = [
+        Value::Int64(5),
+        Value::Nat64(5),
+        Value::Decimal(Decimal::new(5, 0)),
+    ];
+    for left in &ties {
+        for right in &ties {
+            assert_eq!(canonical_value_compare(left, right), Ordering::Equal);
+            for other in [Value::Text("x".into()), Value::Null, Value::Bool(false)] {
+                assert_eq!(
+                    canonical_value_compare(left, &other),
+                    canonical_value_compare(right, &other)
+                );
             }
         }
     }
 }
 
 #[test]
-fn mixed_float_pairs_keep_the_value_local_fallback_separate_from_database_widening() {
+fn mixed_float_pairs_share_exact_comparison() {
     let small = Value::Float32(F32::try_new(f32::MAX).unwrap());
     let large = Value::Float64(F64::try_new(f64::MAX).unwrap());
     assert_eq!(small.cmp_numeric(&large), Some(Ordering::Less));
     assert_eq!(large.cmp_numeric(&small), Some(Ordering::Greater));
-    assert_eq!(compare_numeric_order(&small, &large), None);
-    assert_eq!(compare_numeric_order(&large, &small), None);
+    assert_eq!(compare_numeric_order(&small, &large), Some(Ordering::Less));
+    assert_eq!(
+        compare_numeric_order(&large, &small),
+        Some(Ordering::Greater)
+    );
     assert_eq!(
         value_ordering::order(&small, &large).map(Ordering::is_lt),
-        None
+        Some(true)
     );
-    assert_eq!(value_ordering::eq(&small, &large), None);
+    assert_eq!(value_ordering::eq(&small, &large), Some(false));
 }
 
 #[test]
@@ -131,8 +125,14 @@ fn nat128_comparison_uses_the_complete_unsigned_domain_without_widening_arithmet
         Value::Int128(i128::MAX),
         Value::Decimal(Decimal::new(1, 0)),
     ] {
-        assert_eq!(compare_numeric_order(&maximum, &mixed), None);
-        assert_eq!(compare_numeric_order(&mixed, &maximum), None);
+        assert_eq!(
+            compare_numeric_order(&maximum, &mixed),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_numeric_order(&mixed, &maximum),
+            Some(Ordering::Less)
+        );
     }
 }
 

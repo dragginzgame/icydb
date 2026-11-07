@@ -349,9 +349,7 @@ fn report_shared_target_maintenance_failure(context: &str, outcome: &WasmBuildOu
 }
 
 fn wasm_build_progress_config() -> WasmBuildProgressConfig {
-    WasmBuildProgressConfig::new()
-        .with_heartbeat_interval(BUILD_PROGRESS_HEARTBEAT_INTERVAL)
-        .with_cargo_output(false)
+    WasmBuildProgressConfig::new().with_heartbeat_interval(BUILD_PROGRESS_HEARTBEAT_INTERVAL)
 }
 
 const fn artifact_cache_prune_policy() -> CacheRetentionLimits {

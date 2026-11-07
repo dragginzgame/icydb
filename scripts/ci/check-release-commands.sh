@@ -16,7 +16,7 @@ shift
 [[ -f "$root/Makefile" ]] || { echo "missing Makefile: $root" >&2; exit 2; }
 for input in "$@"; do
     case "$input" in
-        ''|/*|..|../*|*/../*|*/..|./*|*/./*|*/.|Makefile|scripts/ci/run-release.sh)
+        ''|/*|..|../*|*/../*|*/..|./*|*/./*|*/.|Makefile|scripts/ci/run-release.sh|scripts/ci/run-release-batch.pl)
             echo "invalid fixture input: $input" >&2; exit 2 ;;
     esac
 done
@@ -24,6 +24,12 @@ done
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
 unset SHARED_TOOLING_ROOT
+# Preserve only the consumer's explicit group selection. A parent batch's
+# active flag, empty roster or saved identity must not change this fixture.
+while IFS= read -r variable; do
+    [[ "$variable" == RELEASE_GROUP ]] || unset "$variable"
+done < <(compgen -A variable RELEASE_)
+unset FROZEN_RELEASE_ACTIVE SHARED_RELEASE_BATCH SHARED_PUBLICATION_RESULT
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/release-commands.XXXXXX")"
 finish() {
     local status=$?
@@ -52,18 +58,41 @@ printf '%s\0' "$@" >> "$RELEASE_COMMAND_EVENTS"
 exit "$RELEASE_COMMAND_RESULT"
 STUB
 chmod +x "$fixture/scripts/ci/run-release.sh"
+cat > "$fixture/scripts/ci/run-release-batch.pl" <<'STUB'
+use strict;
+use warnings;
+open my $events, '>>', $ENV{RELEASE_COMMAND_EVENTS} or die $!;
+print {$events} join("\0", 'batch', @ARGV), "\0";
+close $events or die $!;
+exit $ENV{RELEASE_COMMAND_RESULT};
+STUB
 export RELEASE_COMMAND_EVENTS="$fixture/events"
 cd "$fixture"
 # This checker supports a root snapshot only. Override reviewed Makefile
 # defaults/assignments as well as the environment, so its include cannot route
 # to the original checkout. Consumer Make code remains reviewed executable input.
 fixture_make=(make --no-print-directory -f Makefile "SHARED_TOOLING_ROOT=$fixture")
+cat > release-command-probe.mk <<'PROBE'
+.PHONY: shared-release-command-selection
+shared-release-command-selection:
+	@printf '%s\n' '$(RELEASE_GROUPS)' '$(RELEASE_PUBLISH_TARGET)' '$(RELEASE_SETUP_TARGET)' '$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))'
+PROBE
+"${fixture_make[@]}" -f release-command-probe.mk shared-release-command-selection > selection
+groups=$(sed -n '1p' selection)
+publish_target=$(sed -n '2p' selection)
+setup_target=$(sed -n '3p' selection)
+delivery=$(sed -n '4p' selection)
+contexts=(outer)
+[[ -z "$groups" ]] || contexts+=(inner)
+for context in "${contexts[@]}"; do
+context_args=()
+[[ "$context" != inner ]] || context_args+=(RELEASE_BATCH_ACTIVE=1)
 for kind in patch minor major resume; do
     for result in 0 17; do
         export RELEASE_COMMAND_RESULT="$result"
         : > "$RELEASE_COMMAND_EVENTS"
         status=0
-        "${fixture_make[@]}" "release-$kind" VERSION=0.1.1 \
+        "${fixture_make[@]}" ${context_args[@]+"${context_args[@]}"} "release-$kind" VERSION=0.1.1 \
             RELEASE_REMOTE=review RELEASE_BRANCH=release-review \
             > "$kind-$result.log" 2>&1 || status=$?
         if [[ "$result" == 0 ]]; then
@@ -73,11 +102,17 @@ for kind in patch minor major resume; do
         fi
         if [[ "$kind" == resume ]]; then
             printf '%s\0' resume 0.1.1 review release-review > expected
+        elif [[ "$context" == outer && -n "$groups" ]]; then
+            batch_args=(--root "$fixture" --groups "$groups" --kind "$kind" --remote review --branch release-review --delivery "$delivery")
+            [[ -z "$publish_target" ]] || batch_args+=(--publish-target "$publish_target")
+            [[ -z "$setup_target" ]] || batch_args+=(--setup-target "$setup_target")
+            printf '%s\0' batch "${batch_args[@]}" > expected
         else
             printf '%s\0' "$kind" review release-review > expected
         fi
         cmp expected "$RELEASE_COMMAND_EVENTS"
     done
+done
 done
 export RELEASE_COMMAND_RESULT=0
 for first in patch minor major resume; do
