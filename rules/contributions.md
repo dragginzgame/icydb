@@ -59,7 +59,7 @@ obtain authority for the specific recovery.
 
 ## Durable work and checkout location
 
-Qualified [frozen release batches](../docs/frozen-releases.md) are a narrow
+Qualified [frozen release batches](../docs/release-batches.md) are a narrow
 managed-delivery exception: committed source executes under the owning checkout's
 `target/release-frozen/BATCH`, with durable Git/recovery state under
 `.git/release-state/frozen/BATCH`. Normal delivery authority covers that adopted

@@ -3,15 +3,62 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
-## [0.300.1]
+## [0.301.0]
+
+### ⚠️ Breaking
+
+- Adopt Testkit 0.90 for public native testing types and explicit finite request
+  budgets. Native consumers sharing those types must use the same Testkit line;
+  stored database formats and current-image recovery are unchanged
+  ([#629 — Migrate root PocketIC request budgets](https://github.com/dragginzgame/icydb/issues/629)).
+
+### 🐛 Fixed
+
+- Complete host Wire metadata for typed IDs, Unit, Blob and the 31 transparent
+  model base wrappers. Consumer DTO bindings retain their existing Serde bytes,
+  with endpoint-owned admission limits and no Wasm metadata dependencies
+  ([#628 — Complete consumer DTO metadata](https://github.com/dragginzgame/icydb/issues/628)).
+- Remove validation-only field-kind copies from CHECK comparisons, length and
+  cardinality checks. Borrow accepted field/catalog/literal kinds while retaining
+  current admission and diagnostics
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Reuse operation-local canonical-key buffers during CHECK Boolean sorting and
+  validation, preserving byte order, duplicate elimination and typed refusals
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit targeted-rule and record-member ordering through the existing caller
+  budget, including sort scratch and record ordinal backing. Preserve typed
+  refusal facts and historical activation authority
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Charge CHECK and targeted-rule literal inputs to the caller's existing decode
+  allowance before decoding, preserving cumulative limits and typed refusals
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Remove newtype-resolution cycle-tracking allocations using the accepted
+  catalog's finite bound, preserving borrowed results and cycle refusals
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Admit targeted-rule field and newtype lookup work through the existing caller
+  budget, reusing accepted physical slots without a second layout scan
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
+- Validate CHECK encoded-size limits without allocating and discarding full
+  canonical keys, retaining the existing encoder, bytes and typed bounds
+  ([#76 — Predicate construction accounting](https://github.com/dragginzgame/icydb/issues/76)).
 
 ### 🔧 Changed
 
-- Adopt Shared Tooling 0.30.9 and its saved-context candidate setup, status,
-  recovery and guarded reconciliation commands. Remove equivalent local
-  orchestration; recovery checks saved tools offline and preserves deferred edits.
+- Remove duplicate generic tool-command fixtures from both macOS CI matrices,
+  retaining IcyDB's automation, setup and Canic adapter checks.
+- Adopt Build 0.77's complete batch results and raise declared Platform,
+  Runtime and Types floors to the selected 0.23.6, 0.19.5 and 0.18.2 versions.
+  Retain cache identity, artifact custody and complete failure reporting.
+- Keep release preflight aligned with the pending database notes while retaining
+  full validation for changed dependencies, workflows and unqualified mappings.
+- Adopt Shared Tooling 0.31.0 and its saved-context setup, status, recovery
+  and guarded reconciliation commands. Use the renamed release-batch settings,
+  automatic capture and schema-2 journals; retain older state with its original
+  tooling. Recovery checks saved tools offline and preserves deferred edits.
+- Reject malformed checksum output and incomplete snapshot annotations through
+  the reviewed Shared integrity helpers.
 
-[Detailed changes](0.300.md).
+[Detailed changes](0.301.md).
 
 ## [0.300.0] - 2026-11-06
 

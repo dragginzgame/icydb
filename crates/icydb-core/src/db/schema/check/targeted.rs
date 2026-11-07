@@ -8,6 +8,7 @@ use super::{
     },
 };
 use crate::{
+    db::resource::construction::ConstructionBudget,
     db::schema::{
         AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedNamedTypeIdentity,
         AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaSnapshot,
@@ -20,10 +21,18 @@ use crate::{
             AcceptedEnumVariantBody, EnumTypeId, EnumVariantId, MAX_ACCEPTED_VALUE_BYTES,
         },
     },
-    error::{ConstraintValuePath, ConstraintValuePathComponent},
+    error::{ConstraintValuePath, ConstraintValuePathComponent, InternalError},
     value::{CanonicalEnumBody, Value},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::{borrow::Cow, collections::BTreeMap};
+
+pub(super) type TargetedRuleSource<'a> = (
+    ConstraintId,
+    AcceptedRuleTarget,
+    &'a AcceptedRuleOperation,
+    bool,
+);
 
 pub(in crate::db) const MAX_ACCEPTED_TARGET_PATH_COMPONENTS: usize =
     MAX_ACCEPTED_RECURSIVE_DEPTH_U16 as usize;
@@ -242,24 +251,65 @@ impl CompiledAcceptedTargetedRules {
         let ConstraintActivationKind::TargetedRule { target, operation } = activation.kind() else {
             return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
         };
-        Self::compile_sources(
+        // Historical activation retains its existing construction contract;
+        // introducing a fresh per-program ceiling would change that authority.
+        Self::compile_sources_inner(
             schema,
             value_catalog,
             std::iter::once((activation.id(), *target, operation.as_ref(), false)),
         )
     }
 
-    pub(super) fn compile_sources<'a>(
+    pub(super) fn compile_sources(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
-        sources: impl Iterator<
-            Item = (
-                ConstraintId,
-                AcceptedRuleTarget,
-                &'a AcceptedRuleOperation,
-                bool,
-            ),
-        >,
+        sources: Vec<TargetedRuleSource<'_>>,
+        work: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        if !sources.is_empty() {
+            let catalog = value_catalog.composite_catalog();
+            // Reuse the classified input rather than collecting another source
+            // buffer. Admit dispatch, the full field-metadata lookup extent and
+            // the resolver's own finite bound before semantic compilation.
+            let per_source = (schema.persisted_snapshot().fields().len() as u64)
+                .saturating_add(1)
+                .saturating_add(catalog.newtype_resolution_visit_bound());
+            work.charge(
+                Resource::PredicateExpressionSteps,
+                (sources.len() as u64).saturating_mul(per_source),
+            )?;
+            for (_, _, operation, _) in &sources {
+                for literal in operation.literals() {
+                    literal.admit_decode_input(work)?;
+                }
+            }
+            // One full-source reservation bounds the sum of all root-group
+            // sorts, including both scratch buffers and comparison allowances.
+            work.admit_compact_sort(sources.len())?;
+            // Admit discovery here and again in semantic construction before
+            // either walk, including non-record definitions filtered from output.
+            work.charge(
+                Resource::PredicateExpressionSteps,
+                (catalog.id_by_path().len() as u64).saturating_mul(2),
+            )?;
+            for (_, fields) in record_fields_for_ordering(catalog) {
+                work.charge(
+                    Resource::TemporaryBytes,
+                    (fields.len() as u64).saturating_mul(size_of::<usize>() as u64),
+                )?;
+                work.admit_compact_sort(fields.len())?;
+            }
+        }
+        // Preserve construction failures above rather than mapping their typed
+        // resource/lane facts into the semantic corruption diagnostic.
+        Self::compile_sources_inner(schema, value_catalog, sources.into_iter())
+            .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())
+    }
+
+    fn compile_sources_inner<'a>(
+        schema: &AcceptedSchemaSnapshot,
+        value_catalog: &AcceptedValueCatalogHandle,
+        sources: impl Iterator<Item = TargetedRuleSource<'a>>,
     ) -> Result<Self, AcceptedTargetedRuleEvaluationError> {
         let snapshot = schema.persisted_snapshot();
         let mut roots = BTreeMap::<FieldId, CompiledAcceptedTargetedRoot>::new();
@@ -269,10 +319,9 @@ impl CompiledAcceptedTargetedRules {
                 .iter()
                 .find(|field| field.id() == target.root_field_id())
                 .ok_or(AcceptedTargetedRuleEvaluationError::InvalidTarget)?;
-            let slot = snapshot
-                .row_layout()
-                .slot_for_field(field.id())
-                .ok_or(AcceptedTargetedRuleEvaluationError::InvalidTarget)?;
+            // Snapshot acceptance already proves the field's physical slot
+            // matches its row layout; reuse that resolved metadata authority.
+            let slot = field.slot();
             let compiled_operation =
                 compile_operation(target.target_type(), operation, value_catalog)?;
             let root = roots
@@ -970,20 +1019,30 @@ fn compile_record_orders(
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> BTreeMap<CompositeTypeId, Vec<usize>> {
     let mut orders = BTreeMap::new();
-    for type_id in composite_catalog.id_by_path().values() {
-        let Some(definition) = composite_catalog.composite_type(*type_id) else {
-            continue;
-        };
-        let AcceptedCompositeShape::Record(fields) = definition.shape() else {
-            continue;
-        };
+    for (type_id, fields) in record_fields_for_ordering(composite_catalog) {
         let mut order = (0..fields.len()).collect::<Vec<_>>();
         icydb_schema::compact_sort_unstable_by(&mut order, |left, right| {
             fields[*left].id().cmp(&fields[*right].id())
         });
-        orders.insert(*type_id, order);
+        orders.insert(type_id, order);
     }
     orders
+}
+
+// Admission and construction share the exact record roster and field extent.
+fn record_fields_for_ordering(
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> impl Iterator<Item = (CompositeTypeId, &[AcceptedCompositeField])> {
+    composite_catalog
+        .id_by_path()
+        .values()
+        .filter_map(move |type_id| {
+            let definition = composite_catalog.composite_type(*type_id)?;
+            let AcceptedCompositeShape::Record(fields) = definition.shape() else {
+                return None;
+            };
+            Some((*type_id, fields.as_slice()))
+        })
 }
 
 const fn named_type_identity(kind: &AcceptedFieldKind) -> Option<AcceptedNamedTypeIdentity> {

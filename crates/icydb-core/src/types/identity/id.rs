@@ -17,6 +17,11 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
+use ic_wire::typescript::{GenerationError, SchemaContext, Wire};
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
+use serde_json::Value as SchemaValue;
+
 //
 // Id
 //
@@ -295,6 +300,17 @@ where
 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serde::Serialize::serialize(&self.key, serializer)
+    }
+}
+
+// Like Serialize, host metadata exposes only the key, never the entity model.
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
+impl<E: EntityKey> Wire for Id<E>
+where
+    E::Key: Wire,
+{
+    fn native_schema(context: &mut SchemaContext) -> Result<SchemaValue, GenerationError> {
+        E::Key::native_schema(context)
     }
 }
 

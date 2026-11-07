@@ -33,28 +33,25 @@ IC_TOOLS ?= icp ic-wasm wasm-opt
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # Include derive sorting in the shared manifest/derive/Rustfmt flow.
 FORMAT_RUST_ARGS := --sort-derives
-# Reject ambiguous release/publication selections before included setup rules run.
-RELEASE_FROZEN_GROUPS ?= $(RELEASE_GROUP)
-RELEASE_FROZEN_SETUP_TARGET := release-candidate-setup
+# Shared owns batch defaults and retired-setting refusal; IcyDB admits package
+# ownership and supplier order before any target recipe can run.
+RELEASE_SETUP_TARGET := release-candidate-setup
+export RELEASE_GROUP
+include $(ROOT_DIR)/make/consumer.mk
+
 _icydb_release_selection_mode :=
 ifneq ($(filter release-patch release-minor release-major,$(MAKECMDGOALS)),)
-ifneq ($(FROZEN_RELEASE_ACTIVE),1)
-ifneq ($(strip $(RELEASE_FROZEN_GROUPS)),)
+ifneq ($(RELEASE_BATCH_ACTIVE),1)
 _icydb_release_selection_mode := --batch
-endif
 endif
 endif
 ifneq ($(filter release-% publish,$(MAKECMDGOALS)),)
 ifneq ($(filter-out release-clean release-editor-check release-batch-%,$(filter release-% publish,$(MAKECMDGOALS))),)
-ifneq ($(shell RELEASE_GROUP='$(subst ','"'"',$(RELEASE_GROUP))' RELEASE_FROZEN_GROUPS='$(subst ','"'"',$(RELEASE_FROZEN_GROUPS))' bash "$(ROOT_DIR)/scripts/release/group.sh" $(_icydb_release_selection_mode) && printf admitted),admitted)
+ifneq ($(shell RELEASE_GROUP='$(subst ','"'"',$(RELEASE_GROUP))' RELEASE_GROUPS='$(subst ','"'"',$(RELEASE_GROUPS))' bash "$(ROOT_DIR)/scripts/release/group.sh" $(_icydb_release_selection_mode) && printf admitted),admitted)
 $(error Select an explicit valid RELEASE_GROUP)
 endif
 endif
 endif
-export RELEASE_GROUP
-# Capture the explicitly selected group by default; multi-group deployments
-# provide their complete supplier-first roster. Publication remains explicit.
-include $(ROOT_DIR)/make/consumer.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
@@ -145,7 +142,7 @@ help:
 	@echo "  release-resume VERSION=X.Y.Z  Resume the exact saved release candidate"
 	@echo "  release-batch-resume BATCH=<id> Resume a captured release/publication batch"
 	@echo "  release-batch-status/reconcile/retire BATCH=<id> Inspect, integrate, or explicitly retire a batch"
-	@echo "  RELEASE_FROZEN_GROUPS=database,cli selects a supplier-first batch; publication is explicit"
+	@echo "  RELEASE_GROUPS=database,cli selects a supplier-first batch; publication is explicit"
 	@echo "  package          Build publishable crate tarballs"
 	@echo "  publish          Publish crates; reuse the exact shared release receipt when available"
 	@echo ""
@@ -773,12 +770,12 @@ release-preflight release-prepare-version release-prepared-check release-commit-
 release-verify release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: RELEASE_EDITOR_CHECK = bash "$(ROOT_DIR)/scripts/release/select-editor.sh" "$${RELEASE_COMMIT:-$${RELEASE_SOURCE:-HEAD}}"
 
 .PHONY: release-verify
-.PHONY: release-candidate-setup test-frozen-release
+.PHONY: release-candidate-setup test-release-batch
 # Shared invokes setup before version discovery and checks saved tools on resume.
 # Recovery never installs a tool from partially prepared working metadata.
 release-candidate-setup:
 	@bash scripts/ci/verify-shared-tooling-snapshot.sh >&2
-	+@case "$(RELEASE_FROZEN_SETUP_MODE)" in \
+	+@case "$(RELEASE_SETUP_MODE)" in \
 		prepare) \
 			{ $(MAKE) --no-print-directory host-tools-check >/dev/null 2>&1 || $(MAKE) --no-print-directory install-host-tools >&2; } && \
 			{ CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory fetch >/dev/null 2>&1 || $(MAKE) --no-print-directory fetch >&2; } ;; \
@@ -786,10 +783,10 @@ release-candidate-setup:
 			$(MAKE) --no-print-directory host-tools-check >&2 && \
 			$(CARGO_WORK_ENV) bash scripts/release/select-editor.sh "$(RELEASE_SOURCE)" >&2 && \
 			CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory fetch >&2 ;; \
-		*) echo 'Select RELEASE_FROZEN_SETUP_MODE=prepare or check' >&2; exit 2 ;; \
+		*) echo 'Select RELEASE_SETUP_MODE=prepare or check' >&2; exit 2 ;; \
 	 esac
-test-frozen-release:
-	+bash scripts/release/test-frozen-release.sh
+test-release-batch:
+	+bash scripts/release/test-release-batch.sh
 release-version:
 	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/release/version.sh
 release-preflight:

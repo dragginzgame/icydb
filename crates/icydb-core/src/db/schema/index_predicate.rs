@@ -514,7 +514,9 @@ impl AcceptedIndexPredicate {
                 .map(|value| {
                     // Admit the persisted input before decoding or allocating its
                     // value. Keep budget refusal outside corruption translation.
-                    charge(Resource::DecodedBytes, value.payload().len() as u64)?;
+                    if let Some(work) = work {
+                        value.admit_decode_input(work)?;
+                    }
                     decode_literal(value, catalog).map_err(|_| InternalError::store_corruption())
                 })
                 .transpose()

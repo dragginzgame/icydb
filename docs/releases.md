@@ -1,9 +1,10 @@
 # Common release commands
 <!-- Shared companions: docs/cargo-publication.md docs/release-group-validation.md docs/release-validation-reuse.md rules/contributions.md rules/rust-workspaces.md scripts/ci/check-release-source.sh -->
 
-Grouped consumers may qualify [frozen release batches](frozen-releases.md) so
+Grouped increment commands use [frozen release batches](release-batches.md) by
+default: `RELEASE_GROUP=engine` captures that group automatically, so
 normal-checkout `cargo update` writes affect the next release, not active delivery.
-Select the full affected group roster once and execute release and publication
+Select a multi-group roster explicitly and execute release and publication
 from that captured source; do not mix candidate validation with live publication.
 
 Every `dragginzgame` repository, including Shared Tooling and repositories without
@@ -53,8 +54,8 @@ Successful attempts remove only their own scratch directory.
 
 Shared selects `RELEASE_VERSION_MODE=pending` and supplies `release-base-version`.
 That read-only hook returns the preceding ledger version when `VERSION` already
-matches an explicit pending heading, otherwise the current version for the legacy
-workflow. The runner computes the requested increment from that base and still
+matches an explicit pending heading, otherwise the current finalized version.
+VERSION and the top changelog version must agree for every lookup. The runner computes the requested increment from that base and still
 requires the candidate to agree with the prepared metadata. Preparation must be
 idempotent because the pending version can already be present before finalization
 or recovery. A mismatched release kind fails before validation or delivery.

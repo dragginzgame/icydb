@@ -62,16 +62,20 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   is not a release-readiness verdict. Human-owned release publication uses
   `make release-patch RELEASE_GROUP=database`, `make release-minor RELEASE_GROUP=database` or `make release-major RELEASE_GROUP=database`; the shared
   runner owns preparation, staging, commit, tag and atomic branch/tag push.
-- Release entrypoints capture the explicitly selected group through the shared
-  frozen runner by default. Select the whole affected roster with
-  `RELEASE_FROZEN_GROUPS=database,cli` in supplier-first order; a batch supports
-  only one increment. Select `RELEASE_FROZEN_PUBLISH_TARGET=publish` explicitly
-  when publication is authorized. For a mixed-increment delivery, clear
-  `RELEASE_FROZEN_GROUPS=` and use the standard group workflows.
+- Grouped release entrypoints capture automatically through Shared. Select the
+  whole supplier-first roster with `RELEASE_GROUP=database RELEASE_GROUPS=database,cli`;
+  one increment applies to the batch. Select `RELEASE_PUBLISH_TARGET=publish`
+  explicitly when publication is authorized. Clearing the roster refuses; resolve
+  mixed-increment delivery scope before starting a batch.
 - Shared invokes `release-candidate-setup` before group version discovery and
   resumed hooks. Preparation uses existing tool/source owners; recovery checks
   the saved source's selected metadata editor offline. Never duplicate setup in
   outer release recipes or install from partially prepared recovery metadata.
+- Shared 0.31 uses schema-2 intent and `RELEASE_SETUP_MODE=prepare|check`.
+  Pre-0.31 batch operations require their original reviewed tooling. The completed
+  `batch-kRCC00xv` retains its 0.30.9 runner in the managed checkout; do not run
+  its journal through the new interface or rewrite its schema. Active old batches
+  must finish with their original tools before adoption.
 - Inspect saved delivery with `make release-batch-status BATCH=<saved-id>`;
   `release-batch-reconcile` admits a clean normal checkout and fast-forwards only.
   `release-batch-retire` is explicit deletion authority for that completed batch;

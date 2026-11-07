@@ -93,7 +93,7 @@ def npm_git:
 def npm_exact: type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
 def npm_checks($file; $lock; $node; $npm):
   . as $package |
-  (if ($lock.lockfileVersion == 2 or $lock.lockfileVersion == 3) and
+  (if $lock.lockfileVersion == 3 and
       ($lock.packages | type == "object") and ($lock.packages[""] | type == "object") then
     $lock.packages[""] as $root |
     (["name", "version"][] as $key |
@@ -104,7 +104,7 @@ def npm_checks($file; $lock; $node; $npm):
     (npm_sections[] as $key |
       if ($package[$key] // {}) == ($root[$key] // {}) then empty
       else finding($file; "npm-lock"; $key; "<declaration mismatch>"; "manifest and lock root dependencies must agree") end)
-  else finding($file; "npm-lock"; "lockfileVersion/packages"; "<unsupported lock>"; "requires package-lock schema 2 or 3 with a root packages entry") end),
+  else finding($file; "npm-lock"; "lockfileVersion/packages"; "<unsupported lock>"; "requires package-lock schema 3 with a root packages entry") end),
   (npm_sections[] as $key |
     if ($package | has($key)) and (($package[$key] | type) != "object") then
       finding($file; "npm-declaration"; $key; "<invalid declaration>"; "dependency section must be an object")

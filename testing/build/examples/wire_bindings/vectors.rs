@@ -84,7 +84,7 @@ pub(super) fn add(generator: &mut Generator) -> Result<()> {
     Ok(())
 }
 
-fn js(node: &Value, sample: &Sample, types: &BTreeMap<String, Value>) -> Result<String> {
+pub(super) fn js(node: &Value, sample: &Sample, types: &BTreeMap<String, Value>) -> Result<String> {
     let kind = node["k"].as_str().ok_or("missing vector schema")?;
     if kind == "ref" {
         let name = node["name"].as_str().ok_or("missing vector type")?;

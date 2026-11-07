@@ -592,9 +592,16 @@ Without `build`, declarations emit application types and behavior without
 process-global registration or authoring descriptors. Host `build`, `node`,
 `fragment` and graph error APIs require that feature. Feature selection belongs
 to IcyDB's dependency; callers need no feature with a matching name. `wire-schema`
-is a separate opt-in for native binding metadata on `icydb`, `icydb-core` and
-`icydb-schema`, and does not collect the application graph. Runtime codecs and
-accepted catalog authority do not depend on either generation feature.
+is a separate opt-in for native binding metadata on `icydb`, `icydb-core`,
+`icydb-model` and `icydb-schema`, and does not collect the application graph.
+It covers `Id<E>` through `E::Key` without requiring entity metadata, `Unit`,
+`Blob`, and the model library's transparent base newtypes (including geographic
+and web wrappers). Application-defined records/enums still need their own Wire
+metadata. Layout metadata follows Serde; it does not run application validation
+or normalization. Blob has no universal maximum: concrete endpoints must supply
+finite Wire admission limits. These host implementations do not enter Wasm.
+Runtime codecs and accepted catalog authority do not depend on either generation
+feature.
 
 For several canisters, share declarations only where the Rust domain is
 actually shared; independent canisters can each use the single-package layout.

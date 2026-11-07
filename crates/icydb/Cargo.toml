@@ -11,7 +11,12 @@ authors = { workspace = true }
 
 [features]
 default = []
-wire-schema = ["icydb-core/wire-schema", "icydb-schema/wire-schema", "ic-wire/typescript"]
+wire-schema = [
+    "icydb-core/wire-schema",
+    "icydb-model/wire-schema",
+    "icydb-schema/wire-schema",
+    "ic-wire/typescript",
+]
 build = ["icydb-model/build"]
 sql = ["icydb-core/sql"]
 metrics = ["icydb-core/metrics"]

@@ -5,7 +5,7 @@ set -euo pipefail
 [[ $# == 0 ]] || exit 2
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES SHARED_TOOLING_ROOT
-unset RELEASE_GROUP RELEASE_FROZEN_GROUPS RELEASE_FROZEN_PUBLISH_TARGET FROZEN_RELEASE_ACTIVE
+unset RELEASE_GROUP RELEASE_GROUPS RELEASE_PUBLISH_TARGET RELEASE_BATCH_ACTIVE
 unset RELEASE_COMMIT RELEASE_SOURCE RELEASE_RECEIPT_DIR ICYDB_RELEASE_ROOT PACKAGE
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
 unset CARGO_HOME CARGO_TARGET_DIR
@@ -145,27 +145,27 @@ git init -q --bare "$fixture/remote.git"
 git -C "$normal" remote add origin "$fixture/remote.git"
 git -C "$normal" push -q origin main
 source="$(git -C "$normal" rev-parse HEAD)"
-if make -s -C "$normal" release-patch RELEASE_GROUP=cli RELEASE_FROZEN_GROUPS=cli,database > "$fixture/order-refusal.log" 2>&1; then exit 1; fi
+if make -s -C "$normal" release-patch RELEASE_GROUP=cli RELEASE_GROUPS=cli,database > "$fixture/order-refusal.log" 2>&1; then exit 1; fi
 : > "$fixture/fail-once"
 : > "$fixture/publication-stop"
 if make --no-print-directory -C "$normal" release-patch RELEASE_GROUP=database \
-    RELEASE_FROZEN_GROUPS=database,cli RELEASE_FROZEN_PUBLISH_TARGET=publish > "$fixture/interrupted.log" 2>&1; then exit 1; fi
+    RELEASE_GROUPS=database,cli RELEASE_PUBLISH_TARGET=publish > "$fixture/interrupted.log" 2>&1; then exit 1; fi
 intents=("$normal"/.git/release-state/frozen/batch-*/intent.json)
 [[ ${#intents[@]} == 1 && -f "${intents[0]}" ]]
-jq -e '.phase=="releasing" and .index==0' "${intents[0]}" >/dev/null
+jq -e '.schema==2 and .phase=="releasing" and .index==0' "${intents[0]}" >/dev/null
 [[ ! -f "$fixture/fail-once" && "$(git -C "$normal" rev-parse HEAD)" == "$source" ]]
 cp "$normal/Cargo.lock" "$fixture/expected-deferred-Cargo.lock"
 if cmp -s "$fixture/captured-Cargo.lock" "$fixture/expected-deferred-Cargo.lock"; then exit 1; fi
 batch="$(basename "${intents[0]%/*}")"
 if make --no-print-directory -C "$normal" release-batch-resume "BATCH=$batch" > "$fixture/resumed.log" 2>&1; then exit 1; fi
-jq -e '.phase=="publishing" and .index==0' "${intents[0]}" >/dev/null
+jq -e '.schema==2 and .phase=="publishing" and .index==0 and (.release_commit | length==40)' "${intents[0]}" >/dev/null
 [[ "$(wc -l < "$fixture/published")" == 6 ]]
 printf 'database\n' > "$fixture/expected-publications"
 cmp "$fixture/expected-publications" "$fixture/publications"
 if make --no-print-directory -C "$normal" release-batch-resume "BATCH=$batch" > "$fixture/uncertain.log" 2>&1; then exit 1; fi
 [[ "$(wc -l < "$fixture/published")" == 6 ]]
 make --no-print-directory -C "$normal" release-batch-resume "BATCH=$batch" PUBLICATION_RESULT=published > "$fixture/reconciled.log" 2>&1
-jq -e '.phase=="complete" and .index==2' "${intents[0]}" >/dev/null
+jq -e '.schema==2 and .phase=="complete" and .index==2' "${intents[0]}" >/dev/null
 [[ "$(git -C "$normal" rev-parse HEAD)" == "$source" ]]
 cmp "$normal/Cargo.lock" "$fixture/expected-deferred-Cargo.lock"
 printf 'database\ncli\n' > "$fixture/expected-publications"
@@ -184,6 +184,21 @@ make --no-print-directory -C "$normal" release-batch-resume "BATCH=$batch" > "$f
 [[ "$(wc -l < "$fixture/published")" == 7 ]]
 cmp "$fixture/expected-publications" "$fixture/publications"
 make --no-print-directory -C "$normal" release-batch-status "BATCH=$batch" > "$fixture/status.log" 2>&1
+# Deliberately malformed fixture journals must refuse, never migrate schema 1
+# or reconstruct publication identity from the candidate's current HEAD.
+cp "${intents[0]}" "$fixture/completed-intent.json"
+for refusal in old-schema missing-publication-commit; do
+    if [[ "$refusal" == old-schema ]]; then
+        jq '.schema=1' "$fixture/completed-intent.json" > "$fixture/invalid-intent.json"
+    else
+        jq '.phase="publish" | .index=0 | del(.release_commit)' \
+            "$fixture/completed-intent.json" > "$fixture/invalid-intent.json"
+    fi
+    cp "$fixture/invalid-intent.json" "${intents[0]}"
+    if make --no-print-directory -C "$normal" release-batch-status "BATCH=$batch" > "$fixture/$refusal.log" 2>&1; then exit 1; fi
+    cp "$fixture/completed-intent.json" "${intents[0]}"
+    [[ "$(wc -l < "$fixture/published")" == 7 ]]
+done
 if make --no-print-directory -C "$normal" release-batch-reconcile "BATCH=$batch" > "$fixture/dirty-reconcile.log" 2>&1; then exit 1; fi
 [[ "$(git -C "$normal" rev-parse HEAD)" == "$source" ]]
 cmp "$normal/Cargo.lock" "$fixture/expected-deferred-Cargo.lock"

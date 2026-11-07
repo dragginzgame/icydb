@@ -9,6 +9,15 @@ independently supplies native samples covering custom scalar decoders. Scalar
 byte widths, calendar bounds and canonical Decimal text remain explicit at their
 owning types. Metadata dependencies enter native libraries, but not canister Wasm.
 
+The same check also generates a separate consumer DTO endpoint, outside the
+twelve-method production registry and its baseline. It composes typed IDs with
+numeric and Ulid keys, Unit, Blob, geographic/web wrappers and representative
+byte, Decimal and integer base newtypes. Rust and TypeScript qualify exact
+request/reply bytes, Unicode, scalar custody, malformed/trailing/truncated frames,
+direction checks and the fixture endpoint's finite 512-byte ceiling. Native
+controls independently compare the wrappers with their existing primitive Serde
+bytes. These are codec checks, not installed application endpoint qualification.
+
 `client.ts` passes raw requests to the caller's ICP SDK agent. The SDK owns
 identity, signatures, certificates and update polling. The adapter does not fetch
 root keys or disable verification. Only the disposable local browser fixture

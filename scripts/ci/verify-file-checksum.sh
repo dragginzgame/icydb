@@ -44,14 +44,22 @@ output="$(
     LC_ALL=C "${hash_command[@]}" < "$file" | {
         record=''
         if IFS= read -r -d '' record; then
-            echo "$algorithm backend output contains a NUL byte for $file" >&2
-            exit 1
+            # Drain the producer so rejecting output cannot induce SIGPIPE and
+            # conceal the backend's own exit status. This marker is not a digest.
+            while IFS= read -r -d '' record; do :; done
+            printf 'NUL'
+            exit 0
         fi
         printf '%s' "$record"
     }
 )" || {
-    status=$?; echo "$algorithm backend failed for $file" >&2; exit "$status";
+    status=$?
+    echo "$algorithm backend failed for $file" >&2; exit "$status";
 }
+if [[ "$output" == NUL ]]; then
+    echo "$algorithm backend output contains a NUL byte for $file" >&2
+    exit 1
+fi
 pattern="^([0-9a-f]{$expected_length}) [ *]-$"
 if [[ ! "$output" =~ $pattern ]]; then
     echo "malformed $algorithm backend output for $file" >&2

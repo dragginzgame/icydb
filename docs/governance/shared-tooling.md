@@ -7,14 +7,47 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the **0.30.9 committed snapshot** at
-`18ba8d1fdbc76a5c8334d1ad1c71f9bfcd4580a1`. The canonical revision-selected
+IcyDB selects the **0.31.0 committed snapshot** at
+`74313941af2fce4399bec0e6909ca6229673c3f8`. The canonical revision-selected
 exporter installed it without modifying supplier files; all **159 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
 minimum in the two workspace manifests and the pinned development compiler.
 No IcyDB package versions or release state change in this adoption; the incoming
 dirty candidate is preserved. Dependency selections are recorded below.
+
+The 0.31.0 hard cut renames the batch runner and configuration settings, removes
+old-name aliases and requires schema-2 intent with an explicitly recorded commit
+before publication. IcyDB uses `RELEASE_SETUP_TARGET=release-candidate-setup` and
+`RELEASE_SETUP_MODE=prepare|check`; Shared owns automatic single-group capture.
+The former optional capture default and live-delivery escape are removed. New
+snapshot exports require version and entrypoint annotations. Checksum admission
+rejects NUL output before shell capture and distinguishes malformed output from
+backend failure; npm lockfiles require schema 3.
+
+The completed pre-0.31 `batch-kRCC00xv` remains schema 1 with its original
+0.30.9 checkout and tooling under `target/release-frozen/batch-kRCC00xv/`.
+It is not an active delivery, and no journal is relabelled or publication commit
+reconstructed. Any remaining reconciliation/retirement must use that original
+reviewed runner, rather than 0.31's schema-2 interface. That adoption preserved
+the deferred Testkit 0.89.3 edit and local delivery notes; subsequent requested
+dependency adoption is recorded below. No adoption authorizes discarding
+unrelated edits or cleaning retained delivery caches.
+
+The 0.31 consumer qualification passes on Linux with Rust/Cargo 1.99.1.
+All 159 annotated payloads match reviewed source and executable modes. Actual
+setup, source/manifest-verified native archives, metadata preparation, schema-2
+journals, receipts, interruption/uncertain-publication recovery and completed resume pass
+in `target/tmp/frozen-icydb.2roRMAMs/`; registry effects are substitutes. The same
+fixture rejects schema-1 intent and missing publication identity without
+migration or HEAD reconstruction, and retains supplier-order, remote-conflict,
+guarded reconciliation and cache-retirement controls. Dispatch, checksum/NUL
+and missing-source controls, documentation, shell and schema-3 npm checks pass.
+The retained 0.30.9 snapshot independently verifies against its original source.
+During that adoption the incoming Testkit 0.89.3 lock bytes were unchanged. No broad product suite,
+release preparation, staging, commit, push, publication or cleanup ran for this
+adoption. Current-mapping omissions and native macOS remain unqualified; IC
+cycles/instructions and total/code-section Wasm deltas are unmeasured.
 
 The 0.30.9 refresh moves captured-checkout setup into Shared's saved batch
 context. `release-candidate-setup` prepares the selected host tools and locked
@@ -46,20 +79,30 @@ checks. The maintainer subsequently authorized the preserved Wire/Derive 0.17.5
 edit for CLI 0.296.2 deployment. macOS and current-mapping release qualification
 remain separate.
 
+CLI 0.296.2 subsequently completed real frozen delivery in `batch-kRCC00xv`
+at `2db84355523b0af29d4434d718a1e03a4749e528`, after passing the full Linux
+release gate. The official archive matches registry checksum, clean source and
+original manifest and selects published IcyDB 0.300.0 with Wire 0.17.5. A new
+normal-checkout Testkit 0.89.3 lock edit stayed deferred while the batch retained
+Testkit 0.89.2 through publication. The normal branch awaits clean reconciliation;
+the deferred edit and durable release evidence are preserved. See the
+[delivery status](../design/0.300-testkit-frozen/0.300-status.md).
+
 The 0.30.8 refresh adds the canonical frozen release-batch helper and its
 underscore-safe recovery identifiers. A qualified batch captures clean committed
 source once; later normal-checkout lock edits stay deferred while every selected
 group releases and publishes from that captured graph. Durable recovery state
 lives under `.git/release-state/frozen/`; the normal checkout is never reset or
-silently reconciled. See [frozen release batches](../../docs/frozen-releases.md).
+silently reconciled. See [frozen release batches](../../docs/release-batches.md).
 
-Ordinary release entrypoints default `RELEASE_FROZEN_GROUPS` to the explicitly
-selected `RELEASE_GROUP`. Select the complete affected roster in supplier-first
-order: `database`, `cli`, or `database,cli`. Publication remains explicit through
-`RELEASE_FROZEN_PUBLISH_TARGET=publish`; omitting it retains Git-only delivery.
-The shared runner supports one increment for the whole batch. Mixed database
-minor / CLI patch deliveries use the standard group workflows with
-`RELEASE_FROZEN_GROUPS=` until mixed increments have upstream support.
+Grouped release entrypoints capture automatically through Shared. `RELEASE_GROUPS`
+defaults to the explicitly selected `RELEASE_GROUP`; select a complete supplier-first
+roster with `RELEASE_GROUP=database RELEASE_GROUPS=database,cli`. Publication remains
+explicit through `RELEASE_PUBLISH_TARGET=publish`. Clearing the roster refuses;
+there is no supported fallback to live-checkout grouped delivery. A batch applies
+one increment to every group; mixed increments require resolving the intended
+roster/increments before starting delivery. Earlier delivery records describe the
+then-supported standard workflow and remain historical evidence.
 
 Actual IcyDB hook qualification passed on Linux using captured source, a local
 bare remote, real metadata/receipts and verified native archives. During the
@@ -89,7 +132,63 @@ default to `target/evidence/`. Release/recovery records, saved review inputs,
 package versions and dependency selections are preserved. See the
 [report retention policy](../reports/README.md).
 
-### Requested Testkit 0.89 adoption (2026-11-06)
+### Requested Build, Platform and Testkit adoption (2026-11-07)
+
+The subsequent Platform follow-up selects **0.23.6**, matching the incoming
+lock, at declared floor 0.23.6. Its registry/lock/archive checksum is
+`09d519af82b2eadafc4b56ecd6a72b829f0ed13f38b4fcc853a8f79ec7f68a6e`
+and supplier source is `51f5fbb7c53000fbb6f7bc3219ee3c2978c08521`.
+The published patch shares Candid admission's child-reference buffer, retaining
+bytes, traversal, quotas and depth limits. Runtime 0.19.5, Types 0.18.2 and all
+other locked selections remain unchanged. Platform's own Shared 0.31.1 adoption
+does not refresh IcyDB's executable Shared 0.31.0 snapshot.
+
+The root selects published **Build 0.77.0** and **Testkit 0.90.0**. Their
+official archives match both registry and lock checksums and record supplier
+sources `9d87394919b812cb6de55a9abd6dd2fd026c9070` and
+`c03161b9f1395c343756fda6b8721e957798c3df`. Declared floors now match the
+settled **Platform 0.23.6**, **Runtime 0.19.5** and **Types 0.18.2** selections;
+their registry archives and source identities are verified too. Other selected
+packages retain their versions; the new Testkit removes unused transitive
+dependencies. No supplier instruction/size result is an IcyDB measurement.
+
+Build's shared batch entry now yields four parts. The maintained coordinator
+reads the complete failure/error-details tuple and retains collect-all failure
+reporting, successful records and post-link artifact custody. Both native tools
+are admitted through Shared's existing installer. The Build metadata editor
+renders bounded read-only database/CLI candidates without modifying manifests;
+Testkit's root-selected server tool admits the existing server bundle.
+
+Testkit's published [0.90 migration contract](https://github.com/dragginzgame/ic-tooling/blob/c03161b9f1395c343756fda6b8721e957798c3df/docs/testkit/client-migration.md#testkit-090-surface-cut)
+requires a positive finite request duration at construction. The root startup
+fixture supplies **300 seconds**, preserving 0.89's five-minute request
+allowance. Its managed startup bound remains **30 seconds**. Public native
+`icydb::testing` types now share Testkit 0.90's crate identity; direct consumers
+must select that line. The maintainer authorized the new 0.301 line, whose
+[tracker](../design/0.301-native-tooling/0.301-status.md) owns focused closeout.
+Only unpublished database notes move there; package versions remain unchanged.
+
+[Issue #629](https://github.com/dragginzgame/icydb/issues/629) owns the root
+fixture. The inventory also found `testing/integration/src/lib.rs`, but its
+manifest explicitly belongs to `testing/canic-adapter`. Its Testkit 0.75.0 and
+Platform 0.8.3 selections retain their separate qualification boundary and are
+unchanged. Their synchronous helper cannot take the root 0.90 constructor
+without a separate composition migration under
+[#373](https://github.com/dragginzgame/icydb/issues/373). The adapter manifest,
+lock and integration source remain byte-for-byte unchanged; no compatibility
+alias, second runtime, server pin, installer or lifecycle owner is added.
+
+Focused qualification passes on Linux with Rust 1.99.1: 42 Rust tests, strict
+Build all-target and public startup-consumer lint, root feature-boundary checks,
+read-only metadata candidates and facade Wasm compilation with testing/metadata/
+SQL/migration enabled. Constructor controls preserve typed zero/overflowing
+budget refusals; the managed simulator retains startup rounds and terminal
+failures, followed by explicit Testkit-owned instance/server teardown. This is
+local qualification, not source delivery or macOS/installed-application evidence.
+Broad product/release gates remain unselected and IcyDB cost/size deltas are
+unmeasured. See the 0.301 tracker and #629 for the remaining delivery boundary.
+
+### Earlier Testkit 0.89 adoption (2026-11-06)
 
 The root selects published **Testkit 0.89.2**. Its official archive checksum is
 `65358cb9f4473db0f059e252d57d0d946b9d33c29c79b01fba34597024ab8e02`
@@ -117,7 +216,7 @@ manifests; their locks retain Testkit 0.89.2 and Wire 0.17.4. See the
 [delivery status](../design/0.300-testkit-frozen/0.300-status.md). macOS and
 installed-canister acceptance remain separate.
 
-### Current Build, Storage and Testkit adoption (2026-11-06)
+### Earlier Build, Storage and Testkit adoption (2026-11-06)
 
 The root selects published **IC Build 0.75.0**. Its official archive matches the
 registry checksum and records supplier source

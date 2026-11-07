@@ -208,8 +208,10 @@ then narrow roots in a later reviewed adoption.
 
 The same v1 manifest retains exact payload hashes, modes, source and revision.
 `# entrypoint` annotations record selection intent separately from generated
-`file` records. Integrity-only readers can still inspect historical manifests;
-refresh without recorded entrypoints requires explicit selection. Never hand-edit
+`file` records. Integrity-only readers can still inspect historical manifests.
+New exports require both version and entrypoint annotations, checked before
+installation and during final verification with `--require-annotations`.
+Refresh without recorded entrypoints requires explicit selection. Never hand-edit
 payload records to remove ownership evidence, or use an older exporter after
 adopting entrypoint selection. The current verifier validates any recorded roots
 against the payload roster; byte integrity does not prove that local callers were

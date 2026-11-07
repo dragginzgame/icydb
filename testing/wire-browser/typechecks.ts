@@ -1,4 +1,15 @@
 import { icydb_query, icydb_metrics, type PublicValue } from '../../target/wire-browser/icydb.js';
+import { consumer_echo, type ConsumerDto } from '../../target/wire-browser/consumer.js';
+
+declare const consumer: ConsumerDto;
+const consumerFields: [bigint, Uint8Array, null, Uint8Array, string, string, number, number, bigint] =
+  [consumer.id, consumer.ulid, consumer.unit, consumer.blob, consumer.city, consumer.url,
+    consumer.degrees, consumer.percent, consumer.seconds];
+// @ts-expect-error entity IDs retain their key's exact integer representation
+consumer_echo.encodeRequest({ ...consumer, id: 7 });
+// @ts-expect-error Blob retains bulk-byte custody
+consumer_echo.encodeRequest({ ...consumer, blob: [0, 128, 255] });
+void consumerFields;
 
 icydb_query.encodeRequest('SELECT COUNT(*) FROM Entry');
 icydb_metrics.encodeRequest(null);

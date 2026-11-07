@@ -856,13 +856,13 @@ fn finish_maintained_canister_builds(
     let mut failures = cargo_report
         .failures()
         .filter_map(|entry| {
-            entry.error().map(|error| {
+            entry.failure().map(|(error, details)| {
                 format!(
                     "Cargo [{}] {} failed after {:?}; details={:?}: {error}",
                     entry.index(),
                     entry.label(),
                     entry.entry_elapsed(),
-                    entry.failure_details(),
+                    details,
                 )
             })
         })
@@ -870,7 +870,7 @@ fn finish_maintained_canister_builds(
     let mut retained = Vec::with_capacity(cargo_report.outcomes().count());
     // Upstream entries carry the identity and retained record through both stages.
     for entry in cargo_report.into_entries() {
-        let (index, _, outcome, _, _) = entry.into_parts();
+        let (index, _, outcome, _) = entry.into_parts();
         let Ok(outcome) = outcome else {
             continue;
         };

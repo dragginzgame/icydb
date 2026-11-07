@@ -321,13 +321,49 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   admits both index buffers through SortTemporaryBytes and cumulative
   TemporaryBytes, including already ordered inputs. Empty/singleton slices need
   no sort allowance. Single-activation allocation authority remains separate.
+  Whole-schema targeted-rule compilation also admits its internal ordering
+  through the same caller's construction budget before semantic compilation.
+  One full-source sort allowance bounds the sum of all root-group sorts;
+  each record's stable-member-ID sort admits its ordinal destination and both
+  sorter index buffers. Admission and construction share the record roster;
+  both catalog-discovery walks reserve visits including filtered non-record
+  definitions. Empty targeted sources skip this work. Construction refusals
+  preserve typed resource/lane/limit/actual facts instead of becoming semantic
+  program-corruption errors. Historical single-activation compilation retains
+  its existing authority without a fresh per-program ceiling.
+  Each whole-schema targeted source also reserves its full field-metadata
+  lookup extent and the newtype resolver's own visit bound through the same
+  `PredicateExpressionSteps` allowance before semantic compilation. Early field
+  matches and shorter wrapper chains retain those conservative bounds. The
+  compiler reuses the resolved accepted field's physical slot rather than
+  scanning the row layout again; snapshot acceptance already proves agreement.
   CHECK shape/bounds validation precedes recursive structural admission. Each
-  Boolean child is validated before constructing its canonical ordering key,
+  CHECK literal reserves its encoded payload length through the caller's
+  `DecodedBytes` allowance before semantic decoding. Targeted rules reuse their
+  classified source vector for an admitted operation-dispatch pass, reserving
+  the same allowance for each numeric operand; length-only rules have no
+  encoded operands. CHECK, targeted-rule and accepted-index literals share one
+  input-admission boundary. Accepted and pending rules consume the caller's
+  cumulative allowance without copying payloads. This admits encoded input,
+  not decoder backing or recursive traversal. Pure retained projection and
+  historical single-activation compilation keep their existing authority.
+  Each Boolean child is validated before constructing its canonical ordering key,
   so key extraction cannot bypass that child's depth, node or literal checks.
   Boolean key serialization writes children directly into the parent buffer and
   fills their fixed-width length prefixes afterward. It retains the same bytes
-  without intermediate child-key vectors or copies; root-key backing and growth
-  still require complete admission.
+  without intermediate child-key vectors or copies. CHECK encoded-byte validation
+  runs that same encoder against a saturating length-only output rather than
+  materializing and discarding a full root key. Fixed-width child frames count
+  their placeholder once; backpatching adds no length. Shape/depth/node/literal
+  validation still precedes the encoded-size check. Boolean ordering and other
+  canonical-key consumers retain byte outputs; their backing/growth and encoder
+  visits still require complete admission.
+  Boolean canonicalization retains two operation-local key buffers across sort
+  comparisons; validation alternates two buffers across adjacent children.
+  Both use the existing canonical writer and exact byte ordering. Validation
+  still checks each child's shape and bounds before writing its key. Buffer
+  growth and repeated encoding work still require complete construction
+  admission.
   Each expression/value node reserves dispatch steps for admission, compilation and
   traversal of the compiled dependencies;
   NOT boxes and exact-capacity AND/OR child vectors reserve fixed-size shell
@@ -340,9 +376,19 @@ authority is rechecked on use. There is no separate query-only insertion policy.
   filtered entries. Required-slot deduplication reserves a conservative linear
   comparison/movement pass before sorting or mutating its destination. These
   reservations share the same cumulative PredicateExpressionSteps authority;
-  they are logical allowances, not measured instructions. Recursive stack cost,
+  they are logical allowances, not measured instructions.
+  CHECK validation borrows operand and length-source kinds from the accepted
+  field metadata, resolved newtype catalog or literal declaration; it does not
+  clone their kind trees merely to inspect them. Length results use the existing
+  shared Nat64 kind. Newtype resolution uses a constant-space walk bounded by
+  the accepted catalog's definition count, with one final terminal-kind visit;
+  it no longer allocates a visited set. Missing definitions, records, tuples
+  and wrapper-only cycles still refuse. This is not a new recursive-value
+  depth limit, and collection terminal kinds remain borrowed without descent.
+  Resolver visits outside whole-schema targeted compilation still require
+  complete construction admission. Recursive stack cost,
   validation/canonical-key construction and scans, literal-decoder backing and
-  targeted-program allocation/internal ordering are not covered.
+  remaining targeted-program backing and compilation scans are not covered.
   Decoder allocation, schema validation and the remaining compiled-program
   construction are not fully charged by this projection contract. Display/canonical validation
   and retained replay/rebuild explicitly select no fresh construction ceiling.

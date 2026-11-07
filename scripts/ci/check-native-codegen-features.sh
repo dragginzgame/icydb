@@ -57,4 +57,13 @@ if rg '^ctor v' <<< "$metadata"; then
   exit 1
 fi
 
+# Metadata forwarding must remain inert in target libraries, including the
+# model owner's transparent-wrapper metadata dependencies. Proc macros run on
+# the host and are intentionally excluded above.
+wasm_metadata="$(graph -p icydb --features wire-schema --target wasm32-unknown-unknown)"
+if rg '^(serde_json|ctor|proc-macro-crate|proc-macro2|quote|syn) v' <<< "$wasm_metadata"; then
+  echo 'Wire metadata must not pull host schema/rendering libraries into Wasm.' >&2
+  exit 1
+fi
+
 echo 'Native runtime, model, build and Wire metadata graphs are independent.'

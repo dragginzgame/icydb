@@ -3,7 +3,7 @@
 use super::{
     AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckExprV1Error,
     AcceptedCheckLiteralV1, AcceptedCheckValueExprV1, MAX_CHECK_EXPR_V1_NODES, slot_for_field,
-    targeted::{AcceptedTargetPath, CompiledAcceptedTargetedRules},
+    targeted::{AcceptedTargetPath, CompiledAcceptedTargetedRules, TargetedRuleSource},
 };
 use crate::{
     db::write_context::MutationMode,
@@ -14,9 +14,8 @@ use crate::{
         resource::construction::ConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
-            AcceptedFieldDecodeContract, AcceptedRuleOperation, AcceptedRuleTarget,
-            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, ConstraintActivationKind,
-            ConstraintId,
+            AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            ConstraintActivationKind, ConstraintId,
         },
     },
     error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
@@ -27,12 +26,6 @@ use std::{borrow::Cow, cmp::Ordering};
 
 type CheckConstraintSource<'a> = (ConstraintId, &'a AcceptedCheckExprV1, bool);
 type NotNullConstraintSource = (ConstraintId, crate::db::schema::FieldId, bool);
-type TargetedRuleSource<'a> = (
-    ConstraintId,
-    AcceptedRuleTarget,
-    &'a AcceptedRuleOperation,
-    bool,
-);
 
 // Borrowed source buckets preserve the existing compilation phases. Only
 // classification is shared; no rule payload or compiled program is duplicated.
@@ -247,12 +240,8 @@ impl CompiledAcceptedRowConstraints {
             targeted,
             integrity_count,
         } = row_constraint_sources(snapshot, work)?;
-        let targeted_rules = CompiledAcceptedTargetedRules::compile_sources(
-            schema,
-            value_catalog,
-            targeted.into_iter(),
-        )
-        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        let targeted_rules =
+            CompiledAcceptedTargetedRules::compile_sources(schema, value_catalog, targeted, work)?;
         // Source classification counts both exact destinations. Admit their
         // backing before filling them; integrity entries share no source buffer.
         let backing = (
@@ -961,7 +950,8 @@ fn admit_check_value(
     work: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
     // Reserve the full metadata scan even when field lookup can stop early.
-    // Literal dispatch has no field lookup; payload decoding is not included.
+    // Literal dispatch has no field lookup. Admit its encoded input before
+    // entering semantic compilation and its corruption-error translation.
     let resolution = match value {
         AcceptedCheckValueExprV1::Literal(_) => 0,
         AcceptedCheckValueExprV1::Field(_)
@@ -972,7 +962,11 @@ fn admit_check_value(
     work.charge(
         Resource::PredicateExpressionSteps,
         resolution.saturating_add(3),
-    )
+    )?;
+    if let AcceptedCheckValueExprV1::Literal(literal) = value {
+        literal.admit_decode_input(work)?;
+    }
+    Ok(())
 }
 
 fn compile_expr(

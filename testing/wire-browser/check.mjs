@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkConsumer } from './consumer.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..'), out = resolve(root, 'target/wire-browser');
@@ -18,11 +19,12 @@ run('cargo', ['run', '--locked', '--offline', '-p', 'icydb-testing-build', '--ex
 run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', out]);
 mkdirSync(resolve(out, 'compiled'), { recursive: true });
 writeFileSync(resolve(out, 'compiled/package.json'), '{"type":"module"}\n');
-run(resolve(here, 'node_modules/.bin/tsc'), ['--ignoreConfig', '--strict', '--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'Bundler', '--skipLibCheck', '--outDir', resolve(out, 'compiled'), resolve(out, 'icydb.ts'), resolve(out, 'native-runtime.ts'), resolve(out, 'wire-runtime.ts')]);
+run(resolve(here, 'node_modules/.bin/tsc'), ['--ignoreConfig', '--strict', '--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'Bundler', '--skipLibCheck', '--outDir', resolve(out, 'compiled'), resolve(out, 'icydb.ts'), resolve(out, 'consumer.ts'), resolve(out, 'native-runtime.ts'), resolve(out, 'wire-runtime.ts')]);
 run(resolve(here, 'node_modules/.bin/tsc'), ['--ignoreConfig', '--strict', '--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'Bundler', '--skipLibCheck', '--noEmit', resolve(here, 'client.ts'), resolve(here, 'installed.ts'), resolve(here, 'typechecks.ts')]);
 const contracts = await import(pathToFileURL(resolve(out, 'compiled/icydb.js')));
 const { WireError } = await import(pathToFileURL(resolve(out, 'compiled/native-runtime.js')));
 const { vectors } = await import(pathToFileURL(resolve(out, 'vectors.mjs')));
+await checkConsumer(out);
 // Compare the generator's full endpoint roster with the schema-owned browser
 // projection. Intentional browser/native asymmetry is retained by that owner.
 const budgetPolicy = JSON.parse(readFileSync(resolve(out, 'budget-policy.json'), 'utf8'));

@@ -16,3 +16,6 @@ pub mod lang;
 pub mod num;
 pub mod time;
 pub mod web;
+
+#[cfg(all(feature = "wire-schema", not(target_family = "wasm")))]
+mod wire;

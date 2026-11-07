@@ -5,7 +5,8 @@ use ic_wire::typescript::{GenerationError, SchemaContext, Wire};
 use serde_json::{Value, json};
 
 use crate::{
-    Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256, Ulid,
+    Blob, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256, Ulid,
+    Unit,
 };
 
 // Each declaration follows the scalar's serializer, not its private Rust fields.
@@ -20,6 +21,9 @@ macro_rules! scalar_metadata {
 }
 
 scalar_metadata!(Principal, json!({"k":"bytes","max":29}));
+// Blob's serializer is bulk bytes. The concrete endpoint owns its finite budget.
+scalar_metadata!(Blob, json!({"k":"bytes"}));
+scalar_metadata!(Unit, json!({"k":"unit"}));
 scalar_metadata!(Subaccount, json!({"k":"bytes","min":32,"max":32}));
 scalar_metadata!(Ulid, json!({"k":"bytes","min":16,"max":16}));
 scalar_metadata!(U256, json!({"k":"bytes","min":32,"max":32}));

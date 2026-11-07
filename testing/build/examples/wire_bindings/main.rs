@@ -1,6 +1,7 @@
 //! Generate browser bindings from the maintained native endpoint types.
 
 mod bulk;
+mod consumer;
 mod metadata;
 mod samples;
 mod vectors;
@@ -165,6 +166,7 @@ impl Generator {
             .finish()
             .map_err(|error| format!("Wire registry: {error:?}"))?;
         fs::create_dir_all(out)?;
+        consumer::write(out)?;
         metadata::write(out, &registry, &self.methods)?;
         vectors::write(out, &registry, &self.methods, &self.vectors)?;
         println!(

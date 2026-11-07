@@ -1,3 +1,5 @@
+mod newtype_resolution;
+
 use super::{
     AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape,
     AcceptedCompositeType, AcceptedFieldKind, CompositeCodec, CompositeTypeId,

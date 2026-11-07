@@ -260,7 +260,6 @@ jobs:
           export TMPDIR
           /bin/bash --version
           make check-adapter-automation
-          /bin/bash scripts/ci/test-tool-commands.sh
           make check-dependency-pins
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh

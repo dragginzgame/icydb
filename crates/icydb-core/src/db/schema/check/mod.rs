@@ -12,12 +12,16 @@ mod targeted;
 mod tests;
 
 use crate::{
+    db::resource::construction::ConstructionBudget,
     db::schema::{
         AcceptedCompositeCatalog, AcceptedFieldKind, FieldId, PersistedSchemaSnapshot,
         SchemaFieldSlot,
     },
     db::schema::{FieldStorageDecode, LeafCodec},
+    error::InternalError,
 };
+
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use bind::bind_index_predicate_literal;
@@ -140,6 +144,18 @@ impl AcceptedCheckLiteralV1 {
             && self.payload.len() <= MAX_CHECK_EXPR_V1_LITERAL_BYTES
     }
 
+    /// Admit the encoded input before decoding; decoder backing and traversal
+    /// remain separate from this caller-owned byte allowance.
+    pub(in crate::db::schema) fn admit_decode_input(
+        &self,
+        work: &dyn ConstructionBudget,
+    ) -> Result<(), InternalError> {
+        work.charge(
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            self.payload.len() as u64,
+        )
+    }
+
     pub(in crate::db::schema) fn canonical_key(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         write_literal_key(&mut bytes, self);
@@ -204,6 +220,50 @@ struct CheckExprV1Bounds {
     literal_bytes: usize,
 }
 
+/// One canonical encoder serves retained bytes and validation-only length.
+trait CheckKeyOutput {
+    fn push(&mut self, byte: u8) {
+        self.extend_from_slice(&[byte]);
+    }
+
+    fn extend_from_slice(&mut self, bytes: &[u8]);
+    fn position(&self) -> usize;
+    fn patch_child_length(&mut self, offset: usize, length: usize);
+}
+
+#[derive(Default)]
+struct CheckKeyLength(usize);
+
+impl CheckKeyOutput for CheckKeyLength {
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        // Saturation can only exceed the finite validation limit, never wrap
+        // an oversized key into an admitted small length.
+        self.0 = self.0.saturating_add(bytes.len());
+    }
+
+    fn position(&self) -> usize {
+        self.0
+    }
+
+    fn patch_child_length(&mut self, _offset: usize, _length: usize) {
+        // The fixed-width placeholder already contributes its complete length.
+    }
+}
+
+impl CheckKeyOutput for Vec<u8> {
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        Self::extend_from_slice(self, bytes);
+    }
+
+    fn position(&self) -> usize {
+        self.len()
+    }
+
+    fn patch_child_length(&mut self, offset: usize, length: usize) {
+        self[offset..offset + size_of::<u64>()].copy_from_slice(&key_len_bytes(length));
+    }
+}
+
 impl AcceptedCheckExprV1 {
     /// Return sorted unique accepted field dependencies.
     #[must_use]
@@ -238,7 +298,7 @@ impl AcceptedCheckExprV1 {
     ) -> Result<(), AcceptedCheckExprV1Error> {
         let mut bounds = CheckExprV1Bounds::default();
         self.validate_at(fields, composite_catalog, 0, &mut bounds)?;
-        if self.canonical_key().len() > MAX_CHECK_EXPR_V1_BYTES {
+        if self.canonical_key_len() > MAX_CHECK_EXPR_V1_BYTES {
             return Err(AcceptedCheckExprV1Error::EncodedBytesExceeded);
         }
         Ok(())
@@ -305,6 +365,12 @@ impl AcceptedCheckExprV1 {
         bytes
     }
 
+    fn canonical_key_len(&self) -> usize {
+        let mut length = CheckKeyLength::default();
+        self.write_canonical_key(&mut length);
+        length.position()
+    }
+
     fn collect_dependencies(&self, dependencies: &mut Vec<FieldId>) {
         let mut collect_value = |value: &AcceptedCheckValueExprV1| match value {
             AcceptedCheckValueExprV1::Field(field_id)
@@ -362,7 +428,7 @@ impl AcceptedCheckExprV1 {
                     if left_kind != right_kind {
                         return Err(AcceptedCheckExprV1Error::OperandKindMismatch);
                     }
-                    validate_compare_capability(&left_kind, *op)?;
+                    validate_compare_capability(left_kind, *op)?;
                 }
                 Ok(())
             }
@@ -373,7 +439,7 @@ impl AcceptedCheckExprV1 {
         }
     }
 
-    fn write_canonical_key(&self, bytes: &mut Vec<u8>) {
+    fn write_canonical_key(&self, bytes: &mut dyn CheckKeyOutput) {
         match self {
             Self::True => bytes.push(0),
             Self::False => bytes.push(1),
@@ -419,8 +485,16 @@ fn canonicalized_boolean(
     if flattened.len() > MAX_CHECK_EXPR_V1_CHILDREN {
         return Err(AcceptedCheckExprV1Error::ChildCountExceeded);
     }
+    // Keep two operation-local destinations instead of allocating both keys
+    // anew for every comparison. The canonical writer still owns all bytes.
+    let mut left_key = Vec::new();
+    let mut right_key = Vec::new();
     icydb_schema::compact_sort_unstable_by(&mut flattened, |left, right| {
-        left.canonical_key().cmp(&right.canonical_key())
+        left_key.clear();
+        left.write_canonical_key(&mut left_key);
+        right_key.clear();
+        right.write_canonical_key(&mut right_key);
+        left_key.cmp(&right_key)
     });
     flattened.dedup();
     if flattened.len() == 1 {
@@ -453,29 +527,34 @@ fn validate_boolean_children(
                 | (AcceptedCheckExprV1::Or(_), AcceptedCheckExprV1::Or(_))
         )
     };
-    let mut prior: Option<Vec<u8>> = None;
-    for child in children {
+    let mut prior = Vec::new();
+    let mut key = Vec::new();
+    for (ordinal, child) in children.iter().enumerate() {
         if nested_is_same(child) {
             return Err(AcceptedCheckExprV1Error::NonCanonical);
         }
         // Key extraction recursively serializes the child. Validate its bounds
         // and local shape first, including every nested Boolean descendant.
         child.validate_at(fields, composite_catalog, depth + 1, bounds)?;
-        let key = child.canonical_key();
-        if prior.as_ref().is_some_and(|prior| prior >= &key) {
+        key.clear();
+        child.write_canonical_key(&mut key);
+        if ordinal != 0 && prior >= key {
             return Err(AcceptedCheckExprV1Error::NonCanonical);
         }
-        prior = Some(key);
+        // Recycle the previous destination only after checking strict order.
+        std::mem::swap(&mut prior, &mut key);
     }
     Ok(())
 }
 
-fn validate_value_expr(
-    value: &AcceptedCheckValueExprV1,
-    fields: &[crate::db::schema::PersistedFieldSnapshot],
-    composite_catalog: Option<&AcceptedCompositeCatalog>,
+// Validation inspects the accepted kind without owning or copying its tree.
+// Catalog-resolved newtypes and literal kinds retain their original authority.
+fn validate_value_expr<'a>(
+    value: &'a AcceptedCheckValueExprV1,
+    fields: &'a [crate::db::schema::PersistedFieldSnapshot],
+    composite_catalog: Option<&'a AcceptedCompositeCatalog>,
     bounds: &mut CheckExprV1Bounds,
-) -> Result<Option<AcceptedFieldKind>, AcceptedCheckExprV1Error> {
+) -> Result<Option<&'a AcceptedFieldKind>, AcceptedCheckExprV1Error> {
     match value {
         AcceptedCheckValueExprV1::Field(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
@@ -488,11 +567,10 @@ fn validate_value_expr(
                     .map(|catalog| {
                         catalog
                             .resolve_newtype_value_kind(field.kind())
-                            .cloned()
                             .ok_or(AcceptedCheckExprV1Error::UnsupportedFieldKind)
                     })
                     .transpose(),
-                kind => Ok(Some(kind.clone())),
+                kind => Ok(Some(kind)),
             }
         }
         AcceptedCheckValueExprV1::Literal(literal) => {
@@ -506,37 +584,31 @@ fn validate_value_expr(
             if bounds.literal_bytes > MAX_CHECK_EXPR_V1_LITERAL_BYTES {
                 return Err(AcceptedCheckExprV1Error::LiteralBytesExceeded);
             }
-            Ok(Some(literal.kind().clone()))
+            Ok(Some(literal.kind()))
         }
         AcceptedCheckValueExprV1::CharLength(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
             let kind = resolved_length_source_kind(field.kind(), composite_catalog)?;
-            if kind
-                .as_ref()
-                .is_some_and(|kind| !matches!(kind, AcceptedFieldKind::Text { .. }))
-            {
+            if kind.is_some_and(|kind| !matches!(kind, AcceptedFieldKind::Text { .. })) {
                 return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch);
             }
-            Ok(Some(nat64_kind().clone()))
+            Ok(Some(nat64_kind()))
         }
         AcceptedCheckValueExprV1::OctetLength(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
             let kind = resolved_length_source_kind(field.kind(), composite_catalog)?;
-            if kind
-                .as_ref()
-                .is_some_and(|kind| !matches!(kind, AcceptedFieldKind::Blob { .. }))
-            {
+            if kind.is_some_and(|kind| !matches!(kind, AcceptedFieldKind::Blob { .. })) {
                 return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch);
             }
-            Ok(Some(nat64_kind().clone()))
+            Ok(Some(nat64_kind()))
         }
         AcceptedCheckValueExprV1::Cardinality(field_id) => {
             let field = field_for_id_in_fields(fields, *field_id)
                 .ok_or(AcceptedCheckExprV1Error::UnknownField)?;
             let kind = resolved_length_source_kind(field.kind(), composite_catalog)?;
-            if kind.as_ref().is_some_and(|kind| {
+            if kind.is_some_and(|kind| {
                 !matches!(
                     kind,
                     AcceptedFieldKind::List(_)
@@ -546,15 +618,15 @@ fn validate_value_expr(
             }) {
                 return Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch);
             }
-            Ok(Some(nat64_kind().clone()))
+            Ok(Some(nat64_kind()))
         }
     }
 }
 
-fn resolved_length_source_kind(
-    kind: &AcceptedFieldKind,
-    composite_catalog: Option<&AcceptedCompositeCatalog>,
-) -> Result<Option<AcceptedFieldKind>, AcceptedCheckExprV1Error> {
+fn resolved_length_source_kind<'a>(
+    kind: &'a AcceptedFieldKind,
+    composite_catalog: Option<&'a AcceptedCompositeCatalog>,
+) -> Result<Option<&'a AcceptedFieldKind>, AcceptedCheckExprV1Error> {
     match kind {
         AcceptedFieldKind::Relation { .. } => {
             Err(AcceptedCheckExprV1Error::LengthOperationKindMismatch)
@@ -563,11 +635,10 @@ fn resolved_length_source_kind(
             .map(|catalog| {
                 catalog
                     .resolve_newtype_value_kind(kind)
-                    .cloned()
                     .ok_or(AcceptedCheckExprV1Error::LengthOperationKindMismatch)
             })
             .transpose(),
-        kind => Ok(Some(kind.clone())),
+        kind => Ok(Some(kind)),
     }
 }
 
@@ -625,22 +696,22 @@ pub(super) fn slot_for_field(
         .ok_or(AcceptedCheckExprV1Error::UnknownField)
 }
 
-fn write_children_key(bytes: &mut Vec<u8>, tag: u8, children: &[AcceptedCheckExprV1]) {
+fn write_children_key(bytes: &mut dyn CheckKeyOutput, tag: u8, children: &[AcceptedCheckExprV1]) {
     bytes.push(tag);
     write_len(bytes, children.len());
     for child in children {
         // Append into the parent and fill its fixed-width length prefix after
         // writing. Offsets survive Vec growth; no child key buffer is needed.
-        let length_start = bytes.len();
+        let length_start = bytes.position();
         write_len(bytes, 0);
-        let key_start = bytes.len();
+        let key_start = bytes.position();
         child.write_canonical_key(bytes);
-        let length = key_len_bytes(bytes.len() - key_start);
-        bytes[length_start..key_start].copy_from_slice(&length);
+        let length = bytes.position() - key_start;
+        bytes.patch_child_length(length_start, length);
     }
 }
 
-fn write_value_key(bytes: &mut Vec<u8>, value: &AcceptedCheckValueExprV1) {
+fn write_value_key(bytes: &mut dyn CheckKeyOutput, value: &AcceptedCheckValueExprV1) {
     match value {
         AcceptedCheckValueExprV1::Field(field_id) => {
             bytes.push(0);
@@ -665,7 +736,7 @@ fn write_value_key(bytes: &mut Vec<u8>, value: &AcceptedCheckValueExprV1) {
     }
 }
 
-fn write_literal_key(bytes: &mut Vec<u8>, literal: &AcceptedCheckLiteralV1) {
+fn write_literal_key(bytes: &mut dyn CheckKeyOutput, literal: &AcceptedCheckLiteralV1) {
     write_kind_key(bytes, literal.kind());
     bytes.push(storage_decode_tag(literal.storage_decode()));
     write_leaf_codec_key(bytes, literal.leaf_codec());
@@ -673,7 +744,7 @@ fn write_literal_key(bytes: &mut Vec<u8>, literal: &AcceptedCheckLiteralV1) {
     bytes.extend_from_slice(literal.payload());
 }
 
-fn write_kind_key(bytes: &mut Vec<u8>, kind: &AcceptedFieldKind) {
+fn write_kind_key(bytes: &mut dyn CheckKeyOutput, kind: &AcceptedFieldKind) {
     use AcceptedFieldKind as K;
     match kind {
         K::Account => bytes.push(0),
@@ -727,7 +798,7 @@ const fn storage_decode_tag(storage_decode: FieldStorageDecode) -> u8 {
     }
 }
 
-fn write_leaf_codec_key(bytes: &mut Vec<u8>, codec: LeafCodec) {
+fn write_leaf_codec_key(bytes: &mut dyn CheckKeyOutput, codec: LeafCodec) {
     match codec {
         LeafCodec::Structural => bytes.push(0),
         LeafCodec::Scalar(codec) => {
@@ -764,7 +835,7 @@ const fn scalar_codec_tag(codec: crate::db::schema::ScalarCodec) -> u8 {
     }
 }
 
-fn write_optional_u32(bytes: &mut Vec<u8>, tag: u8, value: Option<u32>) {
+fn write_optional_u32(bytes: &mut dyn CheckKeyOutput, tag: u8, value: Option<u32>) {
     bytes.push(tag);
     match value {
         Some(value) => {
@@ -775,12 +846,12 @@ fn write_optional_u32(bytes: &mut Vec<u8>, tag: u8, value: Option<u32>) {
     }
 }
 
-fn write_tag_u32(bytes: &mut Vec<u8>, tag: u8, value: u32) {
+fn write_tag_u32(bytes: &mut dyn CheckKeyOutput, tag: u8, value: u32) {
     bytes.push(tag);
     bytes.extend_from_slice(&value.to_be_bytes());
 }
 
-fn write_len(bytes: &mut Vec<u8>, len: usize) {
+fn write_len(bytes: &mut dyn CheckKeyOutput, len: usize) {
     bytes.extend_from_slice(&key_len_bytes(len));
 }
 

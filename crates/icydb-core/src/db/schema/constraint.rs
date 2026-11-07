@@ -118,6 +118,20 @@ pub(in crate::db) enum AcceptedRuleOperation {
 }
 
 impl AcceptedRuleOperation {
+    /// Borrow encoded operands in decoder order without copying their payloads.
+    pub(in crate::db::schema) fn literals(&self) -> impl Iterator<Item = &AcceptedCheckLiteralV1> {
+        match self {
+            Self::LengthRangeInclusive { .. } => [None, None],
+            Self::MultipleOf { divisor } => [Some(divisor), None],
+            Self::NumericMaximumInclusive { value } | Self::NumericMinimumInclusive { value } => {
+                [Some(value), None]
+            }
+            Self::NumericRangeInclusive { min, max } => [Some(min), Some(max)],
+        }
+        .into_iter()
+        .flatten()
+    }
+
     /// Return whether the persisted operation is structurally valid without
     /// consulting its target type or accepted value catalogs.
     #[must_use]

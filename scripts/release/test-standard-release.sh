@@ -4,8 +4,8 @@ set -euo pipefail
 # release gate, inherited command-line assignments otherwise override fixture
 # environment values (and can select the caller's group instead of its ledger).
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
-unset FROZEN_RELEASE_ACTIVE
-export RELEASE_FROZEN_GROUPS='' RELEASE_FROZEN_PUBLISH_TARGET=''
+unset RELEASE_GROUPS RELEASE_SETUP_MODE
+export RELEASE_BATCH_ACTIVE=1 RELEASE_PUBLISH_TARGET=''
 export RELEASE_GROUP=database
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
@@ -89,7 +89,7 @@ RELEASE_FIXTURE_PERL="$(command -v perl)"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/perl"
 cat >> "$fixture/bin/perl" <<'FROZEN'
 set -euo pipefail
-if [[ "$1" == */scripts/ci/run-frozen-release.pl ]]; then
+if [[ "$1" == */scripts/ci/run-release-batch.pl ]]; then
     printf '%s\n' "$*" >> "$EVENTS"
 else
     exec "$RELEASE_FIXTURE_PERL" "$@"
@@ -97,34 +97,34 @@ fi
 FROZEN
 chmod +x "$fixture/bin/perl"
 : > "$EVENTS"
-env -u RELEASE_FROZEN_GROUPS PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory \
+env -u RELEASE_GROUPS -u RELEASE_BATCH_ACTIVE PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory \
     -f "$root/Makefile" release-patch RELEASE_GROUP=database RELEASE_REMOTE=reviewed \
     RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-default.log" 2>&1
 printf '%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
-    "$root/scripts/ci/run-frozen-release.pl" "$fixture" > "$fixture/expected"
+    "$root/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 for groups in database cli database,cli; do
     for kind in patch minor major; do
         : > "$EVENTS"
         PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" \
-            "release-$kind" RELEASE_GROUP="${groups%%,*}" RELEASE_FROZEN_GROUPS="$groups" \
-            RELEASE_FROZEN_PUBLISH_TARGET=publish RELEASE_REMOTE=reviewed RELEASE_BRANCH=main \
+            "release-$kind" RELEASE_GROUP="${groups%%,*}" RELEASE_GROUPS="$groups" RELEASE_BATCH_ACTIVE=0 \
+            RELEASE_PUBLISH_TARGET=publish RELEASE_REMOTE=reviewed RELEASE_BRANCH=main \
             RELEASE_DELIVERY=direct > "$fixture/frozen-$groups-$kind.log" 2>&1
         printf '%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish --setup-target release-candidate-setup\n' \
-            "$root/scripts/ci/run-frozen-release.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
+            "$root/scripts/ci/run-release-batch.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
         cmp "$fixture/expected" "$EVENTS"
     done
 done
 : > "$EVENTS"
 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
-    RELEASE_GROUP=cli RELEASE_FROZEN_GROUPS=cli RELEASE_FROZEN_PUBLISH_TARGET= \
+    RELEASE_GROUP=cli RELEASE_GROUPS=cli RELEASE_BATCH_ACTIVE=0 RELEASE_PUBLISH_TARGET= \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-git-only.log" 2>&1
 printf '%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
-    "$root/scripts/ci/run-frozen-release.pl" "$fixture" > "$fixture/expected"
+    "$root/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 : > "$EVENTS"
 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
-    RELEASE_GROUP=database RELEASE_FROZEN_GROUPS=database,cli FROZEN_RELEASE_ACTIVE=1 \
+    RELEASE_GROUP=database RELEASE_GROUPS=database,cli RELEASE_BATCH_ACTIVE=1 \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main > "$fixture/frozen-child.log" 2>&1
 printf '%s patch reviewed main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
@@ -135,8 +135,19 @@ for operation in status resume reconcile retire; do
         -f "$root/Makefile" "release-batch-$operation" BATCH=batch_reviewed \
         RELEASE_DELIVERY=direct > "$fixture/batch-$operation.log" 2>&1
     printf '%s --root %s --%s batch_reviewed --delivery direct\n' \
-        "$root/scripts/ci/run-frozen-release.pl" "$fixture" "$operation" > "$fixture/expected"
+        "$root/scripts/ci/run-release-batch.pl" "$fixture" "$operation" > "$fixture/expected"
     cmp "$fixture/expected" "$EVENTS"
+done
+# A selected group cannot opt out of capture; retired settings refuse before
+# the effectful runner is called. These are explicit Shared boundary diagnostics.
+: > "$EVENTS"
+if PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" \
+    release-patch RELEASE_GROUPS= RELEASE_BATCH_ACTIVE=0 > "$fixture/empty-roster.log" 2>&1; then exit 1; fi
+[[ ! -s "$EVENTS" ]]
+for retired in RELEASE_FROZEN_GROUPS RELEASE_FROZEN_PUBLISH_TARGET RELEASE_FROZEN_SETUP_TARGET RELEASE_FROZEN_SETUP_MODE FROZEN_RELEASE_ACTIVE; do
+    if PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" \
+        release-patch "$retired=" > "$fixture/retired-setting.log" 2>&1; then exit 1; fi
+    [[ ! -s "$EVENTS" ]]
 done
 # Exercise routine qualification through the actual Make caller with script
 # substitutes. Keep snapshot admission and consumer release proofs selected;

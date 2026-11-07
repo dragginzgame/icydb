@@ -4,8 +4,13 @@ mod dependency_budget;
 #[cfg(feature = "sql")]
 mod float_literals;
 mod key_encoding;
+mod key_length;
+mod key_ordering;
+mod literal_input;
 mod source_bounds;
 mod source_partition;
+mod targeted_lookup;
+mod targeted_ordering;
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -493,6 +498,21 @@ struct TargetedRuleFixture {
 }
 
 impl TargetedRuleFixture {
+    fn accepted_targeted_sources(&self) -> Vec<super::targeted::TargetedRuleSource<'_>> {
+        self.accepted
+            .persisted_snapshot()
+            .constraints()
+            .iter()
+            .filter_map(|constraint| {
+                let AcceptedConstraintKind::TargetedRule { target, operation } = constraint.kind()
+                else {
+                    return None;
+                };
+                Some((constraint.id(), *target, operation.as_ref(), true))
+            })
+            .collect()
+    }
+
     fn node(degree: u64, next: Vec<Value>) -> Value {
         Value::Map(vec![
             (Value::Text("a_next".to_string()), Value::List(next)),

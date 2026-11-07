@@ -236,20 +236,27 @@ impl AcceptedCompositeCatalog {
         kind: &'a AcceptedFieldKind,
     ) -> Option<&'a AcceptedFieldKind> {
         let mut current = kind;
-        let mut visited = BTreeSet::new();
-        loop {
+        // A successful single-successor chain visits at most every definition
+        // once, then its terminal kind. More hops imply a wrapper-only cycle;
+        // the catalog extent bounds the walk without allocating a visited set.
+        for _ in 0..self.newtype_resolution_visit_bound() {
             let AcceptedFieldKind::Composite { type_id } = current else {
                 return Some(current);
             };
-            if !visited.insert(*type_id) {
-                return None;
-            }
             let accepted = self.composite_type(*type_id)?;
             let AcceptedCompositeShape::Newtype(inner) = accepted.shape() else {
                 return None;
             };
             current = inner.kind();
         }
+        None
+    }
+
+    /// Bound every definition hop plus the terminal-kind visit of the shared
+    /// resolver, including direct kinds and defensive cycle rejection.
+    #[must_use]
+    pub(in crate::db::schema) fn newtype_resolution_visit_bound(&self) -> u64 {
+        (self.by_id.len() as u64).saturating_add(1)
     }
 
     #[must_use]

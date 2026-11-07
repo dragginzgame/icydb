@@ -1,5 +1,5 @@
-# Frozen release batches
-<!-- Shared companions: scripts/ci/run-frozen-release.pl -->
+# Release batches
+<!-- Shared companions: scripts/ci/run-release-batch.pl -->
 
 A release batch captures clean committed source once. It runs real release and
 optional publication hooks in a managed delivery checkout, preserving the real
@@ -11,26 +11,55 @@ be published.
 
 ## Consumer adoption
 
-This is opt-in until a consumer qualifies its actual release and publication
-hooks in the independent checkout. After adoption, its ordinary `release-patch`,
-`release-minor` and `release-major` targets can set:
+Shared 0.31 is a hard cut: rename `RELEASE_FROZEN_GROUPS` to `RELEASE_GROUPS`,
+`RELEASE_FROZEN_PUBLISH_TARGET` to `RELEASE_PUBLISH_TARGET`,
+`RELEASE_FROZEN_SETUP_TARGET` to `RELEASE_SETUP_TARGET`,
+`RELEASE_FROZEN_SETUP_MODE` to `RELEASE_SETUP_MODE`, and `FROZEN_RELEASE_ACTIVE`
+to `RELEASE_BATCH_ACTIVE`. The executable is `scripts/ci/run-release-batch.pl`;
+there are no old-name aliases. Retired settings fail explicitly rather than
+silently changing the selected roster or publication behavior.
+
+Batch intents now use schema 2 and require a recorded commit before publication.
+Finish, reconcile and retire active pre-0.31 batches with their original reviewed
+tooling before adopting this interface. Do not relabel old journals or infer their
+publication identity from current HEAD. Existing `release-frozen`/`frozen` disk
+paths and source pins remain stable storage identifiers; they are not an optional
+execution mode and must not be renamed underneath active batches.
+
+Grouped releases capture automatically through the shared `release-patch`,
+`release-minor` and `release-major` targets. No extra flag is needed:
+
+```sh
+make release-patch RELEASE_GROUP=engine
+```
+
+`RELEASE_GROUPS` defaults to `RELEASE_GROUP`. Multiple groups require an
+explicit supplier-first roster, for example
+`make release-patch RELEASE_GROUPS=types,runtime,platform`.
+Never infer all groups from workspace membership or clear the roster to fall back
+to live delivery. Inside the captured checkout the runner invokes the existing
+group hooks without recursively capturing another batch.
+
+Consumers must qualify their actual setup, release and publication hooks when
+adopting this interface, and remove old opt-in/refusal guards and duplicate default
+selection. Ungrouped releases retain the existing standard runner. Configure
+publication and setup according to the consumer's delivery contract:
 
 ```make
-RELEASE_FROZEN_GROUPS := types,runtime,platform
-RELEASE_FROZEN_PUBLISH_TARGET := publish
-RELEASE_FROZEN_SETUP_TARGET := release-candidate-setup
+RELEASE_PUBLISH_TARGET := publish
+RELEASE_SETUP_TARGET := release-candidate-setup
 ```
 
 The optional setup target runs inside the captured checkout before group-version
 lookup, and before resumed release/publication hooks. Shared passes
-`RELEASE_FROZEN_SETUP_MODE=prepare` for a fresh group, or `check` for recovery.
+`RELEASE_SETUP_MODE=prepare` for a fresh group, or `check` for recovery.
 Prepare only the selected tools needed by that group; recovery must admit the
 saved tool selection offline without installing from partially prepared metadata.
 Make setup idempotent and keep source/lock inputs unchanged. Do not duplicate it
 in each consumer's outer release recipe or run a full product gate there.
 
 Setup, version lookup, release and publication receive the saved group, remote,
-branch, kind and source through `RELEASE_*`, with `FROZEN_RELEASE_ACTIVE=1`.
+branch, kind and source through `RELEASE_*`, with `RELEASE_BATCH_ACTIVE=1`.
 After version selection, `RELEASE_VERSION` is populated; publication also receives
 the delivered `RELEASE_COMMIT`. Values not yet known are empty. The underlying
 standard release runner still owns its complete preparation hook context.
@@ -45,7 +74,7 @@ Do not select it for an ungrouped VERSION-only repository.
 The supplying command is:
 
 ```sh
-perl scripts/ci/run-frozen-release.pl --root "$PWD" \
+perl scripts/ci/run-release-batch.pl --root "$PWD" \
   --groups types,runtime,platform --kind patch --publish-target publish
 ```
 

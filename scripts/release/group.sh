@@ -10,16 +10,16 @@ fi
 if [[ ${BASH_SOURCE[0]} == "$0" && ${1:-} == --batch ]]; then
     # Group membership has one policy owner. Check local dependency edges too:
     # a batch must never publish a consumer before a selected supplier.
-    jq -e -L "$release_root/scripts/ci" --arg groups "${RELEASE_FROZEN_GROUPS:-}" --arg first "$RELEASE_GROUP" '
+    jq -e -L "$release_root/scripts/ci" --arg groups "${RELEASE_GROUPS:-}" --arg first "$RELEASE_GROUP" '
         include "cargo-release-groups"; release_policy |
         (.groups | map(.name)) as $known | ($groups | split(",")) as $selected |
         $selected[0] == $first and ($selected | length > 0) and
         ($selected | length) == ($selected | unique | length) and
         all($selected[]; . as $name | $known | index($name) != null)
     ' "$release_root/ci/cargo-release-groups.json" >/dev/null || exit 2
-    if [[ $RELEASE_FROZEN_GROUPS == *,* ]]; then
+    if [[ $RELEASE_GROUPS == *,* ]]; then
         metadata=$(cd "$release_root" && cargo metadata --locked --offline --no-deps --format-version 1) || exit
-        jq -e --arg groups "$RELEASE_FROZEN_GROUPS" --slurpfile policy "$release_root/ci/cargo-release-groups.json" '
+        jq -e --arg groups "$RELEASE_GROUPS" --slurpfile policy "$release_root/ci/cargo-release-groups.json" '
             ($groups | split(",")) as $selected |
             (reduce $policy[0].groups[] as $g ({};
                 reduce $g.members[] as $name (. ; .[$name] = $g.name))) as $owner |
@@ -29,7 +29,7 @@ if [[ ${BASH_SOURCE[0]} == "$0" && ${1:-} == --batch ]]; then
                     ($selected | index($owner[$d.name])) as $supplier |
                     $consumer == null or $supplier == null or $supplier <= $consumer))
         ' <<< "$metadata" >/dev/null || {
-            echo 'Select frozen release groups in supplier-first order' >&2; exit 2;
+            echo 'Select release groups in supplier-first order' >&2; exit 2;
         }
     fi
     exit 0

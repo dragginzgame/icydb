@@ -226,7 +226,7 @@ runs npm, Node, lifecycle scripts or dependency resolution. When present,
 responsibility, including checking whether the selected versions satisfy them.
 
 The tracked regular `package.json` and `package-lock.json` must contain single
-JSON objects. Supported lock schemas are 2 and 3, with a root `packages[""]`
+JSON objects. Only lock schema 3 is supported, with a root `packages[""]`
 entry. Root name/version (when declared) and direct dependency tables must agree.
 Direct Git dependencies require a full commit fragment; errors redact their
 selectors. Relative file-directory inputs are resolved physically, so redirected

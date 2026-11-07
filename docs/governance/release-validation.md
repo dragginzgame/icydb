@@ -98,6 +98,16 @@ omits only unchanged automation regression execution.
 
 ## Mapping and selection
 
+The 0.301 pending-note move changes the database group's `metadata_files` from
+`releases/database/0.300.md` to `releases/database/0.301.md`. Review confirms
+that this is the only group-policy difference: package ownership, dependency
+groups, the complete stage roster and Make recipes are unchanged. The mapping
+contract readmits that declaration's current digest so the full gate can start.
+Existing native comparison records are preserved and are not renewed by this
+metadata review or its substituted regression fixtures. The current dependency,
+workflow and other shared changes still require full validation; no receipt or
+selected-stage omission is inferred from the digest repair.
+
 `ci/release-validation.json` is the single complete stage roster. Its mapping
 contract classifies four supplemental CLI stages and two collecting stages;
 `validation-stages.pl` derives the full gate's fail-fast and collecting selections
@@ -222,7 +232,7 @@ remains open for current-mapping and delivered-source acceptance.
 
 ### Frozen hook qualification
 
-The [frozen release batch](../../docs/frozen-releases.md) interface preserves
+The [frozen release batch](../../docs/release-batches.md) interface preserves
 captured committed delivery source while later normal-checkout dependency edits
 remain deferred. IcyDB defaults ordinary release entrypoints to the explicitly
 selected group; complete multi-group rosters remain explicit and supplier-first.
@@ -278,6 +288,66 @@ native full/selected pair was run. Current-mapping omissions and macOS remain
 unqualified. The real incoming Wire 0.17.5 lock edit was preserved byte-for-byte
 through adoption; the maintainer subsequently authorized including it in the
 pending CLI 0.296.2 deployment. That release requires its own actual gate.
+
+### Delivered CLI 0.296.2 frozen acceptance
+
+The real `batch-kRCC00xv` captured source
+`fc2dd259c2cb04559b4cc0e2a1c2aa27da4f8650`, passed the complete Linux product
+release gate and published CLI 0.296.2 at
+`2db84355523b0af29d4434d718a1e03a4749e528`. Its official archive matches the
+registry checksum, clean release source and original manifest; it selects
+published IcyDB 0.300.0 and Wire 0.17.5. This is actual frozen Git and registry
+acceptance, distinct from the earlier substituted-registry hook qualification.
+A transient shared host-tool installation lock stopped the first preflight;
+resuming the same captured batch after its owner finished completed delivery.
+
+A real normal-checkout Testkit 0.89.3 lock edit appeared during validation. The
+batch retained Testkit 0.89.2 through release and publication, and preserved that
+normal edit unchanged. The completed batch, receipts and evidence remain under
+`.git/release-state/frozen/batch-kRCC00xv/`,
+`target/release-frozen/batch-kRCC00xv/` and `target/tmp/deploy-0300/`.
+Normal-branch reconciliation remains pending because its deferred lock is dirty;
+no reset, stash or cleanup was performed. Current-mapping omissions and macOS
+qualification remain separate. See the
+[delivery status](../design/0.300-testkit-frozen/0.300-status.md).
+
+### Shared 0.31 release-batch hard-cut acceptance
+
+The 0.31 snapshot at `74313941af2fce4399bec0e6909ca6229673c3f8` replaces the old
+settings/runner with `RELEASE_GROUPS`, `RELEASE_PUBLISH_TARGET`,
+`RELEASE_SETUP_TARGET`, `RELEASE_SETUP_MODE`, `RELEASE_BATCH_ACTIVE` and
+`run-release-batch.pl`. Shared owns automatic capture; clearing a selected roster
+and using retired settings refuse. IcyDB preserves explicit group ownership and
+supplier-first admission while removing its duplicate capture default.
+
+Actual consumer hooks pass on Linux with Rust/Cargo 1.99.1. Evidence is retained
+in `target/tmp/frozen-icydb.2roRMAMs/` and
+`target/tmp/shared-0310/batch-hooks.log`. The fixture uses real setup, locked
+native builds, verified archives/original manifests, metadata, Git and receipts;
+only registry effects are substitutes. Schema-2 intent retains the captured graph
+after a real normal-fixture dependency edit. Interruption, uncertain publication,
+completed resume, status, remote refusal and guarded reconciliation pass. Schema-1
+journals and missing recorded publication commits refuse without migration or
+reconstruction. Explicit retirement refuses the ignored cache and preserves state.
+
+All 159 annotated snapshot payloads match the reviewed source. Portable checksum,
+NUL-output/backend failure, inert-helper corruption and missing-source controls
+pass against copies of the actual consumer helpers. Dispatch controls cover old
+setting refusal, empty rosters and saved-batch operations. Browser declarations
+pass schema 3 and a synthetic schema-2 lock is rejected; documentation, shell,
+compiler admission and the declared stage contract pass.
+
+The real completed `batch-kRCC00xv` remains schema 1; its retained original 0.30.9
+snapshot verifies independently. Any remaining operations use that original
+reviewed runner, not the new interface. No active production batch was migrated,
+replayed or retired. Deferred normal-checkout Testkit 0.89.3 and prior local
+status edits remain preserved. Package versions and published notes are unchanged;
+new notes use pending database 0.300.1 and CLI 0.296.3 entries.
+
+No full product suite, native full/selected comparison or deployment was requested
+or run for this adoption. Current-mapping omissions and native macOS remain
+unqualified. IC cycles/instructions and total/code-section Wasm deltas are
+unmeasured.
 
 ### Prepared post-cut native comparison
 
