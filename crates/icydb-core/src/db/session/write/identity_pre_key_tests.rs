@@ -864,6 +864,14 @@ fn secondary_ordered_covering_limit_stops_at_the_present_row_window() {
             .map(|payload| vec![OutputValue::nat64(payload)])
             .collect::<Vec<_>>(),
     );
+    // Residual filtering must keep seeking past the first index entry.
+    assert_eq!(
+        sql_projection_rows(
+            &session,
+            "SELECT id, payload FROM IdentityRow WHERE id > 2 ORDER BY payload ASC, id ASC LIMIT 1"
+        ),
+        vec![vec![OutputValue::nat64(3), OutputValue::nat64(20)]],
+    );
 }
 
 #[cfg(feature = "sql")]
@@ -915,7 +923,7 @@ fn secondary_indexed_max_uses_one_descending_edge_across_ties() {
         sql_projection_rows(&session, sql),
         vec![vec![OutputValue::nat64(40)]],
     );
-    assert_eq!(DataStore::current_get_call_count() - data_reads_before, 1);
+    assert_eq!(DataStore::current_get_call_count() - data_reads_before, 0);
     assert!(IndexStore::current_entry_read_count() - index_reads_before <= 1);
 
     let range_sql = "SELECT MAX(payload) FROM IdentityRow WHERE payload < 40";
@@ -2321,7 +2329,12 @@ fn assert_sql_query_fits_resource_limit(
     with_query_execution_budget_for_tests(budget, context, || {
         session.execute_trusted_sql_query(sql)
     })
-    .expect("bounded SQL execution should fit its physical-work limit");
+    .unwrap_or_else(|error| {
+        panic!(
+            "bounded SQL execution failed for {sql}: {error:?}; facts: {:?}",
+            error.diagnostic_facts()
+        )
+    });
 }
 
 #[cfg(feature = "sql")]

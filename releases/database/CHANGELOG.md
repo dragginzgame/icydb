@@ -12,7 +12,17 @@ begin with 0.295.0 below.
   progress. Split only stage-proven precommit byte refusals; keep atomic batches
   unchanged ([#323 — Bounded typed bulk writes](https://github.com/dragginzgame/icydb/issues/323)).
 
+### 🩹 Fixed
+
+- Preserve cursorless ordered LIMIT scan bounds through the shared covering
+  pager, retaining residual filtering and missing-row refusal
+  ([#345 — Covering scalar pages](https://github.com/dragginzgame/icydb/issues/345)).
+
 ### 🧪 Testing
+
+- Keep malformed boot-record version, state and checksum controls anchored to
+  the current hard-cut identity
+  ([#102 — Identity checkpoint storage](https://github.com/dragginzgame/icydb/issues/102)).
 
 - Qualify shared formatter dispatch with workspace metadata and explicit member
   selection in consumer fixtures, preserving separate product/adapter ownership.

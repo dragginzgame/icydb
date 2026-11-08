@@ -94,6 +94,11 @@ impl UnpagedLoadHintStrategy {
             Self::TopNSeekWindow { fetch } => {
                 route_plan.scan_hints.physical_fetch_hint = Some(fetch);
                 route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
+                // The range fast path consumes its own spec, so normalize it
+                // with the same cursorless window as fallback and row scanning.
+                if let Some(spec) = route_plan.index_range_limit_spec.as_mut() {
+                    spec.fetch = fetch;
+                }
             }
             Self::PreserveOrderedIndexLeafStream => {
                 route_plan.scan_hints.physical_fetch_hint = Some(usize::MAX);
