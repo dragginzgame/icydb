@@ -1,5 +1,5 @@
 # Standard entrypoints only; consumer metadata, validation and delivery policy stay local.
-# Shared companions: scripts/ci/run-release.sh scripts/ci/run-release-batch.pl scripts/ci/check-release-delivery.sh make/execution.mk
+# Shared companions: scripts/ci/run-release.sh scripts/ci/run-release-batch.pl scripts/ci/check-release-delivery.sh make/execution.mk scripts/dev/clean-empty-source-dirs.pl
 _shared_release_default_goal := $(.DEFAULT_GOAL)
 SHARED_TOOLING_ROOT ?= $(CURDIR)
 _shared_release_delivery_check := $(dir $(lastword $(MAKEFILE_LIST)))../scripts/ci/check-release-delivery.sh
@@ -10,6 +10,12 @@ _shared_retired_release_settings := $(strip $(foreach setting,RELEASE_FROZEN_GRO
 ifneq ($(_shared_retired_release_settings),)
 $(error Retired release settings: $(_shared_retired_release_settings); adopt docs/release-batches.md)
 endif
+# Clean conventional source roots before capture as well as direct preflight.
+.PHONY: clean-empty-source-dirs
+clean-empty-source-dirs:
+	@perl "$(SHARED_TOOLING_ROOT)/scripts/dev/clean-empty-source-dirs.pl"
+release-patch release-minor release-major release-resume release-preflight: clean-empty-source-dirs
+
 RELEASE_REMOTE ?= origin
 RELEASE_BRANCH ?= main
 # Optional consumer-owned verification after a successful exact-version resume.

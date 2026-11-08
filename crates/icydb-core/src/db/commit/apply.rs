@@ -23,13 +23,13 @@ impl PreparedIndexMutation {
             .with_borrow(|store| store.preflight_positioned_journal_entry(&self.key, position))
     }
 
-    /// Apply one precomputed index mutation, preserving storage read failures.
+    /// Apply one precomputed index mutation to the selected live store.
     pub(crate) fn apply(self) -> Result<(), InternalError> {
         self.index_store.with_borrow_mut(|store| {
             if let Some(value) = self.value {
-                store.insert(self.key, value)?;
+                store.insert(self.key, value);
             } else {
-                store.remove(&self.key)?;
+                store.remove(&self.key);
             }
             Ok(())
         })
@@ -129,9 +129,9 @@ impl PreparedRowCommitOp {
         // Phase 2: apply the authoritative row-store mutation.
         let data_generation = self.data_store.with_borrow_mut(|store| {
             if let Some(value) = self.data_value {
-                store.insert(self.data_key, value)?;
+                store.insert(self.data_key, value);
             } else {
-                store.remove(&self.data_key)?;
+                store.remove(&self.data_key);
             }
             Ok::<_, InternalError>(store.generation())
         })?;

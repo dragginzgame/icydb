@@ -28,12 +28,8 @@ fn qualify_delta(
         unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
         unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
     ] {
-        actual
-            .insert(key.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
-        expected
-            .insert(key, IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        actual.insert(key.clone(), IndexEntryValue::presence());
+        expected.insert(key, IndexEntryValue::presence());
     }
     let original = index_store_entries(&actual);
     let staged = stage_domain(
@@ -71,17 +67,11 @@ fn qualify_delta(
             .all(|pair| pair[0].key() < pair[1].key())
     );
     for key in deletions {
-        assert_eq!(
-            (actual.remove(&key)).expect("storage operation should succeed"),
-            Some(IndexEntryValue::presence())
-        );
+        assert_eq!((actual.remove(&key)), Some(IndexEntryValue::presence()));
     }
     for entry in insertions {
         let (key, value) = entry.into_parts();
-        assert_eq!(
-            (actual.insert(key, value)).expect("storage operation should succeed"),
-            None
-        );
+        assert_eq!((actual.insert(key, value)), None);
     }
     assert_eq!(index_store_entries(&actual), index_store_entries(&expected));
 }
@@ -134,9 +124,7 @@ fn unchanged_domain_still_refuses_a_missing_physical_entry() {
     let mut store = IndexStore::init_heap();
     insert_projection_entries(&mut store, &[index], &[(1, &row)], EntityTag::new(7));
     let key = index_store_entries(&store)[0].0.clone();
-    store
-        .remove(&key)
-        .expect("fixture storage operation should succeed");
+    store.remove(&key);
     let error = stage_domain(
         accepted_identity(&snapshot),
         &snapshot,

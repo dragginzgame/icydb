@@ -75,7 +75,12 @@ jobs:
         run: |
           "$GITLEAKS_BIN" git --redact=100 --no-banner --no-color --log-level error "$GITHUB_WORKSPACE"
       - name: Run static validation with complete feedback
-        run: make ci-static
+        run: |
+          # Keep failed automation fixtures inside shared evidence collection.
+          mkdir -p "$RUNNER_TEMP/portable-fixtures"
+          TMPDIR="$(cd "$RUNNER_TEMP/portable-fixtures" && pwd -P)"
+          export TMPDIR
+          make ci-static
       - name: Retain tooling failure evidence
         if: failure()
         uses: ./.github/actions/retain-failure-evidence

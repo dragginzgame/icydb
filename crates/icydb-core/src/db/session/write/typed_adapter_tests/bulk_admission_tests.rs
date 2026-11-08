@@ -41,8 +41,8 @@ fn bulk_admission_uses_exact_canonical_staged_and_result_bytes() {
     .unwrap()
     .to_raw()
     .unwrap();
-    let staged = DATA_STORE
-        .with(|store| key.as_bytes().len() + store.borrow().get(&key).unwrap().unwrap().len());
+    let staged =
+        DATA_STORE.with(|store| key.as_bytes().len() + store.borrow().get(&key).unwrap().len());
 
     session
         .execute_trusted_typed_mutation(

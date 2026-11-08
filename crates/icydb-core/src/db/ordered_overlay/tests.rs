@@ -2,12 +2,12 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn collect_overlay<'a>(
-    entries: impl Iterator<Item = Result<OrderedOverlayEntry<(&'a u8, &'a u16), (&'a u8, &'a u16)>, ()>>,
+    entries: impl Iterator<Item = OrderedOverlayEntry<(&'a u8, &'a u16), (&'a u8, &'a u16)>>,
     stop_after: usize,
 ) -> Vec<(u8, u16)> {
     entries
         .take(stop_after)
-        .map(|entry| match entry.unwrap() {
+        .map(|entry| match entry {
             OrderedOverlayEntry::Canonical((key, value))
             | OrderedOverlayEntry::Live((key, value)) => (*key, *value),
         })
@@ -24,7 +24,7 @@ fn visit_overlay(
     match direction {
         Direction::Asc => collect_overlay(
             ordered_overlay_entries(
-                canonical.iter().map(Ok::<_, ()>),
+                canonical.iter(),
                 live.iter(),
                 direction,
                 |entry| entry.0,
@@ -35,7 +35,7 @@ fn visit_overlay(
         ),
         Direction::Desc => collect_overlay(
             ordered_overlay_entries(
-                canonical.iter().rev().map(Ok::<_, ()>),
+                canonical.iter().rev(),
                 live.iter().rev(),
                 direction,
                 |entry| entry.0,
@@ -134,23 +134,4 @@ fn overlay_visit_suppresses_equal_key_tombstone() {
         visit_overlay(&canonical, &live, &tombstones, Direction::Desc, usize::MAX),
         vec![(3, 30), (2, 20)]
     );
-}
-#[test]
-fn canonical_failure_is_terminal_even_with_live_overrides_and_tombstones() {
-    for direction in [Direction::Asc, Direction::Desc] {
-        let canonical = [Err::<(u8, u8), _>(7), Ok((1, 10))];
-        let live = [(1, 20)];
-        let tombstones = BTreeSet::from([1]);
-        let mut merged = ordered_overlay_entries(
-            canonical.into_iter(),
-            live.into_iter(),
-            direction,
-            |entry| &entry.0,
-            |entry| &entry.0,
-            &tombstones,
-        );
-        assert!(matches!(merged.next(), Some(Err(7))));
-        assert!(merged.next().is_none());
-        assert!(merged.next().is_none());
-    }
 }

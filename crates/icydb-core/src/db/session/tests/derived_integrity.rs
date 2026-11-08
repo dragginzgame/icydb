@@ -185,15 +185,13 @@ fn fixture(corrupt_id: u64, row_len: usize) -> (DbSession<TestCanister>, Accepte
         )
         .to_raw()
         .unwrap();
-        store
-            .with_data_mut(|data| {
-                data.insert_raw_for_test(
-                    key,
-                    RawRow::from_bytes(Cow::Owned(vec![0; row_len]))
-                        .expect("storage operation should succeed"),
-                )
-            })
-            .expect("fixture storage operation should succeed");
+        store.with_data_mut(|data| {
+            data.insert_raw_for_test(
+                key,
+                RawRow::from_bytes(Cow::Owned(vec![0; row_len]))
+                    .expect("storage operation should succeed"),
+            )
+        });
     }
     let selection = store
         .with_schema(|schema| schema.current_accepted_catalog_selection(TAG, ENTITY, STORE))
@@ -271,10 +269,7 @@ fn oversized_source_advances_reverse_domain_and_keeps_clean_neighbors() {
 }
 
 // Exercise the physical page boundary with the same corruptions in both domains.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one witness matrix covers malformed key and value families in both directions"
-)]
+
 fn assert_witness_findings(reverse: bool) {
     let (session, plan) = fixture(0, 0);
     let store = session.db.store_handle(STORE).unwrap();
@@ -331,9 +326,7 @@ fn assert_witness_findings(reverse: bool) {
             IntegrityFindingKind::DivergentIndexEntry,
         )
     };
-    store
-        .with_index_mut(|index| index.remove(&original_key))
-        .expect("fixture storage operation should succeed");
+    store.with_index_mut(|index| index.remove(&original_key));
     for (key, value, expected) in [
         (
             RawIndexStoreKey::from_persisted_bytes(trailing),
@@ -354,9 +347,7 @@ fn assert_witness_findings(reverse: bool) {
         (with_primary(999), original_value.clone(), orphan),
         (with_primary(2), original_value.clone(), divergent),
     ] {
-        store
-            .with_index_mut(|index| index.insert(key.clone(), value))
-            .expect("fixture storage operation should succeed");
+        store.with_index_mut(|index| index.insert(key.clone(), value));
         let (_, exhausted, findings) = page(
             &session,
             &plan,
@@ -376,13 +367,9 @@ fn assert_witness_findings(reverse: bool) {
                     .map(|(_, bytes)| bytes)
             }),
         );
-        store
-            .with_index_mut(|index| index.remove(&key))
-            .expect("fixture storage operation should succeed");
+        store.with_index_mut(|index| index.remove(&key));
     }
-    store
-        .with_index_mut(|index| index.insert(original_key, original_value))
-        .expect("fixture storage operation should succeed");
+    store.with_index_mut(|index| index.insert(original_key, original_value));
 }
 
 #[test]
@@ -682,9 +669,7 @@ fn assert_missing_within_key_is_corruption(reverse: bool) {
         );
         assert!(exhausted);
         assert!(findings.is_empty());
-        store
-            .with_index_mut(|index| index.insert(key, value))
-            .expect("fixture storage operation should succeed");
+        store.with_index_mut(|index| index.insert(key, value));
     }
 }
 

@@ -43,11 +43,9 @@ fn migration_row_preflight_requires_present_source_rows() {
     for present in [false, true, false] {
         DATA.with_borrow_mut(|data| {
             if present {
-                data.insert_raw_for_test(key.clone(), RawRow::try_new(vec![2]).unwrap())
-                    .expect("fixture storage operation should succeed");
+                data.insert_raw_for_test(key.clone(), RawRow::try_new(vec![2]).unwrap());
             } else {
-                data.remove(&key)
-                    .expect("fixture storage operation should succeed");
+                data.remove(&key);
             }
         });
         let result = preflight_migration_effects("test::Store", store, &records);

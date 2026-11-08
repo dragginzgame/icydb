@@ -1376,15 +1376,11 @@ fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
     let first_retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("first fold should preflight");
-    store
-        .apply_prepared_batch_retirement(first_retirement)
-        .expect("fixture storage operation should succeed");
+    store.apply_prepared_batch_retirement(first_retirement);
     let second_retirement = store
         .prepare_batch_retirement(&both, FoldWatermark::new(JournalSequence::new(2), 2))
         .expect("second fold should preflight");
-    store
-        .apply_prepared_batch_retirement(second_retirement)
-        .expect("fixture storage operation should succeed");
+    store.apply_prepared_batch_retirement(second_retirement);
     assert_entity_revision(&store, first_tag, 3);
     assert_entity_revision(&store, second_tag, 3);
 }
@@ -1798,21 +1794,17 @@ fn journal_tail_store_cleanup_keeps_watermark_as_replay_boundary() {
     let first_retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("first retirement should preflight");
-    store
-        .apply_prepared_batch_retirement(first_retirement)
-        .expect("fixture storage operation should succeed");
+    store.apply_prepared_batch_retirement(first_retirement);
     assert!(
-        (store.has_stored_batch()).expect("fixture storage read should succeed"),
+        (store.has_stored_batch()),
         "retiring the first batch must retain the second batch",
     );
     let second_retirement = store
         .prepare_batch_retirement(&second, FoldWatermark::new(JournalSequence::new(2), 2))
         .expect("second retirement should preflight");
-    store
-        .apply_prepared_batch_retirement(second_retirement)
-        .expect("fixture storage operation should succeed");
+    store.apply_prepared_batch_retirement(second_retirement);
     assert!(
-        !(store.has_stored_batch()).expect("fixture storage read should succeed"),
+        !(store.has_stored_batch()),
         "complete retirement must leave the physical tail empty",
     );
 
@@ -2320,9 +2312,7 @@ fn journal_proof_identity_tracks_tail_append_and_fold_topology() {
     let retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("retirement should preflight");
-    store
-        .apply_prepared_batch_retirement(retirement)
-        .expect("fixture storage operation should succeed");
+    store.apply_prepared_batch_retirement(retirement);
     let folded = store
         .proof_identity()
         .expect("folded proof identity should capture");

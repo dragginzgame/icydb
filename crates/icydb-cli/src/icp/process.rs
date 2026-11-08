@@ -104,6 +104,21 @@ pub(super) fn captured_output(result: Result<CompletedExecution, ToolError>) -> 
         })
 }
 
+// Host keeps the operation and OS cause separately. Render both only at the
+// presentation boundary; callers still classify the original typed failure.
+pub(super) fn capture_error_detail(error: &io::Error) -> String {
+    let source = error
+        .get_ref()
+        .and_then(|cause| cause.downcast_ref::<ToolError>())
+        .and_then(ToolError::execution_error)
+        .and_then(|execution| match &execution.failure {
+            ExecutionFailure::Io { source, .. } => Some(source),
+            _ => None,
+        });
+    let detail = source.map_or_else(|| error.to_string(), |source| format!("{error}: {source}"));
+    terminal_text(&detail).into_owned()
+}
+
 /// Run one icp-cli command as a client call. This never starts or stops a local network.
 pub(super) fn run_external_command(mut command: Command, label: &str) -> Result<(), String> {
     let status = command
@@ -148,7 +163,12 @@ fn canister_status_output(
     output: StatusOutput,
 ) -> Result<Output, String> {
     let output = probe_output(&mut canister_status_command(environment, canister, output))
-        .map_err(|err| format!("failed to run icp canister status: {err}"))?;
+        .map_err(|error| {
+            format!(
+                "failed to run icp canister status: {}",
+                capture_error_detail(&error)
+            )
+        })?;
     if !output.status.success() {
         return Err(format!(
             "icp canister status for '{canister}' in environment '{environment}' failed with {}: {}",

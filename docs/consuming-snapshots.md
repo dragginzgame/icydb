@@ -1,5 +1,5 @@
 # Consuming Shared Tooling Snapshots
-<!-- Shared companions: docs/rust-toolchains.md scripts/distribution/maintenance-files.txt scripts/distribution/governance-files.txt docs/ic-tools.md docs/verification-helpers.md docs/local-setup.md docs/make-interface.md tasks/snapshot-drift.md rules/dependency-pinning.md rules/changelogs.md -->
+<!-- Shared companions: docs/toko-tooling.md docs/rust-toolchains.md scripts/distribution/maintenance-files.txt scripts/distribution/governance-files.txt docs/ic-tools.md docs/verification-helpers.md docs/local-setup.md docs/make-interface.md tasks/snapshot-drift.md rules/dependency-pinning.md rules/changelogs.md -->
 
 CI and release behavior must not depend on a sibling checkout, a moving Git
 branch, or network availability. Consumers vendor a reviewed file set and
@@ -33,6 +33,10 @@ working tree or remove catalog rows to express a subset.
 
 Completing adoption includes the consumer-owned changes below; copying a new
 snapshot alone does not classify dependencies or install a deployment gate.
+For registry installation, use [Cargo selection and installation](#cargo-selection-and-installation)
+below. The following Git export procedure remains available for historical
+provenance, review and snapshot reorganization.
+
 Select a released, reviewed source revision and refresh through the canonical
 exporter. Include `rules/cargo-dependencies.md` and `rules/git-hooks.md` in the
 governance selection. If the consumer uses selected-source manifest ordering,
@@ -78,6 +82,111 @@ release checks; qualify the deployment dependency boundary and report any
 remaining enforcement gaps." Registry publication remains a separate fact;
 neither role labels nor cached build success establishes it.
 
+## Cargo selection and installation
+
+Starting with 0.36, Cargo owns tooling selection so `cargo update -v` reports
+newer available releases. Declare the exact version once in root `Cargo.toml`:
+
+```toml
+[workspace.dependencies]
+toko-tooling = "=0.36.0"
+```
+
+Every real workspace package, including a root package and private/test packages,
+must inherit it unconditionally:
+
+```toml
+[dev-dependencies]
+toko-tooling.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+```
+
+Merge the cargo-machete exemption with existing entries: the dependency supplies
+installed source tooling, not imported Rust APIs. Do not add an artificial Rust
+import. Do not create a package to hold this dependency. A standalone package
+without `[workspace]` declares `toko-tooling = "=0.36.0"` directly in its root
+`[dev-dependencies]`, with the same exemption. The producer `toko-tooling` itself
+is exempt from consuming its own package; it validates the packaged payload.
+
+"Every manifest" means maintained workspace packages, not vendored dependencies,
+build output or intentionally isolated fixture manifests. Independent maintained
+workspaces apply the same rule at their own root. Non-Cargo repositories do not
+create synthetic packages for notifications; they can use the authenticated
+snapshot exporter directly, but have no `cargo update` visibility or Cargo-based
+admission. The standard `shared-tooling-*` selection commands require a real
+Cargo workspace/package.
+
+An exact pin allows `cargo update -v` to show a newer available version without
+silently adopting it. After deliberately editing the root pin:
+
+```bash
+cargo update -p toko-tooling # update Cargo.lock; leave unrelated selections alone
+make shared-tooling-update  # install the selected authenticated crate and tools
+make shared-tooling-check   # offline member/pin/lock/snapshot admission
+```
+
+`make shared-tooling-install` also installs the existing Cargo.lock selection;
+`make shared-tooling-status` reports selected and installed identities offline.
+Neither install nor update edits manifests or Cargo.lock. Commit the root pin,
+member declarations, Cargo.lock and `.shared-tooling.snapshot` together. Cargo.lock
+supplies the exact crates.io version and archive SHA-256; no separate tooling lock
+or metadata version is used. Installation downloads the actual scripts, Make
+interfaces, rules, pins, licenses and documentation from crates.io, authenticates
+the archive, and preserves consumer-owned edits and recorded entrypoints.
+
+Offline admission checks every workspace member, not just default-members, for
+one inherited dev-dependency at the root pin. It rejects missing declarations,
+local version overrides, normal/build dependencies, aliases, target-specific
+selection and non-registry source overrides. Cargo.lock must contain exactly one
+matching crates.io entry, and the installed receipt's version/checksum and owned
+files must agree. Deleting a member cannot remove the dependency from remaining
+members; deleting the last declaration fails admission. A changed Cargo selection
+never silently installs tools. Common CI/release entrypoints require admission;
+custom deployment adapters must invoke it before effects when bypassing them.
+
+### Migration from Cargo dependencies
+
+This migration replaces both the 0.34–0.35 metadata/lock scheme and the earlier
+selection-only package approach:
+
+1. Add the root exact dependency and inherited dev-dependency to every maintained
+   workspace package, with the cargo-machete exemption above. Remove old
+   `workspace.metadata.toko-tooling` / `package.metadata.toko-tooling` tables and
+   `toko-tooling.lock`. Remove renamed, normal, build or independently versioned
+   tooling dependencies; retain one inherited dev-dependency per package.
+2. Remove packages created solely to hold tooling selection and their workspace,
+   default-member, release-group, CI and documentation references. Preserve
+   packages with real tools, tests or qualification code. No new helper package,
+   `crates/Cargo.toml` or Rust import is needed.
+3. Update Cargo.lock with Cargo. Bootstrap with the 0.36 installer from a reviewed
+   producer checkout or an authenticated published 0.36+ crate extraction, since
+   the old installer still expects metadata and a separate lock:
+
+   ```bash
+   bash /home/adam/projects/toko-tooling/scripts/dev/shared-tooling.sh update \
+     --consumer "$PWD"
+   ```
+
+   The selected version must already be published. Payload bytes still come from
+   crates.io. Historical Git receipts also need `--source` pointing at the old
+   checkout for ownership proof; registry receipts use their prior authenticated
+   archive. For first adoption, pass `--entrypoint make/consumer.mk
+   --entrypoint DRAGGINZGAME.md` and other required roots, and include
+   `make/consumer.mk` from the consumer Makefile before setup.
+4. Run `make shared-tooling-check`, focused caller checks and existing membership/
+   release-group validation. Replace obsolete metadata/lock and helper-package
+   instructions in consumer-owned guides. Never hand-edit snapshot-owned files
+   or receipts. Do not migrate consumers to an unpublished producer release.
+
+Prepare the project's compiler/native prerequisites and host parsers first.
+Installation requires Cargo, jq, Mike Farah yq, Perl Archive::Tar and
+IO::Uncompress::Gunzip, then runs `make install-tools` and `make tools-check`.
+Failure leaves evidence and reports incomplete adoption. Cargo builds themselves
+never install tooling. Source review lives at
+`https://github.com/dragginzgame/toko-tooling`.
+
 ## Upgrade impact
 
 Adopt a snapshot for an applicable fix, a needed capability or an explicitly
@@ -99,7 +208,7 @@ required; branches, tags, abbreviated IDs and unavailable objects refuse. Git
 replacement refs cannot substitute another tree. No fetch, stash, branch switch,
 index update or source checkout is performed.
 
-The executing exporter and its three helpers must match their own committed
+The executing exporter and its version reader and integrity helpers must match their own committed
 HEAD in bytes and executable mode. Dirty execution files refuse before helpers
 run or consumer files change; unrelated dirty source files are allowed. Admitted
 helpers run from private committed copies, independently of the payload revision.
@@ -284,10 +393,10 @@ payload hashes/modes and required integrity tools, refresh proves prior ownershi
 against committed source, and fleet reporting checks source attribution and drift.
 Each caller uses its own reviewed reader, never a helper from an inspected repo.
 
-Refresh also writes a `# version<TAB>X.Y.Z` annotation from `VERSION` at that
+Refresh also writes a `# version<TAB>X.Y.Z` annotation from `[package].version` in `Cargo.toml` at that
 exact source commit. The committed file must contain a canonical stable version;
 the exporter never reads its display version from mutable working-tree bytes or
-changes the consumer's own `VERSION`. This descriptive annotation keeps the
+changes the consumer's own package version. This descriptive annotation keeps the
 existing v1 integrity records intact and is understood by the current verifier
 and fleet report. A snapshot without it displays `unrecorded`; its next refresh
 records the selected source version. Malformed or duplicate version annotations
@@ -297,8 +406,8 @@ The commit remains the exact source identity: several commits can carry the same
 version, and an annotation does not prove a release tag or publication. Local
 verification checks files against the reviewed manifest, not the truth of its
 source claims against GitHub. The annotation is not a second version selection
-to edit independently. Review the manifest with its snapshot refresh; no Cargo
-dependency or duplicate Cargo metadata is needed.
+to edit independently. Cargo selects the tooling dependency; the snapshot records
+installed bytes. The offline check requires both identities to agree.
 
 Use `--manifest <relative-path>` to choose a different manifest location. Its
 parent directories are created before consumer files are replaced. Pass the

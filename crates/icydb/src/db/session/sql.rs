@@ -14,6 +14,47 @@ use crate::{
 use icydb_core as core;
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Execute caller-controlled SQL through indexed public admission and paging.
+    ///
+    /// Authorize every call before invoking this method. Scalar SELECT returns
+    /// at most one public page, with a canonical work receipt and authenticated
+    /// continuation; SQL LIMIT caps the complete scalar traversal. Grouped reads
+    /// use the existing bounded grouped contract and its cursor. Expression
+    /// and ordering semantics remain owned by structural execution.
+    ///
+    /// Full scans and unsafe sorts reject. Top-level SELECT DISTINCT, nonzero
+    /// scalar OFFSET, global aggregates and execution EXPLAIN currently lack this
+    /// public contract and reject before row execution; explicitly trusted SQL
+    /// retains those features.
+    /// Metadata needs separate application authorization and cannot accept a cursor.
+    #[cfg(feature = "sql")]
+    pub fn execute_public_sql_query_page(
+        &self,
+        sql: &str,
+        continuation: Option<&str>,
+    ) -> Result<crate::db::sql::SqlQueryPageResult, Error> {
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        self.execute_public_sql_query_page_dispatch(&dispatch, &[], continuation)
+    }
+
+    /// Execute an application-retained SQL dispatch under public read admission.
+    ///
+    /// Bindings supply current operands and never retain authorization. The same
+    /// policy and continuation contract as [`Self::execute_public_sql_query_page`]
+    /// apply on every call, including after trusted execution warmed SQL caches.
+    #[cfg(feature = "sql")]
+    pub fn execute_public_sql_query_page_dispatch(
+        &self,
+        dispatch: &core::db::SqlStatementDispatch<'_>,
+        bindings: &[InputValue],
+        continuation: Option<&str>,
+    ) -> Result<crate::db::sql::SqlQueryPageResult, Error> {
+        self.inner
+            .execute_sql_public_query_page_dispatch(dispatch, bindings, continuation)
+            .map(crate::db::sql::sql_query_page_result_from_statement)
+            .map_err(Into::into)
+    }
+
     fn sql_query_result_from_statement(
         statement: core::db::SqlStatementResult,
         entity: String,
@@ -34,8 +75,9 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one trusted/admin reduced SQL query against accepted catalog authority.
     ///
     /// This helper does not make caller-controlled SQL public-safe. Public
-    /// endpoints should prefer ordinary typed/dynamic reads, or use an
-    /// application-owned SQL allowlist before entering this trusted lane.
+    /// endpoints should use ordinary typed/dynamic reads or
+    /// [`Self::execute_public_sql_query_page`] under the `sql` feature. An
+    /// application-owned SQL allowlist may authorize this trusted lane explicitly.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
         let (result, entity) = self
             .inner

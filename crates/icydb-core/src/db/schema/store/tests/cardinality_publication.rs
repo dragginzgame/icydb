@@ -51,23 +51,14 @@ fn seed_cardinality(
         }
     }
     for (key, bytes) in &entries {
-        store
-            .insert_durable_raw_value(*key, bytes.clone())
-            .expect("fixture storage operation should succeed");
+        store.insert_durable_raw_value(*key, bytes.clone());
     }
     entries
 }
 
 fn assert_cardinality_preserved(store: &SchemaStore, entries: &[(RawSchemaKey, Vec<u8>)]) {
     for (key, bytes) in entries {
-        assert_eq!(
-            store
-                .get_raw_value(key)
-                .unwrap()
-                .expect("storage operation should succeed")
-                .as_bytes(),
-            bytes
-        );
+        assert_eq!(store.get_raw_value(key).unwrap().as_bytes(), bytes);
     }
 }
 
@@ -102,9 +93,7 @@ fn control_projection_keeps_cursor_decode_out_of_lifecycle_reads() {
         (header, true)
     );
 
-    store
-        .insert_durable_raw_value(RawSchemaKey::from_cardinality_build_cursor(), vec![0])
-        .expect("fixture storage operation should succeed");
+    store.insert_durable_raw_value(RawSchemaKey::from_cardinality_build_cursor(), vec![0]);
     assert_eq!(
         store.cardinality_generation_lifecycle_control().unwrap(),
         (header, true)
@@ -114,9 +103,7 @@ fn control_projection_keeps_cursor_decode_out_of_lifecycle_reads() {
         ErrorClass::Corruption
     );
 
-    store
-        .insert_durable_raw_value(RawSchemaKey::from_cardinality_generation_header(), vec![0])
-        .expect("fixture storage operation should succeed");
+    store.insert_durable_raw_value(RawSchemaKey::from_cardinality_generation_header(), vec![0]);
     assert_eq!(
         store
             .cardinality_generation_lifecycle_control()

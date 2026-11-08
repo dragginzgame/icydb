@@ -39,6 +39,10 @@ RELEASE_SETUP_TARGET := release-candidate-setup
 export RELEASE_GROUP
 include $(ROOT_DIR)/make/consumer.mk
 
+# These consumer entrypoints bypass Shared's generic `ci` target.
+ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b ci-adapter: shared-tooling-check
+build-canister-local build-canister-production: shared-tooling-check
+
 _icydb_release_selection_mode :=
 ifneq ($(filter release-patch release-minor release-major,$(MAKECMDGOALS)),)
 ifneq ($(RELEASE_BATCH_ACTIVE),1)
@@ -766,8 +770,7 @@ release-verify release-prepare-version release-prepared-check release-commit-che
 .PHONY: release-candidate-setup test-release-batch
 # Shared invokes setup before version discovery and checks saved tools on resume.
 # Recovery never installs a tool from partially prepared working metadata.
-release-candidate-setup:
-	@bash scripts/ci/verify-shared-tooling-snapshot.sh >&2
+release-candidate-setup: shared-tooling-check
 	+@case "$(RELEASE_SETUP_MODE)" in \
 		prepare) \
 			{ $(MAKE) --no-print-directory host-tools-check >/dev/null 2>&1 || $(MAKE) --no-print-directory install-host-tools >&2; } && \

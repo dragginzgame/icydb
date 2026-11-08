@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+deployment_only=false
+if [[ $# != 0 ]]; then
+  [[ $# == 2 && "$1" == --case && "$2" == deployment ]] || {
+    echo 'usage: test-shared-tooling-adapters.sh [--case deployment]' >&2
+    exit 2
+  }
+  deployment_only=true
+fi
+
 # These isolated Make calls select their own flags and recursive context.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 # Select fixture thread defaults independently of CI's ambient libtest cap.
@@ -14,6 +23,9 @@ fixture_complete=false
 # shellcheck source=scripts/ci/fixture-lifecycle.sh
 source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$FIXTURE" "Shared adapter fixture retained"' EXIT
+# Assertions often suppress child logs; retain their exact source location in CI.
+trap 'printf "Shared adapter fixture failed at %s:%s\n" "${BASH_SOURCE[0]}" "$LINENO" >&2 || :' ERR
+if [[ "$deployment_only" == false ]]; then
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
 for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm \
   run-icydb-validation-targets.sh \
@@ -117,6 +129,8 @@ if rg -i 'jobserver unavailable|jobserver.*invalid|forced in submake' "$FIXTURE/
   exit 1
 fi
 
+fi
+
 # Qualify actual Cargo entrypoints without compiling or running product
 # gates. Cargo substitutes inspect live descriptors, cache roots and libtest
 # concurrency; the real consumer Makefile and shared dispatch remain in use.
@@ -128,7 +142,7 @@ cp "$ROOT/ci/"{release-validation.json,release-validation-contract.json,cargo-re
 cp "$ROOT/make/"*.mk "$native/make/"
 # Formatting now consumes the canonical catalog reader. Copy its declared
 # companion closure so fixture setup follows the selected shared Make contract.
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" make/rust-format.mk
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" make/consumer.mk
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
 mkdir -p "$native/testing/build/src" "$native/testing/canic-adapter"
 cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$native/testing/build/src/"
@@ -222,6 +236,75 @@ CARGO
 # Runtime selection has its own fixture; this suite substitutes product gates.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/test-model-runtime-selection.sh"
 chmod +x "$native/bin/cargo"
+# This fixture substitutes product effects and shared tooling admission; the
+# real root declaration/lock/snapshot is checked separately by the owning gate.
+mkdir -p "$native/scripts/dev"
+cat > "$native/scripts/dev/shared-tooling.sh" <<'TOOLING'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == "check --consumer $CI_CARGO_ROOT --manifest .shared-tooling.snapshot" ]]
+[[ "${CI_TOOLING_CHECK_FAIL:-0}" == 0 ]]
+TOOLING
+
+check_deployment_build() {
+  # ICP's deployment build hook must finish the existing lint gate before its
+  # builder or artifact copy, including when the caller enables parallel Make.
+  mkdir -p "$native/scripts/app" "$native/.icp/local/canisters/default_empty"
+  cp "$ROOT/scripts/app/build.sh" "$native/scripts/app/"
+  printf 'previous-wasm\n' > "$native/.icp/local/canisters/default_empty/default_empty.wasm"
+  cat > "$native/deployment.mk" <<'MAKE'
+deployment-build:
+	+@bash scripts/app/build.sh default_empty
+MAKE
+  : > "$CI_CARGO_TRACE"
+  PATH="$native/bin:$PATH" ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
+    make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
+    > "$native/deployment-build.log" 2>&1
+  printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
+    'clippy default' 'clippy default' 'clippy default' 'run default' \
+    > "$native/expected-trace"
+  cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+  cmp "$native/.icp/local/canisters/default_empty/default_empty.wasm" "$native/staged.wasm"
+  : > "$CI_CARGO_TRACE"
+  status=0
+  PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=clippy \
+    ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
+    make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
+    > "$native/deployment-lint-failure.log" 2>&1 || status=$?
+  [[ "$status" == 2 ]]
+  printf '%s\n' 'clippy default' > "$native/expected-trace"
+  cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+  [[ "$(cat "$native/staged.wasm")" == previous-wasm ]]
+
+  # Tooling refusal must happen before lint/build or replacement of prior Wasm.
+  : > "$CI_CARGO_TRACE"
+  status=0
+  PATH="$native/bin:$PATH" CI_TOOLING_CHECK_FAIL=1 \
+    ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
+    make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
+    > "$native/deployment-tooling-failure.log" 2>&1 || status=$?
+  [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
+  [[ "$(cat "$native/staged.wasm")" == previous-wasm ]]
+
+  # Consumer CI and direct build targets must also stop at tooling admission.
+  local lane
+  for lane in ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b ci-adapter \
+      build-canister-local build-canister-production; do
+    status=0
+    PATH="$native/bin:$PATH" CI_TOOLING_CHECK_FAIL=1 \
+      make --no-print-directory -C "$native" -j2 "$lane" CANISTER=default_empty \
+      > "$native/$lane-tooling-failure.log" 2>&1 || status=$?
+    [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
+  done
+}
+
+if [[ "$deployment_only" == true ]]; then
+  check_deployment_build
+  fixture_complete=true
+  echo 'deployment tooling admission, lint ordering and artifact preservation passed'
+  exit 0
+fi
+
 for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter; do
   PATH="$native/bin:$PATH" ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/failure-logs" \
     make --no-print-directory -C "$native" -j2 "$lane" \
@@ -359,34 +442,7 @@ PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 test-integra
   TEST_TARGET=fixture-test TEST_NAME= > "$native/feedback-refusal.log" 2>&1 || status=$?
 [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
 
-# ICP's deployment build hook must finish the existing lint gate before its
-# builder or artifact copy, including when the caller enables parallel Make.
-mkdir -p "$native/scripts/app" "$native/.icp/local/canisters/default_empty"
-cp "$ROOT/scripts/app/build.sh" "$native/scripts/app/"
-printf 'previous-wasm\n' > "$native/.icp/local/canisters/default_empty/default_empty.wasm"
-cat > "$native/deployment.mk" <<'MAKE'
-deployment-build:
-	+@bash scripts/app/build.sh default_empty
-MAKE
-: > "$CI_CARGO_TRACE"
-PATH="$native/bin:$PATH" ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
-  make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
-  > "$native/deployment-build.log" 2>&1
-printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
-  'clippy default' 'clippy default' 'clippy default' 'run default' \
-  > "$native/expected-trace"
-cmp "$native/expected-trace" "$CI_CARGO_TRACE"
-cmp "$native/.icp/local/canisters/default_empty/default_empty.wasm" "$native/staged.wasm"
-: > "$CI_CARGO_TRACE"
-status=0
-PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=clippy \
-  ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
-  make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
-  > "$native/deployment-lint-failure.log" 2>&1 || status=$?
-[[ "$status" == 2 ]]
-printf '%s\n' 'clippy default' > "$native/expected-trace"
-cmp "$native/expected-trace" "$CI_CARGO_TRACE"
-[[ "$(cat "$native/staged.wasm")" == previous-wasm ]]
+check_deployment_build
 
 # Direct builders retain their profile and canister selections. Development,
 # documentation and feature recipes share the same transport, with static Perl

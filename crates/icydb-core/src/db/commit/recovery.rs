@@ -823,7 +823,7 @@ fn prepare_recovered_row_transitions<C: CanisterKind>(
         // Canonical reads already own their payload. Transfer that buffer into
         // the transition instead of retaining a second copy during acquisition.
         let before = handle
-            .with_data(|store| store.get_canonical(primary_key))?
+            .with_data(|store| store.get_canonical(primary_key))
             .map(Storable::into_bytes)
             .transpose()?;
         row_ops.push(CommitRowOp::try_new_bytes(
@@ -1057,9 +1057,7 @@ fn fold_selected_journal_head<C: CanisterKind>(
     if let Some(retirement) = overlay_retirement {
         apply_online_batch_retirement(retirement);
     }
-    journal_store
-        .with_borrow_mut(|store| store.apply_prepared_batch_retirement(tail_retirement))
-        .map_err(journal_failure)?;
+    journal_store.with_borrow_mut(|store| store.apply_prepared_batch_retirement(tail_retirement));
     handle.with_index_mut(|store| {
         store.apply_prefix_cardinality_delta_watermark(watermark, next_watermark);
     });
@@ -1232,8 +1230,7 @@ fn collect_folded_cardinality_changes(
         if !authority.accepts_entity(decoded.entity_tag()) {
             return Err(InternalError::store_corruption());
         }
-        let previous_present =
-            handle.with_data(|store| store.get_canonical(&key).map(|row| row.is_some()))?;
+        let previous_present = handle.with_data(|store| store.get_canonical(&key).is_some());
         let delta = match (previous_present, next_present) {
             (false, true) => 1,
             (true, false) => -1,
@@ -1250,7 +1247,7 @@ fn collect_folded_cardinality_changes(
         }) {
             continue;
         }
-        let previous = handle.with_index(|store| store.get_canonical(&key))?;
+        let previous = handle.with_index(|store| store.get_canonical(&key));
         for digest in accepted_prefix_digests(&key, previous.as_ref(), authority)? {
             add_cardinality_change(&mut changes, digest, -1)?;
         }
@@ -1654,7 +1651,7 @@ fn apply_journal_record(
         JournalRecord::ConstraintValidationIndexPut { key, .. } => {
             expected_handle.with_index_mut(|store| match mode {
                 JournalRecordApplyMode::Replay => {
-                    store.insert(key.clone(), IndexEntryValue::presence())?;
+                    store.insert(key.clone(), IndexEntryValue::presence());
                     Ok(())
                 }
                 JournalRecordApplyMode::Fold => {
@@ -1719,9 +1716,9 @@ fn apply_journal_record(
                 return Err(InternalError::store_corruption());
             }
             expected_handle.with_index_mut(|store| match mode {
-                JournalRecordApplyMode::Replay => match store.get(key)? {
+                JournalRecordApplyMode::Replay => match store.get(key) {
                     None => {
-                        store.insert(key.clone(), IndexEntryValue::presence())?;
+                        store.insert(key.clone(), IndexEntryValue::presence());
                         Ok(())
                     }
                     Some(value) if value == IndexEntryValue::presence() => Ok(()),
@@ -2568,7 +2565,7 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
             .journal_tail_store()
             .ok_or_else(InternalError::recovery_effect_verification_failed)?;
         let has_stored_batch = journal_store.with_borrow(JournalTailStore::has_stored_batch);
-        if has_stored_batch? {
+        if has_stored_batch {
             return Err(InternalError::recovery_effect_verification_failed());
         }
     }
@@ -2705,7 +2702,7 @@ fn verify_recovered_record<C: CanisterKind>(
             if verified.insert(identity) {
                 let (_, handle) = registry_store_handle_for_path(db, store_path)?;
                 let matches = handle
-                    .with_data(|store| store.get(primary_key))?
+                    .with_data(|store| store.get(primary_key))
                     .is_some_and(|row| row.as_bytes() == row_bytes);
                 if !matches {
                     return Err(InternalError::recovery_effect_verification_failed());
@@ -2739,7 +2736,7 @@ fn verify_recovered_index_delete<C: CanisterKind>(
     };
     if verified.insert(identity) {
         let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
-        if handle.with_index(|store| store.get(key))?.is_some() {
+        if handle.with_index(|store| store.get(key)).is_some() {
             return Err(InternalError::recovery_effect_verification_failed());
         }
     }
@@ -2758,7 +2755,7 @@ fn verify_recovered_index_put<C: CanisterKind>(
     };
     if verified.insert(identity) {
         let (_, handle) = registry_store_handle_for_path(db, store_path)?;
-        if handle.with_index(|store| store.get(key))? != Some(IndexEntryValue::presence()) {
+        if handle.with_index(|store| store.get(key)) != Some(IndexEntryValue::presence()) {
             return Err(InternalError::recovery_effect_verification_failed());
         }
     }
@@ -2785,7 +2782,7 @@ fn verify_recovered_row_put<C: CanisterKind>(
     let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
     let row_matches = handle
-        .with_data(|store| store.get(primary_key))?
+        .with_data(|store| store.get(primary_key))
         .is_some_and(|row| row.as_bytes() == row_bytes);
     if !row_matches {
         return Err(InternalError::recovery_effect_verification_failed());
@@ -2811,7 +2808,7 @@ fn verify_recovered_row_put<C: CanisterKind>(
     for index_op in prepared.index_ops {
         let actual = index_op
             .index_store
-            .with_borrow(|store| store.get(&index_op.key))?;
+            .with_borrow(|store| store.get(&index_op.key));
         if actual != index_op.value {
             return Err(InternalError::recovery_effect_verification_failed());
         }
@@ -2836,7 +2833,7 @@ fn verify_recovered_row_delete<C: CanisterKind>(
 
     let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
-    if handle.with_data(|store| store.contains(primary_key))? {
+    if handle.with_data(|store| store.contains(primary_key)) {
         return Err(InternalError::recovery_effect_verification_failed());
     }
 

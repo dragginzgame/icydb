@@ -20,7 +20,7 @@ use ic_host_tools::{
 
 use ic_host_process::tool::{ExecutionFailure, ExecutionOperation, ToolError};
 
-use crate::icp::process::{output_stderr, probe_output, update_output};
+use crate::icp::process::{capture_error_detail, output_stderr, probe_output, update_output};
 
 pub(super) fn icp_query_command(
     environment: &str,
@@ -74,7 +74,7 @@ impl IcpCallKind {
         let not_started = capture_failed_before_dispatch(&error);
         let mut detail = format!(
             "failed to run icp canister call: {}",
-            terminal_text(&error.to_string())
+            capture_error_detail(&error)
         );
         if matches!(self, Self::Update)
             && let Some(evidence) = error

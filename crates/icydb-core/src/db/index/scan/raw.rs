@@ -361,20 +361,8 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| {
-                        Ok(entry
-                            .as_ref()
-                            .map_err(|error| InternalError::from(*error))?
-                            .key())
-                    },
-                    |entry| {
-                        Ok(MergedEntryValue::Owned(
-                            entry
-                                .as_ref()
-                                .map_err(|error| InternalError::from(*error))?
-                                .value()?,
-                        ))
-                    },
+                    |entry| Ok(entry.key()),
+                    |entry| Ok(MergedEntryValue::Owned(entry.value())),
                     decode_order_key,
                     visit,
                 )?;
@@ -394,20 +382,8 @@ impl IndexStore {
                     ranges,
                     contract,
                     admit_structural_bytes,
-                    |entry| {
-                        Ok(entry
-                            .as_ref()
-                            .map_err(|error| InternalError::from(*error))?
-                            .key())
-                    },
-                    |entry| {
-                        Ok(MergedEntryValue::Owned(
-                            entry
-                                .as_ref()
-                                .map_err(|error| InternalError::from(*error))?
-                                .value()?,
-                        ))
-                    },
+                    |entry| Ok(entry.key()),
+                    |entry| Ok(MergedEntryValue::Owned(entry.value())),
                     decode_order_key,
                     visit,
                 )?;
@@ -516,8 +492,7 @@ impl IndexStore {
             }
             IndexStoreBackend::Journaled { canonical, .. } => {
                 for entry in canonical.range((bounds.0.as_ref(), bounds.1.as_ref())) {
-                    let entry = entry?;
-                    if visit(entry.key(), &entry.value()?)? {
+                    if visit(entry.key(), &entry.value())? {
                         break;
                     }
                 }

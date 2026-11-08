@@ -7,6 +7,9 @@ version = "0.303.0"
 publish = false
 description = "One-entity simple schema fixture crate for wasm SQL auditing"
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "tests"
 
@@ -18,6 +21,9 @@ u256-audit = []
 [dependencies]
 icydb = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

@@ -5,6 +5,26 @@
 
 use crate::{db::GroupedRow, db::sql::ddl::SqlDdlPreparationReport, value::OutputValue};
 
+/// Native public SQL output, retaining scalar paging independently of SQL display.
+#[doc(hidden)]
+#[derive(Debug)]
+pub enum SqlStatementPageResult {
+    /// One bounded scalar page and its accepted projection display scales.
+    Scalar {
+        /// Canonical public page, including authenticated progress and work.
+        page: crate::db::LiveQueryPageOutput,
+        /// Projection-local decimal display scales.
+        fixed_scales: Vec<Option<u32>>,
+    },
+    /// Metadata or a grouped result carrying its own grouped continuation.
+    Statement {
+        /// Executed SQL statement output.
+        result: SqlStatementResult,
+        /// Original SQL entity label.
+        entity: String,
+    },
+}
+
 ///
 /// SqlStatementResult
 ///

@@ -826,7 +826,7 @@ fn publish_journaled_constraint_validation_job(
         if !entries.is_empty() {
             store.with_index_mut(|index_store| {
                 for key in entries {
-                    index_store.insert(key, IndexEntryValue::presence())?;
+                    index_store.insert(key, IndexEntryValue::presence());
                 }
                 Ok::<_, InternalError>(())
             })?;
@@ -1050,7 +1050,7 @@ fn apply_user_index_domain_replacement(
     let (deletion_keys, insertion_entries) = replacement.into_apply_parts();
     store.with_index_mut(|index_store| {
         for key in deletion_keys {
-            index_store.remove(&key)?;
+            index_store.remove(&key);
             #[cfg(test)]
             interrupt_schema_publication_at(SchemaPublicationInterruption::IndexDeleted)?;
         }

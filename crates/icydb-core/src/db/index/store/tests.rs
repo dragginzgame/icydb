@@ -75,9 +75,7 @@ fn index_rows_survive_optional_prefix_metadata_eviction() {
     ] {
         for value in 0_u64..5_000 {
             let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
-            store
-                .insert(key, IndexEntryValue::presence())
-                .expect("fixture storage operation should succeed");
+            store.insert(key, IndexEntryValue::presence());
         }
         store.mark_prefix_cardinality_data_generation(7);
         let components = vec![0_u64.to_be_bytes().to_vec()];
@@ -87,10 +85,7 @@ fn index_rows_survive_optional_prefix_metadata_eviction() {
         );
         for value in [0_u64, 4_095, 4_096, 4_999] {
             let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
-            assert_eq!(
-                (store.get(&key)).expect("storage operation should succeed"),
-                Some(IndexEntryValue::presence())
-            );
+            assert_eq!((store.get(&key)), Some(IndexEntryValue::presence()));
         }
     }
 }
@@ -118,14 +113,8 @@ fn index_insert_paths_preserve_previous_values_and_prefix_counts() {
             } else {
                 store.remove(&key)
             };
-            assert_eq!(
-                (returned).expect("storage operation should succeed"),
-                previous
-            );
-            assert_eq!(
-                (store.get(&key)).expect("storage operation should succeed"),
-                next
-            );
+            assert_eq!((returned), previous);
+            assert_eq!((store.get(&key)), next);
             let count = u64::from(next == Some(IndexEntryValue::presence()));
             store.mark_prefix_cardinality_data_generation(7);
             assert_eq!(
@@ -160,10 +149,7 @@ fn index_insert_paths_preserve_previous_values_and_prefix_counts() {
                         overlay_position(sequence as u64 + 1),
                     )
                     .unwrap();
-                assert_eq!(
-                    (store.get(&key)).expect("storage operation should succeed"),
-                    next
-                );
+                assert_eq!((store.get(&key)), next);
                 let count = u64::from(next == Some(IndexEntryValue::presence()));
                 store.mark_prefix_cardinality_data_generation(9);
                 assert_eq!(
@@ -187,24 +173,18 @@ fn index_prefix_cardinality_requires_explicit_data_generation_sync() {
     let review = b"Review".to_vec();
     let mut store = IndexStore::init_heap();
 
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+        IndexEntryValue::presence(),
+    );
 
     assert_eq!(
         store.exact_prefix_cardinality(
@@ -262,15 +242,9 @@ fn first_component_range_cardinality_is_exact_bounded_and_generation_matched() {
         Some((0, 0, true)),
         "initialized empty metadata must positively prove exact zero",
     );
-    store
-        .insert(alpha_one.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(alpha_two.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(beta_one.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(alpha_one.clone(), IndexEntryValue::presence());
+    store.insert(alpha_two.clone(), IndexEntryValue::presence());
+    store.insert(beta_one.clone(), IndexEntryValue::presence());
     assert_eq!(
         store
             .exact_first_component_range_cardinality(0, index_id, &bound, &bound, 3)
@@ -302,15 +276,9 @@ fn first_component_range_cardinality_is_exact_bounded_and_generation_matched() {
         "row-generation drift must fail closed",
     );
 
-    store
-        .remove(&alpha_one)
-        .expect("fixture storage operation should succeed");
-    store
-        .remove(&alpha_two)
-        .expect("fixture storage operation should succeed");
-    store
-        .remove(&beta_one)
-        .expect("fixture storage operation should succeed");
+    store.remove(&alpha_one);
+    store.remove(&alpha_two);
+    store.remove(&beta_one);
     store.mark_prefix_cardinality_data_generation(8);
     assert_eq!(
         store
@@ -336,16 +304,14 @@ fn index_prefix_cardinality_seeks_parents_and_charges_examined_metadata() {
     let mut store = IndexStore::init_heap();
     for prefix in 0..=255_u8 {
         for child in 0..2_u8 {
-            store
-                .insert(
-                    indexed_raw_key(
-                        &index_id,
-                        vec![vec![prefix], vec![child], vec![0]],
-                        u64::from(prefix) * 2 + u64::from(child),
-                    ),
-                    IndexEntryValue::presence(),
-                )
-                .expect("fixture storage operation should succeed");
+            store.insert(
+                indexed_raw_key(
+                    &index_id,
+                    vec![vec![prefix], vec![child], vec![0]],
+                    u64::from(prefix) * 2 + u64::from(child),
+                ),
+                IndexEntryValue::presence(),
+            );
         }
     }
     store.mark_prefix_cardinality_data_generation(7);
@@ -412,34 +378,26 @@ fn index_prefix_cardinality_enumerates_bounded_child_prefixes() {
     let published = b"Published".to_vec();
     let mut store = IndexStore::init_heap();
 
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(
-                &index_id,
-                vec![other_collection.clone(), published.clone()],
-                4,
-            ),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(
+            &index_id,
+            vec![other_collection.clone(), published.clone()],
+            4,
+        ),
+        IndexEntryValue::presence(),
+    );
     store.mark_prefix_cardinality_data_generation(7);
 
     assert_eq!(
@@ -511,28 +469,22 @@ fn index_prefix_cardinality_batches_sparse_child_prefixes() {
     let published = b"Published".to_vec();
     let mut store = IndexStore::init_heap();
 
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 2),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            indexed_raw_key(
-                &index_id,
-                vec![other_collection.clone(), published.clone()],
-                3,
-            ),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 2),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        indexed_raw_key(
+            &index_id,
+            vec![other_collection.clone(), published.clone()],
+            3,
+        ),
+        IndexEntryValue::presence(),
+    );
     store.mark_prefix_cardinality_data_generation(7);
 
     let parents = [
@@ -609,12 +561,10 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
     let system_component = b"reverse-edge".to_vec();
     let mut store = IndexStore::init_heap();
 
-    store
-        .insert(
-            indexed_raw_key(&user_index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        indexed_raw_key(&user_index_id, vec![collection.clone(), draft.clone()], 1),
+        IndexEntryValue::presence(),
+    );
     store.mark_prefix_cardinality_data_generation(7);
 
     assert_eq!(
@@ -633,9 +583,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
         vec![system_component],
         1,
     );
-    store
-        .insert(system_key.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(system_key.clone(), IndexEntryValue::presence());
     assert_eq!(
         store.exact_prefix_cardinality(
             7,
@@ -647,9 +595,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
         "system index writes must not invalidate synchronized user-prefix cardinality",
     );
 
-    store
-        .remove(&system_key)
-        .expect("fixture storage operation should succeed");
+    store.remove(&system_key);
     assert_eq!(
         store.exact_prefix_cardinality(
             7,
@@ -667,9 +613,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
         vec![b"malformed-reverse-edge".to_vec()],
         2,
     );
-    store
-        .insert(malformed_system_key.clone(), malformed_index_entry_value())
-        .expect("fixture storage operation should succeed");
+    store.insert(malformed_system_key.clone(), malformed_index_entry_value());
     assert_eq!(
         store.exact_prefix_cardinality(
             7,
@@ -681,9 +625,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
         "malformed system index payloads must not invalidate user-prefix cardinality",
     );
 
-    store
-        .remove(&malformed_system_key)
-        .expect("fixture storage operation should succeed");
+    store.remove(&malformed_system_key);
     assert_eq!(
         store.exact_prefix_cardinality(
             7,
@@ -696,12 +638,10 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
     );
 
     let review = b"Review".to_vec();
-    store
-        .insert(
-            indexed_raw_key(&user_index_id, vec![collection.clone(), review.clone()], 2),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        indexed_raw_key(&user_index_id, vec![collection.clone(), review.clone()], 2),
+        IndexEntryValue::presence(),
+    );
     assert_eq!(
         store.exact_prefix_cardinality(7, IndexKeyKind::User, user_index_id, &[collection, review]),
         None,
@@ -716,18 +656,14 @@ fn index_prefix_cardinality_refuses_invalid_user_index_mutations() {
     let draft = b"Draft".to_vec();
     let mut store = IndexStore::init_heap();
 
-    store
-        .insert(
-            indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        IndexEntryValue::presence(),
+    );
     store.mark_prefix_cardinality_data_generation(7);
 
     let stale_key = indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2);
-    store
-        .insert(stale_key.clone(), invalid_index_entry_value())
-        .expect("fixture storage operation should succeed");
+    store.insert(stale_key.clone(), invalid_index_entry_value());
     assert_eq!(
         store.exact_prefix_cardinality(
             7,
@@ -739,9 +675,7 @@ fn index_prefix_cardinality_refuses_invalid_user_index_mutations() {
         "invalid user index entries invalidate synchronized prefix cardinality",
     );
 
-    store
-        .remove(&stale_key)
-        .expect("fixture storage operation should succeed");
+    store.remove(&stale_key);
     assert_eq!(
         store.exact_prefix_cardinality(7, IndexKeyKind::User, index_id, &[collection, draft],),
         None,
@@ -759,18 +693,10 @@ fn journaled_mixed_index_range_traversal_preserves_order_and_early_stop() {
             .expect("canonical index seed should apply");
     }
 
-    store
-        .insert(raw_key(0), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(raw_key(4), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(raw_key(5), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .remove(&raw_key(1))
-        .expect("fixture storage operation should succeed");
+    store.insert(raw_key(0), IndexEntryValue::presence());
+    store.insert(raw_key(4), IndexEntryValue::presence());
+    store.insert(raw_key(5), IndexEntryValue::presence());
+    store.remove(&raw_key(1));
 
     let lower = Bound::Included(raw_key(0));
     let upper = Bound::Included(raw_key(5));
@@ -817,13 +743,9 @@ fn journaled_index_range_preserves_typed_failure_and_stops_immediately() {
         }
         if backend != 0 {
             for value in [0, 4, 5] {
-                store
-                    .insert(raw_key(value), IndexEntryValue::presence())
-                    .expect("fixture storage operation should succeed");
+                store.insert(raw_key(value), IndexEntryValue::presence());
             }
-            store
-                .remove(&raw_key(1))
-                .expect("fixture storage operation should succeed");
+            store.remove(&raw_key(1));
         }
         let lower = Bound::Included(raw_key(0));
         let upper = Bound::Included(raw_key(5));
@@ -867,10 +789,7 @@ fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
         IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     let bound = Bound::Unbounded;
 
-    assert_eq!(
-        (reopened.get(&key)).expect("storage operation should succeed"),
-        Some(IndexEntryValue::presence())
-    );
+    assert_eq!((reopened.get(&key)), Some(IndexEntryValue::presence()));
     assert_eq!(
         reopened.exact_prefix_cardinality(
             0,
@@ -897,9 +816,7 @@ fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
         Some(0),
     );
     let second = indexed_raw_key(&index_id, vec![collection.clone()], 2);
-    reopened
-        .insert(second.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    reopened.insert(second.clone(), IndexEntryValue::presence());
     assert_eq!(
         reopened.exact_prefix_cardinality_delta(
             IndexKeyKind::User,
@@ -937,41 +854,24 @@ fn journaled_reset_preserves_only_live_source_system_entries() {
     let user = key(live_source, IndexKeyKind::User, 3);
     let durable = key(durable_source, IndexKeyKind::System, 4);
     for key in [&retained, &removed, &user, &durable] {
-        store
-            .insert(key.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(key.clone(), IndexEntryValue::presence());
     }
-    store
-        .remove(&removed)
-        .expect("fixture storage operation should succeed");
+    store.remove(&removed);
     let owners = BTreeSet::from([live_source]);
     for _ in 0..2 {
         store
             .reset_journaled_live_projection(0, FoldWatermark::initial(), &owners)
             .unwrap();
-        assert!(
-            store
-                .get(&retained)
-                .expect("storage operation should succeed")
-                .is_some()
-        );
+        assert!(store.get(&retained).is_some());
         for key in [&removed, &user, &durable] {
-            assert!(
-                store
-                    .get(key)
-                    .expect("storage operation should succeed")
-                    .is_none()
-            );
+            assert!(store.get(key).is_none());
         }
     }
     drop(store);
     let reopened =
         IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
     assert!(
-        reopened
-            .get(&retained)
-            .expect("storage operation should succeed")
-            .is_none(),
+        reopened.get(&retained).is_none(),
         "live references must not become durable"
     );
 }
@@ -988,12 +888,8 @@ fn journaled_reset_refuses_unclassifiable_live_keys_before_removal() {
         1,
     );
     let invalid = RawIndexStoreKey::from_persisted_bytes(vec![0xff]);
-    store
-        .insert(valid.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(invalid.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(valid.clone(), IndexEntryValue::presence());
+    store.insert(invalid.clone(), IndexEntryValue::presence());
     let error = store
         .reset_journaled_live_projection(0, FoldWatermark::initial(), &BTreeSet::from([source]))
         .unwrap_err();
@@ -1001,18 +897,8 @@ fn journaled_reset_refuses_unclassifiable_live_keys_before_removal() {
         error.diagnostic_code(),
         InternalError::index_corruption().diagnostic_code()
     );
-    assert!(
-        store
-            .get(&valid)
-            .expect("storage operation should succeed")
-            .is_some()
-    );
-    assert!(
-        store
-            .get(&invalid)
-            .expect("storage operation should succeed")
-            .is_some()
-    );
+    assert!(store.get(&valid).is_some());
+    assert!(store.get(&invalid).is_some());
 }
 
 #[test]
@@ -1154,10 +1040,7 @@ fn positioned_index_overlay_preserves_later_membership_until_exact_retirement() 
         .apply_canonical_entry(key.clone(), None)
         .expect("tombstone batch should become canonical");
     store.apply_prepared_position_retirement(prepared);
-    assert_eq!(
-        (store.get(&key)).expect("storage operation should succeed"),
-        Some(IndexEntryValue::presence())
-    );
+    assert_eq!((store.get(&key)), Some(IndexEntryValue::presence()));
 
     let prepared = store
         .prepare_position_retirement([key.clone()], overlay_position(2))
@@ -1170,10 +1053,7 @@ fn positioned_index_overlay_preserves_later_membership_until_exact_retirement() 
         .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
         .expect("membership batch should become canonical");
     store.apply_prepared_position_retirement(prepared);
-    assert_eq!(
-        (store.get(&key)).expect("storage operation should succeed"),
-        Some(IndexEntryValue::presence())
-    );
+    assert_eq!((store.get(&key)), Some(IndexEntryValue::presence()));
 
     let mut visible = Vec::new();
     store
@@ -1209,10 +1089,5 @@ fn positioned_index_overlay_coalesces_repeated_same_batch_target() {
         .apply_canonical_entry(key.clone(), None)
         .expect("coalesced final effect should become canonical");
     store.apply_prepared_position_retirement(prepared);
-    assert!(
-        store
-            .get(&key)
-            .expect("storage operation should succeed")
-            .is_none()
-    );
+    assert!(store.get(&key).is_none());
 }

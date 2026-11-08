@@ -125,7 +125,7 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
     "product check must aggregate only product lanes"),
   require(.jobs | has("wasm_size_report")|not; "Canic Wasm evidence belongs to adapter qualification"),
   require(.jobs | has("release")|not; "canister artifact delivery belongs to adapter qualification"),
-  require(any(.jobs.static.steps[]?; run_text|test("^\\s*make ci-static\\s*$")); "static must use its local product authority"),
+  require(.jobs.static | has_run("(?m)^\\s*make ci-static\\s*$"); "static must use its local product authority"),
   require(.jobs.wire_browser | has_run("^\\s*make check-wire-browser\\s*$"); "product browser gate must exercise native codec contracts"),
   require(any(.jobs.macos_host.steps[]?; run_text|contains("make check-portable-automation")); "native host must execute portable product fixtures"),
   (.jobs | to_entries[] | .key as $job | .value.steps[]? |

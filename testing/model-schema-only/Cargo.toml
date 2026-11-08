@@ -9,6 +9,9 @@ description = "Schema-only compile fixture for the standalone IcyDB model packag
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "tests"
 
@@ -18,6 +21,9 @@ build = ["model_api/build"]
 
 [dependencies]
 model_api = { workspace = true }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

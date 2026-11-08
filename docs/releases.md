@@ -23,6 +23,11 @@ select affected approved groups, semantic-version increments and dependency orde
 and execute necessary preparation and delivery without per-command confirmation.
 Preparing code/notes, asking how to deploy or checking readiness does not itself
 authorize execution. Preserve explicit target restrictions and required protections.
+An unqualified deploy, ship or release applies only to the current repository;
+including sibling repositories requires an explicit cross-repository request.
+All three authorize both GitHub delivery and crates.io publication of affected
+publishable groups, without a second confirmation. Complete and verify both
+steps; GitHub delivery alone completes repositories with no publishable crates.
 Before execution, disclose the working checkout and branch, remote destination
 and release effects. A scoped deploy request authorizes direct integration-branch
 pushes under the linked contribution rules; alternate checkout locations still
@@ -37,25 +42,34 @@ to direct delivery; this is executable behavior, not agent authorization to push
 validation before tagging. A repository
 without package metadata may use a dedicated version file; otherwise it uses
 its latest finalized changelog version. Shared Tooling owns its current local
-version in root `VERSION`, displayed by `make version`. Ordinary meaningful work
+version in root `Cargo.toml` package.version, displayed by `make version`. Ordinary meaningful work
 runs `make prepare-work` to create or reuse an explicit `- Unreleased` entry and
-align `VERSION`. `WORK_VERSION_KIND=minor` or `major` promotes the pending batch;
+align package.version. `WORK_VERSION_KIND=minor` or `major` promotes the pending batch;
 the default is patch. Add meaningful notes to that entry. CI's `check-version`
 rejects disagreement. Release preparation dates that same version and stages
 both files together; neither a version file nor a changelog heading proves
 that a tag was pushed. Pre-release versions require a separately selected release plan;
 these commands must reject ambiguous or unsupported version inputs.
 
-Shared's metadata adapter replaces `VERSION` last. Failed preparation retains
+Shared's metadata adapter replaces `Cargo.toml` last. Failed preparation retains
 the original files and rendered candidates under the reported Git-owned scratch
 directory, including after a partial replacement. Retry uses the existing release
 reconciliation; it does not delete earlier evidence or automatically restore files.
 Successful attempts remove only their own scratch directory.
 
+Shared's own `release-verify` runs `make release-basic`: version and regular-file
+admission, shell lint, pin declarations, documentation links, and an installation
+from the actual packaged source bundle. Its full portable/tool/recovery matrix
+remains in GitHub CI (`make ci`) or an explicitly requested full local check.
+This maintainer-selected gate applies to this source-distribution crate, which
+has no Rust runtime API; consumer projects retain their own complete gates.
+Publication checks the fresh package/version again before upload. A crates.io
+upload does not require replaying Shared's long-tail CI suite locally.
+
 Shared selects `RELEASE_VERSION_MODE=pending` and supplies `release-base-version`.
-That read-only hook returns the preceding ledger version when `VERSION` already
+That read-only hook returns the preceding ledger version when package.version already
 matches an explicit pending heading, otherwise the current finalized version.
-VERSION and the top changelog version must agree for every lookup. The runner computes the requested increment from that base and still
+Package.version and the top changelog version must agree for every lookup. The runner computes the requested increment from that base and still
 requires the candidate to agree with the prepared metadata. Preparation must be
 idempotent because the pending version can already be present before finalization
 or recovery. A mismatched release kind fails before validation or delivery.
@@ -164,16 +178,17 @@ The default `RELEASE_DELIVERY=direct` workflow is:
 These commands finish with the branch and tag on GitHub. They do not implicitly
 publish packages, create GitHub Release objects, deploy products, bump to another
 development version or clean build/evidence directories. Those actions retain
-their own commands; a scoped ship/deploy request may already authorize publication
-or deployment, so do not request separate approval again. Cleanup and unrelated
+their own commands; a scoped release/ship/deploy request authorizes crates.io
+publication of affected publishable crates, so complete that step without
+requesting separate approval. Product deployment follows its established target.
+Cleanup and unrelated
 effects remain outside that scope. Keep the finalized release at the
 top of the changelog until subsequent work needs a new numbered, undated pending
 entry under the [automatic next-version rules](../rules/changelogs.md).
 
 Agents maintain that proposed changelog version during ordinary development.
-Shared Tooling alone also maintains its standalone `VERSION` file automatically;
-this is not a sibling adoption requirement. The proposal does not bump package
-metadata or execute a release. Select the
+Shared Tooling maintains its root package.version alongside its pending changelog;
+consumer release groups keep their existing owners. This does not execute a release. Select the
 matching release kind when invoking the explicitly authorized command; its computed
 candidate must agree with the pending heading and the complete batch's
 compatibility impact before finalization.
@@ -349,6 +364,33 @@ specific attempt. Explicit recovery reads only the selected plan and preserves
 its source, version, date, staged payload and destination checks. A normal
 command is not an alias for recovery, even at unchanged HEAD.
 
+### Read-only release journal query
+
+Consumer resume guards must use the runner's validated journal interface instead
+of reading positional lines:
+
+```bash
+perl scripts/ci/release-plan.pl \
+  --plan .git/release-state/engine-0.2.0.plan --group engine --version 0.2.0
+```
+
+Pass `--group ''` for an ungrouped release. The exact path may refer to a retained
+historical journal outside the active state directory. JSON includes `schema`,
+`source`, `phase`, `group`, `candidate`, `previous`, `kind`, `date`, `remote`,
+`branch`, `destination`, `tree` and `delivery`. Empty group/tree values remain
+empty strings. All four direct/PR and grouped/ungrouped version-1 journal schemas
+use the same parser as runner recovery. Early phases and completed plans are
+reported unchanged; the caller owns policy-drift decisions before resume.
+
+Unknown schemas, invalid fields, identity mismatches, extra/truncated records and
+symlinked paths fail with nonzero status and no JSON. The query reads the named
+file, validates syntax and returns saved values; it does not require the saved
+commit to remain reachable. It creates no lock, journal, ref or metadata and
+dispatches no hooks, network or delivery. It can run while a release lock exists.
+Successful projection is not authorization to resume or proof that its source
+matches current policy. `--records` is internal transport for the release runner;
+consumers use the default JSON interface.
+
 If preflight or validation fails, fix the inputs and run the normal target again.
 The complete gate runs against current HEAD, without reusing earlier validation.
 Build artifacts and logs remain attributable to the original attempts; adapters
@@ -510,7 +552,7 @@ Shell adapters can delegate to
 [`check-release-source.sh`](../scripts/ci/check-release-source.sh) from the
 checkout root. With no arguments it requires clean source. Repeat
 `--allow RELATIVE-PATH` for exact consumer-owned release metadata exceptions;
-these are literal paths, not globs. Shared Tooling allows `VERSION` and
+these are literal paths, not globs. Shared Tooling allows `Cargo.toml` and
 `CHANGELOG.md`. The helper separately observes index, worktree and untracked
 paths without writing the index, and rejects observation failures before
 reporting admission. Existing native-language owners may implement the same
@@ -723,8 +765,9 @@ The maintainer may execute delivery or delegate its outcome to an agent under
 selects the affected groups and commands for the scoped repository and established
 destination. Naming a version, preparing notes, completing validation or asking
 for push readiness alone is not that delegation. A delivery request covers the
-documented complete gate, version preparation, release commit, tag
-and selected delivery effects. Direct delivery includes the atomic branch/tag
+documented complete gate, version preparation, release commit, tag,
+GitHub delivery and crates.io publication of affected publishable groups.
+Direct delivery includes the atomic branch/tag
 push; PR delivery includes its branch/PR, fresh validation after an authorized
 merge, and exact tag push. Permission to fix code, create a commit, open a PR,
 push a topic branch or change a version alone is not permission to run this flow.

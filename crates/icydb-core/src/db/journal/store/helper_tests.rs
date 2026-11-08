@@ -32,15 +32,14 @@ impl JournalTailStore {
         if !self.preflight_current_tail_control_initialization()? {
             return Ok(());
         }
-        self.apply_current_tail_control_initialization()?;
+        self.apply_current_tail_control_initialization();
         Ok(())
     }
 
     /// Return whether current-format exact tail authority is present.
-    pub(in crate::db) fn has_current_tail_control(&self) -> Result<bool, InternalError> {
+    pub(in crate::db) fn has_current_tail_control(&self) -> bool {
         self.map
             .contains_key(&JournalTailKey::tail_convergence_control())
-            .map_err(InternalError::from)
     }
 
     /// Persist a new durable fold watermark.
@@ -61,12 +60,10 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
 
-        self.map
-            .insert(
-                JournalTailKey::fold_watermark(),
-                RawJournalChunk::from_bytes(encode_fold_watermark(watermark)),
-            )
-            .map_err(InternalError::from)?;
+        self.map.insert(
+            JournalTailKey::fold_watermark(),
+            RawJournalChunk::from_bytes(encode_fold_watermark(watermark)),
+        );
 
         Ok(())
     }
@@ -75,12 +72,9 @@ impl JournalTailStore {
     ///
     /// The persisted fold watermark remains authoritative if cleanup is
     /// interrupted after the watermark is advanced.
-    pub(in crate::db) fn clear_batches_through(
-        &mut self,
-        watermark: JournalSequence,
-    ) -> Result<(), InternalError> {
+    pub(in crate::db) fn clear_batches_through(&mut self, watermark: JournalSequence) {
         if watermark == FOLD_WATERMARK_CONTROL_SEQUENCE {
-            return Ok(());
+            return;
         }
 
         let keys = self
@@ -89,12 +83,11 @@ impl JournalTailStore {
                 Included(JournalTailKey::new(JournalSequence::new(1), 0)),
                 Included(JournalTailKey::new(watermark, u32::MAX)),
             ))
-            .map(|entry| entry.map(|entry| *entry.key()))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|entry| *entry.key())
+            .collect::<Vec<_>>();
         for key in keys {
-            let _ = self.map.remove(&key).map_err(InternalError::from)?;
+            let _ = self.map.remove(&key);
         }
-        Ok(())
     }
 
     /// Visit complete batches after the durable fold watermark in replay order.
@@ -119,8 +112,6 @@ impl JournalTailStore {
                     Unbounded,
                 ))
                 .next()
-                .transpose()
-                .map_err(InternalError::from)?
             else {
                 break;
             };
@@ -153,10 +144,7 @@ impl JournalTailStore {
         self.map
             .iter()
             .filter_map(|entry| {
-                let sequence = entry
-                    .expect("storage operation should succeed")
-                    .key()
-                    .sequence;
+                let sequence = entry.key().sequence;
                 (sequence != FOLD_WATERMARK_CONTROL_SEQUENCE).then_some(sequence)
             })
             .collect::<BTreeSet<_>>()
@@ -186,18 +174,13 @@ impl JournalTailStore {
         let mut entries = self
             .map
             .get(&key)
-            .map_err(InternalError::from)?
             .ok_or_else(journal_tail_corruption)
             .and_then(|raw| decode_entity_mutation_revision_chunk(raw.as_bytes()))?;
         entries.remove(chunk_offset);
-        self.map
-            .insert(
-                key,
-                RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(
-                    entries.as_slice(),
-                )?),
-            )
-            .map_err(InternalError::from)?;
+        self.map.insert(
+            key,
+            RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(entries.as_slice())?),
+        );
         Ok(())
     }
 
@@ -234,12 +217,11 @@ impl JournalTailStore {
         for (chunk_index, chunk) in bytes.chunks(JOURNAL_TAIL_CHUNK_BYTES as usize).enumerate() {
             let chunk_index = u32::try_from(chunk_index).map_err(|_| journal_tail_corruption())?;
             let key = JournalTailKey::new(sequence, chunk_index);
-            if self.map.contains_key(&key).map_err(InternalError::from)? {
+            if self.map.contains_key(&key) {
                 continue;
             }
             self.map
-                .insert(key, RawJournalChunk::from_bytes(chunk.to_vec()))
-                .map_err(InternalError::from)?;
+                .insert(key, RawJournalChunk::from_bytes(chunk.to_vec()));
         }
 
         Ok(())

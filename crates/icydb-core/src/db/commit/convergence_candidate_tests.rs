@@ -298,8 +298,7 @@ impl DormantConvergenceCandidate {
         }
         candidate
             .tail
-            .apply_prepared_batch_retirement(tail_retirement)
-            .expect("fixture storage operation should succeed");
+            .apply_prepared_batch_retirement(tail_retirement);
         candidate.batch_targets.remove(&batch.journal_sequence());
 
         Ok(Some(order))

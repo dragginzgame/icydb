@@ -38,10 +38,20 @@ impl SqlSurfaceTokens {
             empty_sql_surface_query_dispatch(&self.icydb)
         };
 
+        let public_entity_dispatch = if self.has_entities {
+            quote! { db()?.execute_public_sql_query_page_dispatch(&dispatch, &[], continuation) }
+        } else {
+            let empty = empty_sql_surface_query_dispatch(&self.icydb);
+            quote! {
+                let _ = continuation;
+                #empty
+            }
+        };
+
         quote! {
-            fn __icydb_query_dispatch<const INTROSPECTION: bool>(
+            fn __icydb_query_statement_dispatch<const INTROSPECTION: bool>(
                 sql: &str,
-            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+            ) -> ::std::result::Result<#icydb::db::SqlStatementDispatch<'_>, #icydb::Error> {
                 let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 if !INTROSPECTION && dispatch.requires_introspection() {
                     return ::std::result::Result::Err(#icydb::Error::from_runtime_boundary(
@@ -50,7 +60,22 @@ impl SqlSurfaceTokens {
                     ));
                 }
 
+                ::std::result::Result::Ok(dispatch)
+            }
+
+            fn __icydb_query_dispatch<const INTROSPECTION: bool>(
+                sql: &str,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                let dispatch = __icydb_query_statement_dispatch::<INTROSPECTION>(sql)?;
                 #entity_dispatch
+            }
+
+            fn __icydb_public_query_dispatch<const INTROSPECTION: bool>(
+                sql: &str,
+                continuation: ::std::option::Option<&str>,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryPageResult, #icydb::Error> {
+                let dispatch = __icydb_query_statement_dispatch::<INTROSPECTION>(sql)?;
+                #public_entity_dispatch
             }
         }
     }
@@ -177,10 +202,22 @@ impl SqlSurfaceTokens {
                 clippy::needless_pass_by_value,
                 reason = "generated handlers retain the owned SQL endpoint input contract"
             )]
-            pub(crate) fn __icydb_endpoint_handler_sql_query<const INTROSPECTION: bool>(
+            pub(crate) fn __icydb_endpoint_handler_sql_query_trusted<const INTROSPECTION: bool>(
                 sql: ::std::string::String,
             ) -> ::std::result::Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?
+                    .into_deliverable_query_reply()
+            }
+
+            #[expect(
+                clippy::needless_pass_by_value,
+                reason = "generated handlers retain owned endpoint inputs before bounded native execution"
+            )]
+            pub(crate) fn __icydb_endpoint_handler_sql_query_public<const INTROSPECTION: bool>(
+                sql: ::std::string::String,
+                continuation: ::std::option::Option<::std::string::String>,
+            ) -> ::std::result::Result<#icydb::db::sql::SqlQueryPageResult, #icydb::Error> {
+                __icydb_public_query_dispatch::<INTROSPECTION>(sql.as_str(), continuation.as_deref())?
                     .into_deliverable_query_reply()
             }
 

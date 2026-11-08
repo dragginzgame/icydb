@@ -200,7 +200,71 @@ character.
 
 ## Activation obligations
 
-### 6 November comparison and subsequent tooling adoption
+### Current selection after Build/Host/Storage adoption
+
+The subsequent requested Build 0.80 / direct Host Foundation 0.76 / Host Tools
+0.88 / Storage 0.69 / Testkit 0.94 migration changes `Cargo.toml` and `Cargo.lock`. Those are
+mapping inputs, so the current candidate uses full
+validation. Preserve the reviewed comparisons below for their exact Host Tools
+0.86 source; changing a dependency does not refresh their omission authority.
+Focused adoption checks are not a replacement full/selected comparison, and no
+new broad comparison is requested by this dependency update. Existing captured
+release inputs and their evidence keep their original identities.
+
+The latest Toko Tooling 0.36 migration selects repository tooling through the
+exact root workspace dependency and every member's inherited dev-dependency.
+Cargo.lock and the snapshot receipt bind it; the superseded metadata selector
+and dedicated tooling lock are removed, including from qualification inputs.
+Snapshot, manifest, Make/caller and policy changes retain full validation;
+historical records are unchanged. Tooling admission precedes repository CI/build,
+captured setup, ICP staging and direct publication.
+
+### Reviewed Linux admission — 8 November 2026
+
+Fresh database and CLI working-tree comparisons pass on Linux x86-64 with
+Rust/Cargo 1.99.1, Shared 0.31.12 and the settled Build 0.79.1, Host Foundation
+0.75.1, Platform 0.26.1, Storage 0.68.11, Wire 0.17.14 and Testkit 0.93.2 graph.
+Both capture candidate `0b7107d6de1b2b8187615cc1e215ba918dc33957` and each execute
+sixteen full and eleven selected stages, with zero stage reuse.
+
+| Group | Controlled source | Retained evidence |
+| --- | --- | --- |
+| Database | `57099eb6dada2852a5773cbe43433c0ba55d28ad` | `target/release-validation-native.KTTVhe/evidence/` |
+| CLI | `b6727c9c5137fe67bbcd7fd61fe2d8827bff1042` | `target/release-validation-native.UIz4pz/evidence/` |
+
+Both Shared proofs and consumer receipts re-admit. Source bundles verify, and
+both final original HEAD/index/inventory/working-byte custody checks pass. The
+CLI selected/full archives are byte-identical; every retained archive has the
+admitted VCS source and original manifest. Archives use the existing declared
+published database 0.303.0 family and CLI 0.296.5; final-version publication
+verification remains required.
+
+The appended reviewed records in `ci/release-validation-qualified.json` bind
+mapping `632a816802b18d9c3e3ab58ae4b6d4371050fcb5a0ef7ce7511c372556810c0f`.
+Actual record admission and selection pass in the separate admission-only control
+`target/release-validation-admission.DVf0Br/`: eligible future source selects
+eleven stages for either group, this mixed batch selects all sixteen, and
+configuration/automation drift refuses. That control runs no product stages or
+release effects. The bounded substitute-Cargo dispatch fixture also passes all
+69 selection/ordering/failure controls without inheriting product checkpoints;
+production checkpoint ownership is unchanged.
+
+Earlier attempts `nsAhSO` and `ZRlP0U` passed their captured product stages but
+correctly refused final custody after the normal lock changed. Retain those
+failures; they supplied neither current records nor omission authority. The
+maintainer confirmed the update settled before the fresh captures above.
+
+These comparisons completed #603's Linux mapping qualification locally. The records
+are uncommitted, unpushed and unpublished. macOS narrowing is not admitted;
+both macOS hosts keep full validation and normal CI is unchanged. Canic #373
+remains independent. The unreproduced hosted static adapter assertion is tracked
+under #632; local/full-comparison success does not establish its root cause.
+IC cycles/instructions and total/code-section Wasm deltas are unmeasured.
+
+All comparisons below retain their exact input identities. Current selection is
+described above; historical activation gaps and successes do not override it.
+
+### Historical 6 November comparison and subsequent tooling adoption
 
 Both Linux x86-64 working-tree comparisons passed on Rust/Cargo 1.99.1 with
 Shared Tooling 0.30.4 and the settled Platform 0.23.3 / Wire 0.17.4 lockfile.
@@ -227,8 +291,9 @@ release interface and ownership checks. Those reviewed records are therefore
 historical for the current mapping; both groups retain full release validation.
 Refreshing recipe fingerprints admits the full gate, not omissions. No further
 full/selected comparison was run for this adoption. macOS omissions remain
-unqualified, and ordinary CI is unchanged. [#603](https://github.com/dragginzgame/icydb/issues/603)
-remains open for current-mapping and delivered-source acceptance.
+unqualified, and ordinary CI is unchanged. That adoption left
+[#603](https://github.com/dragginzgame/icydb/issues/603) open for renewed mapping
+qualification; the current result is recorded above.
 
 ### Frozen hook qualification
 
@@ -468,9 +533,10 @@ fixture executes no product stages and does not replace the real comparison.
 That record admitted Linux x86-64 for its exact earlier inputs. The subsequent
 bounded database targets and fallback diagnostics change the Makefile and release
 adapter fingerprints, so this record is now historical and does not admit the
-current mapping. Both group paths are implemented; fresh reviewed native
-comparisons are required before this mapping can omit stages. Updating the reviewed
+then-current mapping. Both group paths were implemented; fresh reviewed native
+comparisons were required before that mapping could omit stages. Updating the reviewed
 Makefile digest keeps the full gate dispatchable; it does not renew qualification.
+The current reviewed comparison is recorded in the activation section above.
 macOS keeps full validation and its normal CI jobs.
 The batch introducing this shared mapping selects full validation; qualified
 narrowing applies to later eligible source changes against their own annotated

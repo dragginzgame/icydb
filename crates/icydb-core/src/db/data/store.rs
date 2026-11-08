@@ -161,16 +161,12 @@ impl DataStore {
         &mut self,
         key: RawDataStoreKey,
         row: CanonicalRow,
-    ) -> Result<Option<RawRow>, InternalError> {
+    ) -> Option<RawRow> {
         self.insert_raw(key, row.into_raw_row())
     }
 
     // One insertion owner for admitted writes and corruption-fixture raw rows.
-    fn insert_raw(
-        &mut self,
-        key: RawDataStoreKey,
-        row: RawRow,
-    ) -> Result<Option<RawRow>, InternalError> {
+    fn insert_raw(&mut self, key: RawDataStoreKey, row: RawRow) -> Option<RawRow> {
         // Counts retain only entity identity, so copy that fact before the map
         // takes the row key instead of retaining a second key buffer.
         let entity = key.entity_tag_prefix();
@@ -194,7 +190,7 @@ impl DataStore {
                         let previous = if hidden {
                             None
                         } else {
-                            canonical.get(entry.key()).map_err(InternalError::from)?
+                            canonical.get(entry.key())
                         };
                         entry.insert(row);
                         previous
@@ -206,14 +202,11 @@ impl DataStore {
             .apply_insert(entity, previous.is_some());
         self.apply_entity_overlay_delta(entity, previous.is_some(), true);
         self.bump_generation();
-        Ok(previous)
+        previous
     }
 
     /// Remove one row by raw key.
-    pub(in crate::db) fn remove(
-        &mut self,
-        key: &RawDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
+    pub(in crate::db) fn remove(&mut self, key: &RawDataStoreKey) -> Option<RawRow> {
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.remove(key),
             DataStoreBackend::Journaled {
@@ -228,7 +221,7 @@ impl DataStore {
                 } else {
                     match previous {
                         Some(row) => Some(row),
-                        None => canonical.get(key).map_err(InternalError::from)?,
+                        None => canonical.get(key),
                     }
                 };
                 tombstones.insert(key.clone());
@@ -239,7 +232,7 @@ impl DataStore {
             .apply_remove(key.entity_tag_prefix(), previous.is_some());
         self.apply_entity_overlay_delta(key.entity_tag_prefix(), previous.is_some(), false);
         self.bump_generation();
-        Ok(previous)
+        previous
     }
 
     /// Reset the volatile projection for journaled recovery without mutating
@@ -280,7 +273,7 @@ impl DataStore {
         row: RawRow,
     ) -> Result<(), crate::error::InternalError> {
         // Replay callers discard predecessor bytes; cardinality needs presence only.
-        let previous_present = self.contains(&key)?;
+        let previous_present = self.contains(&key);
         let DataStoreBackend::Journaled {
             live, tombstones, ..
         } = &mut self.backend
@@ -307,7 +300,7 @@ impl DataStore {
         position: JournalOverlayPosition,
     ) -> Result<(), crate::error::InternalError> {
         // Cardinality needs presence only; never materialize a previous row.
-        let previous_present = self.contains(&key)?;
+        let previous_present = self.contains(&key);
         let DataStoreBackend::Journaled {
             live,
             tombstones,
@@ -446,7 +439,7 @@ impl DataStore {
 
         let visible = !live.contains_key(&key) && !tombstones.contains(&key);
         let entity = key.entity_tag_prefix();
-        let previous = canonical.insert(key, row).map_err(InternalError::from)?;
+        let previous = canonical.insert(key, row);
         if visible {
             self.entity_cardinality
                 .apply_insert(entity, previous.is_some());
@@ -474,7 +467,7 @@ impl DataStore {
         };
 
         let visible = !live.contains_key(key) && !tombstones.contains(key);
-        let previous = canonical.remove(key).map_err(InternalError::from)?;
+        let previous = canonical.remove(key);
         if visible {
             self.entity_cardinality
                 .apply_remove(key.entity_tag_prefix(), previous.is_some());
@@ -497,11 +490,8 @@ impl DataStore {
     }
 
     /// Load one row by raw key.
-    pub(in crate::db) fn get(
-        &self,
-        key: &RawDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
-        self.read(key).map(StoredRowRead::into_owned)
+    pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
+        self.read(key).into_owned()
     }
 
     /// Load one row from the canonical predecessor view.
@@ -509,41 +499,28 @@ impl DataStore {
     /// Online journal folding uses this view so a newer positioned live effect
     /// cannot replace the predecessor evidence for the older batch being
     /// canonicalized.
-    pub(in crate::db) fn get_canonical(
-        &self,
-        key: &RawDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
-        Ok(match &self.backend {
+    pub(in crate::db) fn get_canonical(&self, key: &RawDataStoreKey) -> Option<RawRow> {
+        match &self.backend {
             DataStoreBackend::Heap(map) => map.get(key).cloned(),
-            DataStoreBackend::Journaled { canonical, .. } => {
-                canonical.get(key).map_err(InternalError::from)?
-            }
-        })
+            DataStoreBackend::Journaled { canonical, .. } => canonical.get(key),
+        }
     }
 
     /// Test canonical predecessor presence without loading its row payload.
     /// Positioned live updates and tombstones do not change this view.
-    pub(in crate::db) fn contains_canonical(
-        &self,
-        key: &RawDataStoreKey,
-    ) -> Result<bool, InternalError> {
-        Ok(match &self.backend {
+    pub(in crate::db) fn contains_canonical(&self, key: &RawDataStoreKey) -> bool {
+        match &self.backend {
             DataStoreBackend::Heap(map) => map.contains_key(key),
-            DataStoreBackend::Journaled { canonical, .. } => {
-                canonical.contains_key(key).map_err(InternalError::from)?
-            }
-        })
+            DataStoreBackend::Journaled { canonical, .. } => canonical.contains_key(key),
+        }
     }
 
     /// Read one visible row without cloning heap/live payloads.
-    pub(in crate::db) fn read<'a>(
-        &'a self,
-        key: &RawDataStoreKey,
-    ) -> Result<StoredRowRead<'a>, InternalError> {
+    pub(in crate::db) fn read<'a>(&'a self, key: &RawDataStoreKey) -> StoredRowRead<'a> {
         #[cfg(test)]
         record_data_store_get_call();
 
-        Ok(match &self.backend {
+        match &self.backend {
             DataStoreBackend::Heap(map) => map
                 .get(key)
                 .map_or(StoredRowRead::Missing, StoredRowRead::Borrowed),
@@ -560,16 +537,15 @@ impl DataStore {
                 } else {
                     canonical
                         .get(key)
-                        .map_err(InternalError::from)?
                         .map_or(StoredRowRead::Missing, StoredRowRead::Owned)
                 }
             }
-        })
+        }
     }
 
     /// Return whether one raw key exists without cloning the row payload.
-    pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> Result<bool, InternalError> {
-        Ok(match &self.backend {
+    pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> bool {
+        match &self.backend {
             DataStoreBackend::Heap(map) => map.contains_key(key),
             DataStoreBackend::Journaled {
                 canonical,
@@ -577,11 +553,9 @@ impl DataStore {
                 tombstones,
                 ..
             } => {
-                !tombstones.contains(key)
-                    && (live.contains_key(key)
-                        || canonical.contains_key(key).map_err(InternalError::from)?)
+                !tombstones.contains(key) && (live.contains_key(key) || canonical.contains_key(key))
             }
-        })
+        }
     }
 
     /// Return whether the effective row domain is empty without reading payloads.
@@ -673,8 +647,7 @@ impl DataStore {
                 let mut previous = None;
                 let mut stopped = false;
                 for entry in canonical.range((lower, Bound::Unbounded)) {
-                    let entry = entry.map_err(InternalError::from)?;
-                    if visitor(entry.key(), &entry.value().map_err(InternalError::from)?)? {
+                    if visitor(entry.key(), &entry.value())? {
                         stopped = true;
                         break;
                     }
@@ -779,7 +752,6 @@ impl DataStore {
                     |entry| entry.0,
                     tombstones,
                 ) {
-                    let entry = entry.map_err(InternalError::from)?;
                     let key = match &entry {
                         OrderedOverlayEntry::Canonical(entry) => entry.key(),
                         OrderedOverlayEntry::Live((key, _)) => key,
@@ -790,7 +762,7 @@ impl DataStore {
                     }
                     let result = match entry {
                         OrderedOverlayEntry::Canonical(entry) => {
-                            visitor(entry.key(), &entry.value().map_err(InternalError::from)?)?
+                            visitor(entry.key(), &entry.value())?
                         }
                         OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
                     };
@@ -894,12 +866,9 @@ impl DataStore {
         reverse: bool,
         visitor: &mut dyn FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        type VisitEntry<'a> = Result<
-            OrderedOverlayEntry<
-                MapEntry<RawDataStoreKey, RawRow>,
-                (&'a RawDataStoreKey, &'a RawRow),
-            >,
-            ic_storage::adapter::CollectionError,
+        type VisitEntry<'a> = OrderedOverlayEntry<
+            MapEntry<RawDataStoreKey, RawRow>,
+            (&'a RawDataStoreKey, &'a RawRow),
         >;
 
         let DataStoreBackend::Journaled {
@@ -932,14 +901,12 @@ impl DataStore {
         if live.is_empty() && tombstones.is_empty() {
             if reverse {
                 for entry in canonical.range(bounds).rev() {
-                    let entry = entry.map_err(InternalError::from)?;
                     if visitor(entry.key())?.should_stop() {
                         return Ok(());
                     }
                 }
             } else {
                 for entry in canonical.range(bounds) {
-                    let entry = entry.map_err(InternalError::from)?;
                     if visitor(entry.key())?.should_stop() {
                         return Ok(());
                     }
@@ -957,13 +924,10 @@ impl DataStore {
         // stays statically selected before traversal.
 
         let mut visit_entry = |entry: VisitEntry<'_>| {
-            let result = (|| -> Result<StoreVisit, E> {
-                let entry = entry.map_err(InternalError::from)?;
-                match entry {
-                    OrderedOverlayEntry::Canonical(entry) => visitor(entry.key()),
-                    OrderedOverlayEntry::Live((key, _row)) => visitor(key),
-                }
-            })();
+            let result = match entry {
+                OrderedOverlayEntry::Canonical(entry) => visitor(entry.key()),
+                OrderedOverlayEntry::Live((key, _row)) => visitor(key),
+            };
             match result {
                 Ok(visit) if !visit.should_stop() => ControlFlow::Continue(()),
                 result => ControlFlow::Break(result.map(|_| ())),
@@ -1021,9 +985,7 @@ impl DataStore {
 
         if live.is_empty() && tombstones.is_empty() {
             for entry in canonical.range(bounds) {
-                let entry = entry.map_err(InternalError::from)?;
-                if visitor(entry.key(), &entry.value().map_err(InternalError::from)?)?.should_stop()
-                {
+                if visitor(entry.key(), &entry.value())?.should_stop() {
                     return Ok(());
                 }
             }
@@ -1038,12 +1000,10 @@ impl DataStore {
             |entry| entry.0,
             tombstones,
         ) {
-            let entry = entry.map_err(InternalError::from)?;
             let visit = match entry {
-                OrderedOverlayEntry::Canonical(canonical_entry) => visitor(
-                    canonical_entry.key(),
-                    &canonical_entry.value().map_err(InternalError::from)?,
-                )?,
+                OrderedOverlayEntry::Canonical(canonical_entry) => {
+                    visitor(canonical_entry.key(), &canonical_entry.value())?
+                }
                 OrderedOverlayEntry::Live((key, row)) => visitor(key, row)?,
             };
             if visit.should_stop() {

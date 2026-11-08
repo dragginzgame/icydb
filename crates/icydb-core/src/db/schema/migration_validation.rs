@@ -593,7 +593,7 @@ pub(in crate::db::schema) fn stage_migration_index_entries(
                 // Candidate generations are private to this validation. Write
                 // only their exact keys; ordinary live entries belong to the
                 // journal and must not move ahead of its fold watermark.
-                match index.get_canonical(&key)? {
+                match index.get_canonical(&key) {
                     None => index.apply_canonical_entry(key, Some(IndexEntryValue::presence()))?,
                     Some(value) if value == IndexEntryValue::presence() => {}
                     Some(_) => return Err(InternalError::store_corruption()),

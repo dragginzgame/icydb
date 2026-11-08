@@ -12,7 +12,32 @@ use crate::db::{
     },
 };
 
+#[cfg(feature = "sql")]
+use crate::db::sql::SqlQueryPageResult;
 use icydb_core::db::{GroupedRow, SqlStatementResult};
+
+#[cfg(feature = "sql")]
+pub(crate) fn sql_query_page_result_from_statement(
+    result: icydb_core::db::SqlStatementPageResult,
+) -> SqlQueryPageResult {
+    match result {
+        icydb_core::db::SqlStatementPageResult::Scalar { page, fixed_scales } => {
+            SqlQueryPageResult::Scalar {
+                projection: RowProjectionOutput {
+                    entity: page.entity,
+                    columns: page.columns,
+                    rows: sql_projection_output_rows(&fixed_scales, page.rows),
+                    row_count: page.row_count,
+                },
+                continuation: page.continuation,
+                work: page.work,
+            }
+        }
+        icydb_core::db::SqlStatementPageResult::Statement { result, entity } => {
+            SqlQueryPageResult::Statement(sql_query_result_from_statement(result, entity))
+        }
+    }
+}
 
 pub(crate) fn sql_query_result_from_statement(
     result: SqlStatementResult,

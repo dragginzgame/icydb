@@ -102,7 +102,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one grouped SQL statement from one shared lowered prepared plan
     // plus one shared structural projection contract.
-    fn execute_grouped_sql_statement_from_prepared_plan(
+    pub(in crate::db::session::sql) fn execute_grouped_sql_statement_from_prepared_plan(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,

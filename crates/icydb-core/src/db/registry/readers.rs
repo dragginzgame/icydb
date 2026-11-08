@@ -22,13 +22,13 @@ impl StructuralPrimaryRowReader for StoreHandle {
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.raw_key()?;
 
-        self.with_data(|store| store.get(raw_key))
+        Ok(self.with_data(|store| store.get(raw_key)))
     }
 
     fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
         let raw_key = key.raw_key()?;
 
-        self.with_data(|store| store.contains(raw_key))
+        Ok(self.with_data(|store| store.contains(raw_key)))
     }
 }
 
@@ -38,7 +38,7 @@ impl StructuralIndexEntryReader for StoreHandle {
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexStoreKey,
     ) -> Result<Option<IndexEntryValue>, InternalError> {
-        index_store.with_borrow(|store| store.get(key))
+        Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
     fn read_index_keys_in_raw_range(

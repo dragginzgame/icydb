@@ -43,9 +43,7 @@ fn seed_entry(store: &mut IndexStore, key: RawIndexStoreKey, canonical: bool) {
             .apply_canonical_entry(key, Some(IndexEntryValue::presence()))
             .unwrap();
     } else {
-        store
-            .insert(key, IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(key, IndexEntryValue::presence());
     }
 }
 
@@ -62,9 +60,7 @@ fn empty_envelopes_skip_populated_store_traversal() {
         for value in 1..=3 {
             seed_entry(&mut store, scalar_scan_key(value, 1), journaled);
         }
-        store
-            .insert(scalar_scan_key(4, 1), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(scalar_scan_key(4, 1), IndexEntryValue::presence());
 
         let low = scalar_scan_key(1, 1);
         let high = scalar_scan_key(3, 1);
@@ -181,9 +177,7 @@ fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
         assert!(!probe(&store));
         seed_entry(&mut store, candidate.clone(), journaled);
         assert!(!probe(&store));
-        store
-            .insert(conflicting.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(conflicting.clone(), IndexEntryValue::presence());
         assert!(probe(&store));
         if journaled {
             store
@@ -198,16 +192,10 @@ fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
                 .unwrap();
         }
         assert!(probe(&store));
-        store
-            .remove(&conflicting)
-            .expect("fixture storage operation should succeed");
+        store.remove(&conflicting);
         assert!(!probe(&store));
-        store
-            .insert(conflicting.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
-        store
-            .remove(&candidate)
-            .expect("fixture storage operation should succeed");
+        store.insert(conflicting.clone(), IndexEntryValue::presence());
+        store.remove(&candidate);
         assert!(probe(&store));
     }
 }
@@ -220,9 +208,7 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
         let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
             .expect("fixture decoding");
         let raw_entry = IndexEntryValue::presence();
-        index_store
-            .insert(raw_key, raw_entry)
-            .expect("fixture storage operation should succeed");
+        index_store.insert(raw_key, raw_entry);
     }
 
     let lower = Bound::Included(
@@ -270,9 +256,7 @@ fn visit_entries_preserves_store_order_and_supports_early_stop() {
         let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
             .expect("fixture decoding");
         let raw_entry = IndexEntryValue::presence();
-        index_store
-            .insert(raw_key, raw_entry)
-            .expect("fixture storage operation should succeed");
+        index_store.insert(raw_key, raw_entry);
     }
 
     let mut visited = Vec::new();
@@ -301,9 +285,7 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
         let raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
             .expect("fixture decoding");
         let raw_entry = IndexEntryValue::presence();
-        index_store
-            .insert(raw_key, raw_entry)
-            .expect("fixture storage operation should succeed");
+        index_store.insert(raw_key, raw_entry);
     }
 
     let lower = Bound::Included(
@@ -451,12 +433,8 @@ fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
             seed_entry(&mut store, raw_key(value), canonical);
         }
         if mixed {
-            store
-                .insert(raw_key(4), IndexEntryValue::presence())
-                .expect("fixture storage operation should succeed");
-            store
-                .remove(&raw_key(2))
-                .expect("fixture storage operation should succeed");
+            store.insert(raw_key(4), IndexEntryValue::presence());
+            store.remove(&raw_key(2));
         }
         let lower = Bound::Included(raw_key(1));
         let upper = Bound::Included(raw_key(3));

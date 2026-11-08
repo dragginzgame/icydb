@@ -7,13 +7,12 @@ use crate::db::{
     commit::{PreparedIndexMutation, PreparedRowCommitOp},
     data::canonical_row_from_stored_raw_row,
 };
-use crate::error::InternalError;
 
 impl PreparedRowCommitOp {
     /// Capture the current store state needed to roll back this prepared row op.
     ///
     /// The returned op writes the prior index/data values back when applied.
-    pub(crate) fn snapshot_rollback(&self) -> Result<Self, InternalError> {
+    pub(crate) fn snapshot_rollback(&self) -> Self {
         // Phase 1: snapshot all index keys touched by the prepared operation.
         let mut index_ops = Vec::with_capacity(self.index_ops.len());
         for index_op in &self.index_ops {
@@ -23,23 +22,23 @@ impl PreparedRowCommitOp {
             index_ops.push(PreparedIndexMutation::new(
                 index_op.index_store,
                 index_op.key.clone(),
-                existing?,
+                existing,
             ));
         }
 
         // Phase 2: snapshot the row-store value for the target primary key.
         let data_value = self
             .data_store
-            .with_borrow(|store| store.get(&self.data_key))?
+            .with_borrow(|store| store.get(&self.data_key))
             .map(canonical_row_from_stored_raw_row);
 
-        Ok(Self {
+        Self {
             index_ops,
             data_store: self.data_store,
             data_index_store: self.data_index_store,
             data_key: self.data_key.clone(),
             data_value,
-        })
+        }
     }
 }
 

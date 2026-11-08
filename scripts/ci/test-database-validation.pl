@@ -92,7 +92,16 @@ for my $path ('Cargo.lock','crates/icydb-core/src/db/index/store.rs','unknown.rs
     is($selected->{fallback_path},$path,'fallback identifies the triggering input');
 }
 # Real Make and Shared runner, with only Cargo compilation/test bodies replaced.
+# A separate physical root keeps these substitute controls from inheriting the
+# caller's product-wide checkpoint. The outer gate still guards product inputs.
 chdir $root or die 'restore root';
+my $dispatch_root="$fixture/dispatch";
+make_path($dispatch_root);
+run('bash', "$root/scripts/ci/prepare-script-fixture.sh", $root, $dispatch_root,
+    'Makefile', 'make/consumer.mk', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
+    'scripts/ci/actionlint-checksums.tsv', 'scripts/ci/run-icydb-validation-targets.sh',
+    'scripts/ci/run-validation-targets.sh', 'scripts/ci/check-rust-compiler.sh',
+    'scripts/ci/read-cargo-workspace-rust-version.sh', 'scripts/ci/run-nonempty-cargo-test.sh');
 make_path("$fixture/bin");
 my $cargo=capture('sh','-c','command -v cargo'); chomp $cargo;
 write_file("$fixture/bin/cargo", <<'CARGO');
@@ -100,6 +109,7 @@ write_file("$fixture/bin/cargo", <<'CARGO');
 set -euo pipefail
 if [[ "$1" == -V || "$1" == --version ]]; then exec "$REAL_CARGO" "$@"; fi
 printf '%s\n' "$*" >> "$DATABASE_TEST_TRACE"
+printf '%s\n' "$PWD" >> "$DATABASE_TEST_ROOT_TRACE"
 if [[ -n "${DATABASE_FAIL_FILTER:-}" && "$*" == *"$DATABASE_FAIL_FILTER"* ]]; then exit 17; fi
 if [[ "$1" == test ]]; then
     printf 'test result: ok. %s passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n' "${DATABASE_PASS_COUNT:-1}"
@@ -109,13 +119,21 @@ chmod 0755,"$fixture/bin/cargo" or die 'chmod substitute';
 local $ENV{PATH}="$fixture/bin:$ENV{PATH}";
 local $ENV{REAL_CARGO}=$cargo;
 local $ENV{DATABASE_TEST_TRACE}="$fixture/trace";
+local $ENV{DATABASE_TEST_ROOT_TRACE}="$fixture/roots";
 local $ENV{VALIDATION_LOG_DIR}="$fixture/runs";
+local $ENV{YQ}=$ENV{YQ}//"$root/.tools/host/bin/yq";
+# An invalid checkpoint for the parent must not taint the disposable caller.
+# Accidentally dispatching from the product root now refuses before Cargo runs.
+local $ENV{VALIDATION_INPUT_ROOT}=$root;
+local $ENV{VALIDATION_INPUT_BASELINE}="$fixture/missing-parent-checkpoint";
+chdir $dispatch_root or die 'enter bounded dispatch fixture';
 my @acceptance=('db::sql::lowering::','db::session::tests::cardinality_tiebreak::',
     'tier_a_native_sqlite_reference','tier_a_native_mutation_reference',
     '-p icydb --lib --no-default-features --features sql db::sql::');
 sub dispatch {
     my ($target,$label)=@_;
     write_file($ENV{DATABASE_TEST_TRACE},'');
+    write_file($ENV{DATABASE_TEST_ROOT_TRACE},'');
     open my $saved_out, '>&', \*STDOUT or die 'save stdout';
     open my $saved_err, '>&', \*STDERR or die 'save stderr';
     open STDOUT, '>', "$fixture/$label.log" or die 'redirect stdout';
@@ -128,6 +146,8 @@ sub dispatch {
 for my $scope (qw(parser planner query)) {
     is(dispatch("ci-database-$scope",$scope),0,"$scope real dispatch succeeds with substitute Cargo");
     my $trace=capture('cat',$ENV{DATABASE_TEST_TRACE});
+    my %roots=map {$_=>1} split /\n/,capture('cat',$ENV{DATABASE_TEST_ROOT_TRACE});
+    is_deeply([sort keys %roots],[$dispatch_root],'substitute Cargo stays in its bounded physical root');
     like($trace,qr/\Aclippy .* -D warnings\n/,'Clippy precedes tests');
     for my $filter (@acceptance) {
         is(scalar(grep { index($_,$filter)>=0 } split /\n/,$trace),1,"acceptance runs once: $filter");

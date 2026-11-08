@@ -13,7 +13,9 @@ use std::{
 use ic_host_text::escape::terminal_text;
 use ic_host_tools::{icp::decode_canister_list, icp_project::environment_network};
 
-use crate::icp::process::{PROBE_STDOUT_BYTES, canister_id, output_stderr, probe_output};
+use crate::icp::process::{
+    PROBE_STDOUT_BYTES, canister_id, capture_error_detail, output_stderr, probe_output,
+};
 
 /// Fail with IcyDB-specific setup guidance when icp-cli has no local canister id.
 pub(super) fn require_created_canister(environment: &str, canister: &str) -> Result<(), String> {
@@ -38,14 +40,16 @@ pub(super) fn known_canisters(environment: &str) -> Result<Vec<String>, String> 
         ),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             format!(
-                "run icp canister list for environment '{}': {error}",
-                terminal_text(environment)
+                "run icp canister list for environment '{}': {}",
+                terminal_text(environment),
+                capture_error_detail(&error),
             )
         }
         Err(error) => {
             return Err(format!(
-                "run icp canister list for environment '{}': {error}",
+                "run icp canister list for environment '{}': {}",
                 terminal_text(environment),
+                capture_error_detail(&error),
             ));
         }
     };

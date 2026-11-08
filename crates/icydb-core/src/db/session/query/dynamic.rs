@@ -72,6 +72,19 @@ struct ScalarCursorContract {
     order_terms: Vec<ScalarOrderTermContract>,
 }
 
+// Both frontends use one page admission, execution and cursor owner.
+enum ScalarPageInput<'a> {
+    Dynamic(&'a DynamicQuery),
+    #[cfg(feature = "sql")]
+    Structural(Box<StructuralQuery>),
+}
+
+struct ScalarPageOutput {
+    output: LiveQueryPageOutput,
+    #[cfg(feature = "sql")]
+    fixed_scales: Vec<Option<u32>>,
+}
+
 impl<C: CanisterKind> DbSession<C> {
     fn may_select_exact_single_primary_key(
         request: &DynamicQuery,
@@ -252,7 +265,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn scalar_cursor_contract(
-        request: &DynamicQuery,
+        authored_limit: Option<u32>,
         catalog: &AcceptedSchemaCatalogContext,
         envelope: PageWorkEnvelope,
         prepared_plan: &crate::db::executor::SharedPreparedExecutionPlan,
@@ -286,8 +299,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog.fingerprint(),
             prepared_plan.authority_ref().entity_tag(),
         );
-        let window =
-            ScalarPageTokenWindow::new(0, request.row_limit(), envelope.profile_identity());
+        let window = ScalarPageTokenWindow::new(0, authored_limit, envelope.profile_identity());
         let canonical_order = prepared_plan
             .logical_plan()
             .scalar_plan()
@@ -390,21 +402,45 @@ impl<C: CanisterKind> DbSession<C> {
     )]
     fn execute_scalar_page_against_catalog(
         &self,
-        request: &DynamicQuery,
+        input: ScalarPageInput<'_>,
         continuation: Option<&str>,
         lane: DynamicReadLane,
         catalog: AcceptedSchemaCatalogContext,
         mode: ScalarPageMode,
         supplied_proof: Option<&ReadSetRevisionProof>,
-    ) -> Result<(LiveQueryPageOutput, Option<ReadSetRevisionProof>), ExhaustiveReadError> {
-        if request.has_grouping()
-            || request.grouped_execution_limits().is_some()
-            || request.continuation_cursor().is_some()
-        {
-            return Err(
-                QueryError::intent(IntentError::scalar_terminal_requires_scalar_query()).into(),
-            );
-        }
+    ) -> Result<(ScalarPageOutput, Option<ReadSetRevisionProof>), ExhaustiveReadError> {
+        let authored_limit = match &input {
+            ScalarPageInput::Dynamic(request) => {
+                if request.has_grouping()
+                    || request.grouped_execution_limits().is_some()
+                    || request.continuation_cursor().is_some()
+                {
+                    return Err(QueryError::intent(
+                        IntentError::scalar_terminal_requires_scalar_query(),
+                    )
+                    .into());
+                }
+                request.row_limit()
+            }
+            #[cfg(feature = "sql")]
+            ScalarPageInput::Structural(query) => {
+                let window = query
+                    .scalar_load_window()
+                    .filter(|_| !query.has_grouping())
+                    .ok_or_else(|| {
+                        QueryError::intent(IntentError::scalar_terminal_requires_scalar_query())
+                    })?;
+                // Physical-progress cursors do not yet retain partially consumed
+                // SQL OFFSET. Refuse rather than skip it again on another page.
+                if window.offset() != 0 {
+                    return Err(QueryError::execute(
+                        crate::error::InternalError::query_unsupported(),
+                    )
+                    .into());
+                }
+                window.limit()
+            }
+        };
 
         let exhaustive_proof = match mode {
             ScalarPageMode::Live => None,
@@ -465,9 +501,8 @@ impl<C: CanisterKind> DbSession<C> {
         let prior_rows_emitted = decoded_token
             .as_ref()
             .map_or(0, |token| token.progress().rows_emitted());
-        let remaining_limit = request
-            .row_limit()
-            .map(|limit| u64::from(limit).saturating_sub(prior_rows_emitted));
+        let remaining_limit =
+            authored_limit.map(|limit| u64::from(limit).saturating_sub(prior_rows_emitted));
         let page_output_limit = remaining_limit
             .unwrap_or(page_row_limit as u64)
             .min(page_row_limit as u64);
@@ -475,28 +510,34 @@ impl<C: CanisterKind> DbSession<C> {
         // Bound physical execution as well as outward projection. Use the
         // authored total, not the remaining total, to reuse the same prepared
         // plan across pages. The cursor authenticates that total separately.
-        let execution_limit = request
-            .row_limit()
+        let execution_limit = authored_limit
             .unwrap_or(u32::MAX)
             .min(u32::try_from(page_row_limit).unwrap_or(u32::MAX));
         let execution_lane = lane.execution_lane();
-        let exact_candidate = decoded_token.is_none()
-            && page_output_limit > 0
-            && Self::may_select_exact_single_primary_key(request, &catalog);
-        let initial_plan = if exact_candidate {
-            let query =
-                self.structural_query_from_dynamic_request(request, &catalog, execution_lane)?;
-            Some(
+        let exact_request = match &input {
+            ScalarPageInput::Dynamic(request)
+                if decoded_token.is_none()
+                    && page_output_limit > 0
+                    && Self::may_select_exact_single_primary_key(request, &catalog) =>
+            {
+                Some(*request)
+            }
+            ScalarPageInput::Dynamic(_) => None,
+            #[cfg(feature = "sql")]
+            ScalarPageInput::Structural(_) => None,
+        };
+        let initial_plan = exact_request
+            .map(|request| {
+                let query =
+                    self.structural_query_from_dynamic_request(request, &catalog, execution_lane)?;
                 self.structural_projection_prepared_plan_for_accepted_authority(
                     &query,
                     catalog.accepted_entity_authority(),
                     catalog.snapshot(),
                     execution_lane,
-                )?,
-            )
-        } else {
-            None
-        };
+                )
+            })
+            .transpose()?;
         let initial_is_exact_exhaustion =
             initial_plan.as_ref().is_some_and(|(prepared_plan, _)| {
                 Self::exact_primary_key_candidate_bound(prepared_plan)
@@ -505,13 +546,28 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepared_plan, projection) = if initial_is_exact_exhaustion {
             initial_plan.ok_or_else(Self::scalar_page_cursor_error)?
         } else {
-            let query = self.structural_query_from_dynamic_request_with_page_limit(
-                request,
-                &catalog,
-                Some(execution_limit),
-                true,
-                execution_lane,
-            )?;
+            let query = match input {
+                ScalarPageInput::Dynamic(request) => self
+                    .structural_query_from_dynamic_request_with_page_limit(
+                        request,
+                        &catalog,
+                        Some(execution_limit),
+                        true,
+                        execution_lane,
+                    )?,
+                #[cfg(feature = "sql")]
+                ScalarPageInput::Structural(query) => PreparationWork::run(
+                    self.db.request_execution_scope(),
+                    execution_lane,
+                    |work| {
+                        (*query).into_scalar_cursor_page(
+                            catalog.accepted_schema_info(),
+                            execution_limit,
+                            work,
+                        )
+                    },
+                )?,
+            };
             if let Some(route_pin) = decoded_token.as_ref().and_then(ScalarPageToken::route_pin) {
                 self.structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
                     &query,
@@ -544,7 +600,7 @@ impl<C: CanisterKind> DbSession<C> {
             .as_ref()
             .map(|token| {
                 let contract = Self::scalar_cursor_contract(
-                    request,
+                    authored_limit,
                     &catalog,
                     envelope,
                     &prepared_plan,
@@ -585,7 +641,9 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_info()
             .value_catalog_handle()
             .clone();
-        let (columns, _fixed_scales) = projection.into_components();
+        let (columns, fixed_scales) = projection.into_components();
+        #[cfg(not(feature = "sql"))]
+        drop(fixed_scales);
         let projection_request = StructuralProjectionRequest::new(prepared_plan, execution_lane)
             .with_distinct_output_offset(usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX))
             .with_page_work_envelope(envelope);
@@ -616,9 +674,8 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let rows_emitted = prior_rows_emitted.saturating_add(u64::from(row_count));
-        let total_limit_reached = request
-            .row_limit()
-            .is_some_and(|limit| rows_emitted >= u64::from(limit));
+        let total_limit_reached =
+            authored_limit.is_some_and(|limit| rows_emitted >= u64::from(limit));
         let continuation = if page.has_more && !total_limit_reached {
             if page.last_emitted_logical.is_none() && page.last_consumed_physical.is_none() {
                 return Err(Self::scalar_page_cursor_error().into());
@@ -630,7 +687,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .as_ref()
                     .ok_or_else(Self::scalar_page_cursor_error)?;
                 Self::scalar_cursor_contract(
-                    request,
+                    authored_limit,
                     &catalog,
                     envelope,
                     prepared_plan,
@@ -680,20 +737,44 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Ok((
-            LiveQueryPageOutput {
-                entity: catalog.snapshot().entity_name().to_string(),
-                columns,
-                rows,
-                row_count,
-                continuation,
-                work: ScalarPageWork {
-                    envelope_identity: envelope.identity(),
-                    entries_visited: page.scanned_keys as u64,
-                    result_rows: row_count,
+            ScalarPageOutput {
+                #[cfg(feature = "sql")]
+                fixed_scales,
+                output: LiveQueryPageOutput {
+                    entity: catalog.snapshot().entity_name().to_string(),
+                    columns,
+                    rows,
+                    row_count,
+                    continuation,
+                    work: ScalarPageWork {
+                        envelope_identity: envelope.identity(),
+                        entries_visited: page.scanned_keys as u64,
+                        result_rows: row_count,
+                    },
                 },
             },
             exhaustive_proof,
         ))
+    }
+
+    /// Execute a lowered frontend query through the canonical public scalar pager.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::session) fn execute_public_structural_live_page(
+        &self,
+        query: Box<StructuralQuery>,
+        catalog: AcceptedSchemaCatalogContext,
+        continuation: Option<&str>,
+    ) -> Result<(LiveQueryPageOutput, Vec<Option<u32>>), QueryError> {
+        self.execute_scalar_page_against_catalog(
+            ScalarPageInput::Structural(query),
+            continuation,
+            DynamicReadLane::Public,
+            catalog,
+            ScalarPageMode::Live,
+            None,
+        )
+        .map(|(page, _)| (page.output, page.fixed_scales))
+        .map_err(Self::live_page_error)
     }
 
     /// Execute one revision-tolerant bounded scalar page.
@@ -710,14 +791,14 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
         self.execute_scalar_page_against_catalog(
-            request,
+            ScalarPageInput::Dynamic(request),
             continuation,
             DynamicReadLane::Public,
             catalog,
             ScalarPageMode::Live,
             None,
         )
-        .map(|(page, _)| page)
+        .map(|(page, _)| page.output)
         .map_err(Self::live_page_error)
     }
 
@@ -737,14 +818,14 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
         self.execute_scalar_page_against_catalog(
-            request,
+            ScalarPageInput::Dynamic(request),
             continuation,
             DynamicReadLane::Public,
             catalog,
             ScalarPageMode::Live,
             None,
         )
-        .map(|(page, _)| Some(page))
+        .map(|(page, _)| Some(page.output))
         .map_err(Self::live_page_error)
     }
 
@@ -823,14 +904,14 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
         self.execute_scalar_page_against_catalog(
-            request,
+            ScalarPageInput::Dynamic(request),
             continuation,
             DynamicReadLane::Trusted,
             catalog,
             ScalarPageMode::Live,
             None,
         )
-        .map(|(page, _)| page)
+        .map(|(page, _)| page.output)
         .map_err(Self::live_page_error)
     }
 
@@ -844,7 +925,7 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog =
             self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
         let (page, proof) = self.execute_scalar_page_against_catalog(
-            request,
+            ScalarPageInput::Dynamic(request),
             continuation,
             DynamicReadLane::Public,
             catalog,
@@ -852,7 +933,10 @@ impl<C: CanisterKind> DbSession<C> {
             proof,
         )?;
         let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
-        Ok(ExhaustiveQueryPageOutput::from_live_page(page, proof))
+        Ok(ExhaustiveQueryPageOutput::from_live_page(
+            page.output,
+            proof,
+        ))
     }
 
     /// Execute one exhaustive page through a typed binding's accepted identity.
@@ -868,7 +952,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
         let (page, proof) = self.execute_scalar_page_against_catalog(
-            request,
+            ScalarPageInput::Dynamic(request),
             continuation,
             DynamicReadLane::Public,
             catalog,
@@ -876,7 +960,10 @@ impl<C: CanisterKind> DbSession<C> {
             proof,
         )?;
         let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
-        Ok(Some(ExhaustiveQueryPageOutput::from_live_page(page, proof)))
+        Ok(Some(ExhaustiveQueryPageOutput::from_live_page(
+            page.output,
+            proof,
+        )))
     }
 
     /// Execute one trusted revision-strict bounded dynamic page.
@@ -889,7 +976,7 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog =
             self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
         let (page, proof) = self.execute_scalar_page_against_catalog(
-            request,
+            ScalarPageInput::Dynamic(request),
             continuation,
             DynamicReadLane::Trusted,
             catalog,
@@ -897,7 +984,10 @@ impl<C: CanisterKind> DbSession<C> {
             proof,
         )?;
         let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
-        Ok(ExhaustiveQueryPageOutput::from_live_page(page, proof))
+        Ok(ExhaustiveQueryPageOutput::from_live_page(
+            page.output,
+            proof,
+        ))
     }
 
     fn live_page_error(error: ExhaustiveReadError) -> QueryError {

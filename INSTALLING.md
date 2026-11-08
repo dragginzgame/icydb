@@ -3,6 +3,18 @@
 This document covers installing IcyDB in downstream canisters first, then the
 maintainer-only workstation setup for this repository.
 
+Repository tooling uses the exact root `[workspace.dependencies]` pin for
+`toko-tooling`, inherited as a dev-dependency by every real package with a
+cargo-machete exemption. Cargo.lock records the version/checksum. After deliberately
+updating the pin and Cargo.lock, run `make shared-tooling-update`; use
+`make shared-tooling-install` to reinstall that selection and
+`make shared-tooling-check` for offline member/lock/snapshot admission.
+No metadata selector, separate tooling lock, helper package or Rust import is used.
+The independent Canic workspace has matching declarations, but its existing
+resolver conflict still blocks its lock refresh and qualification under #373. See the
+[tooling migration guide](docs/consuming-snapshots.md#migration-from-cargo-dependencies)
+and [IcyDB adoption record](docs/governance/shared-tooling.md).
+
 ## Downstream Canisters
 
 Copy the runtime and build dependency declarations from
@@ -172,9 +184,13 @@ canic_icydb::mount! {
 The guard must have the `icydb::ReadAuthorizationGuard` function signature.
 Omit `authorization` for controller authority. An application guard replaces
 controller authority with one synchronous decision; anonymous callers still
-reject. Do not expose unrestricted SQL to arbitrary callers. Caller-facing reads
-should use ordinary typed execution so the default bounded read-admission gate
-applies after the endpoint has performed caller authorization. See
+reject. For IcyDB 0.304, the adapter must select the separate `sql_query_public`
+native capability after guard approval and retain its continuation. Controller
+SQL selects `sql_query_trusted` explicitly. This capability cut requires the
+Canic integration tracked by [#373](https://github.com/dragginzgame/icydb/issues/373);
+the declaration above is not a claim that an older adapter supports it. Native
+caller-facing SQL uses `execute_public_sql_query_page`, with the same bounded
+admission as ordinary typed/dynamic execution. See
 [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
 Hand-written public read endpoint guidance is in
 [docs/guides/read-intent.md](docs/guides/read-intent.md).

@@ -8,7 +8,8 @@ owned APIs, canister identities, validation gates and deployment configuration.
 
 Every repository containing maintained Rust packages uses a virtual root,
 including repositories with only one package. The standard package locations
-are `crates/` and `apps/`, according to ownership, with explicit approved layout
+are `crates/<package-name>/` for Rust packages and `apps/<fleet-name>/`
+for Canic fleets and their deployed components, with explicit approved layout
 exceptions below. Repositories need only the trees they use.
 
 This is a deliberate fleet consistency convention: even a single library keeps
@@ -26,7 +27,7 @@ crates/
     tests/                 # When needed
 apps/
   app-name/
-    canic.toml             # Application configuration, when used
+    canic.toml             # Canic fleet configuration
     component-role/
       Cargo.toml           # Existing package name; directory may name its role
       src/
@@ -36,17 +37,19 @@ apps/
   `[workspace]`, without `[package]`, package targets or package dependency
   tables. Select the resolver explicitly using the supported toolchain; a layout
   change does not authorize a resolver, edition or MSRV upgrade.
-- Use `crates/<package-name>/` for reusable libraries, tools, shared schemas and
-  test support, using the existing Cargo package name. Standalone binaries,
-  canisters, examples and probes may also live here. An existing package under
-  `crates/` remains valid; adding support for `apps/` does not require moving it.
-- Application-owned Rust packages may live under `apps/<app-name>/` alongside
-  their application configuration and assets. A single-package application may
-  use `apps/<app-name>/Cargo.toml`; a multi-package application may use
-  `apps/<app-name>/<component-role>/Cargo.toml` for its canisters, binaries and
-  app-specific schema or fixture packages. Component directories may use role
-  names, such as `apps/demo/user_hub/`, without renaming their Cargo packages.
-  This is a standard layout, requiring no exception or nested `crates/` wrapper.
+- Use `crates/<package-name>/` for Rust packages, whether published or private:
+  libraries, standalone binaries/CLIs, tools, shared schemas, test support,
+  qualification runners, standalone canisters, examples and probes. Publication
+  eligibility and `publish = false` do not determine directory placement.
+- Reserve `apps/<fleet-name>/` for Canic fleet configuration and the canister
+  components deployed by that fleet. Component packages may use role directories
+  such as `apps/demo/user_hub/`, preserving their existing Cargo package names.
+  A native publisher, command-line application, generator, test harness or
+  qualification package belongs in `crates/` even when it supports a fleet.
+  A standalone canister is not a Canic fleet merely because it is an application.
+  Do not create general-purpose `apps/tooling/` or `apps/qualification/` trees,
+  or reserve an `apps/` path for a future non-fleet service. Existing explicit
+  approved layout exceptions below remain valid.
 - Keep ordinary module tests, examples and fixtures with their owning package;
   they do not need separate packages merely to follow this layout.
 - Declare the maintained members in the root workspace. Keep common package
@@ -65,9 +68,9 @@ apps/
   target distinctions and publication selections; a directory move must not
   silently widen normal builds or published packages.
 - Application/deployment configuration, frontend code, scripts and documentation
-  retain their locally owned locations. An `apps/` directory may contain Rust
-  packages, non-Rust application files, or both; its package references follow
-  the owning application's discovery contract.
+  retain their locally owned locations. A Canic fleet under `apps/` may contain
+  its deployment configuration, assets and component packages; package references
+  follow that fleet's discovery contract.
   Moving a package does not rename a deployed canister or authorize deployment.
 - Repositories without maintained Rust packages do not need a Cargo workspace
   or empty `crates/` or `apps/` directories. Generated scratch projects, vendored
@@ -355,8 +358,8 @@ lockfile and validation coverage. Preserve
 existing approved dependency-graph boundaries; layout standardisation alone
 does not authorize merging their graphs or upgrading their dependencies.
 
-An approved independent workspace uses the same virtual-root and `crates/` or
-`apps/` choices relative to its own root. For example, an approved
+An approved independent workspace uses the same virtual-root layout relative
+to its own root: ordinary Rust packages in `crates/`, Canic fleets in `apps/`. For example, an approved
 `testing/Cargo.toml` owns `testing/crates/<package-name>/` and `testing/Cargo.lock`.
 Keeping a package outside these shapes, or keeping a root package, requires an
 explicit layout exception as well. Approval may be recorded in this shared rule
@@ -395,11 +398,18 @@ maintainer approval before edits.
 
 Adopt this rule through a reviewed [governance snapshot](../docs/consuming-snapshots.md).
 Coordinate consumer work through issues and preserve unrelated working changes.
+The narrowed Canic-fleet-only `apps/` rule requires Toko Tooling 0.35.0 or a later
+release containing this correction. Consumers must first verify that the corrected
+release is published on crates.io, then adopt its
+release-appropriate Cargo selection and authenticated snapshot before moving packages. Version
+0.34.0 still contains the broader application-layout wording. Do not patch
+consumer snapshot-owned rules or use unpublished producer files as adopted policy.
 In the owning repository's authorized change:
 
 1. Inventory maintained manifests, workspace roots, selected lockfiles and
    approved exceptions. Retain packages already in a standard or approved layout;
-   application grouping alone is not a reason to flatten packages into `crates/`.
+   preserve Canic fleet component grouping under `apps/`. General application or
+   tooling grouping alone does not qualify a package for `apps/`.
    Record old-to-new package paths before any necessary moves.
 2. Update workspace membership, dependency paths, package include/readme/license
    paths, build scripts, fixtures, source-relative paths, Make/CI commands,

@@ -283,9 +283,7 @@ fn recovery_verification_failure_retains_marker_and_admission_barrier() {
                 Ok::<_, InternalError>(IndexStoreVisit::Stop)
             })
             .expect("the ordered payload index should be readable");
-        store
-            .remove(&first_key.expect("the first payload key should exist"))
-            .expect("fixture storage operation should succeed");
+        store.remove(&first_key.expect("the first payload key should exist"));
     });
     assert_eq!(
         (INDEX_STORE.with(|store| store.borrow().len())).expect("storage operation should succeed"),

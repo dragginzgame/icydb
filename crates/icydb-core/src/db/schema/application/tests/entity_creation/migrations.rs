@@ -582,9 +582,7 @@ fn assert_occupied_domain(index_domain: bool) {
         .unwrap()
         .to_raw()
         .unwrap();
-        store
-            .with_index_mut(|index| index.insert(key, IndexEntryValue::presence()))
-            .expect("fixture storage operation should succeed");
+        store.with_index_mut(|index| index.insert(key, IndexEntryValue::presence()));
     } else {
         let mut occupied = None;
         store
@@ -602,9 +600,7 @@ fn assert_occupied_domain(index_domain: bool) {
             })
             .unwrap();
         let (key, row) = occupied.unwrap();
-        store
-            .with_data_mut(|data| data.insert_raw_for_test(key, row))
-            .expect("fixture storage operation should succeed");
+        store.with_data_mut(|data| data.insert_raw_for_test(key, row));
     }
     let physical = physical_state(&db);
     let lineage = load_entity_source_lineage_catalog().unwrap();

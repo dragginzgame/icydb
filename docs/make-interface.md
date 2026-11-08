@@ -42,7 +42,8 @@ reports require explicit selection.
 | `tools-report` | Aggregate existing offline checks and retain all failures | Same ordered local check targets; no setup or release admission |
 | `fmt`, `fmt-check`, `format-tools-check` | Prerequisite check, compact output, retained failure logs | Cargo environment and complete custom formatter commands when needed |
 | `install-hooks` | Safe repository-local activation | Tracked root `.githooks/pre-commit` and its companions |
-| `shared-tooling-check` | Offline snapshot integrity | `SHARED_TOOLING_MANIFEST`, default `.shared-tooling.snapshot` |
+| `shared-tooling-status`, `shared-tooling-update`, `shared-tooling-install` | Report installed/locked registry identities; update Cargo selection or install the locked crate, then install/check tools | Optional `SHARED_TOOLING_VERSION` for update, `SHARED_TOOLING_MANIFEST`; `SHARED_TOOLING_SOURCE` only for one-time Git migration proof |
+| `shared-tooling-check` | Offline snapshot integrity and Cargo selection agreement | `SHARED_TOOLING_MANIFEST`, default `.shared-tooling.snapshot` |
 | `cloc` | Workspace report | Optional report/manifest selection |
 | `release-patch`, `release-minor`, `release-major`, `release-resume` | Admission and exact-version recovery runner | Metadata, validation, delivery policy, branch and remote |
 
@@ -364,3 +365,23 @@ Selected assertion probes preserve a function context for return-based guards.
 Repeated exit probes require a fresh receipt from each child; earlier retained
 directories remain available when a later child fails during initialization.
 No consumer fixture body is run by these prefix-only probes.
+
+## Empty source directories during deployment
+
+Standard release entrypoints and release preflight automatically run
+`clean-empty-source-dirs`, including before frozen-batch capture. No consumer
+configuration is required. The helper selects existing conventional source roots:
+`src`, `crates`, `apps`, `backend`, `fleets`, `canisters`, `packages`, `tests`,
+`testing`, `schema`, `profiler`, `scripts`, `frontend/src` and `frontend/tests`.
+Repositories without those roots report zero deletions. Application deployment
+adapters that bypass the standard release entrypoints can call
+`make clean-empty-source-dirs` with the same automatic selection.
+
+The helper walks children before parents and deletes only empty directories
+matched by Git ignore rules. Git's inability to track an empty directory alone
+does not make it eligible. Selected roots, indexed paths (including missing
+tracked files), symlinks, Git metadata, target/build/dist/coverage, node_modules,
+vendor, tool/cache and recovery-evidence directories are preserved. It prints
+the number deleted. Cleanup never removes files or follows directory links.
+The helper also accepts explicit repository-relative source paths for standalone
+use, including quoted paths containing spaces.

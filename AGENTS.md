@@ -1,12 +1,18 @@
 # IcyDB Agent Rules
 
 For scope, delegated delivery, validation, compiler support and reporting, use
-[Shared policy at 6c529e6](https://github.com/dragginzgame/shared-tooling/blob/6c529e6940a97226cca826726491e03173b08cd2/DRAGGINZGAME.md)
+[Toko Tooling 0.36.0 policy](https://github.com/dragginzgame/toko-tooling/blob/1542683b6d8af295d5366f95f85a292e978ff5ea/DRAGGINZGAME.md)
 and its revision-bound references over older snapshot or local-guide wording.
 This includes Rust 1.99.1 as minimum and pinned development/release compiler;
 check local declarations and qualification before claiming adoption is complete.
 Product-specific safeguards and scoped permissions below remain binding.
 This policy reference does not refresh executable snapshots.
+
+Select tooling with one exact root workspace dependency, inherited as a
+dev-dependency by every real package with its cargo-machete exemption. Cargo.lock
+owns the selection; update the installed snapshot with `make shared-tooling-update`
+and admit it offline with `make shared-tooling-check`. Keep real tools/tests;
+do not create selection-only packages, Rust imports or a separate tooling lock.
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot). This file is IcyDB's local overlay.

@@ -132,7 +132,7 @@ pub(crate) fn build_cached_cargo_wasm_batch(
         Some((wasm_build_progress_config(), &mut observer)),
         |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )?;
-    for entry in report.outcomes() {
+    for entry in report.batch.outcomes() {
         if let Some(outcome) = entry.outcome() {
             trace_wasm_build(entry.label(), outcome);
             report_shared_target_maintenance_failure(entry.label(), outcome);
@@ -189,6 +189,7 @@ pub(crate) fn cache_post_link_wasm(
         }],
     )?;
     let entry = report
+        .batch
         .into_entries()
         .pop()
         .ok_or_else(|| "post-link artifact batch omitted its single entry".to_owned())?;
@@ -218,7 +219,7 @@ pub(crate) fn cache_post_link_wasm_batch(
 ) -> Result<ArtifactCacheBatchReport<String>, String> {
     let report = cache_post_link_wasm_entries(workspace_root, cache_root, entries)?;
 
-    for entry in report.outcomes() {
+    for entry in report.batch.outcomes() {
         if let Some(outcome) = entry.outcome() {
             trace_post_link(entry.label(), outcome);
         }

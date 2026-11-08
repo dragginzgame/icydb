@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl scripts/ci/cargo-release-group.sh scripts/ci/check-retained-state.pl
+# Shared companions: scripts/ci/release-plan.pl scripts/ci/check-make-execution.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl scripts/ci/cargo-release-group.sh scripts/ci/check-retained-state.pl
 set -euo pipefail
 
 # Canonical ordering and Git effects; consumer targets own metadata and gates.
@@ -104,47 +104,25 @@ hook() (
     exit "$retention_status"
 )
 read_plan() {
-    [[ -f "$1" && ! -L "$1" ]] || fail 'release plan is missing or symlinked'
+    local validated _saved_schema _saved_group
+    validated="$(perl "$runner_dir/release-plan.pl" --records --plan "$1" \
+        --group "$release_group" --version "$requested_version")" || fail 'release plan is invalid'
     {
-        if ! {
-            IFS= read -r saved_schema &&
-            IFS= read -r saved_kind &&
-            IFS= read -r saved_previous &&
-            IFS= read -r saved_candidate &&
-            IFS= read -r saved_date &&
-            IFS= read -r saved_source &&
-            IFS= read -r saved_remote &&
-            IFS= read -r saved_branch &&
-            IFS= read -r saved_destination &&
-            IFS= read -r saved_tree &&
-            IFS= read -r saved_phase
-        }; then
-            fail 'release plan is truncated'
-        fi
-        saved_group=""
-        case "$saved_schema" in release-group-plan-1|release-group-pr-plan-1)
-            IFS= read -r saved_group || fail 'release group record is truncated' ;;
-        esac
-        [[ "$saved_group" == "$release_group" ]] || fail 'release group changed'
-        extra=""
-        if IFS= read -r extra || [[ -n "$extra" ]]; then fail 'release plan has extra records'; fi
-    } < "$1"
-    case "$saved_schema" in
-        release-plan-1|release-group-plan-1) saved_delivery=direct ;;
-        release-pr-plan-1|release-group-pr-plan-1) saved_delivery='pr' ;;
-        *) fail 'release plan identity is invalid' ;;
-    esac
-    perl "$runner_dir/validate-release-inputs.pl" version "$saved_candidate" >/dev/null || fail 'release plan identity is invalid'
+        IFS= read -r _saved_schema
+        IFS= read -r saved_kind
+        IFS= read -r saved_previous
+        IFS= read -r saved_candidate
+        IFS= read -r saved_date
+        IFS= read -r saved_source
+        IFS= read -r saved_remote
+        IFS= read -r saved_branch
+        IFS= read -r saved_destination
+        IFS= read -r saved_tree
+        IFS= read -r saved_phase
+        IFS= read -r _saved_group
+        IFS= read -r saved_delivery
+    } <<< "$validated"
     [[ "$1" == "$state_root/${plan_prefix}$saved_candidate.plan" ]] || fail 'release plan identity is invalid'
-    [[ "$saved_source" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && "$saved_destination" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'release plan source/date/destination is invalid'
-    perl "$runner_dir/validate-release-inputs.pl" date "$saved_date" >/dev/null || fail "release plan date is invalid"
-    [[ "$(perl "$(dirname "${BASH_SOURCE[0]}")/validate-release-inputs.pl" next-version "$saved_previous" "$saved_kind")" == "$saved_candidate" ]] || fail 'release plan increment is invalid'
-    case "$saved_phase" in
-        preflight|validate|prepare|stage|commit|complete) ;;
-        tag|push) [[ "$saved_delivery" == direct ]] || fail 'release phase conflicts with delivery' ;;
-        pr-publish|pr-review|pr-validate|pr-tag|pr-push) [[ "$saved_delivery" == pr ]] || fail 'release phase conflicts with delivery' ;;
-        *) fail 'release plan phase is invalid' ;;
-    esac
 }
 load_plan() {
     read_plan "$plan"

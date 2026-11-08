@@ -40,7 +40,7 @@ fn historical_profiles(fill: Option<Value>) -> DbSession<TestCanister> {
             .unwrap()
             .to_raw()
             .unwrap();
-        let row = DATA_STORE.with(|store| store.borrow().get(&key).unwrap());
+        let row = DATA_STORE.with(|store| store.borrow().get(&key));
         assert_eq!(
             decode_row_payload_bytes(
                 row.as_ref()
@@ -77,10 +77,7 @@ fn historical_profiles(fill: Option<Value>) -> DbSession<TestCanister> {
         vec![vec![expected.clone()], vec![expected]]
     );
     for (key, row) in old_rows {
-        assert_eq!(
-            DATA_STORE.with(|store| store.borrow().get(&key).unwrap()),
-            row
-        );
+        assert_eq!(DATA_STORE.with(|store| store.borrow().get(&key)), row);
     }
     session
 }
@@ -450,7 +447,7 @@ fn historical_field_paths_reject_current_slot_absence_and_truncated_payloads() {
         .unwrap()
         .to_raw()
         .unwrap();
-    let old = DATA_STORE.with(|store| store.borrow().get(&key).unwrap());
+    let old = DATA_STORE.with(|store| store.borrow().get(&key));
     for truncate in [false, true] {
         DATA_STORE.with(|store| {
             let mut store = store.borrow_mut();
@@ -481,9 +478,7 @@ fn historical_field_paths_reject_current_slot_absence_and_truncated_payloads() {
                 },
             )
             .unwrap();
-            store
-                .insert_raw_for_test(key.clone(), RawRow::try_new(bytes).unwrap())
-                .expect("fixture storage operation should succeed");
+            store.insert_raw_for_test(key.clone(), RawRow::try_new(bytes).unwrap());
         });
         for sql in [
             "SELECT profile.rank FROM PlannerRow WHERE id = 1",

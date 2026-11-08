@@ -202,10 +202,7 @@ fn recover_with_stage_loss(session: &DbSession<JournaledTestCanister>, effects: 
     assert!(!session.db.drive_startup_recovery_page().unwrap());
     assert_pending(session);
     let watermark = JOURNALED_TAIL_STORE.with_borrow(|tail| tail.fold_watermark().unwrap());
-    assert!(
-        !(JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch))
-            .expect("fixture storage read should succeed")
-    );
+    assert!(!(JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch)));
     forget_recovered_domain_for_tests(&session.db).unwrap();
     assert!(!session.db.drive_startup_recovery_page().unwrap());
     assert_pending(session);
@@ -301,10 +298,7 @@ fn publication_case(
             .unwrap()
             .is_none()
     );
-    assert!(
-        !(JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch))
-            .expect("fixture storage read should succeed")
-    );
+    assert!(!(JOURNALED_TAIL_STORE.with_borrow(JournalTailStore::has_stored_batch)));
     assert_eq!(rows(store), before_rows);
     assert_eq!(indexes(store, true), unrelated);
     let (schema_root, schema) = store

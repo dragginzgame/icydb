@@ -198,27 +198,19 @@ impl IndexStore {
         Ok(())
     }
 
-    pub(in crate::db) fn get(
-        &self,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
-        Ok(match &self.backend {
+    pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
+        match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
-            IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key)?,
-        })
+            IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
+        }
     }
 
     /// Load one index entry from the canonical predecessor view.
-    pub(in crate::db) fn get_canonical(
-        &self,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
-        Ok(match &self.backend {
+    pub(in crate::db) fn get_canonical(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
+        match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
-            IndexStoreBackend::Journaled { canonical, .. } => {
-                canonical.get(key).map_err(InternalError::from)?
-            }
-        })
+            IndexStoreBackend::Journaled { canonical, .. } => canonical.get(key),
+        }
     }
 
     /// Return whether the canonical predecessor domain is physically empty.
@@ -407,9 +399,9 @@ impl IndexStore {
         &mut self,
         key: RawIndexStoreKey,
         entry: IndexEntryValue,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
+    ) -> Option<IndexEntryValue> {
         let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
-            self.get(&key)?
+            self.get(&key)
         } else {
             None
         };
@@ -452,7 +444,7 @@ impl IndexStore {
             }
         };
         self.bump_generation();
-        Ok(previous)
+        previous
     }
 
     /// Insert one key whose absence was proved by complete-domain staging.
@@ -481,12 +473,9 @@ impl IndexStore {
         self.bump_generation();
     }
 
-    pub(crate) fn remove(
-        &mut self,
-        key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
+    pub(crate) fn remove(&mut self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         let previous_journaled = if matches!(self.backend, IndexStoreBackend::Journaled { .. }) {
-            self.get(key)?
+            self.get(key)
         } else {
             None
         };
@@ -503,7 +492,7 @@ impl IndexStore {
         self.prefix_cardinality.apply_remove(key, previous.as_ref());
         self.apply_prefix_overlay_delta(key, previous.as_ref(), None);
         self.bump_generation();
-        Ok(previous)
+        previous
     }
 
     /// Reset journal-reconstructible entries without mutating the stable index.
@@ -596,7 +585,7 @@ impl IndexStore {
         } else {
             match live.get(&key) {
                 Some(value) => Some(value.clone()),
-                None => canonical.get(&key).map_err(InternalError::from)?,
+                None => canonical.get(&key),
             }
         };
         let next_value = value.clone();
@@ -735,14 +724,9 @@ impl IndexStore {
             // The published stable insertion API consumes its key before
             // returning the previous entry; cardinality still needs this copy.
             let cardinality_key = key.clone();
-            (
-                canonical
-                    .insert(key, value.clone())
-                    .map_err(InternalError::from)?,
-                cardinality_key,
-            )
+            (canonical.insert(key, value.clone()), cardinality_key)
         } else {
-            (canonical.remove(&key).map_err(InternalError::from)?, key)
+            (canonical.remove(&key), key)
         };
         if visible {
             if let Some(value) = value.as_ref() {
@@ -803,7 +787,7 @@ impl IndexStore {
     fn journaled_get(
         backend: &IndexStoreBackend,
         key: &RawIndexStoreKey,
-    ) -> Result<Option<IndexEntryValue>, InternalError> {
+    ) -> Option<IndexEntryValue> {
         let IndexStoreBackend::Journaled {
             canonical,
             live,
@@ -811,35 +795,28 @@ impl IndexStore {
             ..
         } = backend
         else {
-            return Ok(None);
+            return None;
         };
         if tombstones.contains(key) {
-            return Ok(None);
+            return None;
         }
-        Ok(match live.get(key) {
+        match live.get(key) {
             Some(value) => Some(value.clone()),
-            None => canonical.get(key).map_err(InternalError::from)?,
-        })
+            None => canonical.get(key),
+        }
     }
 
     // Share stable iteration and overlay merging across visitor closures. Error
     // types remain generic so store callers retain their original typed failures.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one owner preserves ordered traversal, early stop and storage errors across both directions"
-    )]
     pub(super) fn visit_journaled_entries_in_range<E: From<InternalError>>(
         &self,
         bounds: (Bound<&RawIndexStoreKey>, Bound<&RawIndexStoreKey>),
         direction: Direction,
         mut visit: &mut dyn FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
     ) -> Result<(), E> {
-        type VisitEntry<'a> = Result<
-            OrderedOverlayEntry<
-                MapEntry<RawIndexStoreKey, IndexEntryValue>,
-                (&'a RawIndexStoreKey, &'a IndexEntryValue),
-            >,
-            ic_storage::adapter::CollectionError,
+        type VisitEntry<'a> = OrderedOverlayEntry<
+            MapEntry<RawIndexStoreKey, IndexEntryValue>,
+            (&'a RawIndexStoreKey, &'a IndexEntryValue),
         >;
 
         let IndexStoreBackend::Journaled {
@@ -872,12 +849,7 @@ impl IndexStore {
             }
             Direction::Asc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)) {
-                    let entry = entry.map_err(InternalError::from)?;
-                    if visit_index_store_entry(
-                        entry.key(),
-                        &entry.value().map_err(InternalError::from)?,
-                        &mut visit,
-                    )? {
+                    if visit_index_store_entry(entry.key(), &entry.value(), &mut visit)? {
                         return Ok(());
                     }
                 }
@@ -885,12 +857,7 @@ impl IndexStore {
             }
             Direction::Desc if live.is_empty() && tombstones.is_empty() => {
                 for entry in canonical.range((lower, upper)).rev() {
-                    let entry = entry.map_err(InternalError::from)?;
-                    if visit_index_store_entry(
-                        entry.key(),
-                        &entry.value().map_err(InternalError::from)?,
-                        &mut visit,
-                    )? {
+                    if visit_index_store_entry(entry.key(), &entry.value(), &mut visit)? {
                         return Ok(());
                     }
                 }
@@ -903,19 +870,14 @@ impl IndexStore {
         // stays statically selected before traversal.
 
         let mut visit_entry = |entry: VisitEntry<'_>| {
-            let result = (|| -> Result<bool, E> {
-                let entry = entry.map_err(InternalError::from)?;
-                match entry {
-                    OrderedOverlayEntry::Canonical(entry) => visit_index_store_entry(
-                        entry.key(),
-                        &entry.value().map_err(InternalError::from)?,
-                        &mut visit,
-                    ),
-                    OrderedOverlayEntry::Live((key, value)) => {
-                        visit_index_store_entry(key, value, &mut visit)
-                    }
+            let result = match entry {
+                OrderedOverlayEntry::Canonical(entry) => {
+                    visit_index_store_entry(entry.key(), &entry.value(), &mut visit)
                 }
-            })();
+                OrderedOverlayEntry::Live((key, value)) => {
+                    visit_index_store_entry(key, value, &mut visit)
+                }
+            };
             match result {
                 Ok(visit) if !visit => ControlFlow::Continue(()),
                 result => ControlFlow::Break(result.map(|_| ())),

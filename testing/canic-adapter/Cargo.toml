@@ -6,6 +6,9 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 license-file = { workspace = true }
 publish = false
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [workspace]
 resolver = "3"
 members = [
@@ -86,6 +89,7 @@ icydb-testing-test-sql-fixtures = { path = "../../schema/tests/sql" }
 icydb-testing-wasm-helpers = { path = "../../testing/wasm-helpers" }
 # Renamed-dependency fixtures exercise generated imports under caller-selected names.
 runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
+toko-tooling = "=0.36.0"
 trybuild = "1.0"
 
 # ---------------------
@@ -143,6 +147,7 @@ serde = { workspace = true }
 
 [dev-dependencies]
 ic-platform = { workspace = true, features = ["principal"] }
+toko-tooling.workspace = true
 trybuild = { workspace = true }
 
 [[test]]

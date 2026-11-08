@@ -1116,14 +1116,10 @@ fn raw_index_ordering_preserves_corrupt_prefixes_and_transitivity() {
         let mut map = ic_storage::adapter::StableBTreeMap::create(crate::testing::test_memory(177))
             .expect("fixture map");
         for (position, key) in order.iter().enumerate() {
-            map.insert(key.clone(), u64::try_from(position).unwrap())
-                .expect("fixture storage operation should succeed");
+            map.insert(key.clone(), u64::try_from(position).unwrap());
         }
         for (position, key) in order.iter().enumerate() {
-            assert_eq!(
-                map.get(key).expect("fixture read"),
-                Some(u64::try_from(position).unwrap())
-            );
+            assert_eq!(map.get(key), Some(u64::try_from(position).unwrap()));
         }
     }
 }

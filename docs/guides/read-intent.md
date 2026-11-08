@@ -2,7 +2,8 @@
 
 IcyDB has two maintained read authorities:
 
-- ordinary typed/dynamic reads use the built-in `PublicRead` admission policy;
+- ordinary typed/dynamic reads and public SQL pages use the built-in `PublicRead`
+  admission policy;
 - trusted dynamic or SQL reads are explicit admin lanes whose authorization
   belongs to the caller while the active request scope supplies finite IcyDB
   resource policy.
@@ -15,6 +16,7 @@ Generated Rust adapters never choose admission or execution semantics.
 | --- | --- |
 | Typed live page | `db.query::<E>()?.execute_live_page(continuation)` |
 | Dynamic live page | `execute_live_page(&request, continuation)` |
+| Caller-controlled SQL page | `execute_public_sql_query_page(sql, continuation)` with the `sql` feature |
 | Exact metadata count | `db.query::<E>()?.execute_exact_count()` or `db.execute_exact_count(&request)` |
 | Adapter-owned public page step | `advance_live_page(&request, continuation.as_deref())` |
 | Bounded typed grouped page | `db.query::<E>()?...execute_grouped()` |
@@ -36,7 +38,8 @@ to the displayed accepted read plan, including its first rejection reason.
 Context-free and non-read plans have no public-read verdict. Execution EXPLAIN
 also retains the separate diagnostic-lane summary, which cannot execute rows.
 The public-read report does not validate authorization, cursor bytes, runtime
-budgets or a page envelope that would change the plan. Actual public-page
+budgets, SQL frontend terminal support or a page envelope that would change the
+plan. Actual public-page
 admission remains an execution check against that page's prepared plan.
 
 Public scalar typed and dynamic reads return bounded live pages. A non-null
@@ -257,15 +260,23 @@ lane. `execute_trusted_sql_query` has the same authorization posture.
 
 ## Generated SQL Boundary
 
-The `icydb_sql_query` declaration exports `icydb_query`, which is controller-gated
-by default. Its required `introspection` boolean precedes an optional
-`authorization = guard(path)` argument; see the complete
-[endpoint declaration example](../../INSTALLING.md#explicit-endpoint-declarations).
-The guard replaces controller authority for
-the complete admitted SQL read lane. Guarded mode rejects anonymous callers
-before application code and does not add a controller fallback. It remains a
-trusted SQL surface rather than a narrow public-read template; hand-written
-public endpoints should use the ordinary typed/dynamic lane.
+Canic owns IC endpoint exports and caller authorization. IcyDB 0.304 exposes
+separate native capabilities: `sql_query_public` for application-guarded reads,
+and `sql_query_trusted` for explicitly authorized controller/operator SQL.
+The adapter must authorize each initial/resumed call before request construction
+and choose the capability explicitly. An application guard grants access, not
+trusted execution or a controller fallback. The adapter migration and installed
+authorization checks remain deferred under
+[#373](https://github.com/dragginzgame/icydb/issues/373).
+
+For native application-controlled SQL, call `execute_public_sql_query_page` or
+its parsed-dispatch counterpart. Scalar results carry canonical bounded work and
+an authenticated continuation; grouped results retain their grouped cursor.
+Follow that progress rather than collecting or truncating rows in the endpoint.
+The existing introspection flag still gates metadata. Top-level SELECT DISTINCT,
+nonzero scalar OFFSET, global aggregates and execution EXPLAIN are refused before
+execution on this public API; explicitly trusted SQL retains them. See the
+[public SQL contract](../contracts/READ_ADMISSION.md#generated-sql-query-surface).
 
 The dedicated `icydb_schema` declaration separately accepts
 `authorization = public`, `controller`, or `guard(path)`. A schema guard sees

@@ -465,7 +465,7 @@ impl StructuralGroupedRowRuntime {
     ) -> Result<Option<R>, InternalError> {
         let raw_key = key.raw_key()?;
         self.store.with_data(|store| {
-            let row = store.read(raw_key)?;
+            let row = store.read(raw_key);
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
             match (consistency, row.as_row()) {
                 (MissingRowPolicy::Ignore, None) => Ok(None),

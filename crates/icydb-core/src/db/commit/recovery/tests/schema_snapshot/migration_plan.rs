@@ -177,19 +177,13 @@ fn maximum_physical_batch_replays_folds_and_verifies_with_bounded_plan_loads() {
                 ..
             } => {
                 assert_eq!(
-                    handle.with_data(|store| store
-                        .get(primary_key)
-                        .unwrap()
-                        .expect("storage operation should succeed")
-                        .as_bytes()
-                        .to_vec()),
+                    handle.with_data(|store| store.get(primary_key).unwrap().as_bytes().to_vec()),
                     *row_bytes
                 );
             }
             JournalRecord::SchemaMigrationIndexPut { key, .. } => {
                 assert_eq!(
-                    (handle.with_index(|store| store.get(key)))
-                        .expect("storage operation should succeed"),
+                    (handle.with_index(|store| store.get(key))),
                     Some(IndexEntryValue::presence())
                 );
             }

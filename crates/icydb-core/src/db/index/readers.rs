@@ -78,7 +78,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for Db<C> {
         let store = self.recovered_store(runtime_entity.store_path())?;
         let raw_key = key.raw_key()?;
 
-        store.with_data(|data_store| data_store.get(raw_key))
+        Ok(store.with_data(|data_store| data_store.get(raw_key)))
     }
 
     fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -86,7 +86,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for Db<C> {
         let store = self.recovered_store(runtime_entity.store_path())?;
         let raw_key = key.raw_key()?;
 
-        store.with_data(|data_store| data_store.contains(raw_key))
+        Ok(store.with_data(|data_store| data_store.contains(raw_key)))
     }
 }
 

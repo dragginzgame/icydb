@@ -28,6 +28,13 @@ cp "$root/scripts/ci/publish-workspace.sh" \
     "$root/scripts/ci/check-crates-io-version.sh" \
     "$root/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
 printf '[workspace.package]\nversion = "0.265.0"\n' > "$fixture/Cargo.toml"
+# Shared qualifies tooling admission; this consumer fixture checks that a failed
+# admission stops the direct publisher before registry or Cargo effects.
+cat > "$fixture/Makefile" <<'MAKE'
+.PHONY: shared-tooling-check
+shared-tooling-check:
+	@test "$${FAIL_TOOLING_CHECK:-0}" = 0
+MAKE
 crates=(icydb-diagnostic-code icydb-schema icydb-model-macros icydb-model icydb-core icydb icydb-cli)
 for crate in "${crates[@]}"; do
     mkdir -p "$fixture/crates/$crate"
@@ -135,11 +142,14 @@ run_subject() {
     : > "$EVENTS"
     env PUBLISH_DRY_RUN=0 PUBLISH_VALIDATE_ONLY=0 PUBLISH_FROM= PUBLISH_VERIFY=auto \
         PUBLISH_POLL_SECS=10 PUBLISH_TIMEOUT_SECS=300 DIRTY=0 UNTRACKED=0 \
-        FAIL_INVENTORY=0 FAIL_HEAD=0 FAIL_PUBLISH=0 REGISTRY_MODE=present \
+        FAIL_INVENTORY=0 FAIL_HEAD=0 FAIL_PUBLISH=0 FAIL_TOOLING_CHECK=0 REGISTRY_MODE=present \
         "$@" "$real_bash" "$fixture/scripts/ci/publish-workspace.sh" \
         > "$fixture/output" 2>&1 || status=$?
     if [[ "$expected" == fail ]]; then [[ "$status" != 0 ]]; else [[ "$status" == "$expected" ]]; fi
 }
+
+run_subject 2 FAIL_TOOLING_CHECK=1
+[[ ! -s "$EVENTS" ]]
 
 # Invalid selections and unavailable source admission stop before registry access.
 for input in PUBLISH_FROM=missing PUBLISH_DRY_RUN=invalid PUBLISH_VERIFY=invalid \

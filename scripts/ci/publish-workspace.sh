@@ -5,6 +5,8 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
+# Direct callers bypass the standard shared release entrypoints.
+make --no-print-directory -C "$ROOT_DIR" shared-tooling-check
 source scripts/release/group.sh
 export PATH="$ROOT_DIR/.tools/host/bin:$PATH"
 

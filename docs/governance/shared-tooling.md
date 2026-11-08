@@ -5,10 +5,59 @@ identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lo
 and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
+The root adopts Storage 0.69's direct collection API, preserving stored-image
+format and fallible admission/record decoding. Build 0.80, Host Tools 0.88 and
+direct Host Artifacts/FS/Process 0.76 share the same typed Wasm boundary. Host
+Tools 0.88 was published during adoption, resolving the earlier 0.87/0.76 facts
+mismatch. The later Testkit 0.94 adoption aligns its Host dependencies to 0.76
+and selects its required Platform 0.27; obsolete transitive Host 0.75 packages
+are removed. No consumer bridge or supplier requirement is patched. Canic's
+older Testkit and extension imports remain in its unchanged independent stack.
+
 ## Ownership and provenance
 
-IcyDB selects the **0.31.11 committed snapshot** at
-`6c529e6940a97226cca826726491e03173b08cd2`. The canonical revision-selected
+IcyDB selects published **Toko Tooling 0.36.0** with an exact
+`[workspace.dependencies]` pin, inherited unconditionally as a dev-dependency by
+every real package. Each package merges `toko-tooling` into its cargo-machete
+ignored list; no artificial Rust import or selection-only package is used.
+Cargo.lock and the snapshot receipt select registry archive SHA-256
+`de0dd05b6437061622a76942baa25d40d2181497e7ba66d9fd809132a3082936`;
+all **170 payloads** come from published source
+`1542683b6d8af295d5366f95f85a292e978ff5ea`.
+
+After deliberately editing the exact root pin, refresh Cargo.lock with Cargo,
+then run `make shared-tooling-update`. `make shared-tooling-install` reinstalls
+that locked selection; `make shared-tooling-check` admits every root member,
+Cargo.lock and installed bytes offline. Exact-pin policy exceptions record this
+required source-bundle identity. The superseded metadata selectors and dedicated
+tooling lock are removed, including from qualification inputs. Bootstrap used
+the clean released producer installer; actual payloads came from crates.io.
+No Git/path dependency or supplier checkout is required for subsequent updates.
+
+Both maintained workspaces retain their package ownership: 23 root packages and
+31 independent Canic packages. All 54 have inherited declarations and merged
+exemptions; real tools/tests, memberships and release groups remain intact.
+The root lock adds only the empty tooling package and member edges; other locked
+versions/checksums are preserved. The Canic lock refresh fails on the existing
+Storage 0.64 / Platform 0.17 runtime-guard versus Platform 0.8.3 executor links
+conflict under [#373](https://github.com/dragginzgame/icydb/issues/373). Preserve
+its unchanged lock and supplier requirements; no integrated pass is claimed.
+The shared extra-workspace formatter also rejects this approved workspace's
+outside-root member paths before formatting; that qualification remains blocked.
+
+Repository CI/build entrypoints, release setup, the ICP build/staging hook and
+direct publication retain tooling admission before effects. General-purpose
+CLI commands for downstream projects retain their application contracts.
+No package version, retained release batch, sibling repository or deployment
+changes. Rust **1.99.1** remains the declared minimum and pinned compiler.
+Historical full/selected comparisons keep their old inputs; current mapping
+changes retain full-validation fallback. The earlier 0.34 metadata/lock adoption
+is superseded by this published per-package Cargo contract.
+
+### Earlier Git snapshot
+
+The preceding **0.31.12 committed snapshot** was selected at
+`eb3c8e0d2274d2c7babb2c15b3355bb80a796f0f`. The canonical revision-selected
 exporter installed it without modifying supplier files; all **162 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
@@ -17,7 +66,15 @@ No IcyDB package versions or release state change in this snapshot refresh;
 the published database and retained batches are preserved. Dependency selections
 are recorded below.
 
-The current 0.31.11 refresh adopts issue closure after implementation, focused
+The 0.31.12 refresh changes LOC presentation: sibling scans use one updating
+repository counter, cleared before the table or diagnostics. Terminals colour
+workspace names green, crates blue and modules white; redirected, `NO_COLOR` and
+`TERM=dumb` output stays plain. IcyDB's complete JSON report is byte-identical
+before and after the refresh. Consumer checks cover actual Make routing and the
+terminal, plain-output and parent-report contracts; macOS remains unqualified
+for this refresh. No generic Shared fixture suite is added to IcyDB's gates.
+
+The preceding 0.31.11 refresh adopts issue closure after implementation, focused
 validation and the owning group changelog link. Record uncommitted/unpushed/
 unpublished state explicitly; general release gates are separate. Actual installed,
 host-specific or measurement outcomes keep their specific evidence obligations.
@@ -161,7 +218,42 @@ default to `target/evidence/`. Release/recovery records, saved review inputs,
 package versions and dependency selections are preserved. See the
 [report retention policy](../reports/README.md).
 
-### Current 0.303 cohort (2026-11-08)
+### Current 0.304 qualification (2026-11-08)
+
+The settled root lock selects Build **0.79.1**, Host Artifacts/Fs/Process
+**0.75.1**, Host Tools **0.87.0**, Host Text **0.74.3**, Platform **0.26.1**,
+Runtime **0.20.2**, Types **0.18.2**, Storage **0.68.11**, Wire **0.17.14** and
+Testkit **0.93.2**. The incoming lock update is preserved; package versions and
+the independent Canic manifest/lock remain unchanged.
+
+The earlier Host Tools **0.86.0** cohort passed matched Linux full/selected
+qualification for both release groups on Rust/Cargo **1.99.1** with the
+**0.31.12** snapshot: sixteen full and
+eleven selected stages each, zero reuse, admitted receipts, verified archives
+and unchanged original checkout custody. The actual reviewed-record selector
+admits eligible group-only changes only for that recorded mapping and keeps its
+mixed batch full; configuration/automation drift refuses. The subsequent Host
+Tools 0.87 adoption changes mapping inputs and restores full validation for the
+current candidate. See
+[current selection and retained evidence](release-validation.md#current-selection-after-host-tools-087).
+The older captures correctly refused normal-checkout custody after the lock
+changed and remain retained. No new macOS or installed Canic qualification,
+publication or network lifecycle action is implied. IC costs and total/code
+Wasm deltas remain unmeasured.
+
+Host Tools **0.87.0** comes from clean published source
+`1e4853061ad98833cd4891a5dc00b5fdbda20654`, registry checksum
+`c1179a641fc4ebe87e1b94b2a7a47c10abf7a5cf8bd23f3be79fb5886bfb84cb`.
+Its Rust source matches 0.86.0 byte-for-byte. Upstream's optional IC adapters
+now use Platform 0.26; IcyDB's ICP/project/response and Wasm-interface consumers
+retain their calls and feature selections. Only Host Tools changes in the root
+lock. This compatible consumer adoption does not change public database types.
+Strict CLI/build-consumer lint and all 306 selected tests pass on Rust 1.99.1;
+the resolved features remain `icp-project` and `ic-interface`. The official
+archive checksum and published source identity verify. This is focused Linux
+consumer qualification, with no new broad comparison or macOS execution.
+
+### Delivered 0.303 cohort (2026-11-08)
 
 Shared **0.31.11** is adopted at reviewed GitHub commit
 `6c529e6940a97226cca826726491e03173b08cd2` through the canonical exporter;
@@ -910,8 +1002,8 @@ Types and Runtime have explicit consumer allowlists, including Core's test-only
 identity conversions. The resolved-graph guard refuses duplicate Runtime or
 Types versions. These owned packages do not relax the external SDK inventory;
 direct Candid/CDK/substrate dependencies remain forbidden.
-The current root schema family selects Wire 0.16, Metrics 0.29 and Storage 0.66
-with Platform 0.21, Runtime 0.19 and Types 0.18. All use the pinned Rust 1.99.1. Storage's map
+The current root schema family selects Wire 0.17, Metrics 0.29 and Storage 0.68
+with Platform 0.26, Runtime 0.20 and Types 0.18. All use the pinned Rust 1.99.1. Storage's map
 format changes under the fresh-installation contract above; Wire protocol bytes,
 schemas and budgets retain their published contract.
 Earlier qualification below belongs to its original supplier selection.
@@ -1564,13 +1656,16 @@ and native macOS 15 ARM64/x86-64 lanes. Bash 3.2 remains the portable shell targ
 The workflow and package manifests own compiler selections; Linux compilation,
 cross-compilation, archive hashes and substitute fixtures do not qualify macOS.
 
-The latest recorded Tooling adoption above has Linux evidence. Native macOS,
-exact Rust 1.96 host-floor execution and installed-IC qualification were unrun
-for that adoption; broad workspace/release gates were also unrun. Earlier
-macOS successes in the committed history apply only to their named source and
-graph. Verify the relevant CI run against the actual candidate before claiming
-current native-host qualification. Local PocketIC execution is distinct from
-live-IC deployment. Wasm-size, cycle and instruction deltas remain unmeasured.
+The earlier 0.304 candidate passed both real Linux full/selected release-group
+comparisons on the declared minimum and pinned development/release compiler,
+Rust 1.99.1. Those records qualify only their recorded Linux dependency cohort;
+the later Host Tools 0.87 adoption retains full-validation fallback. Native macOS and
+installed-IC qualification are unrun for this candidate; both macOS hosts retain
+full validation. Earlier macOS successes in committed history apply only to
+their named source and graph. Verify the relevant CI run against the actual
+candidate before claiming current native-host qualification. Local PocketIC
+execution is distinct from live-IC deployment. Wasm-size, cycle and instruction
+deltas remain unmeasured.
 
 ## Standard releases and extraction
 

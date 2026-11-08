@@ -425,7 +425,7 @@ fn load_existing_row(
     data_key: &DecodedDataStoreKey,
 ) -> Result<Option<RawRow>, InternalError> {
     let raw_key = data_key.raw_key()?;
-    store.with_data(|data| data.get(raw_key))
+    Ok(store.with_data(|data| data.get(raw_key)))
 }
 
 // This is the reader's last use, after whole-row and Identity validation.

@@ -143,6 +143,7 @@ revision_count=0
 version_count=0
 snapshot_version=unrecorded
 snapshot_revision=''
+snapshot_source=''
 file_count=0
 declared_files=()
 declared_digests=()
@@ -179,6 +180,7 @@ while IFS= read -r manifest_line || [[ -n "$manifest_line" ]]; do
         [[ -n "$first" && "$manifest_line" == "$record"$'\t'"$first" ]] ||
             fail "malformed source record"
         source_count=$((source_count + 1))
+        snapshot_source="$first"
         ;;
     revision)
         [[ "$first" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && "$manifest_line" == "$record"$'\t'"$first" ]] ||
@@ -210,6 +212,10 @@ done <<< "$manifest_contents"
 [[ "$source_count" -eq 1 ]] || fail "manifest must contain exactly one source record"
 [[ "$revision_count" -eq 1 ]] || fail "manifest must contain exactly one revision record"
 [[ "$version_count" -le 1 ]] || fail "manifest has duplicate version annotations"
+if [[ "$snapshot_source" == https://crates.io/crates/toko-tooling ]]; then
+    [[ "$snapshot_revision" =~ ^[0-9a-f]{64}$ && "$version_count" == 1 ]] ||
+        fail 'registry snapshots require a package SHA-256 and version'
+fi
 [[ "$file_count" -gt 0 ]] || fail "manifest contains no files"
 if [[ "$require_annotations" == true ]]; then
     [[ "$version_count" -eq 1 && ${#entrypoints[@]} -gt 0 ]] ||

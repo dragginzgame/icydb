@@ -195,7 +195,6 @@ fn prepared_delete_owners_with_context(
     let before = store.with_data(|data| {
         data.get_canonical(&key)
             .unwrap()
-            .unwrap()
             .into_bytes()
             .expect("fixture encoding")
     });
@@ -433,18 +432,8 @@ fn direct_recovery_restores_candidate_authority_from_the_live_schema_checkpoint(
         .unwrap()
     };
     DATA_STORE.with_borrow(|store| {
-        assert!(
-            store
-                .get_canonical(&row_key(ENTITY_TAG))
-                .expect("storage operation should succeed")
-                .is_none()
-        );
-        assert!(
-            store
-                .get_canonical(&row_key(SECOND_ENTITY_TAG))
-                .expect("storage operation should succeed")
-                .is_some()
-        );
+        assert!(store.get_canonical(&row_key(ENTITY_TAG)).is_none());
+        assert!(store.get_canonical(&row_key(SECOND_ENTITY_TAG)).is_some());
         assert_eq!(store.len(), 1);
     });
     assert_eq!(

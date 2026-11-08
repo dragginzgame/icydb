@@ -10,7 +10,7 @@ select `full` without fetching. An empty comparison also selects `full`.
 
 Consumers own an exact, reviewed list of Markdown paths that are prose only.
 There are no globs. The classifier reads identical policy bytes from both
-compared commits, never an uncommitted list. Apart from the explicit `VERSION`
+compared commits, never an uncommitted list. Apart from the explicit version-only
 exception below, unknown paths select full CI. Policy/workflow/code changes,
 executable files and symlinks always select full CI. Renames are checked as
 both deletion and addition. Do not list Markdown used by `include_str!`, doctests,
@@ -21,15 +21,17 @@ is an optimization, not a security boundary against workflow authors.
 Submodule identity changes always select full CI, even when local Git settings
 normally hide them. Relative-diff settings cannot narrow the compared paths.
 
-Shared Tooling opts into `--allow-version-bump` for its root `VERSION` convention.
-Alongside reviewed prose, a changed `VERSION` may use the reduced path only when
+Shared Tooling opts into `--allow-version-bump` for root `Cargo.toml` package.version.
+Alongside reviewed prose, a literal version-only edit may use the reduced path when
 `CHANGELOG.md` is also changed and allowlisted. Both committed endpoints must have
 regular non-executable version/changelog files, canonical stable versions and
 matching first changelog headings; historical headings must be older than their
 own top version. The version must increase. Missing files, mismatches, malformed
 versions, rollbacks and mixed code changes select full CI. Uncommitted repairs
-cannot influence the decision. This option does not admit Cargo manifests or
-other release metadata, and is off by default for consumers. The normal version
+cannot influence the decision. The rest of the Cargo manifest must be byte-identical;
+changes to dependencies, package names or any other metadata retain full CI. The
+historical VERSION convention is still understood, but changing version-source
+formats selects full CI. This option is off by default for consumers. The normal version
 check still runs; release/tag qualification is unchanged.
 
 Use a cheap classification job with complete comparison history. Keep stable

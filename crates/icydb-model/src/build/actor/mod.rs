@@ -197,7 +197,8 @@ fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
                 pub(crate) use super::__icydb_endpoint_handler_fixtures_reset as fixtures_reset;
                 pub(crate) use super::__icydb_endpoint_handler_sql_ddl as sql_ddl;
                 pub(crate) use super::__icydb_endpoint_handler_sql_integrity as sql_integrity;
-                pub(crate) use super::__icydb_endpoint_handler_sql_query as sql_query;
+                pub(crate) use super::__icydb_endpoint_handler_sql_query_public as sql_query_public;
+                pub(crate) use super::__icydb_endpoint_handler_sql_query_trusted as sql_query_trusted;
                 pub(crate) use super::__icydb_endpoint_handler_sql_update_bounded as sql_update_bounded;
                 pub(crate) use super::__icydb_endpoint_handler_sql_update_primary_key as sql_update_primary_key;
             }

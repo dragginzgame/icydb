@@ -6,10 +6,12 @@ consumer-admitted Cargo command. It owns retained intent, exact arguments,
 command output and exit statuses. It never installs tools, discovers missing
 packages, retries an upload or decides whether a previous upload succeeded.
 The [release contract](releases.md) keeps publication separate from release as an
-executable operation. A scoped ship/deploy request can authorize both under
+executable operation. A scoped release/ship/deploy request authorizes both under
 [delegated delivery](../rules/contributions.md#delegated-delivery); agents select
 the affected approved groups and complete the upload without a second permission
-request. Guidance/readiness questions and Git-only release commands do not imply
+request. Do not treat a successful GitHub push as completed delivery while an
+affected publishable crate still awaits crates.io upload. Guidance/readiness
+questions and requests explicitly limited to a Git-only command do not imply
 publication. Keep registry/source admission and uncertain-upload recovery intact.
 
 ## Opt-in Make adapter

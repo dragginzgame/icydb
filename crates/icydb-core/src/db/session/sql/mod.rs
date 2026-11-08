@@ -12,6 +12,8 @@ mod delete_policy;
 mod execute;
 mod integrity;
 mod projection;
+#[cfg(feature = "sql")]
+mod public_read;
 mod result;
 mod resumable_update;
 mod surface;
@@ -41,7 +43,7 @@ pub(in crate::db) use delete_policy::{
     SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
 };
 pub use integrity::SqlIntegrityError;
-pub use result::SqlStatementResult;
+pub use result::{SqlStatementPageResult, SqlStatementResult};
 pub(in crate::db::session::sql) use surface::sql_statement_entity_name_from_statement;
 pub use surface::{
     SqlStatementDispatch, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,

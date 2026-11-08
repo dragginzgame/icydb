@@ -35,9 +35,12 @@ local overlays must not duplicate it or add routine permission gates.
   or delivery. Shared alone also prepares its pending `VERSION`.
 - A PR request includes its topic branch, scoped commits, branch push and PR.
   Release/ship/deploy requests include their necessary delivery steps and direct
-  integration-branch pushes. An unqualified “deploy” covers all changed eligible
-  Dragginzgame repositories in the established projects directory and crates.io
-  publication for affected publishable groups. Announce the selected plan, then
+  integration-branch pushes. An unqualified “deploy”, “ship” or “release” applies
+  only to the current repository. All three include both GitHub delivery and
+  crates.io publication for its affected publishable groups, without another
+  publication confirmation. Sibling delivery requires an explicit request;
+  do not scan siblings or ask whether to include them by default. Announce the
+  selected plan, then
   proceed under [delegated delivery](rules/contributions.md#delegated-delivery).
 - Named scope, no-push/read-only instructions and exclusions take precedence.
   `toko` and `toko-miner` require explicit inclusion; DFINITY contributions remain
@@ -108,6 +111,12 @@ when changing interfaces, persistence or installation/recovery behavior.
   report that limitation; do not silently broaden an ordinary task into the full
   suite. Name the changed behavior each selected check proves. Keep unchanged
   generic regression matrices with their producer.
+- Repository tooling uses one exact root Cargo dependency pin inherited as a
+  dev-dependency by every real workspace package. `cargo update -v` reports newer
+  releases; after changing the pin and Cargo.lock, run `make shared-tooling-update`.
+  Offline admission checks every member, Cargo.lock and installed bytes together.
+  See the
+  [tooling selection rule](rules/cargo-dependencies.md#shared-tooling-during-dependency-updates).
 - Give repeated validation one execution owner: selected group scope must reach
   the leaf commands, and aggregate gates must not repeat full lint/setup through
   nested targets. Reuse unchanged release-stage evidence only through the

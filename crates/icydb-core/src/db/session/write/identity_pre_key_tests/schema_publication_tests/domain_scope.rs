@@ -10,9 +10,7 @@ fn assert_entity_scoped_ddl<C: CanisterKind>(session: &DbSession<C>, store_path:
     let foreign = RawDataStoreKey::from_persisted_bytes(u64::MAX.to_be_bytes().to_vec());
     assert!(DecodedDataStoreKey::try_from_raw(&foreign).is_err());
     let raw_row = RawRow::try_new(vec![0xff]).unwrap();
-    store
-        .with_data_mut(|data| data.insert_raw_for_test(foreign.clone(), raw_row.clone()))
-        .expect("fixture storage operation should succeed");
+    store.with_data_mut(|data| data.insert_raw_for_test(foreign.clone(), raw_row.clone()));
     let before = rows(store);
     for (version, sql) in [
         (
@@ -29,7 +27,7 @@ fn assert_entity_scoped_ddl<C: CanisterKind>(session: &DbSession<C>, store_path:
             .unwrap();
         assert_eq!(rows(store), before);
         assert_eq!(
-            (store.with_data(|data| data.get(&foreign))).expect("storage operation should succeed"),
+            (store.with_data(|data| data.get(&foreign))),
             Some(raw_row.clone())
         );
     }
@@ -38,9 +36,7 @@ fn assert_entity_scoped_ddl<C: CanisterKind>(session: &DbSession<C>, store_path:
     // staging before publication or any row/index mutation.
     let malformed =
         RawDataStoreKey::from_persisted_bytes(ENTITY_TAG.value().to_be_bytes().to_vec());
-    store
-        .with_data_mut(|data| data.insert_raw_for_test(malformed, raw_row))
-        .expect("fixture storage operation should succeed");
+    store.with_data_mut(|data| data.insert_raw_for_test(malformed, raw_row));
     let before_rows = rows(store);
     let before_indexes = indexes(store, false);
     let before_schema =

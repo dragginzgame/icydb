@@ -224,7 +224,7 @@ fn covering_pages_check_liveness_without_decoding_persisted_payloads() {
             .unwrap();
         first.unwrap()
     });
-    let original = DATA_STORE.with_borrow(|store| store.get(&raw_key).unwrap().unwrap());
+    let original = DATA_STORE.with_borrow(|store| store.get(&raw_key).unwrap());
     DATA_STORE.with_borrow_mut(|store| {
         store
             .insert_raw_for_test(raw_key.clone(), RawRow::try_new(vec![0]).unwrap())
@@ -249,7 +249,7 @@ fn covering_pages_check_liveness_without_decoding_persisted_payloads() {
         .unwrap_err();
     assert_eq!(error.diagnostic().error_code(), ErrorCode::STORE_CORRUPTION);
     assert_eq!(DataStore::current_get_call_count(), before);
-    DATA_STORE.with_borrow_mut(|store| store.insert_raw_for_test(raw_key, original).unwrap());
+    DATA_STORE.with_borrow_mut(|store| store.insert_raw_for_test(raw_key, original));
     assert_eq!(
         new_request_session(&RequestExecutionRoot::__new_runtime_root())
             .execute_trusted_live_page(&query, None)

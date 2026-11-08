@@ -199,12 +199,10 @@ fn identity_field_remap_rejects_occupied_destination_without_effects() {
     .unwrap()
     .retire()
     .unwrap();
-    store
-        .insert_durable_raw_value(
-            RawSchemaKey::from_identity_state(ENTITY, FieldId::new(1)),
-            encode_identity_state(&retired).unwrap(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert_durable_raw_value(
+        RawSchemaKey::from_identity_state(ENTITY, FieldId::new(1)),
+        encode_identity_state(&retired).unwrap(),
+    );
     let before = store
         .identity_state_inventory_for_integrity(test_database_incarnation())
         .unwrap();

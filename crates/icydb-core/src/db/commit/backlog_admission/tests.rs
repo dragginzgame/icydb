@@ -75,7 +75,7 @@ fn public_debt_and_movements_follow_publication_replay_rejection_and_retirement(
         let retirement = tail
             .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
             .unwrap();
-        tail.apply_prepared_batch_retirement(retirement).unwrap();
+        tail.apply_prepared_batch_retirement(retirement);
     });
     let retired = crate::metrics::metrics_report().unwrap();
     assert_eq!(retired.journal_debt(), ExactBacklogMeasurement::EMPTY);

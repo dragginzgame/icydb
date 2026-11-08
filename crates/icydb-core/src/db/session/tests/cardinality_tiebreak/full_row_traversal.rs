@@ -68,9 +68,7 @@ fn full_row_primary_ranges_preserve_backing_order_payloads_and_read_admission() 
                         .fold_recovered_journal_put(key.clone(), row.clone())
                         .unwrap();
                 } else {
-                    store
-                        .insert_raw_for_test(key.clone(), row.clone())
-                        .expect("fixture storage operation should succeed");
+                    store.insert_raw_for_test(key.clone(), row.clone());
                 }
             }
             DATA_STORE.with(|target| *target.borrow_mut() = store);
@@ -172,9 +170,7 @@ fn assert_malformed_row_refused(backing: u8, original: &(RawDataStoreKey, RawRow
                     .fold_recovered_journal_put(original.0.clone(), row)
                     .unwrap();
             } else {
-                store
-                    .insert_raw_for_test(original.0.clone(), row)
-                    .expect("fixture storage operation should succeed");
+                store.insert_raw_for_test(original.0.clone(), row);
             }
         });
     };

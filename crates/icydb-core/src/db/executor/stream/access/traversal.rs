@@ -634,7 +634,7 @@ impl AccessPlanStreamResolver {
                 DiagnosticExecutionBudgetResource::TemporaryBytes,
                 u64::try_from(raw.as_bytes().len()).unwrap_or(u64::MAX),
             )?;
-            if runtime.store.with_data(|store| store.contains(raw))? {
+            if runtime.store.with_data(|store| store.contains(raw)) {
                 existing.push(key);
             }
         }

@@ -34,6 +34,7 @@ mod seek_intersection;
 mod sparse_indexes;
 mod sql_case_guards;
 mod sql_not_null;
+mod sql_public_pages;
 mod sql_scalar_comparisons;
 mod sql_update_expressions;
 mod sql_write_fields;

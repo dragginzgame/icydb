@@ -65,7 +65,7 @@ sub module_rows {
     @pending=map {[$_,$tree->{children}{$_},1]} reverse sort keys %{$tree->{children}};
     while (my $entry=pop @pending) {
         my ($label,$node,$level)=@$entry;
-        push @rows,[('  ' x ($level+1)).safe_label($label),$node->{counts}];
+        push @rows,[('  ' x ($level+1)).safe_label($label),$node->{counts},37];
         next if $level >= $depth || !keys %{$node->{children}};
         push @pending,map {[$_,$node->{children}{$_},$level+1]} reverse sort keys %{$node->{children}};
     }
@@ -106,14 +106,16 @@ if (($ARGV[0] // '') eq '--table') {
     my @rows;
     for my $w (@{$r->{workspaces} // [{name=>basename(dirname($r->{manifest})),report=>$r}]}) {
         if ($w->{report}) {
-            push @rows, [safe_label($w->{report}{selection} // $w->{name}), $w->{report}{totals}];
+            my $label=safe_label($w->{report}{selection} // $w->{name});
+            my $kind=$w->{report}{selection} ? ($w->{report}{selection} =~ /::/ ? 37 : 34) : 32;
+            push @rows, [$label, $w->{report}{totals},$kind];
             if (defined $depth) {
                 my %files_by_crate;
                 if ($depth) {
                     push @{$files_by_crate{$_->{crate}}},$_ for @{$w->{report}{files}};
                 }
                 for my $crate (@{$w->{report}{crates}}) {
-                    push @rows,['  '.safe_label($crate->{crate}),$crate->{counts}] unless $w->{report}{selection};
+                    push @rows,['  '.safe_label($crate->{crate}),$crate->{counts},34] unless $w->{report}{selection};
                     if ($depth) {
                         my @modules=module_rows($crate,$files_by_crate{$crate->{crate}} // [],$depth);
                         if ($w->{report}{selection}) { $_->[0] =~ s/^  // for @modules; }
@@ -121,8 +123,9 @@ if (($ARGV[0] // '') eq '--table') {
                     }
                 }
             }
-        } else { push @rows, [safe_label($w->{name}), {map {$_=>$w->{status}} (@categories,'total')}]; }
+        } else { push @rows, [safe_label($w->{name}), {map {$_=>$w->{status}} (@categories,'total')},32]; }
     }
+    my $colour=-t STDOUT && !length($ENV{NO_COLOR} // '') && ($ENV{TERM} // '') ne 'dumb';
     my $aggregate=exists $r->{workspaces};
     push @rows, [$r->{partial} ? 'TOTAL (partial)' : 'TOTAL', $r->{totals}] if $aggregate;
     my @keys=(@categories,'total');
@@ -143,7 +146,11 @@ if (($ARGV[0] // '') eq '--table') {
     print "\n",$separator;
     for my $i (0..$#rows) {
         print $separator if $aggregate && $i==$#rows;
-        printf '%-*s', $width,$rows[$i][0];
+        my $code=$colour ? $rows[$i][2] : undef;
+        print "\e[${code}m" if defined $code;
+        print $rows[$i][0];
+        print "\e[0m" if defined $code;
+        print ' ' x ($width-length($rows[$i][0]));
         for my $j (0..$#keys) {printf '%s%*s', $gaps[$j],$widths[$j],$rows[$i][1]{$keys[$j]} // 'n/a';}
         print "\n";
     }
@@ -158,7 +165,47 @@ my @packages=sort {$a->{name} cmp $b->{name}} grep {$members{$_->{id}}} @{$metad
 @packages or die "Cargo workspace contains no packages\n";
 my @roots=map {dirname($_->{manifest_path})} @packages;
 my @excluded=($metadata->{target_directory}); push @excluded, abs_path($metadata->{target_directory}) if -d $metadata->{target_directory};
-push @excluded, "$metadata->{workspace_root}/target", map {"$_/target"} @roots;
+for my $root ($metadata->{workspace_root},@roots) {
+    push @excluded, map {"$root/$_"} qw(target build dist coverage vendor recovery-evidence);
+}
+push @excluded, $scratch;
+# Git owns custom scratch/output exclusions. Retain tracked files and new,
+# nonignored source alike. Source archives (including ignored fixture workspaces
+# beneath another checkout) still use filesystem discovery.
+my ($git_root,%git_files,%git_dirs);
+my $ancestor=$metadata->{workspace_root};
+while (1) {
+    if (-e "$ancestor/.git") {
+        open my $listing, '-|', 'git', '-C', $ancestor, 'ls-files', '-z',
+            '--cached', '--others', '--exclude-standard', '--full-name'
+            or die "cannot list Git source inventory: $!\n";
+        { local $/="\0";
+          while (my $path=<$listing>) {chomp $path; $git_files{"$ancestor/$path"}=1;} }
+        close $listing or die "cannot list Git source inventory\n";
+        if ($git_files{$manifest}) {
+            $git_root=$ancestor;
+            for my $file (keys %git_files) {
+                my $dir=dirname($file);
+                while (index($dir,"$ancestor/")==0) {$git_dirs{$dir}=1; $dir=dirname($dir);}
+            }
+            $git_dirs{$ancestor}=1;
+        }
+        last;
+    }
+    my $parent=dirname($ancestor); last if $parent eq $ancestor; $ancestor=$parent;
+}
+sub excluded_path {
+    my ($path,$directory)=@_;
+    return 1 if grep {$path eq $_ || index($path,"$_/")==0} @excluded;
+    my $relative=$path;
+    $relative=substr($path,length($metadata->{workspace_root})+1)
+        if index($path,"$metadata->{workspace_root}/")==0;
+    return 1 if $relative =~ m{(?:\A|/)(?:\.git|\.tools|\.tmp|\.cache|node_modules)(?:/|\z)};
+    if (defined($git_root) && index($path,"$git_root/")==0) {
+        return !($directory ? $git_dirs{$path} : $git_files{$path});
+    }
+    return 0;
+}
 my (%files,%visited,%admitters,@diagnostics);
 my $seq=0;
 sub diagnostic {my ($path,$reason)=@_; push @diagnostics,{path=>$path,reason=>$reason};}
@@ -257,6 +304,7 @@ for my $p (@packages) {
     my $admit_file=sub {
         my $f=shift;
         return unless -f $f && !-l $f && $f =~ /\.rs\z/;
+        return if excluded_path($f,0);
         return if exists $files{$f};
         $f !~ /[\r\n\t]/ or die "unsupported source path\n";
         my $relative=index($f,"$root/")==0 ? substr($f,length($root)+1) : $f;
@@ -278,7 +326,7 @@ for my $p (@packages) {
     find({no_chdir=>1,wanted=>sub {
         my $f=$File::Find::name;
         if (-d $f) {
-            if ($f ne $root && (basename($f) eq '.git'
+            if ($f ne $root && (excluded_path($f,1)
                 || (basename($f) eq 'target' && -f dirname($f).'/Cargo.toml')
                 || grep {$f eq $_} (@excluded,@roots))) {$File::Find::prune=1;}
         } else {$admit_file->($f);}
@@ -298,7 +346,15 @@ for my $p (@packages) {
 my @pending;
 sub visit_file {push @pending, [@_];}
 sub scan {
-    my ($f,$lo,$hi,$dir,$category,$follow)=@_; $follow=1 unless defined $follow;
+    # Inline Rust scopes can be arbitrarily deep; keep them off Perl's stack.
+    my @scopes=([@_]);
+    while (my $scope=pop @scopes) {
+        scan_scope($scope,\@scopes);
+    }
+}
+sub scan_scope {
+    my ($scope,$scopes)=@_;
+    my ($f,$lo,$hi,$dir,$category,$follow)=@$scope; $follow=1 unless defined $follow;
     my $v=$files{$f}; my $t=$v->{tokens}; my $pairs=$v->{pair};
     # Inner attributes describe this scope, not the following item. Consuming
     # them as an item head would hide the next outer cfg/test attribute.
@@ -338,7 +394,7 @@ sub scan {
         my $head=join ' ',map {$_->[0]} @$t[$i..$j-1];
         if ($head =~ /(?:\A| )mod (?:r\#)?([A-Za-z_][A-Za-z_0-9]*)\z/) {
             my $name=$1;
-            if ($t->[$j][0] eq '{') {scan($f,$j+1,$body_end,"$dir/$name",$kind,$follow);}
+            if ($t->[$j][0] eq '{') {push @$scopes,[$f,$j+1,$body_end,"$dir/$name",$kind,$follow];}
             elsif ($follow) {
                 my @candidates=defined($path) ? (dirname($f)."/$path") : ("$dir/$name.rs","$dir/$name/mod.rs");
                 @candidates=map {(-f $_ && !-l $_) ? abs_path($_) : $_} @candidates;
@@ -356,7 +412,7 @@ sub scan {
         } elsif ($head =~ /(?:\A| )[A-Za-z_][A-Za-z_0-9]*(?: :: [A-Za-z_][A-Za-z_0-9]*)* !\z|\bmacro_rules\b/) {
             diagnostic($f,'macro body is counted at its source; emitted modules are not expanded');
         } elsif ($t->[$j][0] eq '{') {
-            scan($f,$j+1,$body_end,$dir,$kind,$follow);
+            push @$scopes,[$f,$j+1,$body_end,$dir,$kind,$follow];
         }
         $i=$end+1;
     }

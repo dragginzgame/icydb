@@ -1913,14 +1913,10 @@ impl From<ic_storage::adapter::CollectionError> for InternalError {
     fn from(error: ic_storage::adapter::CollectionError) -> Self {
         use ic_storage::adapter::CollectionError;
         match error {
-            CollectionError::Format | CollectionError::Budget => Self::store_unsupported(),
-            CollectionError::Growth | CollectionError::Poisoned => Self::store_internal(),
-            CollectionError::NotEmpty | CollectionError::Bounds => Self::store_invariant(),
-            CollectionError::Codec(_)
-            | CollectionError::Corrupt(_)
-            | CollectionError::Checksum
-            | CollectionError::Wire(_)
-            | CollectionError::Cell(_) => Self::store_corruption(),
+            CollectionError::Format => Self::store_unsupported(),
+            CollectionError::Growth => Self::store_internal(),
+            CollectionError::NotEmpty => Self::store_invariant(),
+            CollectionError::Cell(_) => Self::store_corruption(),
         }
     }
 }

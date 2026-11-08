@@ -104,10 +104,10 @@ fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
         ],
     );
     let batch = build_cached_cargo_wasm_batch(&specs).unwrap();
-    assert_eq!(batch.failures().count(), 0, "{batch:?}");
-    let same = batch.entries()[0].result().unwrap().record();
-    assert!(batch.entries()[0].result().unwrap().is_reused());
-    let changed = batch.entries()[1].result().unwrap().record();
+    assert_eq!(batch.batch.failures().count(), 0, "{batch:?}");
+    let same = batch.batch.entries()[0].result().unwrap().record();
+    assert!(batch.batch.entries()[0].result().unwrap().is_reused());
+    let changed = batch.batch.entries()[1].result().unwrap().record();
     assert_eq!(single.record().fingerprint(), same.fingerprint());
     assert_ne!(same.fingerprint(), changed.fingerprint());
     for (record, prefix) in [
@@ -239,6 +239,7 @@ fn single_post_link_reuses_batch_identity_and_preserves_output_on_failure() {
     assert_eq!(
         single.record().key(),
         batch
+            .batch
             .outcomes()
             .next()
             .unwrap()
@@ -287,14 +288,14 @@ fn post_link_batch_reports_failure_and_finishes_later_artifact() {
         cache_post_link_wasm_batch(&workspace_root(), &root.join("artifact-cache"), &entries)
             .expect("post-link batch setup should succeed");
 
-    assert_eq!(report.outcomes().count(), 1);
-    assert_eq!(report.outcomes().next().unwrap().index(), 1);
-    assert_eq!(report.failures().count(), 1);
+    assert_eq!(report.batch.outcomes().count(), 1);
+    assert_eq!(report.batch.outcomes().next().unwrap().index(), 1);
+    assert_eq!(report.batch.failures().count(), 1);
     assert!(!invalid_output.exists());
     assert!(valid_output.is_file());
     // Consume the upstream report just like the coordinator: the moved
     // record must retain the exact artifact after other entries are dropped.
-    let mut entries = report.into_entries();
+    let mut entries = report.batch.into_entries();
     let (_, _, outcome, _) = entries.pop().unwrap().into_parts();
     let record = match outcome.unwrap() {
         ArtifactCacheOutcome::Built(record) | ArtifactCacheOutcome::Reused(record) => record,

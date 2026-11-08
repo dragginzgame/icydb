@@ -66,6 +66,16 @@ print {$events} join("\0", 'batch', @ARGV), "\0";
 close $events or die $!;
 exit $ENV{RELEASE_COMMAND_RESULT};
 STUB
+# This fixture proves dispatch only; production admission/cleanup have their own
+# contract fixtures. Never run those effects against a synthetic non-Git tree.
+mkdir -p "$fixture/scripts/dev"
+cat > "$fixture/scripts/dev/clean-empty-source-dirs.pl" <<'STUB'
+print "Cleanup substituted for release dispatch qualification.\n";
+STUB
+cat > "$fixture/scripts/dev/shared-tooling.sh" <<'STUB'
+#!/usr/bin/env bash
+[[ "${1:-}" == check ]]
+STUB
 export RELEASE_COMMAND_EVENTS="$fixture/events"
 cd "$fixture"
 # This checker supports a root snapshot only. Override reviewed Makefile

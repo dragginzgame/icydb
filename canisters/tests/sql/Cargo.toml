@@ -7,6 +7,9 @@ license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -42,3 +45,6 @@ workspace = true
 
 [package.metadata.shared-tooling.loc]
 category = "tests"
+
+[dev-dependencies]
+toko-tooling.workspace = true

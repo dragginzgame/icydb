@@ -1907,11 +1907,15 @@ fn inventory_fallback_retains_child_diagnostics_and_existing_outcomes() {
                     .args(["canister", "list", "-e", environment])
                     .output()
                     .unwrap();
-                assert_eq!(output.status.success(), valid_manifest, "{output:?}");
-                let stderr = String::from_utf8(output.stderr).unwrap();
+                assert_eq!(
+                    output.status.success(),
+                    valid_manifest,
+                    "environment={environment} manifest={manifest:?} capture={capture:?}: {output:?}"
+                );
+                let stderr = std::str::from_utf8(&output.stderr).unwrap();
                 assert!(
                     stderr.contains(diagnostic),
-                    "child bytes must survive: {stderr:?}"
+                    "child bytes must survive: environment={environment} manifest={manifest:?} capture={capture:?}: {output:?}"
                 );
                 let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
                 assert_eq!(calls.lines().filter(|line| *line == "list").count(), 1);

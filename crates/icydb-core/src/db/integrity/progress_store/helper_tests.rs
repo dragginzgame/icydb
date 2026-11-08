@@ -9,19 +9,13 @@ impl InspectionProgressStore {
     ) -> Result<(), MutationJobError> {
         record.validate()?;
         let key = ProgressRecordKey::from_mutation_job_id(record.state().job_id)?;
-        if !self
-            .map
-            .contains_key(&key)
-            .map_err(|_| MutationJobError::CorruptProgressStore)?
-        {
+        if !self.map.contains_key(&key) {
             return Err(MutationJobError::NotFound);
         }
-        self.map
-            .insert(
-                key,
-                ProgressRecordBytes(encode_mutation_job_record(record)?),
-            )
-            .map_err(|_| MutationJobError::CorruptProgressStore)?;
+        self.map.insert(
+            key,
+            ProgressRecordBytes(encode_mutation_job_record(record)?),
+        );
         Ok(())
     }
 }

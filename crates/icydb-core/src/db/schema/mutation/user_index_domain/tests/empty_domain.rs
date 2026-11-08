@@ -15,9 +15,7 @@ fn complete_domain_observation_charges_only_the_selected_entity() {
             key(8, 0, 0, 1, IndexKeyKind::User),
             key(7, 0, 0, 1, IndexKeyKind::System),
         ] {
-            store
-                .insert(neighbor, IndexEntryValue::presence())
-                .expect("fixture storage operation should succeed");
+            store.insert(neighbor, IndexEntryValue::presence());
         }
         let mut budget = StagedUserIndexDomainBudget::standard();
         budget.usage.projection_work_units = MAX_SCHEMA_PROJECTION_WORK_UNITS;
@@ -39,9 +37,7 @@ fn complete_domain_observation_charges_only_the_selected_entity() {
                     .apply_canonical_entry(own, Some(IndexEntryValue::presence()))
                     .unwrap();
             } else {
-                store
-                    .insert(own, IndexEntryValue::presence())
-                    .expect("fixture storage operation should succeed");
+                store.insert(own, IndexEntryValue::presence());
             }
         }
         let mut budget = StagedUserIndexDomainBudget::standard();
@@ -99,9 +95,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
                         .apply_canonical_entry(neighbor, Some(IndexEntryValue::presence()))
                         .unwrap();
                 } else {
-                    store
-                        .insert(neighbor, IndexEntryValue::presence())
-                        .expect("fixture storage operation should succeed");
+                    store.insert(neighbor, IndexEntryValue::presence());
                 }
             }
             for ordinal in [0, u16::MAX] {
@@ -115,9 +109,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
                                     Some(IndexEntryValue::presence()),
                                 )
                                 .unwrap();
-                            store
-                                .remove(&matching)
-                                .expect("fixture storage operation should succeed");
+                            store.remove(&matching);
                         }
                         let before = IndexStore::current_entry_read_count();
                         assert!(
@@ -132,9 +124,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
                                 )
                                 .unwrap();
                         } else {
-                            store
-                                .insert(matching.clone(), IndexEntryValue::presence())
-                                .expect("fixture storage operation should succeed");
+                            store.insert(matching.clone(), IndexEntryValue::presence());
                         }
                         let before = IndexStore::current_entry_read_count();
                         assert!(matches!(
@@ -144,9 +134,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
                         if backend != 0 {
                             assert_eq!(IndexStore::current_entry_read_count() - before, 1);
                         }
-                        store
-                            .remove(&matching)
-                            .expect("fixture storage operation should succeed");
+                        store.remove(&matching);
                     }
                 }
             }
@@ -168,9 +156,7 @@ fn user_domain_proof_preserves_readiness_and_local_corruption_refusals() {
     bytes.push(0);
     let malformed = RawIndexStoreKey::from_persisted_bytes(bytes);
     assert!(IndexKey::try_from_raw(&malformed).is_err());
-    store
-        .insert(malformed, IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(malformed, IndexEntryValue::presence());
     assert!(matches!(
         prove_empty_user_index_domain(&store, entity),
         Err(StagedUserIndexDomainError::PhysicalKeyDecode)

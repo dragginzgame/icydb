@@ -32,7 +32,7 @@ impl SchemaStore {
         } else {
             match live.get(&key) {
                 Some(value) => Some(value.clone()),
-                None => canonical.get(&key).map_err(InternalError::from)?,
+                None => canonical.get(&key),
             }
         };
         if let Some(snapshot) = snapshot {

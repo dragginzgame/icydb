@@ -644,7 +644,6 @@ fn nested_relation_copy_final_validation_requires_the_candidate_reverse_edge() {
     assert!(
         store
             .with_index_mut(|index| index.remove(&candidate_key))
-            .expect("storage operation should succeed")
             .is_some()
     );
     let error =

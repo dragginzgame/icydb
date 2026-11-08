@@ -59,7 +59,6 @@ fn full_and_prefix_reads_share_chunk_order_but_keep_distinct_completeness_rules(
             store
                 .map
                 .remove(&JournalTailKey::new(sequence, missing_chunk))
-                .expect("storage operation should succeed")
                 .is_some()
         );
         for result in [
@@ -91,13 +90,10 @@ fn full_and_prefix_reads_share_chunk_order_but_keep_distinct_completeness_rules(
 }
 
 fn set_control(store: &mut JournalTailStore, control: JournalTailControl) {
-    store
-        .map
-        .insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(encode_tail_control(control)),
-        )
-        .expect("fixture storage operation should succeed");
+    store.map.insert(
+        JournalTailKey::tail_convergence_control(),
+        RawJournalChunk::from_bytes(encode_tail_control(control)),
+    );
 }
 
 fn multi_chunk_batch(journal_sequence: u64, database_commit_sequence: u64) -> JournalBatch {
@@ -151,13 +147,10 @@ fn prior_identity_inspection_does_not_trust_a_corrupted_matching_header() {
             .batch_id(),
         second.batch_id(),
     );
-    store
-        .map
-        .insert(
-            JournalTailKey::new(JournalSequence::new(1), 0),
-            RawJournalChunk::from_bytes(bytes),
-        )
-        .expect("fixture storage operation should succeed");
+    store.map.insert(
+        JournalTailKey::new(JournalSequence::new(1), 0),
+        RawJournalChunk::from_bytes(bytes),
+    );
     let page = store
         .inspect_page(
             JournalInspectionCheckpoint::BeforeBatch { sequence: 2 },
@@ -186,16 +179,13 @@ fn retirement_uses_next_header_but_consumption_validates_all_chunks() {
                 store
                     .map
                     .remove(&JournalTailKey::new(JournalSequence::new(2), chunk))
-                    .expect("storage operation should succeed")
                     .is_some()
             );
         }
 
         let watermark = FoldWatermark::new(JournalSequence::new(1), 1);
         let retirement = store.prepare_batch_retirement(&first, watermark).unwrap();
-        store
-            .apply_prepared_batch_retirement(retirement)
-            .expect("fixture storage operation should succeed");
+        store.apply_prepared_batch_retirement(retirement);
         drop(store);
         let reopened =
             JournalTailStore::init(memory.open()).expect("fixture storage should initialize");
@@ -207,7 +197,7 @@ fn retirement_uses_next_header_but_consumption_validates_all_chunks() {
             control.head_database_commit_sequence(),
             Some(DatabaseCommitSequence::new(8))
         );
-        assert!((reopened.has_stored_batch()).expect("fixture storage read should succeed"));
+        assert!((reopened.has_stored_batch()));
         let next = reopened.next_batch_after(JournalSequence::new(1));
         if missing_chunk.is_some() {
             assert_eq!(next.unwrap_err().class(), ErrorClass::Corruption);
@@ -234,17 +224,13 @@ fn retirement_rejects_missing_malformed_or_miskeyed_next_headers_without_effects
             1 => {
                 store
                     .map
-                    .insert(key, RawJournalChunk::from_bytes(vec![0xFF]))
-                    .expect("fixture storage operation should succeed");
+                    .insert(key, RawJournalChunk::from_bytes(vec![0xFF]));
             }
             2 => {
-                store
-                    .map
-                    .insert(
-                        key,
-                        RawJournalChunk::from_bytes(encode_journal_batch(&batch(3, 8)).unwrap()),
-                    )
-                    .expect("fixture storage operation should succeed");
+                store.map.insert(
+                    key,
+                    RawJournalChunk::from_bytes(encode_journal_batch(&batch(3, 8)).unwrap()),
+                );
             }
             _ => unreachable!(),
         }
@@ -316,9 +302,7 @@ fn exact_controls_append_replay_retire_and_reopen() {
     let retirement = store
         .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
         .expect("first retirement should preflight");
-    store
-        .apply_prepared_batch_retirement(retirement)
-        .expect("fixture storage operation should succeed");
+    store.apply_prepared_batch_retirement(retirement);
     drop(store);
 
     let mut reopened =
@@ -335,16 +319,14 @@ fn exact_controls_append_replay_retire_and_reopen() {
     let retirement = reopened
         .prepare_batch_retirement(&second, FoldWatermark::new(JournalSequence::new(2), 2))
         .expect("second retirement should preflight");
-    reopened
-        .apply_prepared_batch_retirement(retirement)
-        .expect("fixture storage operation should succeed");
+    reopened.apply_prepared_batch_retirement(retirement);
     assert_eq!(
         reopened
             .current_tail_control()
             .expect("control should decode"),
         JournalTailControl::empty(),
     );
-    assert!(!(reopened.has_stored_batch()).expect("fixture storage read should succeed"));
+    assert!(!(reopened.has_stored_batch()));
 }
 
 #[test]
@@ -438,7 +420,7 @@ fn aggregate_overflow_and_retirement_underflow_fail_closed() {
         },
     );
     assert!(overflow.append_batch(&batch(1, 2)).is_err());
-    assert!(!(overflow.has_stored_batch()).expect("fixture storage read should succeed"));
+    assert!(!(overflow.has_stored_batch()));
 
     let mut underflow =
         JournalTailStore::init(test_memory(179)).expect("fixture storage should initialize");
@@ -460,7 +442,7 @@ fn aggregate_overflow_and_retirement_underflow_fail_closed() {
             .prepare_batch_retirement(&retained, FoldWatermark::new(JournalSequence::new(1), 1),)
             .is_err()
     );
-    assert!((underflow.has_stored_batch()).expect("fixture storage read should succeed"));
+    assert!((underflow.has_stored_batch()));
 }
 
 #[test]
@@ -468,13 +450,10 @@ fn missing_malformed_and_mismatched_head_controls_fail_closed() {
     let mut store =
         JournalTailStore::init(test_memory(180)).expect("fixture storage should initialize");
     assert!(store.current_tail_control().is_err());
-    store
-        .map
-        .insert(
-            JournalTailKey::tail_convergence_control(),
-            RawJournalChunk::from_bytes(vec![0xFF; TAIL_CONVERGENCE_BYTES]),
-        )
-        .expect("fixture storage operation should succeed");
+    store.map.insert(
+        JournalTailKey::tail_convergence_control(),
+        RawJournalChunk::from_bytes(vec![0xFF; TAIL_CONVERGENCE_BYTES]),
+    );
     assert!(store.current_tail_control().is_err());
 
     let mut entity_authority =
@@ -482,20 +461,16 @@ fn missing_malformed_and_mismatched_head_controls_fail_closed() {
     entity_authority.initialize_current_tail_control().unwrap();
     entity_authority
         .map
-        .remove(&JournalTailKey::entity_mutation_revision_control())
-        .expect("fixture storage operation should succeed");
+        .remove(&JournalTailKey::entity_mutation_revision_control());
     let error = entity_authority
         .validate_current_tail_authority()
         .expect_err("current tail authority requires its entity-revision control");
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Store);
-    entity_authority
-        .map
-        .insert(
-            JournalTailKey::entity_mutation_revision_control(),
-            RawJournalChunk::from_bytes(vec![0xFF; ENTITY_MUTATION_REVISION_CONTROL_BYTES]),
-        )
-        .expect("fixture storage operation should succeed");
+    entity_authority.map.insert(
+        JournalTailKey::entity_mutation_revision_control(),
+        RawJournalChunk::from_bytes(vec![0xFF; ENTITY_MUTATION_REVISION_CONTROL_BYTES]),
+    );
     assert!(entity_authority.validate_current_tail_authority().is_err());
 
     let mut mismatch =

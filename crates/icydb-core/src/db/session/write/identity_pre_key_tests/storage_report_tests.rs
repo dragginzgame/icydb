@@ -162,8 +162,7 @@ fn corrupt_entries<C: CanisterKind>(session: &DbSession<C>, path: &str) {
         data.insert(
             RawDataStoreKey::from_persisted_bytes(vec![1]),
             canonical_row_from_stored_raw_row(RawRow::try_new(vec![2, 3]).unwrap()),
-        )
-        .expect("fixture storage operation should succeed");
+        );
     });
     store.with_index_mut(|index| {
         let mut valid_key = None;
@@ -175,18 +174,14 @@ fn corrupt_entries<C: CanisterKind>(session: &DbSession<C>, path: &str) {
             Ok(IndexStoreVisit::Continue)
         });
         result.expect("fixture traversal");
-        index
-            .insert(
-                valid_key.expect("fixture should have a user index"),
-                IndexEntryValue::from_persisted_bytes(vec![9]),
-            )
-            .expect("fixture storage operation should succeed");
-        index
-            .insert(
-                RawIndexStoreKey::from_persisted_bytes(vec![1]),
-                IndexEntryValue::presence(),
-            )
-            .expect("fixture storage operation should succeed");
+        index.insert(
+            valid_key.expect("fixture should have a user index"),
+            IndexEntryValue::from_persisted_bytes(vec![9]),
+        );
+        index.insert(
+            RawIndexStoreKey::from_persisted_bytes(vec![1]),
+            IndexEntryValue::presence(),
+        );
     });
 }
 

@@ -9,6 +9,10 @@ use serde::Deserialize;
 
 /// Bounded work observed while producing one scalar page.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
 pub struct ScalarPageWork {
     /// Exact identity of the operational work envelope used for this page.
     pub envelope_identity: u64,

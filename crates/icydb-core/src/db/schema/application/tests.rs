@@ -2038,9 +2038,7 @@ fn qualify_migration_abort_domains(extra_entries: u64) {
             .expect("unrelated abort-scan key should build")
             .to_raw()
             .expect("unrelated abort-scan key should encode");
-            index
-                .insert(key, IndexEntryValue::presence())
-                .expect("fixture storage operation should succeed");
+            index.insert(key, IndexEntryValue::presence());
         }
     });
     let abort = || SchemaMigrationCommand::Abort {

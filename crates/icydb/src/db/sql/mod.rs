@@ -15,8 +15,12 @@ mod tests;
 mod types;
 mod value_render;
 
+#[cfg(feature = "sql")]
+pub(crate) use convert::sql_query_page_result_from_statement;
 pub(crate) use convert::sql_query_result_from_statement;
 
-pub use types::{SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryResult};
+pub use types::{
+    SqlConstraintValidationOutput, SqlGroupedRowsOutput, SqlQueryPageResult, SqlQueryResult,
+};
 
 pub use value_render::sql_projection_display_rows;

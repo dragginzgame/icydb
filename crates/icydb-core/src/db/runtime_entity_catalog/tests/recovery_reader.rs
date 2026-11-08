@@ -50,12 +50,10 @@ fn final_rows_and_tombstones_override_canonical_storage_and_reads_are_owned() {
     // commit preparation. Distinct payloads expose fallback mistakes directly.
     for id in 1..=3 {
         DATA_STORE.with_borrow_mut(|store| {
-            store
-                .insert_raw_for_test(
-                    key(id).to_raw().unwrap(),
-                    RawRow::try_new(vec![10]).unwrap(),
-                )
-                .expect("fixture storage operation should succeed");
+            store.insert_raw_for_test(
+                key(id).to_raw().unwrap(),
+                RawRow::try_new(vec![10]).unwrap(),
+            );
         });
     }
     let store = db.store_handle(super::STORE_PATH).unwrap();

@@ -1485,8 +1485,8 @@ fn scan_unique_validation_page(
                         )?;
                         let missing = mode == UniqueValidationMode::Verify
                             && store.with_index(|index_store| {
-                                index_store.get(&candidate_key).map(|value| value.is_none())
-                            })?;
+                                index_store.get(&candidate_key).is_none()
+                            });
                         if conflict || missing {
                             let error = InternalError::index_conflict();
                             findings.push(ConstraintValidationFinding::new(

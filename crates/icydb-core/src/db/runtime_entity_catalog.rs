@@ -72,7 +72,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
         }
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
-        store.with_data(|data_store| data_store.get_canonical(raw_key))
+        Ok(store.with_data(|data_store| data_store.get_canonical(raw_key)))
     }
 
     fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -83,7 +83,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
 
-        store.with_data(|data_store| data_store.contains_canonical(raw_key))
+        Ok(store.with_data(|data_store| data_store.contains_canonical(raw_key)))
     }
 
     fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -97,7 +97,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for CanonicalCommitReader<'_, C
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexStoreKey,
     ) -> Result<Option<IndexEntryValue>, InternalError> {
-        index_store.with_borrow(|store| store.get_canonical(key))
+        Ok(index_store.with_borrow(|store| store.get_canonical(key)))
     }
 
     fn read_index_keys_in_raw_range(

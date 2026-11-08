@@ -8,7 +8,7 @@ impl DataStore {
         &mut self,
         key: RawDataStoreKey,
         row: RawRow,
-    ) -> Result<Option<RawRow>, InternalError> {
+    ) -> Option<RawRow> {
         self.insert_raw(key, row)
     }
 

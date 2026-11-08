@@ -301,15 +301,11 @@ fn abort_staging_selects_only_its_exact_namespace_and_rejects_bad_arity() {
             1,
         ),
     ] {
-        store
-            .insert(key, IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(key, IndexEntryValue::presence());
     }
     let staged = stage_abort(&db, &store, &MaintenanceConstructionBudget::new()).unwrap();
     assert_eq!(staged.deletion_keys(), &[wanted]);
-    store
-        .insert(raw(&id, IndexKeyKind::User, 2), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(raw(&id, IndexKeyKind::User, 2), IndexEntryValue::presence());
     let error = stage_abort(&db, &store, &MaintenanceConstructionBudget::new()).unwrap_err();
     assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
     assert_eq!((store.len()).expect("storage operation should succeed"), 6);
@@ -341,7 +337,7 @@ fn interrupted_abort_replays_and_folds_without_orphaning_keys_or_jobs() {
             assert!(job(&db, &before).is_none());
             assert_eq!(candidate_key_count(&db, &before.candidate_indexes()[0]), 0);
             assert!(retained_commit_marker_measurement_for_tests().unwrap().is_none());
-            assert!(!(ABORT_JOURNAL.with_borrow(JournalTailStore::has_stored_batch)).expect("fixture storage read should succeed"));
+            assert!(!(ABORT_JOURNAL.with_borrow(JournalTailStore::has_stored_batch)));
             execute_ddl(&db, &session, "CREATE INDEX by_score ON Item (score)");
             execute_ddl(&db, &session, "DROP INDEX by_score ON Item");
         }).join().unwrap();

@@ -9,7 +9,7 @@ publish = false
 
 # The relation actor macro expands references to both dependencies in this crate.
 [package.metadata.cargo-machete]
-ignored = ["canic-icydb", "icydb-testing-wasm-helpers"]
+ignored = ["canic-icydb", "icydb-testing-wasm-helpers", "toko-tooling"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -32,3 +32,6 @@ workspace = true
 
 [package.metadata.shared-tooling.loc]
 category = "tests"
+
+[dev-dependencies]
+toko-tooling.workspace = true

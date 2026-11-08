@@ -17,7 +17,8 @@ fn generated_sql_capability_contains_every_private_handler_and_no_export() {
     let surface = compact_tokens(quote!(#surface));
 
     for handler in [
-        "sql_query",
+        "sql_query_public",
+        "sql_query_trusted",
         "sql_ddl",
         "fixtures_reset",
         "fixtures_load",
@@ -56,6 +57,7 @@ fn generated_sql_capability_uses_trusted_query_and_admin_ddl() {
     let surface = compact_tokens(quote!(#surface));
 
     assert!(surface.contains("execute_trusted_sql_query_dispatch(&dispatch,&[])"));
+    assert!(surface.contains("execute_public_sql_query_page_dispatch(&dispatch,&[],continuation)"));
     assert!(surface.contains("into_deliverable_query_reply()"));
     assert!(surface.contains("execute_admin_sql_ddl_dispatch(&dispatch)"));
 }

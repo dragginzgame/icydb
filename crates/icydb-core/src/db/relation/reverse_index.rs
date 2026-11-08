@@ -655,7 +655,7 @@ impl RelationConstraintProjection {
             |target, raw_target| {
                 Ok(self
                     .target_store
-                    .with_data(|data_store| data_store.contains(raw_target))?
+                    .with_data(|data_store| data_store.contains(raw_target))
                     && target.entity_tag() == self.relation.target().entity_tag())
             },
         )

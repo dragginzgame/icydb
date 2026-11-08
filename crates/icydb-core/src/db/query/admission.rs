@@ -12,6 +12,8 @@ mod render;
 use crate::db::query::plan::AccessPlannedQuery;
 use icydb_diagnostic_code::QueryReadAdmissionCode;
 
+#[cfg(feature = "sql")]
+pub(in crate::db) use policy::GroupedAdmissionPolicy;
 pub(in crate::db) use policy::QueryAdmissionPolicy;
 
 /// Read-admission evaluation lane selected by the current query surface.

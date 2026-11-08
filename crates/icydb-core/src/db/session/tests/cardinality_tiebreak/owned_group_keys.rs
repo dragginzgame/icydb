@@ -280,12 +280,7 @@ fn assert_group_missing_rows() {
         .unwrap()
         .to_raw()
         .unwrap();
-        assert!(
-            store
-                .with_data_mut(|data| data.remove(&key))
-                .expect("storage operation should succeed")
-                .is_some()
-        );
+        assert!(store.with_data_mut(|data| data.remove(&key)).is_some());
     }
     let grouped = DynamicQuery::new(ENTITY_NAME)
         .group_by("operand")

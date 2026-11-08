@@ -319,12 +319,8 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
     );
     let system_key = unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91);
     let other_entity_key = unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92);
-    store
-        .insert(system_key.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(other_entity_key.clone(), IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(system_key.clone(), IndexEntryValue::presence());
+    store.insert(other_entity_key.clone(), IndexEntryValue::presence());
     let physical_before = index_store_entries(&store);
 
     let staged = stage_domain(
@@ -364,12 +360,9 @@ fn complete_domain_stage_builds_field_and_expression_projection_without_writes()
         .collect::<Vec<_>>();
     assert_eq!(ordinals, vec![2, 2]);
     assert_eq!(index_store_entries(&store), physical_before);
+    assert_eq!((store.get(&system_key)), Some(IndexEntryValue::presence()));
     assert_eq!(
-        (store.get(&system_key)).expect("storage operation should succeed"),
-        Some(IndexEntryValue::presence())
-    );
-    assert_eq!(
-        (store.get(&other_entity_key)).expect("storage operation should succeed"),
+        (store.get(&other_entity_key)),
         Some(IndexEntryValue::presence()),
     );
     assert_eq!(store.state(), IndexState::Ready);
@@ -405,30 +398,24 @@ fn complete_domain_stage_rejects_physical_before_projection_mismatch() {
 #[test]
 fn empty_user_index_domain_proof_is_entity_and_kind_scoped() {
     let mut store = IndexStore::init_heap();
-    store
-        .insert(
-            unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
-    store
-        .insert(
-            unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
+        IndexEntryValue::presence(),
+    );
+    store.insert(
+        unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
+        IndexEntryValue::presence(),
+    );
 
     assert!(
         super::prove_empty_user_index_domain(&store, EntityTag::new(7)).is_ok(),
         "system and other-entity keys do not occupy the user domain",
     );
 
-    store
-        .insert(
-            unrelated_key(EntityTag::new(7), IndexKeyKind::User, 1, 93),
-            IndexEntryValue::presence(),
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert(
+        unrelated_key(EntityTag::new(7), IndexKeyKind::User, 1, 93),
+        IndexEntryValue::presence(),
+    );
     assert!(matches!(
         super::prove_empty_user_index_domain(&store, EntityTag::new(7)),
         Err(super::StagedUserIndexDomainError::CurrentDomainMismatch),
@@ -1148,11 +1135,7 @@ fn insert_projection_entries(
             .expect("test value should be indexable")
             .to_raw()
             .expect("test key should encode");
-            assert_eq!(
-                (store.insert(key, IndexEntryValue::presence()))
-                    .expect("storage operation should succeed"),
-                None
-            );
+            assert_eq!((store.insert(key, IndexEntryValue::presence())), None);
         }
     }
 }

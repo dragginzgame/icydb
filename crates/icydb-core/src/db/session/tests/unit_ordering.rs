@@ -820,10 +820,7 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         .store_handle(STORE_PATH)
         .expect("Unit ordering store should resolve");
     assert!(
-        store
-            .with_data_mut(|data| data.remove(&raw_key))
-            .expect("storage operation should succeed")
-            .is_some(),
+        store.with_data_mut(|data| data.remove(&raw_key)).is_some(),
         "corruption fixture must remove the authoritative row only",
     );
 
@@ -884,13 +881,11 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
         raw_index_key.expect("corruption fixture should retain one accepted index key")
     });
     store.with_index_mut(|index| {
-        index
-            .insert(
-                raw_index_key.clone(),
-                <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff]))
-                    .expect("storage operation should succeed"),
-            )
-            .expect("fixture storage operation should succeed");
+        index.insert(
+            raw_index_key.clone(),
+            <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff]))
+                .expect("storage operation should succeed"),
+        );
     });
     assert_group_seek_corruption(
         &session,
@@ -902,18 +897,11 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
     malformed_bytes.push(0xff);
     let malformed_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(malformed_bytes));
     store.with_index_mut(|index| {
-        assert!(
-            index
-                .remove(&raw_index_key)
-                .expect("storage operation should succeed")
-                .is_some()
+        assert!(index.remove(&raw_index_key).is_some());
+        index.insert(
+            malformed_key.expect("storage operation should succeed"),
+            IndexEntryValue::presence(),
         );
-        index
-            .insert(
-                malformed_key.expect("storage operation should succeed"),
-                IndexEntryValue::presence(),
-            )
-            .expect("fixture storage operation should succeed");
     });
     assert_group_seek_corruption(
         &session,

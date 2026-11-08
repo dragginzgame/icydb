@@ -125,7 +125,9 @@ resource exhaustion as an operational error rather than an authority verdict.
 | `execute_trusted_exhaustive_page` | trusted bypass | Authorized maintenance page with the same revision-strict proof contract. |
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
-| generated `icydb_query` | trusted bypass | Controller-gated by default, or protected by one declared synchronous application guard, then returns the canonical `SqlQueryResult`. |
+| `execute_public_sql_query_page` / parsed dispatch | `PublicRead` | SQL SELECT uses the canonical scalar/grouped public pager; scalar output includes its continuation and work receipt. Metadata is observational. |
+| generated `sql_query_public` capability | `PublicRead` | Native host capability for authorized caller-controlled SQL; retains introspection and complete reply-size admission. |
+| generated `sql_query_trusted` capability | trusted bypass | Explicit controller/operator capability returning the existing `SqlQueryResult`. |
 | `DbSession::query::<E>()?.explain()` | diagnostic | SQL-free accepted-plan inspection; no rows execute and no execution permission is granted. |
 | SQL `EXPLAIN` | `DiagnosticExplain` | Observational planning only on its diagnostic route. |
 
@@ -184,25 +186,31 @@ for grouped execution.
 
 ## Generated SQL Query Surface
 
-The Canic `canic_icydb::endpoints!` adapter owns IC exports and caller
-authorization. IcyDB generates the private trusted SQL dispatch capability;
-the adapter authorizes callers before entering that capability.
+Canic owns IC exports, caller authorization and request-root construction.
+IcyDB 0.304 generates two explicit native capabilities:
+`sql_query_public::<INTROSPECTION>(sql, continuation)` for application-guarded
+reads and `sql_query_trusted::<INTROSPECTION>(sql)` for controller/operator SQL.
+The former ambiguous capability is removed; there is no trusted fallback.
+The adapter must authorize each initial/resumed call before dispatch. Canic's
+migration and installed anonymous/denied/allowed-caller acceptance remain deferred
+under [#373](https://github.com/dragginzgame/icydb/issues/373); native qualification
+does not claim that an older adapter implements this contract.
 
-The `icydb_sql_query` declaration exports `icydb_query` and requires an explicit
-`introspection = true` or `introspection = false` literal. It remains
-controller-gated when it omits an authorization choice. A declaration may
-place `authorization = guard(path)` after `introspection`; see the complete
-[endpoint declaration example](../../INSTALLING.md#explicit-endpoint-declarations).
-Guarded mode rejects anonymous callers and invokes the exact synchronous
-function once over caller plus `Sql`, before
-request-root construction, startup admission, parsing, or dispatch. `Allow`
-continues into the generated plain-result trusted SQL dispatcher;
-`Deny` returns the typed SQL policy diagnostic. Guard authority replaces
-controller authority and never forms an implicit union.
+Public scalar SQL returns `SqlQueryPageResult::Scalar` with a SQL-rendered
+projection, canonical public `ScalarPageWork`, and authenticated continuation.
+The page bounds and total SQL LIMIT match ordinary dynamic pages. Expressions
+and supported ordered access use the same projection executor. Grouped
+SELECT uses canonical public group/state caps and exposes its grouped cursor
+in `SqlQueryPageResult::Statement`; LIMIT applies per grouped page.
+SHOW/DESCRIBE and plan-only EXPLAIN remain observational statements under the
+explicit introspection flag. They reject scalar continuations.
 
-Both declaration forms remain trusted SQL surfaces, not public endpoint
-templates. Authorization does not weaken the maintained read-only statement
-dispatcher or bypass startup admission.
+Top-level SELECT DISTINCT, nonzero scalar OFFSET, global aggregates and execution
+EXPLAIN currently lack this public paging contract and reject before row execution. Full scans, unsafe
+sorts and writes also reject. These features remain available to explicitly
+trusted SQL; guard approval cannot select that lane. The host must neither
+truncate output nor discard a continuation. Both native handlers check the
+complete encoded success reply against the existing query response bound.
 
 ## Generated Accepted-Schema Surface
 

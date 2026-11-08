@@ -8,6 +8,9 @@ description = "IcyDB application-model authoring, validation, and code generatio
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [features]
 default = []
 wire-schema = [
@@ -47,6 +50,7 @@ ic-wire = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
+toko-tooling.workspace = true
 trybuild = { workspace = true }
 
 [[test]]

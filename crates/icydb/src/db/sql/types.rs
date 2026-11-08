@@ -15,6 +15,40 @@ use crate::{
 
 use serde::Deserialize;
 
+/// One caller-authorized SQL read under the canonical public read contract.
+///
+/// Scalar progress is explicit. Grouped statements retain their grouped cursor;
+/// metadata statements have no continuation. Authorization must run on each call.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(
+    all(feature = "wire-schema", not(target_family = "wasm")),
+    derive(ic_wire::Wire)
+)]
+pub enum SqlQueryPageResult {
+    /// A bounded scalar projection with authenticated traversal progress.
+    Scalar {
+        /// SQL-rendered projection for this page only.
+        projection: RowProjectionOutput,
+        /// Opaque authenticated token, or `None` after proven exhaustion.
+        continuation: Option<String>,
+        /// Canonical public scalar envelope identity and observed work.
+        work: crate::db::ScalarPageWork,
+    },
+    /// Metadata or a bounded grouped result with its own grouped cursor.
+    Statement(SqlQueryResult),
+}
+
+impl SqlQueryPageResult {
+    /// Check the complete encoded public page reply against the query boundary.
+    #[doc(hidden)]
+    pub fn into_deliverable_query_reply(self) -> Result<Self, Error> {
+        crate::wire::reply::into_deliverable_query_reply(
+            self,
+            crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+        )
+    }
+}
+
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(

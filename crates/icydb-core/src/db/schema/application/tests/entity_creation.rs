@@ -571,9 +571,7 @@ fn occupied_new_row_domain_rejects_creation_before_publication() {
         })
         .unwrap();
     let (key, row) = occupied.unwrap();
-    store
-        .with_data_mut(|data| data.insert_raw_for_test(key, row))
-        .expect("fixture storage operation should succeed");
+    store.with_data_mut(|data| data.insert_raw_for_test(key, row));
     let physical = physical_state(&db);
     assert!(apply_schema(&db, &proposal(&target, &[("Quest", 1)], "occupied-row")).is_err());
     assert_eq!(
@@ -647,8 +645,7 @@ fn occupied_new_index_domain_rejects_creation_before_publication() {
     .unwrap();
     db.store_handle(EVOLUTION_STORE_PATH)
         .unwrap()
-        .with_index_mut(|index| index.insert(key, IndexEntryValue::presence()))
-        .expect("fixture storage operation should succeed");
+        .with_index_mut(|index| index.insert(key, IndexEntryValue::presence()));
     let physical = physical_state(&db);
     assert!(apply_schema(&db, &proposal(&target, &[("Quest", 1)], "occupied-index")).is_err());
     assert_eq!(

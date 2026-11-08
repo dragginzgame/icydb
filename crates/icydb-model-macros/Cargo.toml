@@ -8,6 +8,9 @@ description = "Procedural macros for IcyDB application models"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [lib]
 proc-macro = true
 
@@ -21,6 +24,9 @@ quote = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 syn = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

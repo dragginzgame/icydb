@@ -207,8 +207,8 @@ pub use session::{
 pub use session::{
     SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
     SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
-    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
-    SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
+    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementPageResult,
+    SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "sql")]

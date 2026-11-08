@@ -7,6 +7,9 @@ version = "0.303.0"
 publish = false
 description = "Small schema fixture crate for lightweight SQL smoke canisters"
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "tests"
 
@@ -22,6 +25,9 @@ entity-creation-physical = ["entity-creation"]
 [dependencies]
 icydb = { workspace = true, default-features = true }
 icydb-testing-wasm-helpers = { workspace = true }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

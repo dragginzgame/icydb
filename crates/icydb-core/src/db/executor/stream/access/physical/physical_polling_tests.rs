@@ -61,14 +61,12 @@ fn reset_heap_stores() {
 fn load_primary_keys() {
     DATA.with_borrow_mut(|store| {
         for value in 1..=100 {
-            store
-                .insert_raw_for_test(
-                    data_key(value)
-                        .to_raw()
-                        .expect("test data key should encode"),
-                    RawRow::try_new(vec![0]).expect("test row should be bounded"),
-                )
-                .expect("fixture storage operation should succeed");
+            store.insert_raw_for_test(
+                data_key(value)
+                    .to_raw()
+                    .expect("test data key should encode"),
+                RawRow::try_new(vec![0]).expect("test row should be bounded"),
+            );
         }
     });
 }
@@ -76,14 +74,12 @@ fn load_primary_keys() {
 fn load_index_keys(index_id: &IndexId, component: &[u8]) {
     INDEX.with_borrow_mut(|store| {
         for value in 1..=100 {
-            store
-                .insert(
-                    index_key(index_id, component, value)
-                        .to_raw()
-                        .expect("test index key should encode"),
-                    IndexEntryValue::presence(),
-                )
-                .expect("fixture storage operation should succeed");
+            store.insert(
+                index_key(index_id, component, value)
+                    .to_raw()
+                    .expect("test index key should encode"),
+                IndexEntryValue::presence(),
+            );
         }
     });
 }
@@ -240,9 +236,7 @@ fn direct_primary_visits_preserve_bounded_progress_after_early_stop() {
             .collect::<Vec<_>>();
         DATA.with_borrow_mut(|store| {
             for key in &keys {
-                store
-                    .insert_raw_for_test(key.to_raw().unwrap(), RawRow::try_new(vec![0]).unwrap())
-                    .expect("fixture storage operation should succeed");
+                store.insert_raw_for_test(key.to_raw().unwrap(), RawRow::try_new(vec![0]).unwrap());
             }
         });
         for limit in [Some(0), Some(1), Some(64), Some(65), None] {
@@ -336,12 +330,10 @@ fn primary_polling_preserves_malformed_key_rejection() {
     let mut bytes = data_key(50).to_raw().unwrap().as_bytes().to_vec();
     bytes.pop();
     DATA.with_borrow_mut(|store| {
-        store
-            .insert_raw_for_test(
-                RawDataStoreKey::from_persisted_bytes(bytes),
-                RawRow::try_new(vec![0]).unwrap(),
-            )
-            .expect("fixture storage operation should succeed");
+        store.insert_raw_for_test(
+            RawDataStoreKey::from_persisted_bytes(bytes),
+            RawRow::try_new(vec![0]).unwrap(),
+        );
     });
     for direction in [Direction::Asc, Direction::Desc] {
         let mut stream =
@@ -373,20 +365,16 @@ fn physical_polling_preserves_sparse_cursor_suffixes_and_limits() {
         let index_id = IndexId::new(ENTITY, 1);
         for &value in &values {
             DATA.with_borrow_mut(|store| {
-                store
-                    .insert_raw_for_test(
-                        data_key(value).to_raw().unwrap(),
-                        RawRow::try_new(vec![0]).unwrap(),
-                    )
-                    .expect("fixture storage operation should succeed");
+                store.insert_raw_for_test(
+                    data_key(value).to_raw().unwrap(),
+                    RawRow::try_new(vec![0]).unwrap(),
+                );
             });
             INDEX.with_borrow_mut(|store| {
-                store
-                    .insert(
-                        index_key(&index_id, b"lane", value).to_raw().unwrap(),
-                        IndexEntryValue::presence(),
-                    )
-                    .expect("fixture storage operation should succeed");
+                store.insert(
+                    index_key(&index_id, b"lane", value).to_raw().unwrap(),
+                    IndexEntryValue::presence(),
+                );
             });
         }
         for direction in [Direction::Asc, Direction::Desc] {
@@ -432,12 +420,10 @@ fn index_polling_preserves_duplicate_physical_occurrences() {
     let index_id = IndexId::new(ENTITY, 1);
     for (component, value) in [(b"a", 1), (b"b", 1), (b"c", 2)] {
         INDEX.with_borrow_mut(|store| {
-            store
-                .insert(
-                    index_key(&index_id, component, value).to_raw().unwrap(),
-                    IndexEntryValue::presence(),
-                )
-                .expect("fixture storage operation should succeed");
+            store.insert(
+                index_key(&index_id, component, value).to_raw().unwrap(),
+                IndexEntryValue::presence(),
+            );
         });
     }
     for direction in [Direction::Asc, Direction::Desc] {
@@ -841,13 +827,11 @@ fn index_leaf_propagates_malformed_entry_corruption() {
         .to_raw()
         .expect("index key should encode");
     INDEX.with_borrow_mut(|store| {
-        store
-            .insert(
-                raw_key.clone(),
-                <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff]))
-                    .expect("storage operation should succeed"),
-            )
-            .expect("fixture storage operation should succeed");
+        store.insert(
+            raw_key.clone(),
+            <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![0xff]))
+                .expect("storage operation should succeed"),
+        );
     });
     let mut stream = IndexRangeKeyStream::new(
         STORE,

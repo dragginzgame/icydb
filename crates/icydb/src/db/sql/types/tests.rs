@@ -1,4 +1,4 @@
-use super::SqlQueryResult;
+use super::{SqlQueryPageResult, SqlQueryResult};
 use crate::wire::reply::{
     MAX_PUBLIC_QUERY_REPLY_BYTES as MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,
     MAX_REPLICATED_QUERY_REPLY_BYTES as MAX_REPLICATED_SQL_QUERY_REPLY_BYTES,
@@ -173,4 +173,51 @@ fn generated_sql_query_reply_guard_returns_a_deliverable_typed_error() {
             .len()
             <= MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,
     );
+}
+
+#[test]
+fn public_sql_reply_guard_includes_cursor_and_work_in_the_complete_frame() {
+    let page = |cursor_bytes| SqlQueryPageResult::Scalar {
+        projection: crate::db::RowProjectionOutput {
+            entity: "Entry".into(),
+            columns: vec!["id".into()],
+            rows: Vec::new(),
+            row_count: 0,
+        },
+        continuation: Some("x".repeat(cursor_bytes)),
+        work: crate::db::ScalarPageWork {
+            envelope_identity: 1,
+            entries_visited: 10_000,
+            result_rows: 0,
+        },
+    };
+    assert_eq!(page(128).into_deliverable_query_reply(), Ok(page(128)));
+    let maximum = MAX_PUBLIC_SQL_QUERY_REPLY_BYTES;
+    let probe = page(maximum - 128);
+    let response: Result<&SqlQueryPageResult, Error> = Ok(&probe);
+    let overhead =
+        ic_wire::native::encoded_frame_len(&response, icydb_schema::wire::sizing_limits()).unwrap()
+            - (maximum - 128);
+    for length in [maximum - 1, maximum, maximum + 1] {
+        let candidate = page(length - overhead);
+        let response: Result<&SqlQueryPageResult, Error> = Ok(&candidate);
+        let bytes = ic_wire::native::encode_response(
+            crate::__macro::RpcMethod::Query.id(),
+            &response,
+            icydb_schema::wire::sizing_limits(),
+        )
+        .unwrap();
+        assert_eq!(bytes.len(), length);
+        let result = candidate.clone().into_deliverable_query_reply();
+        if length <= maximum {
+            assert_eq!(result, Ok(candidate));
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.code(),
+                crate::ErrorCode::RUNTIME_BOUNDARY_SQL_QUERY_REPLY_BYTES_EXCEEDED,
+            );
+            assert_eq!(error.origin(), ErrorOrigin::Response);
+        }
+    }
 }

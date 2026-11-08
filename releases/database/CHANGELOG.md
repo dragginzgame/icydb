@@ -3,6 +3,56 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.304.0]
+
+### 🩹 Fixed
+
+- Give caller-controlled SQL an explicit public paging API with canonical read
+  admission, bounded work and authenticated continuation; trusted cache reuse
+  grants no extra execution authority
+  ([#335 — Guarded SQL read admission](https://github.com/dragginzgame/icydb/issues/335)).
+
+### ⚠️ Breaking
+
+- Adopt Storage 0.69's direct collection results and host-trap contract for
+  engine/codec failures. Preserve fallible admission, bounded record decoding
+  and existing stored images; no reset or image migration is required.
+- Split generated SQL reads into public and trusted native capabilities. Host
+  adapters must select the public capability after application guard approval;
+  Canic integration remains deferred. Unsafe or unsupported public shapes reject
+  before execution, while explicitly trusted SQL retains its feature set.
+- Keep top-level SELECT DISTINCT on trusted SQL until its materialization has a
+  complete public paging contract; public calls reject before row reads.
+
+### 🔧 Changed
+
+- Adopt Testkit 0.94's inherent client helpers and matching Host 0.76 / Platform
+  0.27 graph for native testing; preserve typed startup polling and the deferred
+  Canic stack.
+- Adopt published Toko Tooling 0.36.0 through exact workspace pins and inherited
+  package dev-dependencies, replacing the metadata/dedicated-lock selector.
+  Preserve real packages and admission before repository effects; Canic remains
+  blocked by its existing qualification graph.
+- Adopt Shared Tooling 0.31.12's compact sibling LOC progress and terminal name
+  colours, preserving plain output and counts.
+- Adopt Build 0.80, Host Tools 0.88 and direct Host Foundation 0.76, preserving
+  native commands and Wasm-interface inspection.
+- Record matched Linux database and CLI release comparisons; subsequent
+  dependency changes retain the full-validation fallback
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603)).
+
+### 🧪 Testing
+
+- Retain failed static-CI automation fixtures and failing source locations so
+  release-tooling regressions remain diagnosable
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603),
+  [#632 — Hosted adapter assertion diagnosis](https://github.com/dragginzgame/icydb/issues/632)).
+- Isolate substitute-Cargo dispatch controls from inherited product checkpoints,
+  retaining actual Make wiring and every required-failure control
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603)).
+
+[Detailed changes](0.304.md).
+
 ## [0.303.0] - 2026-11-08
 
 ### Added

@@ -309,7 +309,7 @@ fn fresh_root_admission_does_not_initialize_journal_memory() {
     }
     // A physical journal header is not virgin, even with no batches.
     FRESH_JOURNAL.with_borrow(|tail| {
-        assert!(!(tail.has_stored_batch()).expect("fixture storage read should succeed"));
+        assert!(!(tail.has_stored_batch()));
     });
     assert!(require_fresh_proposal_roots(&proposals).is_err());
 }
@@ -415,8 +415,7 @@ fn backlog_measurement_follows_active_and_retired_tail_authority() {
         let retirement = tail
             .prepare_batch_retirement(&batch, FoldWatermark::new(JournalSequence::new(1), 1))
             .unwrap();
-        tail.apply_prepared_batch_retirement(retirement)
-            .expect("fixture storage operation should succeed");
+        tail.apply_prepared_batch_retirement(retirement);
         // Simulate restart without the generated owner: release the actual
         // journal lease before the dormant-allocation reader opens it.
         *tail =
@@ -461,8 +460,7 @@ fn backlog_measurement_follows_active_and_retired_tail_authority() {
     let retirement = tail
         .prepare_batch_retirement(&unexpected, FoldWatermark::new(JournalSequence::new(2), 2))
         .unwrap();
-    tail.apply_prepared_batch_retirement(retirement)
-        .expect("fixture storage operation should succeed");
+    tail.apply_prepared_batch_retirement(retirement);
     drop(tail);
     assert_eq!(
         current_database_backlog().unwrap(),
@@ -699,8 +697,7 @@ fn current_registry_rejects_debt_and_restores_exact_dormant_quartets() {
         let retirement = tail
             .prepare_batch_retirement(&retained, FoldWatermark::new(JournalSequence::new(1), 1))
             .unwrap();
-        tail.apply_prepared_batch_retirement(retirement)
-            .expect("fixture storage operation should succeed");
+        tail.apply_prepared_batch_retirement(retirement);
     });
     release_a();
     ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
@@ -728,8 +725,7 @@ fn current_registry_rejects_debt_and_restores_exact_dormant_quartets() {
     let retirement = tail
         .prepare_batch_retirement(&unexpected, FoldWatermark::new(JournalSequence::new(2), 2))
         .unwrap();
-    tail.apply_prepared_batch_retirement(retirement)
-        .expect("fixture storage operation should succeed");
+    tail.apply_prepared_batch_retirement(retirement);
     drop(tail);
     ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
 

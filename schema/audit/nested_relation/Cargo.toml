@@ -9,7 +9,7 @@ publish = false
 description = "Controlled nested-relation measurement schemas"
 
 [package.metadata.cargo-machete]
-ignored = ["icydb"]
+ignored = ["icydb", "toko-tooling"]
 
 [features]
 default = []
@@ -28,3 +28,6 @@ workspace = true
 
 [package.metadata.shared-tooling.loc]
 category = "tests"
+
+[dev-dependencies]
+toko-tooling.workspace = true

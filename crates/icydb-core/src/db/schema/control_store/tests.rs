@@ -19,10 +19,10 @@ fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
     for key in 0..40_u8 {
         application
             .insert([key; 32], SchemaControlBytes(vec![key; 40]))
-            .expect("fixture storage operation should succeed");
+            .unwrap();
         checkpoint
             .insert([key; 32], SchemaControlBytes(vec![key + 1; 40]))
-            .expect("fixture storage operation should succeed");
+            .unwrap();
         identity
             .insert([key; 32], SchemaControlBytes(vec![key + 2; 40]))
             .unwrap();

@@ -6,6 +6,9 @@ license-file = { workspace = true }
 version = "0.303.0"
 publish = false
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "build_tooling"
 
@@ -15,6 +18,9 @@ icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

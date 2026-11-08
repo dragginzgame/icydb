@@ -1,5 +1,5 @@
 # Local developer setup
-<!-- Shared companions: scripts/ci/report-tool-versions.sh docs/tool-store-maintenance.md docs/tool-catalog-bindings.md docs/verification-helpers.md docs/ic-tools.md docs/supported-hosts.md docs/make-interface.md docs/consuming-snapshots.md docs/releases.md DRAGGINZGAME.md rules/cargo-dependencies.md rules/git-hooks.md -->
+<!-- Shared companions: .github/actions/cache-tool-downloads/action.yml scripts/ci/report-tool-versions.sh docs/tool-store-maintenance.md docs/tool-catalog-bindings.md docs/verification-helpers.md docs/ic-tools.md docs/supported-hosts.md docs/make-interface.md docs/consuming-snapshots.md docs/releases.md DRAGGINZGAME.md rules/cargo-dependencies.md rules/git-hooks.md -->
 
 ## Tool selection and diagnostics
 
@@ -113,6 +113,9 @@ different support scopes require an explicitly approved exception.
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
 Shared's archive-license fixtures also require Perl's `Archive::Tar` module.
+Registry source-bundle installation requires `Archive::Tar` and
+`IO::Uncompress::Gunzip` as well; prepare them through the host's Perl packages
+before initial adoption.
 Check availability with `perl -MArchive::Tar -e 'exit 0'`; install it through the
 host's Perl package setup if absent. The portable prerequisite check refuses a
 missing module before allocating suite fixtures. Archive inspection also uses

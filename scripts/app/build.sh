@@ -14,6 +14,9 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
+# Admit repository tooling before lint, artifact acquisition or staging effects.
+make --no-print-directory -C "$ROOT" shared-tooling-check
+
 CAN="$1"
 ICP_DIR="$ROOT/.icp/local/canisters/$CAN"
 WASM_TARGET="$ICP_DIR/$CAN.wasm"

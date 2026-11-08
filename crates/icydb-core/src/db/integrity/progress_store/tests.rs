@@ -162,15 +162,12 @@ fn checksummed_wire_corruption_cannot_restore_or_erase_job_authority() {
     .unwrap();
     let mut store = InspectionProgressStore::open(test_memory(245)).unwrap();
     let key = ProgressRecordKey::from_job_id(job.id);
-    store
-        .map
-        .insert(key, ProgressRecordBytes(corrupt.clone()))
-        .expect("fixture storage operation should succeed");
+    store.map.insert(key, ProgressRecordBytes(corrupt.clone()));
     assert_eq!(
         store.load(job.id),
         Err(IntegrityJobError::CorruptProgressRecord)
     );
-    assert_eq!(store.map.get(&key).unwrap().unwrap().0, corrupt);
+    assert_eq!(store.map.get(&key).unwrap().0, corrupt);
 }
 
 #[test]
@@ -810,7 +807,7 @@ fn admin_retirement_preserves_exact_evidence_and_recovers_shared_capacity() {
         store.insert_mutation(&current_mutation_record(57)),
         Err(MutationJobError::CapacityExceeded)
     ));
-    let header = store.map.get(&PROGRESS_HEADER_KEY).unwrap().unwrap();
+    let header = store.map.get(&PROGRESS_HEADER_KEY).unwrap();
     let header_claim = ProgressRetirementRecord {
         record_key: PROGRESS_HEADER_KEY.0,
         record_digest: retirement_digest(PROGRESS_HEADER_KEY, &header.0),
@@ -854,10 +851,7 @@ fn admin_retirement_preserves_exact_evidence_and_recovers_shared_capacity() {
         store.insert_mutation(&current_mutation_record(57)),
         Ok(InsertMutationJobResult::Inserted)
     ));
-    assert_eq!(
-        store.map.get(&PROGRESS_HEADER_KEY).unwrap().unwrap(),
-        header
-    );
+    assert_eq!(store.map.get(&PROGRESS_HEADER_KEY).unwrap(), header);
 }
 
 #[test]
@@ -938,13 +932,10 @@ fn progress_inventory_is_complete_family_bounded_and_fail_closed() {
             && record.job_id == mutation.state().job_id.to_bytes()
     }));
 
-    store
-        .map
-        .insert(
-            ProgressRecordKey([202; 32]),
-            ProgressRecordBytes(b"undecodable-retained-slot".to_vec()),
-        )
-        .expect("fixture storage operation should succeed");
+    store.map.insert(
+        ProgressRecordKey([202; 32]),
+        ProgressRecordBytes(b"undecodable-retained-slot".to_vec()),
+    );
     assert_eq!(
         store.inventory(),
         Err(MutationJobError::CorruptProgressStore),
@@ -953,10 +944,6 @@ fn progress_inventory_is_complete_family_bounded_and_fail_closed() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one retention scenario checks corrupt keys, expiry and preserved receipts together"
-)]
 fn retention_passes_corrupt_keys_without_losing_expiration_or_receipts() {
     use crate::db::integrity::{
         DeepIntegrityPageStatus, IntegrityJobReceipt, IntegrityPendingTerminal,
@@ -966,17 +953,14 @@ fn retention_passes_corrupt_keys_without_losing_expiration_or_receipts() {
     with_progress_store::<RetentionCanister, _>(|store| {
         let mismatched = encode_job_record(&current_integrity_record(99)).unwrap();
         for byte in 1..=20 {
-            store
-                .map
-                .insert(
-                    ProgressRecordKey([byte; 32]),
-                    ProgressRecordBytes(if byte % 2 == 0 {
-                        mismatched.clone()
-                    } else {
-                        vec![0]
-                    }),
-                )
-                .expect("fixture storage operation should succeed");
+            store.map.insert(
+                ProgressRecordKey([byte; 32]),
+                ProgressRecordBytes(if byte % 2 == 0 {
+                    mismatched.clone()
+                } else {
+                    vec![0]
+                }),
+            );
         }
         let first = store.scan_after(None, 16)?;
         assert_eq!(first.records_scanned, 16);
@@ -993,13 +977,10 @@ fn retention_passes_corrupt_keys_without_losing_expiration_or_receipts() {
         }
         let mut expired = current_integrity_record(21);
         expired.lease_deadline_nanos = 1;
-        store
-            .map
-            .insert(
-                ProgressRecordKey::from_job_id(expired.id),
-                ProgressRecordBytes(encode_job_record(&expired)?),
-            )
-            .expect("fixture storage operation should succeed");
+        store.map.insert(
+            ProgressRecordKey::from_job_id(expired.id),
+            ProgressRecordBytes(encode_job_record(&expired)?),
+        );
         for (byte, acknowledged) in [(22, true), (23, false)] {
             let mut terminal = current_integrity_record(byte);
             terminal.lease_deadline_nanos = 1;
@@ -1019,13 +1000,10 @@ fn retention_passes_corrupt_keys_without_losing_expiration_or_receipts() {
             page.page_sequence = 1;
             page.pages_completed = 1;
             terminal.validate()?;
-            store
-                .map
-                .insert(
-                    ProgressRecordKey::from_job_id(terminal.id),
-                    ProgressRecordBytes(encode_job_record(&terminal)?),
-                )
-                .expect("fixture storage operation should succeed");
+            store.map.insert(
+                ProgressRecordKey::from_job_id(terminal.id),
+                ProgressRecordBytes(encode_job_record(&terminal)?),
+            );
         }
         Ok(())
     })

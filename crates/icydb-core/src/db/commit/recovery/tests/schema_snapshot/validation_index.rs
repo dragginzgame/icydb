@@ -148,12 +148,10 @@ fn candidate_pages_preserve_replay_fold_and_corruption_refusal() {
             validate_journal_batch_records(&db, STORE, handle, &batch, mode, &mut prepared)
                 .unwrap();
             apply_prepared_journal_batch(STORE, handle, &batch, &mut prepared, mode);
-            assert!(keys.iter().all(|key| {
-                handle
-                    .with_index(|store| store.get(key))
-                    .expect("storage operation should succeed")
-                    .is_some()
-            }));
+            assert!(
+                keys.iter()
+                    .all(|key| { handle.with_index(|store| store.get(key)).is_some() })
+            );
             SCHEMA.with_borrow(|store| {
                 assert_eq!(
                     store

@@ -9,6 +9,9 @@ description = "Maintained canister build and Wasm report tooling for IcyDB"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "build_tooling"
 
@@ -33,6 +36,7 @@ icydb = { workspace = true, features = ["wire-schema"] }
 icydb-core = { workspace = true, features = ["metrics", "migration", "sql", "wire-schema"] }
 icydb-schema = { workspace = true, features = ["wire-schema"] }
 serde-reflection = { workspace = true }
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

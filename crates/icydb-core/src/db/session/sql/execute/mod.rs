@@ -34,7 +34,7 @@ use crate::{
 use write::execute_compiled_sql_write;
 
 impl<C: CanisterKind> DbSession<C> {
-    fn ensure_sql_query_execution_context_is_current(
+    pub(in crate::db::session::sql) fn ensure_sql_query_execution_context_is_current(
         &self,
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<(), QueryError> {
@@ -113,7 +113,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn execute_compiled_sql_query_with_catalog(
+    pub(in crate::db::session::sql) fn execute_compiled_sql_query_with_catalog(
         &self,
         compiled: &CompiledSqlCommand,
         catalog: &AcceptedSchemaCatalogContext,

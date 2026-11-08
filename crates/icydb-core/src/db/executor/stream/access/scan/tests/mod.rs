@@ -127,9 +127,7 @@ fn filtered_index_scan_preserves_primary_keys_order_and_limits() {
                 } else {
                     IndexEntryValue::presence()
                 };
-                EXACT_INTERSECTION_INDEX
-                    .with_borrow_mut(|store| store.insert(raw, witness))
-                    .expect("fixture storage operation should succeed");
+                EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| store.insert(raw, witness));
                 primary_key
             })
             .collect();
@@ -334,13 +332,11 @@ fn exact_intersection_child_rejects_invalid_presence_marker() {
         .to_raw()
         .expect("exact intersection index key should encode");
     EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
-        store
-            .insert(
-                raw_index_key.clone(),
-                <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1]))
-                    .expect("storage operation should succeed"),
-            )
-            .expect("fixture storage operation should succeed");
+        store.insert(
+            raw_index_key.clone(),
+            <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1]))
+                .expect("storage operation should succeed"),
+        );
     });
     let lower = Bound::Included(raw_index_key.clone());
     let upper = Bound::Included(raw_index_key);
@@ -370,23 +366,19 @@ fn exact_intersection_child_accepts_a_present_authoritative_row() {
     reset_exact_intersection_stores();
     let data_key = exact_intersection_data_key(7);
     EXACT_INTERSECTION_DATA.with_borrow_mut(|store| {
-        store
-            .insert_raw_for_test(
-                data_key
-                    .to_raw()
-                    .expect("exact intersection data key should encode"),
-                RawRow::try_new(vec![0]).expect("exact intersection row should be bounded"),
-            )
-            .expect("fixture storage operation should succeed");
+        store.insert_raw_for_test(
+            data_key
+                .to_raw()
+                .expect("exact intersection data key should encode"),
+            RawRow::try_new(vec![0]).expect("exact intersection row should be bounded"),
+        );
     });
     let index_id = IndexId::new(EXACT_INTERSECTION_ENTITY, 1);
     let raw_index_key = nat64_index_key(&index_id, b"lane", 7)
         .to_raw()
         .expect("exact intersection index key should encode");
     EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
-        store
-            .insert(raw_index_key.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(raw_index_key.clone(), IndexEntryValue::presence());
     });
     let lower = Bound::Included(raw_index_key.clone());
     let upper = Bound::Included(raw_index_key);
@@ -421,12 +413,8 @@ fn exact_intersection_child_rejects_an_uncounted_physical_entry() {
         .to_raw()
         .expect("second exact intersection index key should encode");
     EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
-        store
-            .insert(first.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
-        store
-            .insert(second.clone(), IndexEntryValue::presence())
-            .expect("fixture storage operation should succeed");
+        store.insert(first.clone(), IndexEntryValue::presence());
+        store.insert(second.clone(), IndexEntryValue::presence());
     });
     let lower = Bound::Included(first);
     let upper = Bound::Included(second);

@@ -659,9 +659,9 @@ fn apply_migration_effect(
             key,
             ..
         } if record_store_path == store_path => store.with_index_mut(|index| {
-            match index.get(key)? {
+            match index.get(key) {
                 None => {
-                    index.insert(key.clone(), IndexEntryValue::presence())?;
+                    index.insert(key.clone(), IndexEntryValue::presence());
                 }
                 Some(value) if value == IndexEntryValue::presence() => {}
                 Some(_) => return Err(InternalError::store_corruption()),
@@ -700,7 +700,7 @@ fn preflight_migration_effects(
                 primary_key,
                 ..
             } if *record_store_path == store_path => {
-                if !store.with_data(|data| data.contains(primary_key))? {
+                if !store.with_data(|data| data.contains(primary_key)) {
                     return Err(InternalError::store_corruption());
                 }
             }
@@ -710,7 +710,7 @@ fn preflight_migration_effects(
                 ..
             } if *record_store_path == store_path => {
                 if store
-                    .with_index(|index| index.get(key))?
+                    .with_index(|index| index.get(key))
                     .is_some_and(|value| value != IndexEntryValue::presence())
                 {
                     return Err(InternalError::store_corruption());
@@ -831,7 +831,7 @@ fn final_validate_entity_page(
             for projection in &prepared.indexes {
                 work.charge(Resource::PredicateExpressionSteps, 1)?;
                 if let Some(key) = projection.derive_key(&primary_key, &row)?
-                    && store.with_index(|index| index.get(&key))?
+                    && store.with_index(|index| index.get(&key))
                         != Some(IndexEntryValue::presence())
                 {
                     return Err(InternalError::schema_migration(
@@ -854,7 +854,7 @@ fn final_validate_entity_page(
                 for entry in projected.into_entries() {
                     if entry
                         .target_store()
-                        .with_index(|index| index.get(entry.key()))?
+                        .with_index(|index| index.get(entry.key()))
                         != Some(IndexEntryValue::presence())
                     {
                         mismatch = true;

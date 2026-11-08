@@ -25,6 +25,14 @@ pub(in crate::db) struct SqlCompiledCommandExecutionContext {
 }
 
 impl SqlCompiledCommandExecutionContext {
+    /// Consume the syntax and the same accepted authority that compiled it.
+    #[cfg(feature = "sql")]
+    pub(in crate::db::session::sql) fn into_command_and_catalog(
+        self,
+    ) -> (CompiledSqlCommand, AcceptedSchemaCatalogContext) {
+        (self.command, self.catalog)
+    }
+
     #[must_use]
     pub(in crate::db::session::sql) fn new(
         command: CompiledSqlCommand,

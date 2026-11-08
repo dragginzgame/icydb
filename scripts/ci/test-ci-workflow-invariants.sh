@@ -3,6 +3,15 @@
 # shellcheck disable=SC2016
 set -euo pipefail
 
+selected_case=all
+if [[ $# != 0 ]]; then
+  [[ $# == 2 && "$1" == --case && "$2" == static-fixtures ]] || {
+    echo 'usage: test-ci-workflow-invariants.sh [--case static-fixtures]' >&2
+    exit 2
+  }
+  selected_case=static-fixtures
+fi
+
 # Actual parser/policies over copied inputs: no workflows or Git effects run.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
@@ -50,6 +59,49 @@ mutate() { "$YQ" -i "$1" "$subject"; }
 
 reset
 check pass baseline
+reset
+mutate '(.jobs.static.steps[] | select(.name == "Run static validation with complete feedback") | .run) |= sub("make ci-static"; "make help")'
+check fail missing-static-gate
+reset
+mutate '(.jobs.static.steps[] | select(.name == "Run static validation with complete feedback")).if = "false"'
+check fail conditional-static-gate
+reset
+mutate '(.jobs.static.steps[] | select(.name == "Run static validation with complete feedback"))["continue-on-error"] = true'
+check fail ignored-static-gate
+reset
+
+# Execute the actual static recipe with a failing Make substitute, then archive
+# the same portable-fixture selection used by shared failure retention.
+mkdir -p "$fixture/static-runner" "$fixture/static-bin" "$fixture/uncollected"
+runner_temp="$(cd "$fixture/static-runner" && pwd -P)"
+cat > "$fixture/static-bin/make" <<'MAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == ci-static && "$TMPDIR" == "$RUNNER_TEMP/portable-fixtures" ]] || exit 97
+retained="$(mktemp -d "$TMPDIR/retained-static.XXXXXX")"
+printf 'static-evidence-control\n' > "$retained/assertion.log"
+exit 23
+MAKE
+chmod +x "$fixture/static-bin/make"
+"$YQ" -r '.jobs.static.steps[] | select(.name == "Run static validation with complete feedback") | .run' \
+  "$core_subject" > "$fixture/static-recipe.sh"
+status=0
+PATH="$fixture/static-bin:$PATH" RUNNER_TEMP="$runner_temp" TMPDIR="$fixture/uncollected" \
+  bash -e "$fixture/static-recipe.sh" > "$fixture/static-recipe.log" 2>&1 || status=$?
+[[ "$status" == 23 ]]
+bash "$ROOT/scripts/ci/archive-evidence.sh" "$fixture/static-evidence.tar.gz" \
+  "$runner_temp" portable-fixtures > "$fixture/static-archive.log"
+mkdir "$fixture/static-extracted"
+tar -xzf "$fixture/static-evidence.tar.gz" -C "$fixture/static-extracted"
+grep -Fx static-evidence-control \
+  "$fixture/static-extracted/portable-fixtures/"retained-static.*/assertion.log >/dev/null
+count=$((count + 1))
+if [[ "$selected_case" == static-fixtures ]]; then
+  echo '[OK] Static CI preserves failure status and archives retained automation diagnostics.'
+  fixture_complete=true
+  exit 0
+fi
+
 status=0
 ( check fail unexpected-baseline-acceptance ) > "$fixture/assertion-control.log" 2>&1 || status=$?
 [[ "$status" == 1 ]]

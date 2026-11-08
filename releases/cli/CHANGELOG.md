@@ -3,6 +3,39 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.6]
+
+### 🔧 Changed
+
+- Adopt Toko Tooling 0.36.0 with an exact workspace pin inherited by each package,
+  Cargo.lock and authenticated snapshot admission; remove the former metadata
+  selector and dedicated tooling lock.
+- Adopt Shared Tooling 0.31.12's compact sibling LOC progress and terminal name
+  colours, preserving plain output and counts.
+- Adopt Build 0.80, Host Tools 0.88 and direct Host Foundation 0.76, preserving
+  ICP/project/response helpers, CLI commands and output.
+- Record matched Linux database and CLI release comparisons; subsequent
+  dependency changes retain the full-validation fallback
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603)).
+
+### 🩹 Fixed
+
+- Preserve OS causes in process-failure diagnostics and retain the inventory
+  case/output on assertion failure. The intermittent spawn cause remains open
+  ([#599 — CLI process failure diagnosis](https://github.com/dragginzgame/icydb/issues/599)).
+
+### 🧪 Testing
+
+- Retain failed static-CI automation fixtures and failing source locations so
+  release-tooling regressions remain diagnosable
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603),
+  [#632 — Hosted adapter assertion diagnosis](https://github.com/dragginzgame/icydb/issues/632)).
+- Isolate substitute-Cargo dispatch controls from inherited product checkpoints,
+  retaining actual Make wiring and every required-failure control
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603)).
+
+[Detailed changes](0.296.md).
+
 ## [0.296.5] - 2026-11-08
 
 ### 🩹 Fixed

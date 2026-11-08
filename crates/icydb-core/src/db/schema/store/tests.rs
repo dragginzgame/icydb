@@ -1064,12 +1064,7 @@ fn assert_current_publication_rejects_missing_identity(mut store: SchemaStore, j
     let expected = crate::error::InternalError::identity_state_corruption();
     assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
     assert_eq!(error.diagnostic().detail(), expected.diagnostic().detail());
-    assert!(
-        store
-            .get_raw_value(&key)
-            .expect("storage operation should succeed")
-            .is_none()
-    );
+    assert!(store.get_raw_value(&key).is_none());
     assert_eq!(
         store
             .current_accepted_schema_root()
@@ -1227,7 +1222,6 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
         store
             .get_raw_value(&key)
             .expect("published identity must have explicit state")
-            .expect("storage operation should succeed")
             .as_bytes(),
     )
     .expect("published identity state should decode");
@@ -1333,9 +1327,7 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
 
     let mut malformed = encode_identity_state(&state).expect("identity state should encode");
     malformed[9] ^= 0xFF;
-    store
-        .insert_durable_raw_value(key, malformed)
-        .expect("fixture storage operation should succeed");
+    store.insert_durable_raw_value(key, malformed);
     let error = store
         .current_accepted_schema_bundle()
         .expect_err("malformed identity state must be corruption");
@@ -1512,7 +1504,6 @@ fn identity_removal_retires_state_and_reuse_is_rejected() {
         store
             .get_raw_value(&key)
             .expect("retired identity state must be retained")
-            .expect("storage operation should succeed")
             .as_bytes(),
     )
     .expect("retired state should decode");
@@ -1642,12 +1633,10 @@ fn identity_state_inventory_enforces_the_database_lifetime_cap() {
         let state = IdentityState::new_active(owner, AcceptedFieldKind::Nat64)
             .and_then(|state| state.retire())
             .expect("retired identity fixture should admit");
-        store
-            .insert_durable_raw_value(
-                RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()),
-                encode_identity_state(&state).expect("retired identity state should encode"),
-            )
-            .expect("fixture storage operation should succeed");
+        store.insert_durable_raw_value(
+            RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()),
+            encode_identity_state(&state).expect("retired identity state should encode"),
+        );
     }
     assert_eq!(
         store
@@ -2553,9 +2542,7 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical
-        .insert(key, snapshot(11))
-        .expect("fixture storage operation should succeed");
+    canonical.insert(key, snapshot(11));
 
     store
         .publish_positioned_journal_entry(key, None, overlay_position(1))
@@ -2573,15 +2560,12 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical
-        .remove(&key)
-        .expect("fixture storage operation should succeed");
+    canonical.remove(&key);
     store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
             .get_raw_value_for_backend(&key)
             .expect("later schema value must remain visible")
-            .expect("storage operation should succeed")
             .as_bytes(),
         [33],
     );
@@ -2596,15 +2580,12 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical
-        .insert(key, snapshot(33))
-        .expect("fixture storage operation should succeed");
+    canonical.insert(key, snapshot(33));
     store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
             .get_raw_value_for_backend(&key)
             .expect("canonical schema value should remain visible")
-            .expect("storage operation should succeed")
             .as_bytes(),
         [33],
     );
@@ -2635,9 +2616,7 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     else {
         panic!("positioned schema test requires a journaled store");
     };
-    canonical
-        .insert(canonical_only_key, snapshot(11))
-        .expect("fixture storage operation should succeed");
+    canonical.insert(canonical_only_key, snapshot(11));
     positions.publish_preflighted(positioned_without_overlay_key, position);
     store
         .publish_positioned_journal_entry(positioned_key, Some(snapshot(22)), position)
@@ -2665,12 +2644,7 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     else {
         panic!("positioned schema test requires a journaled store");
     };
-    assert!(
-        canonical
-            .get(&canonical_only_key)
-            .expect("storage operation should succeed")
-            .is_some()
-    );
+    assert!(canonical.get(&canonical_only_key).is_some());
     assert!(!positions.is_positioned(&positioned_key));
     assert!(!positions.is_positioned(&positioned_without_overlay_key));
 
@@ -2836,15 +2810,9 @@ fn schema_control_range_merges_ordered_live_values_and_tombstones() {
     else {
         unreachable!()
     };
-    canonical
-        .insert(key(1), value(11))
-        .expect("fixture storage operation should succeed");
-    canonical
-        .insert(key(2), value(22))
-        .expect("fixture storage operation should succeed");
-    canonical
-        .insert(key(3), value(33))
-        .expect("fixture storage operation should succeed");
+    canonical.insert(key(1), value(11));
+    canonical.insert(key(2), value(22));
+    canonical.insert(key(3), value(33));
     tombstones.insert(key(1));
     live.insert(key(2), value(44));
     live.insert(key(4), value(55));
@@ -2915,12 +2883,10 @@ fn allocation_metadata_reports_selected_authority_corruption() {
     let (_, _, mut store) = catalog_selection_fixture();
     assert!(store.allocation_metadata().unwrap().is_some());
     let selection = store.current_accepted_schema_root().unwrap().unwrap();
-    store
-        .insert_durable_raw_value(
-            RawSchemaKey::from_accepted_root_slot(selection.slot()).unwrap(),
-            vec![0xff],
-        )
-        .expect("fixture storage operation should succeed");
+    store.insert_durable_raw_value(
+        RawSchemaKey::from_accepted_root_slot(selection.slot()).unwrap(),
+        vec![0xff],
+    );
     let error = store
         .allocation_metadata()
         .expect_err("corrupt selected root must reject metadata derivation");
@@ -2959,7 +2925,6 @@ fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
         let valid = store
             .get_raw_value(&key)
             .unwrap()
-            .unwrap()
             .into_bytes()
             .expect("fixture encoding");
         store.current_accepted_schema_bundle_ref().unwrap().unwrap();
@@ -2973,17 +2938,13 @@ fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
         );
         let misses = accepted_schema_bundle_cache_miss_count_for_tests();
         // A malformed replacement must revoke the proof without rebuilding the bundle.
-        store
-            .insert_raw_value(key, RawSchemaValue::from_encoded_control_record(vec![0xff]))
-            .expect("fixture storage operation should succeed");
+        store.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(vec![0xff]));
         for _ in 0..2 {
             let error = store.current_accepted_schema_bundle_ref().unwrap_err();
             assert_eq!(error.class(), ErrorClass::Corruption);
             assert_eq!(error.origin(), ErrorOrigin::Identity);
         }
-        store
-            .insert_durable_raw_value(key, valid.clone())
-            .expect("fixture storage operation should succeed");
+        store.insert_durable_raw_value(key, valid.clone());
         store.current_accepted_schema_bundle_ref().unwrap().unwrap();
         assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), misses);
         store
@@ -2996,9 +2957,7 @@ fn accepted_bundle_identity_proof_reuses_reads_and_rejects_mutated_inventory() {
                 .class(),
             ErrorClass::Corruption
         );
-        store
-            .insert_durable_raw_value(key, valid.clone())
-            .expect("fixture storage operation should succeed");
+        store.insert_durable_raw_value(key, valid.clone());
         store.current_accepted_schema_bundle_ref().unwrap().unwrap();
         if matches!(store.backend, SchemaStoreBackend::Journaled { .. }) {
             store.insert_canonical_raw_value(key, vec![0xff]).unwrap();

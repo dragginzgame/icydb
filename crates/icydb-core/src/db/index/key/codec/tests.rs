@@ -1440,7 +1440,7 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
         let reopened = crate::db::index::IndexStore::init_journaled(memory.open())
             .expect("fixture storage should initialize");
         assert_eq!(
-            (reopened.get(&raw)).expect("storage operation should succeed"),
+            (reopened.get(&raw)),
             Some(crate::db::index::IndexEntryValue::presence())
         );
     }

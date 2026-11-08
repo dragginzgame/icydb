@@ -6,11 +6,17 @@ license-file = { workspace = true }
 version = "0.303.0"
 publish = false
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "tests"
 
 [dependencies]
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

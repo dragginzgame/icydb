@@ -62,12 +62,7 @@ fn update_away_and_many_target_deletes_share_one_source_projection() {
                     )
                     .to_raw()
                     .unwrap();
-                    assert_eq!(
-                        data.get(&key)
-                            .expect("storage operation should succeed")
-                            .is_some(),
-                        id > 80
-                    );
+                    assert_eq!(data.get(&key).is_some(), id > 80);
                 }
             });
         })

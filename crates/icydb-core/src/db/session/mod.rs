@@ -38,8 +38,8 @@ pub(in crate::db) use response::grouped_cursor_from_bytes;
 pub use sql::{
     SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
     SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
-    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
-    SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
+    SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementPageResult,
+    SqlStatementResult, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_shell_surface, sql_statement_surface,
 };
 

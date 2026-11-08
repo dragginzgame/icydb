@@ -301,7 +301,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
         let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
         let store = self.db.recovered_store(runtime_entity.store_path())?;
 
-        store.with_data(|data_store| data_store.get(raw_key))
+        Ok(store.with_data(|data_store| data_store.get(raw_key)))
     }
 
     fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -313,7 +313,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C
         let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
         let store = self.db.recovered_store(runtime_entity.store_path())?;
 
-        store.with_data(|data_store| data_store.contains(raw_key))
+        Ok(store.with_data(|data_store| data_store.contains(raw_key)))
     }
 
     fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
@@ -334,7 +334,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
             return Ok(override_entry.clone());
         }
 
-        index_store.with_borrow(|store| store.get(key))
+        Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
     fn read_index_keys_in_raw_range(
@@ -608,11 +608,11 @@ fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(
         let multiple_rows = prepared_row_ops.len() > 1;
         #[cfg(test)]
         if let [row_op] = prepared_row_ops.as_slice() {
-            apply_guard.record_single_row_rollback(row_op.snapshot_rollback()?);
+            apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
         } else {
             let mut rollback = Vec::with_capacity(prepared_row_ops.len());
             for row_op in &prepared_row_ops {
-                rollback.push(row_op.snapshot_rollback()?);
+                rollback.push(row_op.snapshot_rollback());
             }
             apply_guard.record_rollback(move || rollback_prepared_row_ops_reverse(rollback));
         }

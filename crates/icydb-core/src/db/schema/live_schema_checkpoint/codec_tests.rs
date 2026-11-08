@@ -297,7 +297,7 @@ fn prepared_identity_checkpoint_combines_owners_and_matches_replay_bytes() {
     store
         .identities
         .insert(key, super::SchemaControlBytes(before))
-        .expect("fixture storage operation should succeed");
+        .unwrap();
     store
         .apply_prepared_identity_checkpoint(prepared)
         .expect("fixture storage operation should succeed");

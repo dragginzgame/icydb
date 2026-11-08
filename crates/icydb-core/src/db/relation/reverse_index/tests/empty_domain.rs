@@ -64,10 +64,6 @@ fn key(entity: u64, generation: u64, relation: u32, kind: IndexKeyKind) -> RawIn
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one reverse-domain matrix distinguishes entity, generation, relation and key-kind boundaries"
-)]
 fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds() {
     for (entity, generation, relation_id) in [(1, 0, 1), (u64::MAX, u64::MAX, u32::MAX)] {
         let relation = PersistedRelationEdgeSnapshot::new_direct(
@@ -97,9 +93,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
                         .apply_canonical_entry(neighbor, Some(IndexEntryValue::presence()))
                         .unwrap();
                 } else {
-                    store
-                        .insert(neighbor, IndexEntryValue::presence())
-                        .expect("fixture storage operation should succeed");
+                    store.insert(neighbor, IndexEntryValue::presence());
                 }
             }
             let matching = key(entity, generation, relation_id, IndexKeyKind::System);
@@ -107,9 +101,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
                 store
                     .apply_canonical_entry(matching.clone(), Some(IndexEntryValue::presence()))
                     .unwrap();
-                store
-                    .remove(&matching)
-                    .expect("fixture storage operation should succeed");
+                store.remove(&matching);
             }
             let before = IndexStore::current_entry_read_count();
             prove_empty_reverse_relation_domain(
@@ -128,9 +120,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
                     .apply_canonical_entry(matching.clone(), Some(IndexEntryValue::presence()))
                     .unwrap();
             } else {
-                store
-                    .insert(matching.clone(), IndexEntryValue::presence())
-                    .expect("fixture storage operation should succeed");
+                store.insert(matching.clone(), IndexEntryValue::presence());
             }
             let error = prove_empty_reverse_relation_domain(
                 &store,
@@ -143,9 +133,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
                 error.diagnostic_code(),
                 InternalError::store_unsupported().diagnostic_code()
             );
-            store
-                .remove(&matching)
-                .expect("fixture storage operation should succeed");
+            store.remove(&matching);
             // Preserve conservative refusal of a matching relation prefix
             // with an unexpected, but codec-admitted, component count.
             let relation_bytes = relation_id.to_be_bytes();
@@ -160,9 +148,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
                 .unwrap()
                 .to_raw()
                 .unwrap();
-                store
-                    .insert(stray.clone(), IndexEntryValue::presence())
-                    .expect("fixture storage operation should succeed");
+                store.insert(stray.clone(), IndexEntryValue::presence());
                 let error = prove_empty_reverse_relation_domain(
                     &store,
                     EntityTag::new(entity),
@@ -174,9 +160,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
                     error.diagnostic_code(),
                     InternalError::store_unsupported().diagnostic_code()
                 );
-                store
-                    .remove(&stray)
-                    .expect("fixture storage operation should succeed");
+                store.remove(&stray);
             }
         }
     }
@@ -213,9 +197,7 @@ fn reverse_domain_proof_preserves_readiness_authority_and_corruption_refusals() 
     bytes.push(0);
     let malformed = RawIndexStoreKey::from_persisted_bytes(bytes);
     assert!(IndexKey::try_from_raw(&malformed).is_err());
-    store
-        .insert(malformed, IndexEntryValue::presence())
-        .expect("fixture storage operation should succeed");
+    store.insert(malformed, IndexEntryValue::presence());
     let error =
         prove_empty_reverse_relation_domain(&store, entity, &snapshot, &relation).unwrap_err();
     assert_eq!(

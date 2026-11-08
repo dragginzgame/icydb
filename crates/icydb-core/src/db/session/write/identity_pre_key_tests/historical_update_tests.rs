@@ -22,13 +22,7 @@ fn row_bytes(session: &DbSession<JournaledTestCanister>, id: u64) -> Vec<u8> {
         .db
         .store_handle(JOURNALED_STORE_PATH)
         .unwrap()
-        .with_data(|data| {
-            data.get(&key)
-                .unwrap()
-                .expect("storage operation should succeed")
-                .as_bytes()
-                .to_vec()
-        })
+        .with_data(|data| data.get(&key).unwrap().as_bytes().to_vec())
 }
 
 fn historical_backfill(default: &str, target: &str, expected: Value, changed: bool) {

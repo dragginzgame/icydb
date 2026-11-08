@@ -55,27 +55,49 @@ report_repositories() (
     shopt -s nullglob dotglob
     status=0
     count=0
-    : > "$report_dir/rows"
+    repositories=()
     for repo in "$parent_root"/*; do
         [[ -d "$repo" && ! -L "$repo" && -e "$repo/.git" ]] || continue
+        repositories+=("$repo")
+    done
+    progress_width=0
+    progress_active=false
+    finish_progress() {
+        if [[ "$progress_active" == true ]]; then
+            printf '\r%*s\r' "$progress_width" '' >&2
+            progress_active=false
+        fi
+    }
+    : > "$report_dir/rows"
+    for repo in ${repositories[@]+"${repositories[@]}"}; do
         count=$((count + 1))
         name="${repo##*/}"
         case "$name" in *$'\n'*|*$'\r'*|*$'\t'*) echo 'error: repository name contains line breaks or tabs' >&2; exit 1 ;; esac
+        progress="cloc: scanning $count/${#repositories[@]} $name"
+        if [[ ${#progress} -gt "$progress_width" ]]; then progress_width=${#progress}; fi
+        printf '\r%-*s' "$progress_width" "$progress" >&2
+        progress_active=true
         result=n/a
         if ! git_root="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)" || [[ "$git_root" != "$repo" ]]; then
             result=ERROR
         elif [[ -f "$repo/Cargo.toml" ]]; then
-            printf 'cloc: scanning %s\n' "$name" >&2
-            if (cd "$repo" && bash "$ROOT/scripts/dev/cloc.sh" --json "$repo") > "$report_dir/child.json"; then
+            child_status=0
+            (cd "$repo" && bash "$ROOT/scripts/dev/cloc.sh" --json "$repo") > "$report_dir/child.json" 2> "$report_dir/child.err" || child_status=$?
+            if [[ -s "$report_dir/child.err" ]]; then
+                finish_progress
+                cat "$report_dir/child.err" >&2
+            fi
+            if [[ "$child_status" == 0 ]]; then
                 jq -cn --arg name "$name" --slurpfile report "$report_dir/child.json" \
                     '{name:$name,report:$report[0]}' >> "$report_dir/rows"
                 continue
             fi
             result=ERROR
         fi
-        if [[ "$result" == ERROR ]]; then status=1; echo "error: unable to count $repo" >&2; fi
+        if [[ "$result" == ERROR ]]; then finish_progress; status=1; echo "error: unable to count $repo" >&2; fi
         jq -cn --arg name "$name" --arg status "$result" '{name:$name,status:$status}' >> "$report_dir/rows"
     done
+    finish_progress
     [[ "$count" != 0 ]] || { echo "error: no Git checkouts found in $parent_root" >&2; exit 1; }
     jq -s --argjson partial "$status" '
         {workspaces:.,partial:($partial != 0),totals:

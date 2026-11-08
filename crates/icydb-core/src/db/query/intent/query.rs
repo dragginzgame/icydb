@@ -37,6 +37,39 @@ pub(in crate::db) struct StructuralQuery {
 }
 
 impl StructuralQuery {
+    /// Borrow the authored scalar window before the page envelope limits execution.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) const fn scalar_load_window(
+        &self,
+    ) -> Option<crate::db::query::plan::LoadSpec> {
+        match self.intent.mode() {
+            crate::db::query::plan::QueryMode::Load(window) => Some(window),
+            crate::db::query::plan::QueryMode::Delete(_) => None,
+        }
+    }
+
+    /// Move lowered syntax into the shared scalar pager without reconstructing
+    /// predicates or projections through a frontend-specific request type.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn into_scalar_cursor_page(
+        mut self,
+        schema: &SchemaInfo,
+        limit: u32,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        if self.intent.planning_access_inputs().order().is_none() {
+            self = self.order_spec(OrderSpec {
+                fields: work.copy_slice(schema.primary_key_names(), |field| {
+                    Ok(crate::db::query::plan::OrderTerm::field(
+                        work.copy_text(field)?,
+                        crate::db::query::plan::OrderDirection::Asc,
+                    ))
+                })?,
+            });
+        }
+        Ok(self.limit(limit))
+    }
+
     #[must_use]
     pub(in crate::db) const fn new(consistency: MissingRowPolicy) -> Self {
         Self {

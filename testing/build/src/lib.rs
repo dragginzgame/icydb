@@ -854,6 +854,7 @@ fn finish_maintained_canister_builds(
         format!("maintained canister build failed:\n  - Cargo Wasm batch contract failed: {error}")
     })?;
     let mut failures = cargo_report
+        .batch
         .failures()
         .filter_map(|entry| {
             entry.failure().map(|(error, details)| {
@@ -867,9 +868,9 @@ fn finish_maintained_canister_builds(
             })
         })
         .collect::<Vec<_>>();
-    let mut retained = Vec::with_capacity(cargo_report.outcomes().count());
+    let mut retained = Vec::with_capacity(cargo_report.batch.outcomes().count());
     // Upstream entries carry the identity and retained record through both stages.
-    for entry in cargo_report.into_entries() {
+    for entry in cargo_report.batch.into_entries() {
         let (index, _, outcome, _) = entry.into_parts();
         let Ok(outcome) = outcome else {
             continue;
@@ -903,7 +904,7 @@ fn finish_maintained_canister_builds(
             })
             .collect::<Vec<_>>();
         let post_link_report = cache_post_link_wasm_batch(root, &cache_root, &entries)?;
-        failures.extend(post_link_report.failures().filter_map(|entry| {
+        failures.extend(post_link_report.batch.failures().filter_map(|entry| {
             entry.failure().map(|failure| {
                 format!(
                     "post-link [{}] {} failed after {:?}: {}",
@@ -914,7 +915,7 @@ fn finish_maintained_canister_builds(
                 )
             })
         }));
-        for entry in post_link_report.into_entries() {
+        for entry in post_link_report.batch.into_entries() {
             let (index, _, outcome, _) = entry.into_parts();
             let Ok(outcome) = outcome else {
                 continue;

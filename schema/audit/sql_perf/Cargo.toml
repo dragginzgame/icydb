@@ -7,6 +7,9 @@ version = "0.303.0"
 publish = false
 description = "Dedicated SQL perf audit schema fixture crate"
 
+[package.metadata.cargo-machete]
+ignored = ["toko-tooling"]
+
 [package.metadata.shared-tooling.loc]
 category = "tests"
 
@@ -18,6 +21,9 @@ build = ["icydb/build"]
 icydb = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+toko-tooling.workspace = true
 
 [lints]
 workspace = true

@@ -98,7 +98,8 @@ fn generated_endpoint_runtime_is_private_and_contains_no_export_attributes() {
         "schema",
         "schema_migrate",
         "schema_migration",
-        "sql_query",
+        "sql_query_public",
+        "sql_query_trusted",
     ] {
         assert!(surface.contains(handler));
     }

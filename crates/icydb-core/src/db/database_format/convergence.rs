@@ -234,7 +234,7 @@ fn publish_control_replacement(
     )?;
     before_tail_initialization();
     for tail in tails {
-        tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization)?;
+        tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization);
     }
     apply_prepared_commit_control_replacement(replacement);
     Ok(())
