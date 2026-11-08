@@ -13,7 +13,6 @@ use std::{
     fmt::{self, Display},
 };
 
-use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 
 /// Current hard-cut Tier C minimized-failure artifact format.

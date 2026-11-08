@@ -24,17 +24,18 @@ const HEADER_KEY: [u8; 33] = [0; 33];
 // This persisted application header identifies IcyDB's namespace contract,
 // independently of Storage's tree framing. Retain its exact bytes
 // and validation for same-contract reopen.
-const HEADER_MAGIC: &[u8; 8] = b"ICYSCMAP";
+const HEADER_MAGIC: &[u8; 8] = b"ICYSCMID";
 const HEADER_VERSION: u8 = 1;
 const HEADER_BYTES: usize = 13;
-// One header, application receipts, store checkpoints, lineage and migration.
+// One header, receipts, paired candidate/identity records, lineage and migration.
 const MAX_RECORDS: u64 =
-    1 + MAX_SCHEMA_APPLICATION_RECORDS + icydb_schema::MAX_SCHEMA_ASSIGNMENTS as u64 + 2;
+    1 + MAX_SCHEMA_APPLICATION_RECORDS + 2 * icydb_schema::MAX_SCHEMA_ASSIGNMENTS as u64 + 2;
 
 #[derive(Clone, Copy)]
 pub(super) enum ControlRecordFamily {
     Application = 1,
     Checkpoint = 2,
+    Identity = 3,
 }
 
 pub(super) struct SchemaControlBytes(pub(super) Vec<u8>);
@@ -115,7 +116,7 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         let mut first_family = [0; 33];
         first_family[0] = 1;
         let mut after_families = [0; 33];
-        after_families[0] = 3;
+        after_families[0] = 4;
         if map
             .keys_range(HEADER_KEY..first_family)
             .map_err(InternalError::from)?

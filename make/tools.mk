@@ -17,7 +17,7 @@ LOCAL_TOOL_CHECK_TARGETS ?=
 CLOC_REPORT ?= $(SHARED_TOOLING_ROOT)/scripts/dev/cloc.sh
 CLOC_ROOT ?= $(CURDIR)
 CLOC_MANIFEST ?=
-CLOC_SUBCRATES ?= 0
+CLOC_DEPTH ?=
 export PATH := $(CURDIR)/.tools/host/bin:$(CURDIR)/.tools/rust/common/bin:$(PATH)
 
 .PHONY: install-tools tools-check install-host-tools host-tools-check install-ic-tools ic-tools-check cloc
@@ -66,7 +66,7 @@ rust-tools-check:
 
 cloc:
 	+@if [ -n "$(CLOC_MANIFEST)" ]; then \
-		bash "$(SHARED_TOOLING_ROOT)/scripts/dev/cloc.sh" $(if $(filter 1,$(CLOC_SUBCRATES)),--subcrates) --manifest "$(CLOC_MANIFEST)" "$(CLOC_ROOT)"; \
-	else bash "$(CLOC_REPORT)" $(if $(filter 1,$(CLOC_SUBCRATES)),--subcrates) "$(CLOC_ROOT)"; fi
+		bash "$(SHARED_TOOLING_ROOT)/scripts/dev/cloc.sh" $(if $(strip $(CLOC_DEPTH)),-d "$(CLOC_DEPTH)") --manifest "$(CLOC_MANIFEST)" "$(CLOC_ROOT)"; \
+	else bash "$(CLOC_REPORT)" $(if $(strip $(CLOC_DEPTH)),-d "$(CLOC_DEPTH)") "$(CLOC_ROOT)"; fi
 
 .DEFAULT_GOAL := $(_shared_tooling_default_goal)

@@ -355,7 +355,7 @@ pub(super) fn bounded_secondary_request(rows: u64) -> RequestExecutionRoot {
     )
 }
 
-fn collect_bounded_secondary_pages(
+pub(super) fn collect_bounded_secondary_pages(
     query: &DynamicQuery,
     public: bool,
     mut cursor: Option<String>,

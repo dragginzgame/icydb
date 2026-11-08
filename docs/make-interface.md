@@ -54,7 +54,8 @@ consumer snapshot to verify; `shared-tooling-check` is for adopted copies.
 
 Tooling adoption uses the [agent audit tasks](https://github.com/dragginzgame/shared-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#tooling-adoption-audit),
 not a consumer LOC target or deployment gate. `make cloc` remains the Rust LOC
-report, with `CLOC_ROOT` and optional `CLOC_SUBCRATES=1`.
+report, with `CLOC_ROOT` and optional `CLOC_DEPTH=0` for crates or larger values
+for module levels beneath them.
 
 ## Keep product policy local
 
@@ -175,9 +176,12 @@ It observes Cargo metadata and hashes source bytes; Git cleanliness or mtimes
 alone do not establish an unchanged input set. Input observation and result
 recording have their own timings, so shortcut overhead remains visible.
 The local receipt is `target/shared-tooling/formatting.receipt`. Missing, corrupt
-or unreadable bookkeeping is a miss. Incomplete discovery, custom `RUSTFMT`,
-explicit module paths, external target paths or non-workspace path dependencies disable reuse;
-normal formatting still runs. Optional derive reuse also needs `rg`; no tool is
+or unreadable bookkeeping is a miss. Cargo member selection must succeed before
+any write, even with `--no-cache`; metadata failure cannot fall back to `--all`.
+Each selected workspace formats only its explicit member packages. External path
+dependencies are not formatting inputs. Incomplete cache discovery, custom
+`RUSTFMT`, explicit module paths or external target paths disable reuse;
+owned formatting still runs. Optional derive reuse also needs `rg`; no tool is
 installed implicitly. Standard Cargo package sources, root/ancestor Cargo and
 Rustfmt configuration, toolchain inputs and derive configuration are covered.
 Module-path screening uses the shared Rust lexer and balanced attribute trees,

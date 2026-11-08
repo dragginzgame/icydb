@@ -1,0 +1,17 @@
+{
+  "approved": {
+    "sha2": "SHA-256 content/protocol identities; SHA-224 only for established external identity formats",
+    "blake3": "Existing IcyDB fingerprints and deterministic qualification data; new purposes require review",
+    "xxhash-rust": "Existing IcyDB XXH3 non-security value hashing; not integrity or authentication",
+    "hmac": "Existing HMAC-SHA-256 keyed diagnostics; not an unkeyed content hash",
+    "crc32fast": "Established external identity/checksum formats; not integrity or authentication"
+  },
+  "review_required": [
+    "sha1", "sha-1", "sha3", "keccak", "tiny-keccak", "md5", "md-5", "md4", "md-4",
+    "blake2", "blake2b_simd", "blake2s_simd", "blake2-rfc", "blake3-pure", "blake3-lite",
+    "xxhash", "twox-hash", "ahash", "rustc-hash", "fxhash", "seahash", "siphasher",
+    "crc", "crc32c", "crc64fast", "adler", "adler2", "fasthash", "highway", "wyhash",
+    "murmur3", "murmurhash3", "metrohash", "cityhash", "farmhash", "rapidhash",
+    "digest", "ring", "aws-lc-rs", "openssl", "rust-crypto"
+  ]
+}

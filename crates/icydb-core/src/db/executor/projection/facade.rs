@@ -251,7 +251,22 @@ where
     // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
-    if !distinct && scan_budget.is_none() && !continuation.has_progress() && !emit_cursor {
+    // Direct single-index projections share scalar paging, including hidden
+    // ordering slots. Specialized expression/residual/composite covering stays
+    // on its existing reader until it has the same narrow admission proof.
+    let scalar_covering = prepared_plan
+        .projection_covering_read_execution_plan()
+        .is_some()
+        && prepared_plan
+            .authority_ref()
+            .covering_retained_fields(prepared_plan.logical_plan(), &[])
+            .is_some();
+    if !scalar_covering
+        && !distinct
+        && scan_budget.is_none()
+        && !continuation.has_progress()
+        && !emit_cursor
+    {
         let covering = prepared_plan.projection_covering_read_execution_plan();
         let index_prefix_specs = prepared_plan.index_prefix_specs();
         let index_range_specs = prepared_plan.index_range_specs();

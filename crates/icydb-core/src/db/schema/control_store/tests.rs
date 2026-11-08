@@ -13,7 +13,9 @@ fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
     let mut checkpoint =
         SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Checkpoint)
             .unwrap();
-    // Interleave enough writes to split the root through both retained views.
+    let mut identity =
+        SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Identity).unwrap();
+    // Interleave enough writes to split the root through all retained views.
     for key in 0..40_u8 {
         application
             .insert([key; 32], SchemaControlBytes(vec![key; 40]))
@@ -21,6 +23,9 @@ fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
         checkpoint
             .insert([key; 32], SchemaControlBytes(vec![key + 1; 40]))
             .expect("fixture storage operation should succeed");
+        identity
+            .insert([key; 32], SchemaControlBytes(vec![key + 2; 40]))
+            .unwrap();
     }
     assert_eq!(
         (application.len()).expect("storage operation should succeed"),
@@ -31,6 +36,7 @@ fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
         40
     );
     assert_eq!(application.keys().expect("fixture keys").count(), 40);
+    assert_eq!(identity.len().unwrap(), 40);
     for key in 0..40_u8 {
         assert_eq!(
             application.get(&[key; 32]).unwrap().unwrap().0,
@@ -39,6 +45,10 @@ fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
         assert_eq!(
             checkpoint.get(&[key; 32]).unwrap().unwrap().0,
             vec![key + 1; 40]
+        );
+        assert_eq!(
+            identity.get(&[key; 32]).unwrap().unwrap().0,
+            vec![key + 2; 40]
         );
         application.remove(&[key; 32]).unwrap();
     }
@@ -63,6 +73,7 @@ fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
         40
     );
     assert_eq!(reopened.get(&[3; 32]).unwrap().unwrap().0, vec![4; 40]);
+    drop(identity);
     drop(application);
     drop(checkpoint);
     drop(reopened);
@@ -90,6 +101,7 @@ fn absent_control_inspection_preserves_marker_region_without_allocating() {
     for family in [
         ControlRecordFamily::Application,
         ControlRecordFamily::Checkpoint,
+        ControlRecordFamily::Identity,
     ] {
         assert!(
             SchemaControlMap::<[u8; 32]>::open_existing(memory.clone(), family)
@@ -146,7 +158,7 @@ fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing(
         memory.read(offset, &mut observed);
         assert_eq!(observed, [byte]);
     }
-    for tag in [0, 3] {
+    for tag in [0, 4] {
         let memory = Rc::new(test_memory(243));
         let mut view =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
@@ -172,4 +184,28 @@ fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing(
         SchemaControlMap::<[u8; 32]>::open_existing(memory, ControlRecordFamily::Application)
             .is_err()
     );
+}
+
+#[test]
+fn prior_control_header_is_refused_without_reinitializing_records() {
+    let memory = Rc::new(test_memory(243));
+    let mut view =
+        SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
+            .unwrap();
+    view.insert([7; 32], SchemaControlBytes(vec![19; 32]))
+        .unwrap();
+    let mut header = view.map.get(&HEADER_KEY).unwrap().unwrap();
+    header.0[..8].copy_from_slice(b"ICYSCMAP");
+    let checksum = crc32c(&header.0[..9]).to_le_bytes();
+    header.0[9..].copy_from_slice(&checksum);
+    let before = header.0.clone();
+    view.map.insert(HEADER_KEY, header).unwrap();
+    let pages = memory.size();
+    assert!(
+        SchemaControlMap::<[u8; 32]>::open_existing(memory.clone(), ControlRecordFamily::Identity)
+            .is_err()
+    );
+    assert_eq!(view.map.get(&HEADER_KEY).unwrap().unwrap().0, before);
+    assert_eq!(view.get(&[7; 32]).unwrap().unwrap().0, vec![19; 32]);
+    assert_eq!(memory.size(), pages);
 }

@@ -17,7 +17,7 @@
         _ci-format _ci-core-no-default-check _ci-core-no-default-test \
         _ci-core-sql-check _ci-core-sql-clippy \
         _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests _ci-adapter-workspace-clippy _ci-adapter-workspace-tests \
-        _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
+        _ci-tier-a-sqlite _ci-tier-a-mutation \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
         print-cargo-home print-cargo-target-dir check-dependency-pins check-rust-compiler \
         _icydb-ic-tool-policy install-testkit testkit-check install-release-editor release-editor-check
@@ -286,7 +286,7 @@ test-cli:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-cli --all-targets
 
 # Composition is an explicit consumer gate, independent of product validation.
-.PHONY: test-adapter validate-adapter clippy-adapter fmt-adapter fmt-adapter-check ci-adapter ci-adapter-sql-tier-a check-adapter-automation _test-adapter-workspace _test-adapter-documentation _ci-adapter-feature-clippy
+.PHONY: test-adapter validate-adapter clippy-adapter fmt-adapter fmt-adapter-check ci-adapter check-adapter-automation _test-adapter-workspace _test-adapter-documentation _ci-adapter-feature-clippy
 
 test-adapter:
 	+$(ADAPTER_VALIDATION_RUNNER) _test-adapter-workspace _test-adapter-contracts _test-canister-libs test-canister-artifact-contract
@@ -728,13 +728,6 @@ _ci-tier-a-mutation:
 	+$(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
 		--no-default-features --features sql \
 		db::session::tests::tier_c_reference::tier_a_native_mutation_reference --verbose
-
-ci-adapter-sql-tier-a:
-	+$(ADAPTER_VALIDATION_RUNNER) _ci-tier-a-integration
-
-_ci-tier-a-integration:
-	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(ADAPTER_MANIFEST_FLAG) --locked --no-fail-fast \
-		-p icydb-testing-integration --test sql_correctness --verbose
 
 ci-sql-tier-b:
 	+TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$(POCKET_IC_BIN)" $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) \

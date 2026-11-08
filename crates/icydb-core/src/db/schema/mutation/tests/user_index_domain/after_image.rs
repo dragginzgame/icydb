@@ -250,16 +250,12 @@ fn commit_metadata_shares_predicate_pairs_across_field_and_expression_indexes() 
 
 #[test]
 fn reused_index_metadata_tracks_partial_membership_for_both_index_families() {
-    let gate = PersistedFieldSnapshot::new_initial(
-        FieldId::new(3),
-        "enabled".into(),
-        SchemaFieldSlot::new(2),
+    let gate = PersistedFieldSnapshot::new_initial_test_field(
+        3,
+        "enabled",
+        2,
         AcceptedFieldKind::Bool,
-        Vec::new(),
         true,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Bool),
     );
     let base = append_fields_snapshot(&base_snapshot(), &[gate]);
     let predicate = Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(

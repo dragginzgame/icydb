@@ -20,6 +20,11 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   Choose and maintain its next-version heading automatically under the rules
   below; do not wait for a separate changelog or version-number request.
   Another compatible implementation slice extends that draft.
+  A pending note does not require immediate publication. Private-only group
+  maintenance follows the
+  [publication-impact decision](../docs/releases.md#decide-whether-publication-is-needed);
+  keep its note pending for the next actual release without bumping member
+  versions or inventing a published entry.
 - Omit formatting-only churn, incidental internal renames, routine test runs
   and governance-only edits unless they change a maintained surface or the
   maintainer explicitly requests a release note. Meaningful coverage or test

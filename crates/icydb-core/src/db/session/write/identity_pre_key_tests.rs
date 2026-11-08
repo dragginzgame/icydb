@@ -1,3 +1,4 @@
+mod bulk_write_tests;
 mod cardinality_folds;
 mod commit_identity_tests;
 #[cfg(feature = "sql")]
@@ -331,16 +332,12 @@ fn identity_snapshot_for_entity(
         ),
     ];
     if relation_target.is_some() {
-        fields.push(PersistedFieldSnapshot::new_initial(
-            FieldId::new(3),
-            "target_id".to_string(),
-            SchemaFieldSlot::new(2),
+        fields.push(PersistedFieldSnapshot::new_initial_test_field(
+            3,
+            "target_id",
+            2,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
             true,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         ));
     }
     let mut index_fields = vec![PersistedIndexFieldPathSnapshot::new(

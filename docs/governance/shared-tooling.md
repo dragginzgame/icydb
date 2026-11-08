@@ -7,9 +7,9 @@ and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical note
 
 ## Ownership and provenance
 
-IcyDB selects the **0.31.5 committed snapshot** at
-`b2026a118e38de4af1555c527af327cb604eacdf`. The canonical revision-selected
-exporter installed it without modifying supplier files; all **159 payloads**
+IcyDB selects the **0.31.11 committed snapshot** at
+`6c529e6940a97226cca826726491e03173b08cd2`. The canonical revision-selected
+exporter installed it without modifying supplier files; all **162 payloads**
 verify against the selected commit and modes. This is a source-snapshot adoption,
 not a claim that a supplier release tag exists. Rust **1.99.1** remains both the
 minimum in the two workspace manifests and the pinned development compiler.
@@ -17,11 +17,19 @@ No IcyDB package versions or release state change in this snapshot refresh;
 the published database and retained batches are preserved. Dependency selections
 are recorded below.
 
-The current refresh adds the release-batch guide to the export closure and
-isolates inherited release settings in the command checker while substituting
-both runner layers. Four payloads change from 0.31.3; all 159 payloads match the
-reviewed committed source and modes. This does not requalify selected-stage
-omissions or native macOS hosts for the new dependency cohort.
+The current 0.31.11 refresh adopts issue closure after implementation, focused
+validation and the owning group changelog link. Record uncommitted/unpushed/
+unpublished state explicitly; general release gates are separate. Actual installed,
+host-specific or measurement outcomes keep their specific evidence obligations.
+Completed producer fixes do not wait for separately owned consumer adoption.
+
+The preceding 0.31.10 refresh scopes formatting to explicit Cargo members, adds LOC depth
+and crate/module selection, and restores/saves authenticated CI tool downloads
+through the Shared action. IcyDB's main static job owns one redacted full-history
+Gitleaks scan; host, adapter and release-group jobs do not duplicate it. Rust lanes
+use separate download-cache keys where their tool selections differ. The preceding
+0.31.6 hashing inventory remains in force. These changes do not qualify selected
+release-stage omissions or native macOS hosts for the new dependency cohort.
 
 The database 0.301.0 deployment exposed the upstream checksum helper's Bash 3.2
 parse failure in both macOS hosts. This canonical refresh restores system-Bash
@@ -147,7 +155,46 @@ default to `target/evidence/`. Release/recovery records, saved review inputs,
 package versions and dependency selections are preserved. See the
 [report retention policy](../reports/README.md).
 
-### Current 0.302 cohort (2026-11-07)
+### Current 0.303 cohort (2026-11-08)
+
+Shared **0.31.11** is adopted at reviewed GitHub commit
+`6c529e6940a97226cca826726491e03173b08cd2` through the canonical exporter;
+all **162** payloads, modes and source bindings verify. Its explicit Cargo-member
+formatter, LOC depth/module selectors and authenticated download-cache action are
+wired into the actual consumer commands and workflows. The existing direct BLAKE3
+1.8.7 ownership and independent Canic boundary remain unchanged.
+
+Build **0.79.0** is selected from clean published source
+`e3e514f09bc45b3ebf6c2d1cb8e2d4e8973554f4`, registry checksum
+`fd1623af0c35840ce4678271b14d6a82a19245de3aaf59bd0ff0f0e3286e788a`.
+Single and batch Wasm acquisitions now use the same specification-owned target
+maintenance policy; Build coalesces it per canonical batch target. Remove the
+consumer's obsolete batch configuration and single/batch policy switch. Host
+Tools **0.86.0** and Host Artifacts/Fs/Process **0.75.0** were already current.
+Host Text's declared floor now matches the already-selected **0.74.3** patch.
+
+Testkit **0.93.1** is selected from clean published source
+`f494ea2d08e14959ed0e067742839385d05a3f62`, registry checksum
+`5535b541aecaa279a17a600c647bdebb9c727ec877d0b8327254e406a556b5e2`.
+It retains the 0.93 public API and changes server acquisition to GitHub's official
+asset API. Testkit alone retains provisioning, admission, deadlines and lifecycle.
+The independent Canic manifest/lock and their retained server selection are not
+advanced by this root/native-tool adoption. Incoming Runtime, Storage and Wire
+patch selections are preserved.
+
+The maintainer authorized 0.303 after database 0.302.0 and CLI 0.296.4 were
+published with complete local release gates. The initial adoption selected Testkit **0.93.0**
+from source `91bc66f4285f85d8584a21b27abbb783f4162901` and Host Tools **0.86.0**
+from source `b5543ed3c4021d5a12435322e736d1e76f8a177a`. Testkit owns the
+structured CBOR error kind; Host Tools owns bounded Candid decode limits.
+No current IcyDB caller matches the retired tuple or passes Platform-owned
+decode limits. Both suppliers now use Platform 0.25, removing Platform 0.24
+from the root graph. Runtime 0.20 and Types 0.18.2 remain single identities.
+The isolated Canic qualification manifest/lock retain their approved stack
+under #373. Product package versions remain unchanged during implementation.
+The [0.303 tracker](../design/0.303-native-cohort/status.md) records acceptance.
+
+### Delivered 0.302 cohort (2026-11-07)
 
 The root catalog selects Build **0.78.0**, Host Artifacts/Fs/Process **0.75.0**,
 Host Tools **0.85.0**, Platform **0.25.0**, Storage **0.68.7**, Wire/Derive

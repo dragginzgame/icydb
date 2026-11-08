@@ -111,38 +111,20 @@ fn source_key(source: &str) -> FieldSourceKey {
 
 fn relation_snapshot() -> PersistedSchemaSnapshot {
     let fields = vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false),
+        PersistedFieldSnapshot::new_initial_test_field(
+            2,
+            "parent_id",
+            1,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        ),
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(2),
-            "parent_id".to_string(),
-            SchemaFieldSlot::new(1),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
             true,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         ),
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(3),
-            "code".to_string(),
-            SchemaFieldSlot::new(2),
+        PersistedFieldSnapshot::new_initial_test_field(
+            3,
+            "code",
+            2,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         ),
     ];
     let relation = PersistedRelationEdgeSnapshot::new_direct(
@@ -193,38 +175,20 @@ fn relation_snapshot() -> PersistedSchemaSnapshot {
 
 fn other_snapshot() -> PersistedSchemaSnapshot {
     let fields = vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false),
+        PersistedFieldSnapshot::new_initial_test_field(
+            2,
+            "value",
+            1,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         ),
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(2),
-            "value".to_string(),
-            SchemaFieldSlot::new(1),
+        PersistedFieldSnapshot::new_initial_test_field(
+            3,
+            "node_id",
+            2,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        ),
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(3),
-            "node_id".to_string(),
-            SchemaFieldSlot::new(2),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
             true,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         ),
     ];
     let relation = PersistedRelationEdgeSnapshot::new_direct(
@@ -258,17 +222,7 @@ fn other_snapshot() -> PersistedSchemaSnapshot {
 
 fn bounded_entity_snapshot(index: usize) -> PersistedSchemaSnapshot {
     let fields = vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        ),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false),
         PersistedFieldSnapshot::new_initial_with_write_policy(
             FieldId::new(2),
             "updated_at".to_string(),
@@ -301,17 +255,8 @@ fn bounded_entity_snapshot(index: usize) -> PersistedSchemaSnapshot {
 }
 
 fn cross_store_snapshot() -> PersistedSchemaSnapshot {
-    let field = PersistedFieldSnapshot::new_initial(
-        FieldId::new(1),
-        "id".to_string(),
-        SchemaFieldSlot::new(0),
-        AcceptedFieldKind::Nat64,
-        Vec::new(),
-        false,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Nat64),
-    );
+    let field =
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false);
     PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         CROSS_ENTITY_SOURCE.to_string(),

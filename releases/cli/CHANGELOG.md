@@ -3,6 +3,29 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.5]
+
+### 🩹 Fixed
+
+- Include migration phase and captured child output when process-test outcome
+  assertions fail, and retain signal/readiness/output context in cancellation
+  controls, making intermittent failures diagnosable
+  ([#599 — CLI process failure diagnosis](https://github.com/dragginzgame/icydb/issues/599)).
+
+### 🔧 Changed
+
+- Adopt Shared 0.31.11: close locally implemented, focused-validated issues
+  separately from delivery, retaining issue-specific external acceptance.
+- Adopt Shared 0.31.10's scoped formatting, richer LOC selection and CI download
+  caching, with one repository-wide secret scan. Align Host Text's declared floor
+  with its existing 0.74.3 selection; CLI commands and output are unchanged.
+- Adopt Host Tools 0.86 with owner-defined bounded Candid decode limits and
+  Platform 0.25, preserving CLI commands and output.
+- Adopt Shared 0.31.6's hashing inventory and guard; qualify the Cargo-adoption
+  fixture with the checker's complete companion files.
+
+[Detailed changes](0.296.md).
+
 ## [0.296.4] - 2026-11-07
 
 ### 🩹 Fixed

@@ -163,7 +163,7 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
     and (run_text|contains("bash scripts/ci/testkit-runner.sh\n"))
     and (run_text|contains("bash scripts/ci/testkit-runner.sh --check")));
     "adapter static fixtures require explicit CLI preparation/admission"),
-  (.jobs.rust | matrix_routes([["workspace","ci-adapter"],["tier-a","ci-adapter-sql-tier-a"],["tier-b","ci-sql-tier-b"]])),
+  (.jobs.rust | matrix_routes([["workspace","ci-adapter"],["tier-b","ci-sql-tier-b"]])),
   require(.jobs.static | has_run("^\\s*make check-adapter-automation\\s*$"); "adapter automation needs its local owner"),
   require(.jobs.wire_browser | has_run("^\\s*make test-wire-browser\\s*$"); "installed browser qualification must remain selected"),
   require(.jobs.check | needs_are(["static","rust","macos_host","wire_browser"]); "adapter check must aggregate its own proof"),

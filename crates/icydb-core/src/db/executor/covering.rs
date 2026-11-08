@@ -35,7 +35,7 @@ pub(in crate::db::executor) use crate::db::index::decode_covering_projection_com
 
 type RawIndexBounds<'a> = (&'a Bound<RawIndexStoreKey>, &'a Bound<RawIndexStoreKey>);
 
-fn read_row_presence_with_consistency_from_data_store(
+pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_store(
     data: &DataStore,
     key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,

@@ -359,6 +359,25 @@ Host and IC setup attempt both lock releases on exit, even if checkout cleanup
 fails. An installation failure keeps its original status and retained candidate;
 a cleanup-only failure also returns nonzero. Inspect any remaining lock before
 retrying, even when the selected bundle was successfully activated.
+Hosted CI should restore pinned asset downloads **before** installing host or CI
+tools. Use the shared [download-cache action](../.github/actions/cache-tool-downloads/action.yml)
+once with its default `mode: restore`, then `mode: save` immediately after
+successful setup, before compilation/tests. Saves are restricted to default-branch
+pushes; PR jobs may read. The common-tools action does this when `cache: true`
+is selected; callers installing tools earlier must restore before that earlier
+step. Do not repeat cache setup for each release group.
+
+The action sets `SHARED_TOOLING_DOWNLOAD_CACHE` to a runner-temporary directory.
+Assets are addressed by their pinned SHA-256 and authenticated before reuse or
+extraction; corrupt entries are downloaded again, and failed/unverified downloads
+are never cached. Installer version/probe checks still run. Cache service failures
+fall back to ordinary bounded downloads. Cache keys cover host, job and the pin
+catalogs/Makefile, without commit IDs. Custom pin paths must be included in the
+caller's `extra-key` fingerprint (common setup forwards `cache-extra-key`). Local setup creates no additional archive cache unless
+this variable is explicitly set; that directory is disposable in full.
+A cold cache plus an unavailable upstream can still block setup; retain the
+infrastructure-failure diagnosis rather than mark qualification successful.
+
 Explicit host, IC and CI asset downloads use curl's transient retry classification,
 with at most three retries, a two-second delay and a 60-second retry-start window.
 Each attempt keeps its 15-second connection and 300-second transfer limits;

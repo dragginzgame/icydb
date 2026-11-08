@@ -1,5 +1,6 @@
 mod batch_admission_tests;
 mod binding_diagnostics_tests;
+mod bulk_admission_tests;
 mod incarnation_tests;
 mod input_handoff_tests;
 
@@ -16,9 +17,8 @@ use crate::{
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
             AcceptedSchemaRevision, FieldId, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaInsertDefault,
-            SchemaRowLayout, SchemaStore, SchemaVersion,
-            accepted_schema_candidate_with_field_bindings_for_tests,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
+            SchemaStore, SchemaVersion, accepted_schema_candidate_with_field_bindings_for_tests,
         },
     },
     traits::{CanisterKind, Path},
@@ -124,17 +124,7 @@ thread_local! {
 }
 
 fn nat64_field(id: u32, name: &str, slot: u16) -> PersistedFieldSnapshot {
-    PersistedFieldSnapshot::new_initial(
-        FieldId::new(id),
-        name.to_string(),
-        SchemaFieldSlot::new(slot),
-        AcceptedFieldKind::Nat64,
-        Vec::new(),
-        false,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Nat64),
-    )
+    PersistedFieldSnapshot::new_initial_test_field(id, name, slot, AcceptedFieldKind::Nat64, false)
 }
 
 fn snapshot(

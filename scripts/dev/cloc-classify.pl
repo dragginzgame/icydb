@@ -28,13 +28,99 @@ sub write_file { open my $f, '>', $_[0] or die "write $_[0]: $!\n"; print {$f} $
 sub zero { return {map {$_ => 0} (@categories, 'total')}; }
 sub add { my ($to,$from)=@_; $to->{$_} += $from->{$_} for (@categories,'total'); }
 sub safe_label { my $s=shift; $s =~ s/([\x00-\x1f\x7f])/sprintf('\\x%02x',ord($1))/ge; return $s; }
+
+# Reuse the classified file counts: presentation must never recount source or
+# change category attribution. Merge foo.rs with foo/ and foo/mod.rs naturally.
+sub module_parts {
+    my ($crate,$file)=@_;
+    my $path=$file->{path};
+    my @parts;
+    if (index($path,"$crate->{root}/")==0) {
+        $path=substr($path,length($crate->{root})+1);
+        if ($path =~ s{\Asrc/}{}) {
+            $path =~ s{\A(?:lib|main)\.rs\z}{};
+        }
+        $path =~ s{(?:\A|/)mod\.rs\z}{};
+        $path =~ s{\.rs\z}{};
+        @parts=length($path) ? split(m{/},$path) : ();
+    } else { $path =~ s{\.rs\z}{}; @parts=('(external)', $path); }
+    return @parts;
+}
+sub module_rows {
+    my ($crate,$records,$depth)=@_;
+    my $tree={children=>{},counts=>zero()};
+    for my $file (@$records) {
+        my @parts=module_parts($crate,$file);
+        if (defined $crate->{module_prefix}) {
+            splice @parts,0,scalar(@{$crate->{module_prefix}});
+        }
+        my $node=$tree;
+        splice @parts,$depth if @parts>$depth;
+        for my $part (@parts) {
+            $node=$node->{children}{$part}//={children=>{},counts=>zero()};
+            add($node->{counts},$file->{counts});
+        }
+    }
+    my (@rows,@pending);
+    @pending=map {[$_,$tree->{children}{$_},1]} reverse sort keys %{$tree->{children}};
+    while (my $entry=pop @pending) {
+        my ($label,$node,$level)=@$entry;
+        push @rows,[('  ' x ($level+1)).safe_label($label),$node->{counts}];
+        next if $level >= $depth || !keys %{$node->{children}};
+        push @pending,map {[$_,$node->{children}{$_},$level+1]} reverse sort keys %{$node->{children}};
+    }
+    return @rows;
+}
+if (($ARGV[0] // '') eq '--select') {
+    shift;
+    @ARGV==2 or die "usage: --select REPORT CRATE[::MODULE]\n";
+    my $r=$json->decode(read_file(shift));
+    my $selection=shift;
+    my ($name,@prefix)=split /::/,$selection,-1;
+    !grep { !length($_) || /[^a-zA-Z0-9_-]/ } ($name,@prefix)
+        or die "invalid crate/module selector: $selection\n";
+    my ($crate)=grep {$_->{crate} eq $name} @{$r->{crates}};
+    $crate or die "unknown workspace crate: $name\n";
+    my @files=grep {
+        my @parts=module_parts($crate,$_);
+        my $matches=$_->{crate} eq $name && @parts>=@prefix;
+        for my $i (0..$#prefix) { $matches=0 if !defined($parts[$i]) || $parts[$i] ne $prefix[$i]; }
+        $matches;
+    } @{$r->{files}};
+    @files || !@prefix or die "unknown source module: $selection\n";
+    my $counts=zero(); add($counts,$_->{counts}) for @files;
+    $crate->{counts}=$counts;
+    $crate->{module_prefix}=\@prefix;
+    $r->{selection}=$selection;
+    $r->{crates}=[$crate]; $r->{files}=\@files; $r->{totals}=$counts;
+    my %paths=map {$_->{path}=>1} @files;
+    $r->{diagnostics}=[grep {$paths{$_->{path}}} @{$r->{diagnostics}}];
+    print $json->encode($r),"\n";
+    exit;
+}
 if (($ARGV[0] // '') eq '--table') {
-    shift; my $r=$json->decode(read_file(shift)); my $expand=shift // '';
+    shift; my $r=$json->decode(read_file(shift));
+    !@ARGV || (@ARGV==2 && $ARGV[0] eq '-d' && $ARGV[1] =~ /\A(?:0|[1-9][0-9]{0,5})\z/)
+        or die "usage: cloc-classify.pl --table REPORT [-d DEPTH]\n";
+    my $depth=@ARGV ? $ARGV[1] : undef;
     my @rows;
     for my $w (@{$r->{workspaces} // [{name=>basename(dirname($r->{manifest})),report=>$r}]}) {
         if ($w->{report}) {
-            push @rows, [safe_label($w->{name}), $w->{report}{totals}];
-            push @rows, map {['  '.safe_label($_->{crate}),$_->{counts}]} @{$w->{report}{crates}} if $expand eq '--subcrates';
+            push @rows, [safe_label($w->{report}{selection} // $w->{name}), $w->{report}{totals}];
+            if (defined $depth) {
+                my %files_by_crate;
+                if ($depth) {
+                    push @{$files_by_crate{$_->{crate}}},$_ for @{$w->{report}{files}};
+                }
+                for my $crate (@{$w->{report}{crates}}) {
+                    push @rows,['  '.safe_label($crate->{crate}),$crate->{counts}] unless $w->{report}{selection};
+                    if ($depth) {
+                        my @modules=module_rows($crate,$files_by_crate{$crate->{crate}} // [],$depth);
+                        if ($w->{report}{selection}) { $_->[0] =~ s/^  // for @modules; }
+                        push @rows,@modules;
+                    }
+                }
+            }
         } else { push @rows, [safe_label($w->{name}), {map {$_=>$w->{status}} (@categories,'total')}]; }
     }
     my $aggregate=exists $r->{workspaces};
@@ -63,7 +149,7 @@ if (($ARGV[0] // '') eq '--table') {
     }
     exit;
 }
-@ARGV == 3 or die "usage: cloc-classify.pl METADATA MANIFEST SCRATCH | --table REPORT [--subcrates]\n";
+@ARGV == 3 or die "usage: cloc-classify.pl METADATA MANIFEST SCRATCH | --table REPORT [-d DEPTH]\n";
 my ($metadata_file,$manifest);
 ($metadata_file,$manifest,$scratch)=@ARGV;
 my $metadata=$json->decode(read_file($metadata_file));
@@ -399,4 +485,4 @@ for my $f (sort keys %files) {
 }
 my $totals=zero(); add($totals,$_) for values %package_counts;
 my %seen; @diagnostics=grep {!$seen{"$_->{path}\0$_->{reason}"}++} @diagnostics;
-print $json->encode({schema=>2,manifest=>$manifest,crates=>[map {{crate=>$_->{name},counts=>$package_counts{$_->{name}}}} @packages],totals=>$totals,files=>\@records,diagnostics=>\@diagnostics}),"\n";
+print $json->encode({schema=>2,manifest=>$manifest,crates=>[map {{crate=>$_->{name},root=>dirname($_->{manifest_path}),counts=>$package_counts{$_->{name}}}} @packages],totals=>$totals,files=>\@records,diagnostics=>\@diagnostics}),"\n";

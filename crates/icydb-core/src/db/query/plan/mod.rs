@@ -68,7 +68,7 @@ pub(in crate::db) use covering::covering_hybrid_projection_execution_plan_with_s
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
     CoveringReadExecutionPlan, covering_read_execution_plan_with_schema_info,
-    covering_strict_predicate_compatible,
+    covering_retained_fields_with_schema_info, covering_strict_predicate_compatible,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use covering::{

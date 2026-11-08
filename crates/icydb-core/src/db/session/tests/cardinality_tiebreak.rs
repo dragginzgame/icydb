@@ -8,6 +8,7 @@ mod bundle_preparation;
 mod casefold_filters;
 mod catalogue_ranges;
 mod composite_primary_keys;
+mod covering_pages;
 mod cursor_entropy;
 mod full_row_traversal;
 mod historical_field_paths;
@@ -1992,19 +1993,7 @@ fn projection_rows<C: CanisterKind>(session: &DbSession<C>, sql: &str) -> Vec<Ve
 }
 
 fn field(id: u32, name: &str, slot: u16, kind: AcceptedFieldKind) -> PersistedFieldSnapshot {
-    let storage_decode = FieldStorageDecode::ByKind;
-    let leaf_codec = kind.leaf_codec_for_storage(storage_decode);
-    PersistedFieldSnapshot::new_initial(
-        FieldId::new(id),
-        name.to_string(),
-        SchemaFieldSlot::new(slot),
-        kind,
-        Vec::new(),
-        false,
-        SchemaInsertDefault::None,
-        storage_decode,
-        leaf_codec,
-    )
+    PersistedFieldSnapshot::new_initial_test_field(id, name, slot, kind, false)
 }
 
 fn index(

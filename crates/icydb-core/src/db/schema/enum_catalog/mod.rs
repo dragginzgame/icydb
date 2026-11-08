@@ -50,7 +50,8 @@ pub(in crate::db::schema) use publication::decode_accepted_schema_revision_bundl
 pub(in crate::db::schema) use publication::{
     ACCEPTED_SCHEMA_ROOT_BYTES, AcceptedSchemaBundleKey, AcceptedSchemaPublicationError,
     AcceptedSchemaRoot, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES, MAX_SCHEMA_STORE_PATH_BYTES,
-    decode_verified_accepted_schema_revision_bundle, prepare_accepted_schema_root_publication,
+    decode_accepted_schema_root, decode_verified_accepted_schema_revision_bundle,
+    encode_accepted_schema_root, prepare_accepted_schema_root_publication,
     select_current_accepted_schema_root,
 };
 pub(in crate::db) use publication::{

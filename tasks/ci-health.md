@@ -11,21 +11,15 @@ evidence. Pending or absent checks are not success.
 
 Review existing issues, discussions and linked PRs for those findings. Check
 active ownership before proposing new work. Apply the maintenance procedure's
-delivery reconciliation: close producer issues on delivered producer work and
-required qualification, and consumer issues on verified consumer adoption.
-An upstream fix alone does not prove downstream adoption. Keep outstanding
-consumer work in linked owning issues, retiring redundant coordination trackers
-with an explicit handoff. Pending required native checks remain open at their
-owner; do not duplicate them across producer and consumer trackers.
-
-Use the latest delivered version containing the maintained behavior and its
-latest applicable complete required matrix for routine acceptance. Confirm the
-behavior and relevant coverage still exist before closing superseded issues.
-Replace obsolete run links/pending statuses in current issue descriptions with
-this evidence, preserving historical comments and logs. Retain an older run as
-an active gate only with its exact source, a version-specific reason and the
-required action, following the maintenance procedure. A draft or incomplete
-current run does not qualify. Newer success never retroactively passes old code.
+closure policy: ordinary fixes close after implementation and focused validation,
+with their local/delivery state stated explicitly. Do not wait for publication,
+deployment or a full matrix merely because CI inspection is part of this task.
+For issues whose outcome specifically requires hosted/native/deployment evidence,
+verify the applicable source and required checks; missing evidence is not success.
+An unrelated setup failure does not block closure of another locally proven fix.
+An upstream fix alone does not prove downstream adoption. Keep concrete consumer
+work in its owning issues and retire redundant coordination trackers with a handoff.
+Preserve historical comments and logs without claiming old code passed newer checks.
 
 Return failing job, tested SHA, run URL, concrete error and smallest next action,
 plus a short ordered list of actionable issues. An unchanged known failure needs

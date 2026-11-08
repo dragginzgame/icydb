@@ -25,17 +25,12 @@ fn principals() -> Vec<Principal> {
 }
 
 fn principal_field(id: u32, name: &str, slot: u16, nullable: bool) -> PersistedFieldSnapshot {
-    let kind = AcceptedFieldKind::Principal;
-    PersistedFieldSnapshot::new_initial(
-        FieldId::new(id),
-        name.into(),
-        SchemaFieldSlot::new(slot),
-        kind.clone(),
-        Vec::new(),
+    PersistedFieldSnapshot::new_initial_test_field(
+        id,
+        name,
+        slot,
+        AcceptedFieldKind::Principal,
         nullable,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        kind.leaf_codec_for_storage(FieldStorageDecode::ByKind),
     )
 }
 

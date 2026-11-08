@@ -370,6 +370,12 @@ Callers must pass it back unchanged and must not reconstruct continuation from
 physical iteration order. Use live pages for ordinary browsing and exhaustive
 pages plus their unchanged `ReadSetRevisionProof` for complete-set work.
 
+Eligible non-DISTINCT direct covering reads over one ordered index prefix or
+range use this same scalar pager. The retained layout includes hidden order and
+primary-key suffix fields even when they are absent from the outward projection.
+Index payloads supply recoverable values; authoritative row presence still gates
+emission. Unsupported residuals or payload kinds retain the canonical row reader.
+
 ### Semantic Contract (Non-Negotiable)
 
 These constraints are binding for all future work in the query engine:
@@ -534,6 +540,6 @@ collection identity and arithmetic conversion retain their separate contracts.
 Literal normalization and fingerprint encoding may use Decimal only when that
 conversion preserves the exact compared value.
 
-Database boot identity `ICYDBNX\0` and cursor identity `ICYN`, both version 1, reject previous images/tokens; no
+Database boot identity `ICYDBID\0` and cursor identity `ICYN`, both version 1, reject previous images/tokens; no
 legacy interpretation or automatic deletion is performed. Same-format recovery
 retains its existing contract.

@@ -21,9 +21,9 @@ use ic_build::artifacts::{
     ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCacheSpec,
     CacheRetentionLimits, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    WasmBuildBatchConfig, WasmBuildBatchContractError, WasmBuildBatchProgressEvent,
-    WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent,
-    WasmBuildSpec, build_artifact_caches_batch, build_wasm_canisters_cached_batch,
+    WasmBuildBatchContractError, WasmBuildBatchProgressEvent, WasmBuildBatchReport,
+    WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildSpec,
+    build_artifact_caches_batch, build_wasm_canisters_cached_batch,
     build_wasm_canisters_cached_with_progress,
 };
 use ic_build::cargo::{environment::ConfigurationLimits, selection::CargoSelection};
@@ -87,7 +87,6 @@ pub(crate) fn build_cached_cargo_wasm(
         request.packages,
         request.selection,
         request.encoded_rustflags,
-        true,
     );
 
     let outcome = build_wasm_canisters_cached_with_progress(
@@ -118,7 +117,6 @@ pub(crate) fn cargo_wasm_batch_specs(
                     &[entry.package],
                     entry.selection,
                     entry.encoded_rustflags,
-                    false,
                 ),
             )
         })
@@ -128,12 +126,9 @@ pub(crate) fn cargo_wasm_batch_specs(
 pub(crate) fn build_cached_cargo_wasm_batch(
     specs: &[LabeledWasmBuildSpec],
 ) -> Result<WasmBuildBatchReport, WasmBuildBatchContractError> {
-    let batch_config = WasmBuildBatchConfig::new()
-        .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
     let mut observer = report_wasm_build_batch_progress;
     let report = build_wasm_canisters_cached_batch(
         specs,
-        batch_config,
         Some((wasm_build_progress_config(), &mut observer)),
         |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )?;
@@ -153,7 +148,6 @@ pub(crate) fn cargo_wasm_spec(
     packages: &[&str],
     selection: &CargoSelection,
     encoded_rustflags: Option<&str>,
-    integrated_shared_target_maintenance: bool,
 ) -> WasmBuildSpec {
     // Build clears child inheritance. Select the caller's environment once so
     // probes, compilation and the retained fingerprint observe the same inputs.
@@ -167,7 +161,7 @@ pub(crate) fn cargo_wasm_spec(
             OsString::from(rustflags),
         );
     }
-    let mut spec = WasmBuildSpec::new(
+    WasmBuildSpec::new(
         workspace_root,
         target_dir,
         packages,
@@ -176,13 +170,10 @@ pub(crate) fn cargo_wasm_spec(
     )
     .with_cargo_selection(selection.clone())
     .with_shared_incremental_target(target_dir)
-    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
-    if integrated_shared_target_maintenance {
-        spec = spec.with_shared_incremental_target_maintenance(
-            shared_incremental_target_maintenance_config(),
-        );
-    }
-    spec
+    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL)
+    // One specification policy serves standalone and batch execution. Build
+    // coalesces maintenance once per canonical target in a batch.
+    .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config())
 }
 
 pub(crate) fn cache_post_link_wasm(

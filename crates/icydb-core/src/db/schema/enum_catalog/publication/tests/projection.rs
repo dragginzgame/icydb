@@ -103,16 +103,12 @@ fn projection_bundle(levels: u32, field_leaves: &[usize]) -> AcceptedSchemaRevis
 fn projection_snapshot(
     query_fields: Vec<(AcceptedFieldKind, Vec<PersistedNestedLeafSnapshot>)>,
 ) -> PersistedSchemaSnapshot {
-    let mut fields = vec![PersistedFieldSnapshot::new_initial(
-        FieldId::new(1),
-        "id".into(),
-        SchemaFieldSlot::new(0),
+    let mut fields = vec![PersistedFieldSnapshot::new_initial_test_field(
+        1,
+        "id",
+        0,
         AcceptedFieldKind::Nat64,
-        Vec::new(),
         false,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Nat64),
     )];
     for (position, (kind, leaves)) in query_fields.into_iter().enumerate() {
         let (storage, codec) = if matches!(kind, AcceptedFieldKind::Nat64) {

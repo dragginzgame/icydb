@@ -136,18 +136,47 @@ sub tool_identity {
     return [$name, 'not-on-path'];
 }
 
+# Selection is a safety boundary, not an optional cache optimization. Never
+# fall back to --all when metadata is unavailable: that traverses sibling paths.
+sub workspace_metadata {
+    my ($workspace) = @_;
+    chdir $workspace or die "enter formatting workspace: $!\n";
+    my $metadata = decode_json(execute('', 1, $cargo, 'metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'));
+    ref($metadata) eq 'HASH' && encode('UTF-8', $metadata->{workspace_root} // '') eq $workspace
+        && ref($metadata->{workspace_members}) eq 'ARRAY' && @{$metadata->{workspace_members}}
+        && ref($metadata->{packages}) eq 'ARRAY'
+        or die "invalid formatting workspace metadata\n";
+    my %packages = map { ($_->{id} // '') => $_ } @{$metadata->{packages}};
+    my (%seen, @members);
+    for my $id (@{$metadata->{workspace_members}}) {
+        my $package = $packages{$id};
+        defined($package) && !$seen{$id}++ && ($package->{name} // '') =~ /\A[A-Za-z0-9_-]+\z/
+            or die "invalid formatting workspace member\n";
+        my $manifest = abs_path(encode('UTF-8', $package->{manifest_path} // ''));
+        defined($manifest) && index($manifest, "$workspace/") == 0
+            or die "formatting member escapes its owning workspace\n";
+        push @members, $package;
+    }
+    $metadata->{packages} = \@members;
+    return $metadata;
+}
+
+# Admit every requested owner before any formatter can write.
+my @owned_metadata = map { workspace_metadata($_) } @workspaces;
+chdir $root or die "return to formatting root: $!\n";
+
 sub fingerprint {
+    my ($initial) = @_;
     # An arbitrary rustfmt wrapper can depend on inputs this driver cannot know.
     !length($ENV{RUSTFMT} // '') or die "custom rustfmt selection\n";
     my (%files, %exclude, %scanned, @selection, @metadata);
+    my $workspace_index = 0;
     $files{$script} = 1;
     $files{"$RealBin/RustSource.pm"} = 1;
     for my $workspace (@workspaces) {
         chdir $workspace or die "enter formatting workspace: $!\n";
-        my $raw_metadata = execute('', 1, $cargo, 'metadata', '--locked', '--offline', '--no-deps', '--format-version', '1');
-        my $metadata = decode_json($raw_metadata);
-        ref($metadata->{packages}) eq 'ARRAY' && @{$metadata->{packages}}
-            or die "formatting metadata has no packages\n";
+        my $metadata = $initial ? $owned_metadata[$workspace_index] : workspace_metadata($workspace);
+        $workspace_index++;
         push @metadata, $metadata;
         push @selection, ['metadata', sha256_hex(JSON::PP->new->canonical->utf8->encode($metadata))];
         push @selection, [$workspace, map { execute('', 1, $cargo, @$_) }
@@ -174,12 +203,6 @@ sub fingerprint {
             }
             $files{$manifest} = 1;
             my $directory = dirname($manifest);
-            for my $dependency (@{$package->{dependencies} // []}) {
-                next unless defined $dependency->{path};
-                my $path = $dependency->{path};
-                grep { grep { dirname($_->{manifest_path}) eq $path } @{$_->{packages}} } @metadata
-                    or die "non-workspace path dependency disables reuse\n";
-            }
             for my $target (@{$package->{targets} // []}) {
                 index(($target->{src_path} // '') . '/', "$directory/") == 0
                     or die "external target source disables reuse\n";
@@ -246,7 +269,7 @@ my $reuse = !$no_cache && !@standalone && !length($ENV{SHARED_TOOLING_FORMAT_WOR
 print "Standalone Rust sources selected; running without shortcut\n" if @standalone;
 if ($reuse) {
     print "Checking formatting inputs... ";
-    $before = eval { fingerprint() };
+    $before = eval { fingerprint(1) };
     chdir $root or die "return to formatting root: $!\n";
     my $saved = -f $receipt && !-l $receipt ? eval { read_bytes($receipt, 256) } : undef;
     if (defined($before) && defined($saved) && $saved eq "formatting-1 $before\n") {
@@ -265,7 +288,8 @@ for my $index (0 .. $#workspaces) {
     my @order = length($selected_order) ? ('--order', $selected_order) : ();
     execute("Manifest sorting [$label]", 0, $cargo, 'sort', '--workspace', '--grouped', @check, @order);
     execute('Derive sorting [.]', 0, $cargo, 'sort-derives', @check) if !$index && $derives;
-    execute("Rust formatting [$label]", 0, $cargo, 'fmt', '--all', @fmt_check);
+    my @packages = map { ('--package', $_->{name}) } @{$owned_metadata[$index]->{packages}};
+    execute("Rust formatting [$label]", 0, $cargo, 'fmt', @packages, @fmt_check);
 }
 chdir $root or die "return to formatting root: $!\n";
 execute('Standalone Rust formatting', 0, $rustfmt, '--edition', $edition, @check, @standalone)

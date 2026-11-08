@@ -33,9 +33,10 @@ pub use request::{
 pub(crate) use write::OutputRowProjection;
 pub use write::{
     BoundWriteEncoder, OutputRow, PreparedOutputRows, StructuralMutation, StructuralPatch,
-    TrustedTypedWriteBatch, TypedAdapterError, TypedEntityAdapter, TypedEntityBinding,
-    TypedOperationError, TypedRowAdapter, TypedWrite, TypedWriteAdapter, TypedWriteBatchResult,
-    TypedWriteBatchResults, TypedWriteHandle, WriteCell,
+    TrustedTypedWriteBatch, TypedAdapterError, TypedBulkWriteBatch, TypedBulkWriteError,
+    TypedBulkWriteFailure, TypedBulkWriteLimits, TypedBulkWriteProgress, TypedEntityAdapter,
+    TypedEntityBinding, TypedOperationError, TypedRowAdapter, TypedWrite, TypedWriteAdapter,
+    TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
 };
 
 /// Failure while capturing or executing one revision-strict exhaustive read.

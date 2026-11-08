@@ -123,15 +123,15 @@ fi
 # A caller selects a parent directory and crate detail through the same recipe.
 : > "$TOOL_COMMAND_LOG"
 make --no-print-directory -C "$consumer" cloc \
-    CLOC_ROOT="$fixture" CLOC_SUBCRATES=1 \
+    CLOC_ROOT="$fixture" CLOC_DEPTH=0 \
     > "$fixture/siblings.log" 2>&1
-printf 'cloc.sh <--subcrates> <%s>\n' "$fixture" > "$fixture/expected"
+printf 'cloc.sh <-d> <0> <%s>\n' "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
 : > "$TOOL_COMMAND_LOG"
-make --no-print-directory -C "$consumer" cloc CLOC_MANIFEST=testing/Cargo.toml \
+make --no-print-directory -C "$consumer" cloc CLOC_MANIFEST=testing/Cargo.toml CLOC_DEPTH=2 \
     > "$fixture/manifest.log" 2>&1
-printf 'cloc.sh <--manifest> <testing/Cargo.toml> <%s>\n' "$consumer" > "$fixture/expected"
+printf 'cloc.sh <-d> <2> <--manifest> <testing/Cargo.toml> <%s>\n' "$consumer" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
 # Standalone tools.mk consumers get both valid jobserver descriptors and the

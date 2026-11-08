@@ -3439,16 +3439,7 @@ impl SchemaStore {
                 tombstones,
                 ..
             } => {
-                let stale = canonical
-                    .range(RawSchemaKey::all_catalog_range_bounds())
-                    .map(|entry| entry.map(|entry| *entry.key()))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .filter(|key| !keep.contains(key))
-                    .collect::<Vec<_>>();
-                for key in stale {
-                    canonical.remove(&key).map_err(InternalError::from)?;
-                }
+                Self::retain_canonical_catalog_entries(canonical, &keep)?;
                 Self::retain_heap_catalog_entries(live, &keep);
                 let cleared = tombstones
                     .range(RawSchemaKey::all_catalog_range_bounds())
@@ -3515,6 +3506,15 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
+        Self::retain_canonical_catalog_entries(canonical, keep)
+    }
+
+    // Publication and fold use the same canonical deletion mechanics. Keep the
+    // catalog-only range: identity/cardinality controls have independent owners.
+    fn retain_canonical_catalog_entries(
+        canonical: &mut StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
+        keep: &BTreeSet<RawSchemaKey>,
+    ) -> Result<(), InternalError> {
         let stale = canonical
             .range(RawSchemaKey::all_catalog_range_bounds())
             .map(|entry| entry.map(|entry| *entry.key()))

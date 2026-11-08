@@ -1,4 +1,4 @@
-//! Module: sql_correctness_support::coverage_manifest::obligations
+//! Module: sql_coverage::obligations
 //! Responsibility: current SQL interaction obligations and their deterministic projection.
 //! Does not own: product behavior, generated observations, or scheduled evidence receipts.
 //! Boundary: extends the SQL coverage manifest with one finite pre-generation obligation catalog.
@@ -6,11 +6,11 @@
 use super::{MANIFEST, PROVIDERS, ProviderSpec, provider_specs};
 
 use icydb_testing_sql_generator::{
-    ExecutionAccess, ExecutionCovering, RequiredExecutionFacts, StructuralSignature,
-    TIER_A_MUTATION_BUDGETS, TIER_A_ROOT_SEEDS, TIER_A_SELECT_BUDGETS,
-    generate_scheduled_mutation_sequence, generate_scheduled_select_case,
+    ExecutionAccess, ExecutionCovering, RequiredExecutionFacts, SCHEDULED_WITNESS_DECLARATIONS,
+    ScheduledWitnessDeclaration, StructuralSignature, TIER_A_MUTATION_BUDGETS, TIER_A_ROOT_SEEDS,
+    TIER_A_SELECT_BUDGETS, generate_scheduled_mutation_sequence, generate_scheduled_select_case,
     generated_mutation_tier_c_declaration, generated_select_tier_c_declaration,
-    scheduled_mutation_witnesses, scheduled_select_witnesses,
+    scheduled_mutation_witnesses, scheduled_select_witnesses, scheduled_witnesses,
     structural_signature_for_scheduled_mutation_witness,
     structural_signature_for_scheduled_select_witness, structural_witness_schedule_hash,
 };
@@ -114,11 +114,26 @@ struct StructuralRequirement {
     id: &'static str,
     required_execution_facts: RequiredExecutionFacts,
     fixture_properties: &'static [&'static str],
-    minimum_evidence: &'static str,
-    provider_eligibility: &'static str,
     provider: ProviderTarget,
     route_facts: &'static [&'static str],
     witness_id: &'static str,
+}
+
+impl StructuralRequirement {
+    const fn generated(
+        witness: ScheduledWitnessDeclaration,
+        fixture_properties: &'static [&'static str],
+        route_facts: &'static [&'static str],
+    ) -> Self {
+        Self {
+            id: witness.requirement_id(),
+            required_execution_facts: witness.required_execution_facts(),
+            fixture_properties,
+            provider: ProviderTarget::Generated(witness.provider_id()),
+            route_facts,
+            witness_id: witness.witness_id(),
+        }
+    }
 }
 
 ///
@@ -157,8 +172,6 @@ macro_rules! requirement {
         $id:literal,
         $execution:expr,
         fixtures = [$($fixture:literal),* $(,)?],
-        evidence = $evidence:literal,
-        eligibility = $eligibility:literal,
         provider = $provider:expr,
         routes = [$($route:literal),* $(,)?],
         witness = $witness:literal
@@ -167,8 +180,6 @@ macro_rules! requirement {
             id: $id,
             required_execution_facts: $execution,
             fixture_properties: &[$($fixture),*],
-            minimum_evidence: $evidence,
-            provider_eligibility: $eligibility,
             provider: $provider,
             route_facts: &[$($route),*],
             witness_id: $witness,
@@ -372,13 +383,6 @@ const GROUPS: &[InteractionGroup] = &[
     },
 ];
 
-const GENERATED_PROVIDERS: &[&str] = &[
-    "generated.mutation.accepted_default",
-    "generated.mutation.authored_scalar",
-    "generated.select.indexed_nullable_reference",
-    "generated.select.reference_scalar",
-];
-
 const INTERACTIONS: &[InteractionObligation] = &[
     interaction!(
         "interaction.cache.cold_compiled_direct",
@@ -399,8 +403,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
                 ExecutionCovering::NonCovering
             ),
             fixtures = ["identical cold fixture"],
-            evidence = "contract_assertion",
-            eligibility = "execution_mode_equivalent",
             provider = ProviderTarget::Existing("core.query.public_read_families"),
             routes = ["same selected access"],
             witness = "existing.core.query.public_read_families"
@@ -422,15 +424,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["SQL and fluent observations retain matching route facts"],
         disposition = GeneratedRequired,
         reason = "The same derived declaration must run through SQL and fluent adapters.",
-        requirement = Some(requirement!(
-            "required.cache.cold_sql_fluent",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["identical cold fixture"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["matching SQL/fluent route observation"],
-            witness = "tier_c.cache.cold_sql_fluent"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::CACHE_COLD_SQL_FLUENT,
+            &["identical cold fixture"],
+            &["matching SQL/fluent route observation"]
         ))
     ),
     interaction!(
@@ -456,8 +453,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
                 ExecutionCovering::NonCovering
             ),
             fixtures = ["identical warm fixture"],
-            evidence = "contract_assertion",
-            eligibility = "execution_mode_equivalent",
             provider = ProviderTarget::Existing("core.query.scalar_matrix"),
             routes = ["cold/warm selected access parity"],
             witness = "existing.core.query.scalar_matrix"
@@ -479,8 +474,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
             "required.field_path.selectable_select",
             required_execution_facts(ExecutionAccess::SecondaryRange, ExecutionCovering::Hybrid),
             fixtures = ["nested stored leaves"],
-            evidence = "contract_assertion",
-            eligibility = "icydb_contract_only",
             provider = ProviderTarget::Existing("core.ddl.create_field_path"),
             routes = ["accepted field-path index"],
             witness = "existing.core.ddl.create_field_path"
@@ -505,8 +498,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
                 ExecutionCovering::NotApplicable,
             ),
             fixtures = ["one matching structured row"],
-            evidence = "contract_assertion",
-            eligibility = "frontend_equivalent",
             provider = ProviderTarget::Existing("core.mutation.returning_fields"),
             routes = ["exact mutation selection"],
             witness = "existing.core.mutation.returning_fields"
@@ -542,15 +533,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.sum_distinct.all_null",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.sum_distinct.all_null"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SUM_DISTINCT_ALL_NULL,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -569,15 +555,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.sum_distinct.empty",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["empty input"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.sum_distinct.empty"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SUM_DISTINCT_EMPTY,
+            &["empty input"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -596,15 +577,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.sum_distinct.global",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.sum_distinct.global"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SUM_DISTINCT_GLOBAL,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -623,15 +599,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.sum_distinct.grouped",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.sum_distinct.grouped"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SUM_DISTINCT_GROUPED,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -650,15 +621,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.sum_distinct.no_match",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.sum_distinct.no_match"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SUM_DISTINCT_NO_MATCH,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -677,15 +643,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "AVG DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.avg_distinct.all_null",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.avg_distinct.all_null"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::AVG_DISTINCT_ALL_NULL,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -704,15 +665,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "AVG DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.avg_distinct.empty",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["empty input"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.avg_distinct.empty"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::AVG_DISTINCT_EMPTY,
+            &["empty input"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -731,15 +687,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "AVG DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.avg_distinct.global",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.avg_distinct.global"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::AVG_DISTINCT_GLOBAL,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -758,15 +709,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "AVG DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.avg_distinct.grouped",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.avg_distinct.grouped"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::AVG_DISTINCT_GROUPED,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -785,15 +731,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["full scan numeric aggregation"],
         disposition = GeneratedRequired,
         reason = "AVG DISTINCT requires independent numeric, NULL and modifier evidence.",
-        requirement = Some(requirement!(
-            "required.avg_distinct.no_match",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate numeric inputs with stored nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["full scan numeric aggregation"],
-            witness = "tier_c.avg_distinct.no_match"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::AVG_DISTINCT_NO_MATCH,
+            &["duplicate numeric inputs with stored nulls"],
+            &["full scan numeric aggregation"]
         ))
     ),
     interaction!(
@@ -812,15 +753,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["global aggregate emits one result row"],
         disposition = GeneratedRequired,
         reason = "The empty aggregate-filter case requires an explicit witness.",
-        requirement = Some(requirement!(
-            "required.global.empty_filter",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["empty input"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["global aggregate"],
-            witness = "tier_c.global.empty_filter"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::GLOBAL_EMPTY_FILTER,
+            &["empty input"],
+            &["global aggregate"]
         ))
     ),
     interaction!(
@@ -839,15 +775,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["global aggregate over admitted predicate"],
         disposition = GeneratedRequired,
         reason = "Aggregate FILTER over non-empty input requires an explicit witness.",
-        requirement = Some(requirement!(
-            "required.global.nonempty_filter",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate aggregate inputs"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["global aggregate"],
-            witness = "tier_c.global.nonempty_filter"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::GLOBAL_NONEMPTY_FILTER,
+            &["duplicate aggregate inputs"],
+            &["global aggregate"]
         ))
     ),
     interaction!(
@@ -866,15 +797,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["global HAVING after aggregate finalization"],
         disposition = GeneratedRequired,
         reason = "Multiple aggregate outputs and global HAVING require a combined witness.",
-        requirement = Some(requirement!(
-            "required.global.nonempty_multiple_projection",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["retained and rejected HAVING cases"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["global aggregate"],
-            witness = "tier_c.global.nonempty_multiple_projection"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::GLOBAL_NONEMPTY_MULTIPLE_PROJECTION,
+            &["retained and rejected HAVING cases"],
+            &["global aggregate"]
         ))
     ),
     interaction!(
@@ -893,15 +819,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["hash grouping", "aggregate alias order", "bounded limit"],
         disposition = GeneratedRequired,
         reason = "The complete hash-grouped composition requires an explicit witness.",
-        requirement = Some(requirement!(
-            "required.grouped.hash_bounded",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["multiple groups", "HAVING retained and rejected groups"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["hash grouping"],
-            witness = "tier_c.grouped.hash_bounded"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::GROUPED_HASH_BOUNDED,
+            &["multiple groups", "HAVING retained and rejected groups"],
+            &["hash grouping"]
         ))
     ),
     interaction!(
@@ -921,21 +842,13 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["ordered grouping", "aggregate alias order", "bounded limit"],
         disposition = GeneratedRequired,
         reason = "The indexed nullable profile is required to own ordered grouping evidence.",
-        requirement = Some(requirement!(
-            "required.grouped.ordered_bounded",
-            required_execution_facts(
-                ExecutionAccess::SecondaryRange,
-                ExecutionCovering::NonCovering,
-            ),
-            fixtures = [
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::GROUPED_ORDERED_BOUNDED,
+            &[
                 "multiple indexed groups",
                 "HAVING retained and rejected groups"
             ],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["ordered grouping"],
-            witness = "tier_c.grouped.ordered_bounded"
+            &["ordered grouping"]
         ))
     ),
     interaction!(
@@ -958,8 +871,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
             "required.grouped.ordered_continuation",
             required_execution_facts(ExecutionAccess::SecondaryRange, ExecutionCovering::Pure),
             fixtures = ["more than one grouped page"],
-            evidence = "contract_assertion",
-            eligibility = "execution_mode_equivalent",
             provider = ProviderTarget::Existing("core.query.grouped_cursor"),
             routes = ["ordered grouped continuation"],
             witness = "existing.core.query.grouped_cursor"
@@ -990,18 +901,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         disposition = GeneratedRequired,
         reason =
             "The indexed nullable profile must make composite-prefix route evidence structural.",
-        requirement = Some(requirement!(
-            "required.indexed.composite_prefix_non_covering",
-            required_execution_facts(
-                ExecutionAccess::CompositePrefix,
-                ExecutionCovering::NonCovering,
-            ),
-            fixtures = ["duplicate-rich index prefixes"],
-            evidence = "contract_assertion",
-            eligibility = "icydb_contract_only",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["composite prefix", "row-backed projection"],
-            witness = "tier_c.indexed.composite_prefix_non_covering"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::INDEXED_COMPOSITE_PREFIX_NON_COVERING,
+            &["duplicate-rich index prefixes"],
+            &["composite prefix", "row-backed projection"]
         ))
     ),
     interaction!(
@@ -1031,8 +934,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
                 ExecutionCovering::NonCovering
             ),
             fixtures = ["Unicode casefold prefixes"],
-            evidence = "contract_assertion",
-            eligibility = "icydb_contract_only",
             provider = ProviderTarget::Existing("core.ddl.create_expression"),
             routes = ["expression index range", "residual prefix"],
             witness = "existing.core.ddl.create_expression"
@@ -1061,8 +962,6 @@ const INTERACTIONS: &[InteractionObligation] = &[
                 ExecutionCovering::NonCovering
             ),
             fixtures = ["present and absent exact keys"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
             provider = ProviderTarget::Existing("core.query.exact_key_execute"),
             routes = ["ByKey or Empty"],
             witness = "existing.core.query.exact_key_execute"
@@ -1091,18 +990,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         ],
         disposition = GeneratedRequired,
         reason = "The current generated snapshot has no secondary index.",
-        requirement = Some(requirement!(
-            "required.indexed.secondary_range_non_covering_incompatible",
-            required_execution_facts(
-                ExecutionAccess::SecondaryRange,
-                ExecutionCovering::NonCovering
-            ),
-            fixtures = ["nonempty bounded range", "order ties"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["one bounded secondary range", "materialized order"],
-            witness = "tier_c.indexed.secondary_range_non_covering_incompatible"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::INDEXED_SECONDARY_RANGE_NON_COVERING_INCOMPATIBLE,
+            &["nonempty bounded range", "order ties"],
+            &["one bounded secondary range", "materialized order"]
         ))
     ),
     interaction!(
@@ -1131,21 +1022,13 @@ const INTERACTIONS: &[InteractionObligation] = &[
         disposition = GeneratedRequired,
         reason =
             "The indexed nullable profile is required to exercise route and null roles together.",
-        requirement = Some(requirement!(
-            "required.indexed.secondary_range_direct_compatible",
-            required_execution_facts(
-                ExecutionAccess::SecondaryRange,
-                ExecutionCovering::NonCovering,
-            ),
-            fixtures = ["stored nulls", "duplicate-rich indexed values"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = [
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::INDEXED_SECONDARY_RANGE_DIRECT_COMPATIBLE,
+            &["stored nulls", "duplicate-rich indexed values"],
+            &[
                 "one bounded secondary range",
                 "direct row-backed projection"
-            ],
-            witness = "tier_c.indexed.secondary_range_direct_compatible"
+            ]
         ))
     ),
     interaction!(
@@ -1164,15 +1047,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["global aggregate"],
         disposition = GeneratedRequired,
         reason = "Computed-null aggregate input requires an explicit generated witness.",
-        requirement = Some(requirement!(
-            "required.null.computed_aggregate",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["computed null and non-null inputs"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["global aggregate"],
-            witness = "tier_c.null.computed_aggregate"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::NULL_COMPUTED_AGGREGATE,
+            &["computed null and non-null inputs"],
+            &["global aggregate"]
         ))
     ),
     interaction!(
@@ -1191,15 +1069,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["scalar distinct"],
         disposition = GeneratedRequired,
         reason = "The fixed families do not require computed projection and DISTINCT together.",
-        requirement = Some(requirement!(
-            "required.null.computed_distinct",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["duplicate computed nulls"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["scalar distinct"],
-            witness = "tier_c.null.computed_distinct"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::NULL_COMPUTED_DISTINCT,
+            &["duplicate computed nulls"],
+            &["scalar distinct"]
         ))
     ),
     interaction!(
@@ -1214,15 +1087,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["residual three-valued membership"],
         disposition = GeneratedRequired,
         reason = "The indexed nullable profile must bind null membership to accepted schema roles.",
-        requirement = Some(requirement!(
-            "required.null.stored_comparison_membership",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["stored nulls", "membership nulls and duplicates"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["three-valued residual membership"],
-            witness = "tier_c.null.stored_comparison_membership"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::NULL_STORED_COMPARISON_MEMBERSHIP,
+            &["stored nulls", "membership nulls and duplicates"],
+            &["three-valued residual membership"]
         ))
     ),
     interaction!(
@@ -1237,15 +1105,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["canonical null-sensitive order"],
         disposition = GeneratedRequired,
         reason = "Null ordering requires an explicit accepted nullable-profile witness.",
-        requirement = Some(requirement!(
-            "required.null.stored_ordering",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["stored nulls", "order ties"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["canonical null-sensitive order"],
-            witness = "tier_c.null.stored_ordering"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::NULL_STORED_ORDERING,
+            &["stored nulls", "order ties"],
+            &["canonical null-sensitive order"]
         ))
     ),
     interaction!(
@@ -1264,15 +1127,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["materialized computed order"],
         disposition = GeneratedRequired,
         reason = "Computed-null ordering is a reviewed composition gap.",
-        requirement = Some(requirement!(
-            "required.null.computed_ordering",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["computed nulls", "order ties"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["materialized computed order"],
-            witness = "tier_c.null.computed_ordering"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::NULL_COMPUTED_ORDERING,
+            &["computed nulls", "order ties"],
+            &["materialized computed order"]
         ))
     ),
     interaction!(
@@ -1295,15 +1153,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["predicate before materialized order and window"],
         disposition = GeneratedRequired,
         reason = "The old window slots do not compose every required scalar axis in one case.",
-        requirement = Some(requirement!(
-            "required.scalar.reference_full_window",
-            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
-            fixtures = ["order ties", "more rows than window"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = ["predicate", "materialized order", "window"],
-            witness = "tier_c.scalar.reference_full_window"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SCALAR_REFERENCE_FULL_WINDOW,
+            &["order ties", "more rows than window"],
+            &["predicate", "materialized order", "window"]
         ))
     ),
     interaction!(
@@ -1326,18 +1179,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["indexed predicate with materialized computed DISTINCT order"],
         disposition = GeneratedRequired,
         reason = "The indexed nullable profile must cover the complete scalar composition.",
-        requirement = Some(requirement!(
-            "required.scalar.indexed_computed_distinct_window",
-            required_execution_facts(
-                ExecutionAccess::SecondaryRange,
-                ExecutionCovering::NonCovering
-            ),
-            fixtures = ["duplicate computed values", "stored nulls", "order ties"],
-            evidence = "reference_oracle",
-            eligibility = "sqlite_reference",
-            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
-            routes = ["secondary range", "materialized DISTINCT order"],
-            witness = "tier_c.scalar.indexed_computed_distinct_window"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SCALAR_INDEXED_COMPUTED_DISTINCT_WINDOW,
+            &["duplicate computed values", "stored nulls", "order ties"],
+            &["secondary range", "materialized DISTINCT order"]
         ))
     ),
     interaction!(
@@ -1355,18 +1200,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = [],
         disposition = GeneratedRequired,
         reason = "Unknown-alias ordering requires one singly-invalid target with a typed cause.",
-        requirement = Some(requirement!(
-            "required.scalar.reference_unknown_alias_order",
-            required_execution_facts(
-                ExecutionAccess::NotApplicable,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["valid base declaration"],
-            evidence = "boundary_assertion",
-            eligibility = "rejection_invariant",
-            provider = ProviderTarget::Generated("generated.select.reference_scalar"),
-            routes = [],
-            witness = "tier_c.scalar.reference_unknown_alias_order"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::SCALAR_REFERENCE_UNKNOWN_ALIAS_ORDER,
+            &["valid base declaration"],
+            &[]
         ))
     ),
     interaction!(
@@ -1386,18 +1223,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["SQL and typed converge before admission"],
         disposition = GeneratedRequired,
         reason = "The obligation-owned sequence must cover authored mutation intent.",
-        requirement = Some(requirement!(
-            "required.mutation.authored_insert",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["single row", "multi row"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.authored_scalar"),
-            routes = ["shared structural admission"],
-            witness = "tier_c.mutation.authored_insert"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_AUTHORED_INSERT,
+            &["single row", "multi row"],
+            &["shared structural admission"]
         ))
     ),
     interaction!(
@@ -1417,18 +1246,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["SQL INSERT FROM QUERY into shared admission"],
         disposition = GeneratedRequired,
         reason = "INSERT FROM QUERY is SQL-only but belongs in the independent state model.",
-        requirement = Some(requirement!(
-            "required.mutation.authored_insert_from_query",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["bounded source rows"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.authored_scalar"),
-            routes = ["shared structural admission"],
-            witness = "tier_c.mutation.authored_insert_from_query"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_AUTHORED_INSERT_FROM_QUERY,
+            &["bounded source rows"],
+            &["shared structural admission"]
         ))
     ),
     interaction!(
@@ -1454,18 +1275,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["exact and bounded canonical primary-key selection"],
         disposition = GeneratedRequired,
         reason = "Update and delete windows must derive from bounded typed operations.",
-        requirement = Some(requirement!(
-            "required.mutation.authored_windowed",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["exact", "compound", "bounded matches"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.authored_scalar"),
-            routes = ["canonical bounded selection"],
-            witness = "tier_c.mutation.authored_windowed"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_AUTHORED_WINDOWED,
+            &["exact", "compound", "bounded matches"],
+            &["canonical bounded selection"]
         ))
     ),
     interaction!(
@@ -1485,18 +1298,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["shared structural admission and tier index delta"],
         disposition = GeneratedRequired,
         reason = "The accepted-default profile requires an exact authored-insert witness.",
-        requirement = Some(requirement!(
-            "required.mutation.default_insert_authored",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["all fields authored"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["shared structural admission", "tier index delta"],
-            witness = "tier_c.mutation.default_insert_authored"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_INSERT_AUTHORED,
+            &["all fields authored"],
+            &["shared structural admission", "tier index delta"]
         ))
     ),
     interaction!(
@@ -1516,18 +1321,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["accepted omission materialization and tier index delta"],
         disposition = GeneratedRequired,
         reason = "Omission provenance must be explicit in SQL and canonical typed create.",
-        requirement = Some(requirement!(
-            "required.mutation.default_insert_omitted",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["id and name authored only"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["accepted default resolution", "tier index delta"],
-            witness = "tier_c.mutation.default_insert_omitted"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_INSERT_OMITTED,
+            &["id and name authored only"],
+            &["accepted default resolution", "tier index delta"]
         ))
     ),
     interaction!(
@@ -1547,18 +1344,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["SQL intent lowering into accepted default materialization"],
         disposition = GeneratedRequired,
         reason = "Explicit DEFAULT is a SQL-only provenance form with state-model authority.",
-        requirement = Some(requirement!(
-            "required.mutation.default_insert_explicit",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["explicit defaults"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["accepted default resolution", "tier index delta"],
-            witness = "tier_c.mutation.default_insert_explicit"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_INSERT_EXPLICIT,
+            &["explicit defaults"],
+            &["accepted default resolution", "tier index delta"]
         ))
     ),
     interaction!(
@@ -1597,18 +1386,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["one atomic SQL batch and complete tier index delta"],
         disposition = GeneratedRequired,
         reason = "Mixed provenance must remain row-specific inside one atomic batch.",
-        requirement = Some(requirement!(
-            "required.mutation.default_insert_mixed_batch",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["three-row mixed provenance batch"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["atomic batch", "complete tier index delta"],
-            witness = "tier_c.mutation.default_insert_mixed_batch"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_INSERT_MIXED_BATCH,
+            &["three-row mixed provenance batch"],
+            &["atomic batch", "complete tier index delta"]
         ))
     ),
     interaction!(
@@ -1628,18 +1409,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["exact primary-key mutation and tier index replacement"],
         disposition = GeneratedRequired,
         reason = "Authored default-profile updates require SQL/typed parity.",
-        requirement = Some(requirement!(
-            "required.mutation.default_update_authored",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["one matching row"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["exact mutation selection", "tier index replacement"],
-            witness = "tier_c.mutation.default_update_authored"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_UPDATE_AUTHORED,
+            &["one matching row"],
+            &["exact mutation selection", "tier index replacement"]
         ))
     ),
     interaction!(
@@ -1659,18 +1432,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["exact update and accepted default resolution"],
         disposition = GeneratedRequired,
         reason = "SET field = DEFAULT is a SQL-only state transition.",
-        requirement = Some(requirement!(
-            "required.mutation.default_update_default",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["one non-default row"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["accepted default resolution", "tier index replacement"],
-            witness = "tier_c.mutation.default_update_default"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_UPDATE_DEFAULT,
+            &["one non-default row"],
+            &["accepted default resolution", "tier index replacement"]
         ))
     ),
     interaction!(
@@ -1709,18 +1474,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["absent assignment preserves accepted values and index state"],
         disposition = GeneratedRequired,
         reason = "Preservation must remain distinct from default application.",
-        requirement = Some(requirement!(
-            "required.mutation.default_update_preserve",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["one non-default row"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["preserved tier index state"],
-            witness = "tier_c.mutation.default_update_preserve"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_UPDATE_PRESERVE,
+            &["one non-default row"],
+            &["preserved tier index state"]
         ))
     ),
     interaction!(
@@ -1740,18 +1497,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["exact empty mutation selection"],
         disposition = GeneratedRequired,
         reason = "No-match update/delete must preserve complete state.",
-        requirement = Some(requirement!(
-            "required.mutation.default_no_match",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["absent primary key"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["exact empty mutation selection"],
-            witness = "tier_c.mutation.default_no_match"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_NO_MATCH,
+            &["absent primary key"],
+            &["exact empty mutation selection"]
         ))
     ),
     interaction!(
@@ -1771,18 +1520,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["delete returns complete old logical row and removes tier index entry"],
         disposition = GeneratedRequired,
         reason = "Delete RETURNING must agree with the independent complete-state oracle.",
-        requirement = Some(requirement!(
-            "required.mutation.default_delete_returning",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["one matching row"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["exact delete", "tier index removal"],
-            witness = "tier_c.mutation.default_delete_returning"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_DELETE_RETURNING,
+            &["one matching row"],
+            &["exact delete", "tier index removal"]
         ))
     ),
     interaction!(
@@ -1802,18 +1543,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["rejection before marker publication"],
         disposition = GeneratedRequired,
         reason = "Required-field omission needs one typed singly-invalid mutation witness.",
-        requirement = Some(requirement!(
-            "required.mutation.default_reject_required",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["unchanged pre-state"],
-            evidence = "boundary_assertion",
-            eligibility = "rejection_invariant",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["no marker publication"],
-            witness = "tier_c.mutation.default_reject_required"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_REJECT_REQUIRED,
+            &["unchanged pre-state"],
+            &["no marker publication"]
         ))
     ),
     interaction!(
@@ -1833,18 +1566,10 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["rejection before marker publication"],
         disposition = GeneratedRequired,
         reason = "DEFAULT on a policy-free primary key must reject without state change.",
-        requirement = Some(requirement!(
-            "required.mutation.default_reject_pk_default",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["unchanged pre-state"],
-            evidence = "boundary_assertion",
-            eligibility = "rejection_invariant",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["no marker publication"],
-            witness = "tier_c.mutation.default_reject_pk_default"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_REJECT_PK_DEFAULT,
+            &["unchanged pre-state"],
+            &["no marker publication"]
         ))
     ),
     interaction!(
@@ -1884,126 +1609,13 @@ const INTERACTIONS: &[InteractionObligation] = &[
         routes = ["atomic rejection with unchanged row and index state"],
         disposition = GeneratedRequired,
         reason = "Duplicate rejection must prove batch atomicity under both ingresses.",
-        requirement = Some(requirement!(
-            "required.mutation.default_reject_duplicate",
-            required_execution_facts(
-                ExecutionAccess::MutationSelection,
-                ExecutionCovering::NotApplicable,
-            ),
-            fixtures = ["duplicate primary-key batch"],
-            evidence = "state_model_reference",
-            eligibility = "state_model_reference",
-            provider = ProviderTarget::Generated("generated.mutation.accepted_default"),
-            routes = ["no marker publication", "unchanged tier index"],
-            witness = "tier_c.mutation.default_reject_duplicate"
+        requirement = Some(StructuralRequirement::generated(
+            scheduled_witnesses::MUTATION_DEFAULT_REJECT_DUPLICATE,
+            &["duplicate primary-key batch"],
+            &["no marker publication", "unchanged tier index"]
         ))
     ),
 ];
-
-const NO_INTERACTION_OPERATIONAL_OR_POLICY: &[&str] = &[
-    "introspection.catalog_projection",
-    "introspection.generated_policy",
-    "introspection.index_origin",
-    "introspection.storage_modes",
-    "mutation.generated_query_ddl",
-    "mutation.generated_update_bounded",
-    "mutation.generated_update_disabled",
-    "mutation.generated_update_primary_key",
-    "mutation.trusted_resumable_update",
-    "operational.byte_metrics",
-    "operational.transport_controls",
-    "surface.trusted_entrypoints",
-];
-
-const NO_INTERACTION_CATALOG_OR_DDL: &[&str] = &[
-    "ddl.alter_add_check_constraint",
-    "ddl.alter_add_check_not_valid",
-    "ddl.alter_add_column",
-    "ddl.alter_column_default",
-    "ddl.alter_column_nullability",
-    "ddl.alter_drop_constraint",
-    "ddl.alter_validate_constraint",
-    "ddl.create_index_filtered",
-    "ddl.create_index_if_not_exists",
-    "ddl.create_unique_index",
-    "ddl.destructive_publication_atomicity",
-    "ddl.drop_column",
-    "ddl.drop_index",
-    "ddl.drop_index_if_exists",
-    "ddl.generated_owned_objects",
-    "ddl.index_ascending",
-    "ddl.index_descending",
-    "ddl.rename_column",
-    "introspection.describe",
-    "introspection.show_columns",
-    "introspection.show_constraints",
-    "introspection.show_entities",
-    "introspection.show_entity",
-    "introspection.show_indexes",
-    "introspection.show_memory",
-    "introspection.show_stores",
-    "introspection.unsupported_modifiers",
-];
-
-const NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION: &[&str] = &[
-    "blob.hex_literal",
-    "blob.literal_size_limit",
-    "blob.ordering",
-    "blob.read_write_compare",
-    "expression.numeric_functions",
-    "expression.searched_case",
-    "expression.simple_case",
-    "expression.text_functions",
-    "having.raw_row_escape",
-    "predicate.boolean_comparison",
-    "predicate.boolean_truth",
-    "predicate.expression_arguments",
-    "predicate.field_bound_range",
-    "predicate.field_comparison",
-    "predicate.grouped_where_field_comparison",
-    "predicate.non_prefix_pattern",
-    "predicate.prefix_pattern",
-    "projection.invalid_grouped_layout",
-    "returning.computed",
-];
-
-const NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY: &[&str] = &[
-    "explain.query_delete",
-    "expression.cast",
-    "naming.single_binding",
-    "pagination.scalar_cursor",
-    "query.multi_entity",
-    "query.set_operations",
-    "query.subquery_cte",
-    "query.transactions",
-    "query.window_functions",
-    "select.placeholder_parameters",
-];
-
-fn no_interaction_reason(feature_id: &str) -> Option<&'static str> {
-    if NO_INTERACTION_OPERATIONAL_OR_POLICY.contains(&feature_id) {
-        return Some(
-            "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction.",
-        );
-    }
-    if NO_INTERACTION_CATALOG_OR_DDL.contains(&feature_id) {
-        return Some(
-            "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles.",
-        );
-    }
-    if NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION.contains(&feature_id) {
-        return Some(
-            "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple.",
-        );
-    }
-    if NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY.contains(&feature_id) {
-        return Some(
-            "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction.",
-        );
-    }
-
-    None
-}
 
 const EXPECTED_MANIFEST_FEATURE_COUNT: usize = 106;
 const EXPECTED_DETERMINISTIC_PROVIDER_COUNT: usize = 100;
@@ -2290,7 +1902,10 @@ fn validate_provider_target(
             }
         }
         ProviderTarget::Generated(provider_id) => {
-            if !GENERATED_PROVIDERS.contains(&provider_id) {
+            if !SCHEDULED_WITNESS_DECLARATIONS
+                .iter()
+                .any(|declaration| declaration.provider_id() == provider_id)
+            {
                 return Err(format!(
                     "requirement {:?} names undeclared generated provider {provider_id:?}",
                     requirement.id
@@ -2298,10 +1913,7 @@ fn validate_provider_target(
             }
         }
     }
-    if requirement.minimum_evidence.is_empty()
-        || requirement.provider_eligibility.is_empty()
-        || requirement.witness_id.is_empty()
-    {
+    if requirement.witness_id.is_empty() {
         return Err(format!(
             "requirement {:?} has an incomplete provider/evidence contract",
             requirement.id
@@ -2393,14 +2005,6 @@ fn validate_catalog() -> Result<(), String> {
                         requirement.id
                     ));
                 }
-                if requirement.minimum_evidence != interaction.minimum_evidence
-                    || requirement.provider_eligibility != interaction.provider_eligibility
-                {
-                    return Err(format!(
-                        "interaction {:?} and requirement {:?} drifted on evidence authority",
-                        interaction.id, requirement.id
-                    ));
-                }
                 validate_provider_target(interaction, &requirement, &providers)?;
             }
             _ => {
@@ -2417,10 +2021,11 @@ fn validate_catalog() -> Result<(), String> {
         return Err("every frozen interaction group must contain a reviewed tuple".to_string());
     }
 
-    for feature_id in &manifest_ids {
+    for cell in MANIFEST {
+        let feature_id = cell.id;
         match (
             referenced_features.contains(feature_id),
-            no_interaction_reason(feature_id),
+            cell.no_interaction_reason,
         ) {
             (true, None) | (false, Some(_)) => {}
             (true, Some(_)) => {
@@ -2475,7 +2080,7 @@ fn catalog_body() -> Result<CatalogBody, String> {
             ManifestParticipationProjection {
                 feature_id: cell.id,
                 no_structural_interaction_required: obligation_ids.is_empty().then(|| {
-                    no_interaction_reason(cell.id)
+                    cell.no_interaction_reason
                         .expect("validated non-participant must have an exact reason")
                 }),
                 interaction_obligations: obligation_ids,
@@ -2509,21 +2114,21 @@ fn catalog_body() -> Result<CatalogBody, String> {
         .filter_map(|interaction| {
             interaction
                 .requirement
-                .map(|requirement| (interaction.id, requirement))
+                .map(|requirement| (*interaction, requirement))
         })
         .collect::<Vec<_>>();
     requirements.sort_by_key(|(_, requirement)| requirement.id);
     let required_structural_obligations = requirements
         .into_iter()
-        .map(|(interaction_id, requirement)| {
+        .map(|(interaction, requirement)| {
             Ok(RequirementProjection {
                 id: requirement.id,
-                interaction_obligations: vec![interaction_id],
+                interaction_obligations: vec![interaction.id],
                 expected_structural_signature: expected_structural_signature(&requirement)?,
                 required_execution_facts: requirement.required_execution_facts,
                 fixture_properties: requirement.fixture_properties,
-                minimum_evidence: requirement.minimum_evidence,
-                provider_eligibility: requirement.provider_eligibility,
+                minimum_evidence: interaction.minimum_evidence,
+                provider_eligibility: interaction.provider_eligibility,
                 provider_id: requirement.provider.id(),
                 provider_state: requirement.provider.state(),
                 route_facts: requirement.route_facts,

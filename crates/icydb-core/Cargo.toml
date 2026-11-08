@@ -20,8 +20,8 @@ migration = []
 
 [dependencies]
 base64 = { workspace = true }
+blake3 = { workspace = true }
 ic-metrics = { workspace = true, optional = true }
-ic-platform = { workspace = true, features = ["blake3"] }
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
 ic-storage = { workspace = true }
 ic-wire = { workspace = true }

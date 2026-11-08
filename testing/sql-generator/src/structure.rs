@@ -5,7 +5,6 @@
 
 use crate::{SqlGeneratorError, SqlGeneratorErrorKind, replay::canonical_json_bytes};
 
-use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -99,14 +98,15 @@ impl RequiredExecutionFacts {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum ScheduledWitnessKind {
     Mutation,
     Select,
 }
 
-#[derive(Clone, Copy)]
-struct ScheduledWitnessDeclaration {
+/// Metadata shared by a generated witness and its coverage obligation.
+#[derive(Clone, Copy, Debug)]
+pub struct ScheduledWitnessDeclaration {
     kind: ScheduledWitnessKind,
     requirement_id: &'static str,
     provider_id: &'static str,
@@ -133,318 +133,103 @@ const EXECUTION_NOT_APPLICABLE: RequiredExecutionFacts = RequiredExecutionFacts:
     ExecutionCovering::NotApplicable,
 );
 
-const fn scheduled_witness(
-    kind: ScheduledWitnessKind,
-    requirement_id: &'static str,
-    provider_id: &'static str,
-    witness_id: &'static str,
-    required_execution_facts: RequiredExecutionFacts,
-) -> ScheduledWitnessDeclaration {
-    ScheduledWitnessDeclaration {
-        kind,
-        requirement_id,
-        provider_id,
-        witness_id,
-        required_execution_facts,
+impl ScheduledWitnessDeclaration {
+    /// Return the reviewed requirement identity.
+    #[must_use]
+    pub const fn requirement_id(self) -> &'static str {
+        self.requirement_id
+    }
+    /// Return the generated provider identity.
+    #[must_use]
+    pub const fn provider_id(self) -> &'static str {
+        self.provider_id
+    }
+    /// Return the stable scheduled witness identity.
+    #[must_use]
+    pub const fn witness_id(self) -> &'static str {
+        self.witness_id
+    }
+    /// Return the execution facts required of actual observations.
+    #[must_use]
+    pub const fn required_execution_facts(self) -> RequiredExecutionFacts {
+        self.required_execution_facts
     }
 }
 
-const SCHEDULED_WITNESS_DECLARATIONS: &[ScheduledWitnessDeclaration] = &[
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.cache.cold_sql_fluent",
-        "generated.select.reference_scalar",
-        "tier_c.cache.cold_sql_fluent",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.global.empty_filter",
-        "generated.select.reference_scalar",
-        "tier_c.global.empty_filter",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.global.nonempty_filter",
-        "generated.select.reference_scalar",
-        "tier_c.global.nonempty_filter",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.global.nonempty_multiple_projection",
-        "generated.select.reference_scalar",
-        "tier_c.global.nonempty_multiple_projection",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.grouped.hash_bounded",
-        "generated.select.reference_scalar",
-        "tier_c.grouped.hash_bounded",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.grouped.ordered_bounded",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.grouped.ordered_bounded",
-        SECONDARY_RANGE_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.indexed.composite_prefix_non_covering",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.indexed.composite_prefix_non_covering",
-        COMPOSITE_PREFIX_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.indexed.secondary_range_direct_compatible",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.indexed.secondary_range_direct_compatible",
-        SECONDARY_RANGE_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.indexed.secondary_range_non_covering_incompatible",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.indexed.secondary_range_non_covering_incompatible",
-        SECONDARY_RANGE_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.sum_distinct.all_null",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.sum_distinct.all_null",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.sum_distinct.empty",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.sum_distinct.empty",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.sum_distinct.global",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.sum_distinct.global",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.sum_distinct.grouped",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.sum_distinct.grouped",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.sum_distinct.no_match",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.sum_distinct.no_match",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.avg_distinct.all_null",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.avg_distinct.all_null",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.avg_distinct.empty",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.avg_distinct.empty",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.avg_distinct.global",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.avg_distinct.global",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.avg_distinct.grouped",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.avg_distinct.grouped",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.avg_distinct.no_match",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.avg_distinct.no_match",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.authored_insert",
-        "generated.mutation.authored_scalar",
-        "tier_c.mutation.authored_insert",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.authored_insert_from_query",
-        "generated.mutation.authored_scalar",
-        "tier_c.mutation.authored_insert_from_query",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.authored_windowed",
-        "generated.mutation.authored_scalar",
-        "tier_c.mutation.authored_windowed",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_delete_returning",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_delete_returning",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_insert_authored",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_insert_authored",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_insert_explicit",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_insert_explicit",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_insert_mixed_batch",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_insert_mixed_batch",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_insert_omitted",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_insert_omitted",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_no_match",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_no_match",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_reject_duplicate",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_reject_duplicate",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_reject_pk_default",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_reject_pk_default",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_reject_required",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_reject_required",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_update_authored",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_update_authored",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_update_default",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_update_default",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Mutation,
-        "required.mutation.default_update_preserve",
-        "generated.mutation.accepted_default",
-        "tier_c.mutation.default_update_preserve",
-        MUTATION_SELECTION,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.null.computed_aggregate",
-        "generated.select.reference_scalar",
-        "tier_c.null.computed_aggregate",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.null.computed_distinct",
-        "generated.select.reference_scalar",
-        "tier_c.null.computed_distinct",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.null.computed_ordering",
-        "generated.select.reference_scalar",
-        "tier_c.null.computed_ordering",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.null.stored_comparison_membership",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.null.stored_comparison_membership",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.null.stored_ordering",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.null.stored_ordering",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.scalar.indexed_computed_distinct_window",
-        "generated.select.indexed_nullable_reference",
-        "tier_c.scalar.indexed_computed_distinct_window",
-        SECONDARY_RANGE_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.scalar.reference_full_window",
-        "generated.select.reference_scalar",
-        "tier_c.scalar.reference_full_window",
-        FULL_SCAN_NON_COVERING,
-    ),
-    scheduled_witness(
-        ScheduledWitnessKind::Select,
-        "required.scalar.reference_unknown_alias_order",
-        "generated.select.reference_scalar",
-        "tier_c.scalar.reference_unknown_alias_order",
-        EXECUTION_NOT_APPLICABLE,
-    ),
-];
+// Named declarations let consumers attach coverage context without copying the
+// schedule's IDs or execution facts. Both projections retain the frozen order.
+macro_rules! scheduled_witness_declarations {
+    ($($name:ident => ($kind:ident, $requirement:literal, $provider:literal,
+        $witness:literal, $facts:ident)),+ $(,)?) => {
+        /// Code-owned generated witnesses available to coverage declarations.
+        pub mod scheduled_witnesses {
+            use crate::structure::{
+                ScheduledWitnessDeclaration, ScheduledWitnessKind,
+                COMPOSITE_PREFIX_NON_COVERING, EXECUTION_NOT_APPLICABLE,
+                FULL_SCAN_NON_COVERING, MUTATION_SELECTION, SECONDARY_RANGE_NON_COVERING,
+            };
+            $(
+                #[doc = concat!("Reviewed metadata for `", $witness, "`.")]
+                pub const $name: ScheduledWitnessDeclaration = ScheduledWitnessDeclaration {
+                    kind: ScheduledWitnessKind::$kind,
+                    requirement_id: $requirement,
+                    provider_id: $provider,
+                    witness_id: $witness,
+                    required_execution_facts: $facts,
+                };
+            )+
+        }
+        /// Complete generated-witness metadata in declaration order.
+        pub const SCHEDULED_WITNESS_DECLARATIONS: &[ScheduledWitnessDeclaration] = &[
+            $(scheduled_witnesses::$name),+
+        ];
+    };
+}
+
+scheduled_witness_declarations! {
+    CACHE_COLD_SQL_FLUENT => (Select, "required.cache.cold_sql_fluent", "generated.select.reference_scalar", "tier_c.cache.cold_sql_fluent", FULL_SCAN_NON_COVERING),
+    GLOBAL_EMPTY_FILTER => (Select, "required.global.empty_filter", "generated.select.reference_scalar", "tier_c.global.empty_filter", FULL_SCAN_NON_COVERING),
+    GLOBAL_NONEMPTY_FILTER => (Select, "required.global.nonempty_filter", "generated.select.reference_scalar", "tier_c.global.nonempty_filter", FULL_SCAN_NON_COVERING),
+    GLOBAL_NONEMPTY_MULTIPLE_PROJECTION => (Select, "required.global.nonempty_multiple_projection", "generated.select.reference_scalar", "tier_c.global.nonempty_multiple_projection", FULL_SCAN_NON_COVERING),
+    GROUPED_HASH_BOUNDED => (Select, "required.grouped.hash_bounded", "generated.select.reference_scalar", "tier_c.grouped.hash_bounded", FULL_SCAN_NON_COVERING),
+    GROUPED_ORDERED_BOUNDED => (Select, "required.grouped.ordered_bounded", "generated.select.indexed_nullable_reference", "tier_c.grouped.ordered_bounded", SECONDARY_RANGE_NON_COVERING),
+    INDEXED_COMPOSITE_PREFIX_NON_COVERING => (Select, "required.indexed.composite_prefix_non_covering", "generated.select.indexed_nullable_reference", "tier_c.indexed.composite_prefix_non_covering", COMPOSITE_PREFIX_NON_COVERING),
+    INDEXED_SECONDARY_RANGE_DIRECT_COMPATIBLE => (Select, "required.indexed.secondary_range_direct_compatible", "generated.select.indexed_nullable_reference", "tier_c.indexed.secondary_range_direct_compatible", SECONDARY_RANGE_NON_COVERING),
+    INDEXED_SECONDARY_RANGE_NON_COVERING_INCOMPATIBLE => (Select, "required.indexed.secondary_range_non_covering_incompatible", "generated.select.indexed_nullable_reference", "tier_c.indexed.secondary_range_non_covering_incompatible", SECONDARY_RANGE_NON_COVERING),
+    SUM_DISTINCT_ALL_NULL => (Select, "required.sum_distinct.all_null", "generated.select.indexed_nullable_reference", "tier_c.sum_distinct.all_null", FULL_SCAN_NON_COVERING),
+    SUM_DISTINCT_EMPTY => (Select, "required.sum_distinct.empty", "generated.select.indexed_nullable_reference", "tier_c.sum_distinct.empty", FULL_SCAN_NON_COVERING),
+    SUM_DISTINCT_GLOBAL => (Select, "required.sum_distinct.global", "generated.select.indexed_nullable_reference", "tier_c.sum_distinct.global", FULL_SCAN_NON_COVERING),
+    SUM_DISTINCT_GROUPED => (Select, "required.sum_distinct.grouped", "generated.select.indexed_nullable_reference", "tier_c.sum_distinct.grouped", FULL_SCAN_NON_COVERING),
+    SUM_DISTINCT_NO_MATCH => (Select, "required.sum_distinct.no_match", "generated.select.indexed_nullable_reference", "tier_c.sum_distinct.no_match", FULL_SCAN_NON_COVERING),
+    AVG_DISTINCT_ALL_NULL => (Select, "required.avg_distinct.all_null", "generated.select.indexed_nullable_reference", "tier_c.avg_distinct.all_null", FULL_SCAN_NON_COVERING),
+    AVG_DISTINCT_EMPTY => (Select, "required.avg_distinct.empty", "generated.select.indexed_nullable_reference", "tier_c.avg_distinct.empty", FULL_SCAN_NON_COVERING),
+    AVG_DISTINCT_GLOBAL => (Select, "required.avg_distinct.global", "generated.select.indexed_nullable_reference", "tier_c.avg_distinct.global", FULL_SCAN_NON_COVERING),
+    AVG_DISTINCT_GROUPED => (Select, "required.avg_distinct.grouped", "generated.select.indexed_nullable_reference", "tier_c.avg_distinct.grouped", FULL_SCAN_NON_COVERING),
+    AVG_DISTINCT_NO_MATCH => (Select, "required.avg_distinct.no_match", "generated.select.indexed_nullable_reference", "tier_c.avg_distinct.no_match", FULL_SCAN_NON_COVERING),
+    MUTATION_AUTHORED_INSERT => (Mutation, "required.mutation.authored_insert", "generated.mutation.authored_scalar", "tier_c.mutation.authored_insert", MUTATION_SELECTION),
+    MUTATION_AUTHORED_INSERT_FROM_QUERY => (Mutation, "required.mutation.authored_insert_from_query", "generated.mutation.authored_scalar", "tier_c.mutation.authored_insert_from_query", MUTATION_SELECTION),
+    MUTATION_AUTHORED_WINDOWED => (Mutation, "required.mutation.authored_windowed", "generated.mutation.authored_scalar", "tier_c.mutation.authored_windowed", MUTATION_SELECTION),
+    MUTATION_DEFAULT_DELETE_RETURNING => (Mutation, "required.mutation.default_delete_returning", "generated.mutation.accepted_default", "tier_c.mutation.default_delete_returning", MUTATION_SELECTION),
+    MUTATION_DEFAULT_INSERT_AUTHORED => (Mutation, "required.mutation.default_insert_authored", "generated.mutation.accepted_default", "tier_c.mutation.default_insert_authored", MUTATION_SELECTION),
+    MUTATION_DEFAULT_INSERT_EXPLICIT => (Mutation, "required.mutation.default_insert_explicit", "generated.mutation.accepted_default", "tier_c.mutation.default_insert_explicit", MUTATION_SELECTION),
+    MUTATION_DEFAULT_INSERT_MIXED_BATCH => (Mutation, "required.mutation.default_insert_mixed_batch", "generated.mutation.accepted_default", "tier_c.mutation.default_insert_mixed_batch", MUTATION_SELECTION),
+    MUTATION_DEFAULT_INSERT_OMITTED => (Mutation, "required.mutation.default_insert_omitted", "generated.mutation.accepted_default", "tier_c.mutation.default_insert_omitted", MUTATION_SELECTION),
+    MUTATION_DEFAULT_NO_MATCH => (Mutation, "required.mutation.default_no_match", "generated.mutation.accepted_default", "tier_c.mutation.default_no_match", MUTATION_SELECTION),
+    MUTATION_DEFAULT_REJECT_DUPLICATE => (Mutation, "required.mutation.default_reject_duplicate", "generated.mutation.accepted_default", "tier_c.mutation.default_reject_duplicate", MUTATION_SELECTION),
+    MUTATION_DEFAULT_REJECT_PK_DEFAULT => (Mutation, "required.mutation.default_reject_pk_default", "generated.mutation.accepted_default", "tier_c.mutation.default_reject_pk_default", MUTATION_SELECTION),
+    MUTATION_DEFAULT_REJECT_REQUIRED => (Mutation, "required.mutation.default_reject_required", "generated.mutation.accepted_default", "tier_c.mutation.default_reject_required", MUTATION_SELECTION),
+    MUTATION_DEFAULT_UPDATE_AUTHORED => (Mutation, "required.mutation.default_update_authored", "generated.mutation.accepted_default", "tier_c.mutation.default_update_authored", MUTATION_SELECTION),
+    MUTATION_DEFAULT_UPDATE_DEFAULT => (Mutation, "required.mutation.default_update_default", "generated.mutation.accepted_default", "tier_c.mutation.default_update_default", MUTATION_SELECTION),
+    MUTATION_DEFAULT_UPDATE_PRESERVE => (Mutation, "required.mutation.default_update_preserve", "generated.mutation.accepted_default", "tier_c.mutation.default_update_preserve", MUTATION_SELECTION),
+    NULL_COMPUTED_AGGREGATE => (Select, "required.null.computed_aggregate", "generated.select.reference_scalar", "tier_c.null.computed_aggregate", FULL_SCAN_NON_COVERING),
+    NULL_COMPUTED_DISTINCT => (Select, "required.null.computed_distinct", "generated.select.reference_scalar", "tier_c.null.computed_distinct", FULL_SCAN_NON_COVERING),
+    NULL_COMPUTED_ORDERING => (Select, "required.null.computed_ordering", "generated.select.reference_scalar", "tier_c.null.computed_ordering", FULL_SCAN_NON_COVERING),
+    NULL_STORED_COMPARISON_MEMBERSHIP => (Select, "required.null.stored_comparison_membership", "generated.select.indexed_nullable_reference", "tier_c.null.stored_comparison_membership", FULL_SCAN_NON_COVERING),
+    NULL_STORED_ORDERING => (Select, "required.null.stored_ordering", "generated.select.indexed_nullable_reference", "tier_c.null.stored_ordering", FULL_SCAN_NON_COVERING),
+    SCALAR_INDEXED_COMPUTED_DISTINCT_WINDOW => (Select, "required.scalar.indexed_computed_distinct_window", "generated.select.indexed_nullable_reference", "tier_c.scalar.indexed_computed_distinct_window", SECONDARY_RANGE_NON_COVERING),
+    SCALAR_REFERENCE_FULL_WINDOW => (Select, "required.scalar.reference_full_window", "generated.select.reference_scalar", "tier_c.scalar.reference_full_window", FULL_SCAN_NON_COVERING),
+    SCALAR_REFERENCE_UNKNOWN_ALIAS_ORDER => (Select, "required.scalar.reference_unknown_alias_order", "generated.select.reference_scalar", "tier_c.scalar.reference_unknown_alias_order", EXECUTION_NOT_APPLICABLE),
+}
 
 ///
 /// ObservedExecutionFacts

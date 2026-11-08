@@ -26,16 +26,12 @@ fn filtered_snapshot(expression: bool) -> PersistedSchemaSnapshot {
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         ),
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(3),
-            "active".into(),
-            SchemaFieldSlot::new(2),
+        PersistedFieldSnapshot::new_initial_test_field(
+            3,
+            "active",
+            2,
             AcceptedFieldKind::Bool,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Bool),
         ),
     ];
     let path = PersistedIndexFieldPathSnapshot::new(

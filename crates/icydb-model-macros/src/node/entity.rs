@@ -362,19 +362,7 @@ impl Entity {
 }
 
 fn validate_entity_name_text(value: &str) -> Result<(), DarlingError> {
-    if value.is_empty() {
-        return Err(DarlingError::custom("entity name must not be empty"));
-    }
-    if value.len() > 64 {
-        return Err(DarlingError::custom("entity name exceeds max length 64"));
-    }
-    if !value.is_ascii() {
-        return Err(DarlingError::custom("entity name must be ASCII"));
-    }
-    if value.as_bytes().contains(&b'|') {
-        return Err(DarlingError::custom("entity name must not contain '|'"));
-    }
-    Ok(())
+    icydb_schema::validate_entity_name(value).map_err(DarlingError::custom)
 }
 
 fn validate_index_name_text(
@@ -388,7 +376,7 @@ fn validate_index_name_text(
         ));
     }
     for field in fields {
-        if field.is_empty() || field.len() > 64 || !field.is_ascii() || field.contains('|') {
+        if icydb_schema::validate_entity_name(field).is_err() {
             return Err(DarlingError::custom(format!(
                 "invalid index key term '{field}' for entity '{entity_name}'"
             )));

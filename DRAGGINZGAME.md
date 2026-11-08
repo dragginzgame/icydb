@@ -1,5 +1,5 @@
 # Dragginzgame Engineering Baseline
-<!-- Shared companions: audits/README.md docs/principles/rust-code-hygiene.md rules/change-reporting.md rules/contributions.md rules/engineering-details.md rules/rpc-budgets.md rules/rust-workspaces.md -->
+<!-- Shared companions: audits/README.md docs/principles/rust-code-hygiene.md rules/change-reporting.md rules/contributions.md rules/engineering-details.md rules/hashing.md rules/rpc-budgets.md rules/rust-workspaces.md -->
 
 Shared Tooling owns the common engineering rules for `dragginzgame` repositories.
 Read this core, the local `AGENTS.md` and the current handoff when present. Read
@@ -112,11 +112,18 @@ when changing interfaces, persistence or installation/recovery behavior.
   the leaf commands, and aggregate gates must not repeat full lint/setup through
   nested targets. Reuse unchanged release-stage evidence only through the
   qualified contract; see [validation mechanics](rules/engineering-details.md#validation-and-evidence).
+- Run Gitleaks once per repository CI run, outside host/package/release-group
+  matrices. Do not repeat it during deployment or publication; follow the
+  [repository secret-scanning contract](rules/engineering-details.md#repository-secret-scanning).
 - Reserve local full repository/workspace suites and broad gates for an explicitly
   authorized release or explicit request for those checks. Implementation,
   continuation, PR delivery and readiness wording do not authorize them. Focused
   passing evidence suffices for ordinary handoff; an unrun full suite alone is
   not a blocker. Preserve approved local restrictions on focused execution.
+- Close ordinary issues after implementation and focused validation; pushing,
+  publishing and deployment are separate. State the local/delivery status and
+  preserve genuinely issue-specific acceptance under the
+  [issue closure policy](rules/agent-maintenance.md#issue-review-and-repair).
 - Run expensive hosted integration/native CI asynchronously for development,
   PR delivery and separately authorized merges. Report pending runs; do not poll
   or hold a turn open solely for the matrix. Enforced checks/reviews, known defects,
@@ -169,6 +176,11 @@ Read the
 when adding, changing or reviewing metrics and logging.
 
 ## IC application encoding
+
+Hashing choices follow the [shared algorithm/purpose inventory](rules/hashing.md).
+Review new algorithms and direct hashing packages explicitly; pure hashing may
+use approved direct dependencies without a Platform facade. Preserve existing
+hash bytes and domains when changing dependency ownership.
 
 Owned application types must not derive or implement `CandidType`. Use `ic-wire`
 for owned RPC; keep unavoidable Candid in dedicated external-protocol boundary

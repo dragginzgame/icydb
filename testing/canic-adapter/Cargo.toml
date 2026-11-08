@@ -54,6 +54,7 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 # Production dependencies
+blake3 = { version = "1.8.7", default-features = false, features = ["std"] }
 # Schema registration runs before main and does not request ordered constructors.
 ic-host-artifacts = { version = "0.73.1", default-features = false }
 ic-storage = "0.64.0"

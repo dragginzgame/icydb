@@ -62,7 +62,50 @@ or recovery. A mismatched release kind fails before validation or delivery.
 The default `released` mode and Cargo release-group adapters retain their existing
 version selection; pending-file mode cannot be used with a Cargo release group.
 
+## Decide whether publication is needed
+
+Group membership, qualification scope and publication impact are different
+decisions. A private test, benchmark or tooling member belongs to its declared
+group, but editing it does not automatically require bumping or publishing that
+group's public packages. Keep member versions aligned at their current value
+until an actual group release. Do not create a new group merely to avoid a bump.
+
+Before selecting release commands, compare the proposed source with the last
+published source for each affected public group. Use existing Cargo metadata,
+package file inventories (`cargo package --list -p PACKAGE --locked --offline`),
+normalized package manifests and archive/provenance tooling where necessary.
+Review the actual changes and dependency contracts; a file's directory or
+`publish = false` alone is not proof that it cannot affect a public package.
+This is release planning, not a new gate on every development edit.
+
+| Change | Publication decision |
+| --- | --- |
+| Private tests/benchmarks/tooling only; public package payloads and dependency contracts unchanged | Commit/push the maintenance under delivery authority and run focused qualification. No public version bump, tag or crates.io upload. |
+| Private generator or shared build script changes public generated source, packaged files or build behavior | Release the affected public group, even if the generator itself is unpublished. |
+| Root manifest or lock changes | Inspect each public package's normalized manifest, packaged lock where applicable and resolved build contract. A private-only selection change can remain maintenance; changed public requirements or delivered behavior need a release. |
+| Public source, API, schema, runtime behavior or package contents change | Assess the package's own compatibility impact and release its affected group. |
+| A supplier publishes a newer compatible patch, but the consumer's delivered contract is unchanged | No automatic downstream adoption or republication. Update when needed or batch planned maintenance. |
+
+Record the decision and comparison basis in the ordinary handoff or owning issue.
+If impact cannot be established, resolve that uncertainty before declaring the
+public packages unchanged. Retain meaningful private maintenance notes in the
+owning group's pending numbered changelog entry for its next actual release;
+do not date that entry or imply that its version has been published. A pending
+note is not an instruction to release. Routine notes may be omitted under the
+normal changelog rules.
+
+The existing release runner executes explicitly selected releases; it does not
+infer publication impact from changed paths. Once a group release is selected,
+its existing member-version transaction, package closure, complete qualified
+gate and exact source/archive evidence remain mandatory. This policy does not
+authorize partial publication of a selected group or stale-proof reuse.
+
 ## Required workflow
+
+Repository secret scanning runs once in CI under the
+[shared scanning contract](../rules/engineering-details.md#repository-secret-scanning),
+not in group release gates, batch setup or publication. Preserve required checks
+without installing or rerunning Gitleaks for each deployment.
 
 Content-bound reuse across independent groups has an
 [opt-in exact-input stage interface](release-validation-reuse.md). Consumers must

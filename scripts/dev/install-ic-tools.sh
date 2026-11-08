@@ -197,7 +197,7 @@ while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; d
     ic_asset
     archive="$scratch/$asset"
     echo "Installing $tool $version ($host)" >&2
-    tool_store_download "https://github.com/$repo/releases/download/$tag/$asset" "$archive"
+    tool_store_download "https://github.com/$repo/releases/download/$tag/$asset" "$archive" "$digest"
     bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$digest" "$archive"
     case "$format" in
         raw) cp "$archive" "$stage/bin/$tool" ;;

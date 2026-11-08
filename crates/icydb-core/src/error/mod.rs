@@ -2675,94 +2675,55 @@ impl ErrorDetail {
 }
 
 impl ExecutorErrorDetail {
+    // The registry owns the broad category for every boundary detail. Keep only
+    // the executor-to-boundary projection here so code and detail cannot drift.
+    const fn diagnostic_value(&self) -> diagnostic_code::DiagnosticDetail {
+        let boundary = match self {
+            Self::MutationRequiredFieldMissing => {
+                diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing
+            }
+            Self::MutationDatabaseOwnedFieldExplicit => {
+                diagnostic_code::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit
+            }
+            Self::MutationBatchEmpty => diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
+            Self::MutationBatchTooManyItems => {
+                diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems
+            }
+            Self::MutationBatchStagedBytesExceeded => {
+                diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded
+            }
+            Self::MutationBatchResultBytesExceeded => {
+                diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded
+            }
+            Self::MutationBatchStoreMismatch => {
+                diagnostic_code::RuntimeBoundaryCode::MutationBatchStoreMismatch
+            }
+            Self::MutationBatchTooManyEntities => {
+                diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyEntities
+            }
+            Self::MutationBatchDuplicateKey => {
+                diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey
+            }
+            Self::MutationManagedTimestampRegression => {
+                diagnostic_code::RuntimeBoundaryCode::MutationManagedTimestampRegression
+            }
+            Self::AcceptedRowConstraintProgramCorrupt => {
+                diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt
+            }
+        };
+        diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }
+    }
+
     /// Return the compact diagnostic code for this executor detail.
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
-        match self {
-            Self::MutationRequiredFieldMissing
-            | Self::MutationDatabaseOwnedFieldExplicit
-            | Self::MutationBatchEmpty
-            | Self::MutationBatchTooManyItems
-            | Self::MutationBatchTooManyEntities
-            | Self::MutationBatchStagedBytesExceeded
-            | Self::MutationBatchResultBytesExceeded => {
-                diagnostic_code::DiagnosticCode::RuntimeUnsupported
-            }
-            Self::MutationBatchStoreMismatch | Self::MutationBatchDuplicateKey => {
-                diagnostic_code::DiagnosticCode::RuntimeConflict
-            }
-            Self::MutationManagedTimestampRegression => {
-                diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
-            }
-            Self::AcceptedRowConstraintProgramCorrupt => {
-                diagnostic_code::DiagnosticCode::RuntimeCorruption
-            }
-        }
+        self.diagnostic_value().diagnostic_code()
     }
 
     /// Return compact structured diagnostic detail for this executor detail.
     #[must_use]
     pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
-        match self {
-            Self::MutationRequiredFieldMissing => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing,
-                })
-            }
-            Self::MutationDatabaseOwnedFieldExplicit => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary:
-                        diagnostic_code::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
-                })
-            }
-            Self::MutationBatchEmpty => Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
-            }),
-            Self::MutationBatchTooManyItems => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems,
-                })
-            }
-            Self::MutationBatchStagedBytesExceeded => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary:
-                        diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded,
-                })
-            }
-            Self::MutationBatchResultBytesExceeded => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary:
-                        diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
-                })
-            }
-            Self::MutationBatchStoreMismatch => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchStoreMismatch,
-                })
-            }
-            Self::MutationBatchTooManyEntities => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyEntities,
-                })
-            }
-            Self::MutationBatchDuplicateKey => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary: diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey,
-                })
-            }
-            Self::MutationManagedTimestampRegression => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary:
-                        diagnostic_code::RuntimeBoundaryCode::MutationManagedTimestampRegression,
-                })
-            }
-            Self::AcceptedRowConstraintProgramCorrupt => {
-                Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-                    boundary:
-                        diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt,
-                })
-            }
-        }
+        Some(self.diagnostic_value())
     }
 
     /// Project safe mutation detail into canonical public numeric facts.

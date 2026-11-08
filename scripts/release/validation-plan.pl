@@ -7,6 +7,8 @@ use Digest::SHA qw(sha256_hex);
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL);
 use FindBin;
 use lib $FindBin::Bin;
+use lib "$FindBin::Bin/../ci";
+use ValidationPlan ();
 use ValidationScope qw(cli_private database_product exclusions);
 my $json = JSON::PP->new->canonical->utf8;
 my ($group, $source, $baseline, $output, $scope) = @ARGV;
@@ -26,13 +28,8 @@ sub capture {
     return $value;
 }
 sub read_file {
-    my ($file) = @_;
-    $file !~ m{^/|(?:^|/)\.{1,2}(?:/|$)|[\x00-\x1f]|//} or die "unsafe input path\n";
-    my $route = '.';
-    for (split m{/}, $file) { $route .= "/$_"; !-l $route or die "redirected input $file\n"; }
-    -f $file or die "non-file input $file\n";
-    open my $fh, '<:raw', $file or die "read $file: $!\n";
-    local $/; return <$fh>;
+    # Shared owns regular-file admission; source bytes retain the common 64 MiB ceiling.
+    return ValidationPlan::bytes('.', $_[0], 67108864);
 }
 sub same_names {
     my ($a,$b) = @_;

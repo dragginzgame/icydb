@@ -17,7 +17,10 @@
 mod tests;
 
 use crate::MAX_INDEX_FIELDS;
-use icydb_schema::{SchemaName, canonical_index_name, is_engine_reserved_schema_name};
+use icydb_schema::{
+    EntityNameError, MAX_ENTITY_NAME_BYTES, SchemaName, canonical_index_name,
+    is_engine_reserved_schema_name, validate_entity_name,
+};
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
@@ -27,8 +30,7 @@ use std::{
 /// Constants
 ///
 
-const MAX_ENTITY_NAME_LEN: usize = 64;
-const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
+const MAX_ENTITY_NAME_LEN: usize = MAX_ENTITY_NAME_BYTES;
 const MAX_INDEX_NAME_LEN: usize = icydb_schema::MAX_SCHEMA_NAME_BYTES;
 const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
 
@@ -54,25 +56,6 @@ pub enum IdentityDecodeError {
     NonZeroPadding,
 
     /// Entity identity payload contains the reserved index segment delimiter.
-    Delimiter,
-}
-
-/// Admission error for generated entity names.
-///
-/// Owned by the naming layer before entity names enter public lookup contracts.
-
-#[derive(Debug)]
-pub enum EntityNameError {
-    /// Entity name is empty.
-    Empty,
-
-    /// Entity name exceeds the stable identity byte limit.
-    TooLong { len: usize, max: usize },
-
-    /// Entity name contains non-ASCII bytes.
-    NonAscii,
-
-    /// Entity name contains the reserved index segment delimiter.
     Delimiter,
 }
 
@@ -128,24 +111,9 @@ impl EntityName {
     /// Validate and construct an entity name from one ASCII string.
     pub fn try_from_str(name: &str) -> Result<Self, EntityNameError> {
         // Phase 1: validate user-visible identity constraints.
+        validate_entity_name(name)?;
         let bytes = name.as_bytes();
         let len = bytes.len();
-
-        if len == 0 {
-            return Err(EntityNameError::Empty);
-        }
-        if len > MAX_ENTITY_NAME_LEN {
-            return Err(EntityNameError::TooLong {
-                len,
-                max: MAX_ENTITY_NAME_LEN,
-            });
-        }
-        if !bytes.is_ascii() {
-            return Err(EntityNameError::NonAscii);
-        }
-        if bytes.contains(&INDEX_NAME_SEGMENT_DELIMITER) {
-            return Err(EntityNameError::Delimiter);
-        }
 
         // Phase 2: write into fixed-size canonical storage.
         let mut out = [0u8; MAX_ENTITY_NAME_LEN];
@@ -312,26 +280,19 @@ impl IndexName {
         }
 
         for field in fields {
-            let field_len = field.len();
-            if field_len == 0 {
-                return Err(IndexNameError::FieldEmpty);
-            }
-            if field_len > MAX_INDEX_FIELD_NAME_LEN {
-                return Err(IndexNameError::FieldTooLong {
+            validate_entity_name(field).map_err(|error| match error {
+                EntityNameError::Empty => IndexNameError::FieldEmpty,
+                EntityNameError::TooLong { max, .. } => IndexNameError::FieldTooLong {
                     field: (*field).to_string(),
-                    max: MAX_INDEX_FIELD_NAME_LEN,
-                });
-            }
-            if !field.is_ascii() {
-                return Err(IndexNameError::FieldNonAscii {
+                    max,
+                },
+                EntityNameError::NonAscii => IndexNameError::FieldNonAscii {
                     field: (*field).to_string(),
-                });
-            }
-            if field.as_bytes().contains(&INDEX_NAME_SEGMENT_DELIMITER) {
-                return Err(IndexNameError::FieldDelimiter {
+                },
+                EntityNameError::Delimiter => IndexNameError::FieldDelimiter {
                     field: (*field).to_string(),
-                });
-            }
+                },
+            })?;
         }
         let name = canonical_index_name(entity.as_str(), fields, prefix == "uniq", None);
         Self::try_from_str(&name)

@@ -6,6 +6,8 @@
 //! Boundary: keeps public write semantics and row-returning projection payloads
 //! above the core save pipeline.
 
+mod bulk;
+
 use crate::{
     db::{DynamicMutationResult, TypedBindingContext, session::DbSession},
     error::Error,
@@ -20,6 +22,10 @@ use std::{
     vec::IntoIter,
 };
 
+pub use bulk::{
+    TypedBulkWriteBatch, TypedBulkWriteError, TypedBulkWriteFailure, TypedBulkWriteLimits,
+    TypedBulkWriteProgress,
+};
 #[doc(hidden)]
 pub use icydb_core::db::{TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType};
 

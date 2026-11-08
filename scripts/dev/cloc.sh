@@ -12,32 +12,24 @@ if [[ -n "${TMPDIR:-}" && "$TMPDIR" != /* ]]; then export TMPDIR="$PWD/$TMPDIR";
 
 usage() {
     cat <<'EOF'
-Usage: cloc.sh [--subcrates] [--json] [--manifest PATH] [directory]
-       cloc.sh --check-tools
-       cloc.sh --help
+Usage: cloc.sh [options] [directory | crate[::module]]
 
-Report Rust library/app, tests, examples, benchmarks, build/tooling,
-unclassified and all-source LOC per workspace. Inline test code is separated.
-Fixture-only packages require package.metadata.shared-tooling.loc.category.
-The directory defaults to the current working directory. A parent directory
-selects its immediate Git checkouts; --subcrates also displays member rows.
-Counts always include all members. Independent excluded workspaces require
---manifest. --json is a single-workspace report and always includes crate rows.
---manifest selects one independent Cargo workspace explicitly; its own Cargo
-configuration and target directory apply. The default is the Git root workspace.
-Prepared host tools beside this script's checkout take precedence over PATH.
---check-tools checks prerequisites without inspecting a workspace or installing.
---json emits one complete document with crate rows and totals on success.
-The ??? column is unclassified LOC. For classification notes, file paths and
-reasons, run --json for the individual workspace and inspect diagnostics.
-Scratch defaults to the selected Cargo target directory. Parent-report scratch
-belongs to this script's checkout (target/tmp); TMPDIR overrides either default.
+Count Rust LOC by category. Defaults to the current workspace;
+a parent directory reports its sibling repositories.
+
+Options:
+  -d N            Show crates and N module levels (0 = crates only)
+  --json          Full file counts and diagnostics for one workspace
+  --manifest PATH Select an independent Cargo workspace
+  --check-tools   Check prerequisites
+  -h, --help      Show this help
+
 Examples:
-  cloc.sh                         Workspace summary
-  cloc.sh --subcrates              Summary with member crates
-  cloc.sh ..                       Sibling workspace summaries
-  cloc.sh --json | jq .diagnostics Classification notes
-Each selected source path counts once, including files with identical contents.
+  cloc.sh -d 1    Top-level modules beneath each crate
+  cloc.sh -d 2 .. Sibling crates with two module levels
+  cloc.sh -d 1 my-crate::parser  Drill into one module
+
+??? = unclassified LOC. Counting details: docs/fleet-tools.md
 EOF
 }
 
@@ -91,17 +83,18 @@ report_repositories() (
             if $w.report then . as $sum | with_entries(.value += $w.report.totals[.key]) else . end))}
         | if all(.workspaces[]; .report == null) then .totals |= with_entries(.value="n/a") else . end
     ' "$report_dir/rows" > "$report_dir/report.json"
-    flags=(); if [[ "$subcrates" == true ]]; then flags+=(--subcrates); fi
-    perl "$ROOT/scripts/dev/cloc-classify.pl" --table "$report_dir/report.json" ${flags[@]+"${flags[@]}"}
+    render_table "$report_dir/report.json"
     exit "$status"
 )
 
-subcrates=false
+depth=''
 selected_manifest=''
 json=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --subcrates) subcrates=true; shift ;;
+        -d)
+            [[ $# -ge 2 && "$2" =~ ^(0|[1-9][0-9]*)$ && ${#2} -le 6 ]] || { usage >&2; exit 2; }
+            depth="$2"; shift 2 ;;
         --json) json=true; shift ;;
         --manifest)
             [[ $# -ge 2 && -n "$2" && -z "$selected_manifest" ]] || { usage >&2; exit 2; }
@@ -113,6 +106,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ $# -le 1 ]] || { usage >&2; exit 2; }
+
+render_table() {
+    local flags=()
+    if [[ -n "$depth" ]]; then flags=(-d "$depth"); fi
+    perl "$ROOT/scripts/dev/cloc-classify.pl" --table "$1" ${flags[@]+"${flags[@]}"}
+}
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
@@ -147,7 +146,13 @@ if [[ -n "$selected_manifest" ]]; then
     selected_directory="${selected_directory%/.}"
     selected_manifest="$selected_directory/$(basename "$selected_manifest")"
 fi
-requested_root="$(resolve_directory "${1:-${selected_directory:-$PWD}}")"
+selection=''
+requested_directory="${1:-${selected_directory:-$PWD}}"
+if [[ $# == 1 && ! -d "$1" && "$1" != */* ]]; then
+    selection="$1"
+    requested_directory="${selected_directory:-$PWD}"
+fi
+requested_root="$(resolve_directory "$requested_directory")"
 requested_root="${requested_root%/.}"
 has_checkouts=false
 for child in "$requested_root"/* "$requested_root"/.[!.]*; do
@@ -191,15 +196,28 @@ if ! metadata="$(
     exit 1
 fi
 
+if [[ -n "$selection" ]]; then
+    crate="${selection%%::*}"
+    if ! metadata="$(printf '%s\n' "$metadata" | jq -e --arg crate "$crate" '
+        .workspace_members as $members |
+        .packages |= map(select(.name == $crate and (.id as $id | $members | index($id)))) |
+        if (.packages | length) == 1 then .workspace_members = [.packages[0].id]
+        else error("unknown or ambiguous workspace crate: " + $crate) end
+    ')"; then exit 1; fi
+fi
+
 scratch="${TMPDIR:-$(printf '%s\n' "$metadata" | jq -er .target_directory)/tmp}"
 mkdir -p -- "$scratch"
 FILE_LIST_DIR="$(mktemp -d "$scratch/shared-tooling-cloc.XXXXXX")"
 trap 'rm -rf "$FILE_LIST_DIR"' EXIT
 printf '%s\n' "$metadata" > "$FILE_LIST_DIR/metadata.json"
 perl "$ROOT/scripts/dev/cloc-classify.pl" "$FILE_LIST_DIR/metadata.json" "$manifest_path" "$FILE_LIST_DIR" > "$FILE_LIST_DIR/report.json"
+if [[ -n "$selection" ]]; then
+    perl "$ROOT/scripts/dev/cloc-classify.pl" --select "$FILE_LIST_DIR/report.json" "$selection" > "$FILE_LIST_DIR/selected.json"
+    mv "$FILE_LIST_DIR/selected.json" "$FILE_LIST_DIR/report.json"
+fi
 if [[ "$json" == true ]]; then
     cat "$FILE_LIST_DIR/report.json"
 else
-    flags=(); if [[ "$subcrates" == true ]]; then flags+=(--subcrates); fi
-    perl "$ROOT/scripts/dev/cloc-classify.pl" --table "$FILE_LIST_DIR/report.json" ${flags[@]+"${flags[@]}"}
+    render_table "$FILE_LIST_DIR/report.json"
 fi

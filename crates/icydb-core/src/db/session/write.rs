@@ -70,6 +70,24 @@ use icydb_schema::{
     EntitySourceKey, FieldSourceKey, FieldType, SchemaContractError, TypeSourceKey,
 };
 
+/// Per-attempt admission remains private: a diagnostic alone is never evidence
+/// that the writer has not crossed its commit handoff.
+struct TypedBatchAdmission {
+    staged_bytes: usize,
+    result_bytes: usize,
+    publication_ready: std::cell::Cell<bool>,
+}
+
+impl Default for TypedBatchAdmission {
+    fn default() -> Self {
+        Self {
+            staged_bytes: crate::db::executor::mutation::structural::MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
+            result_bytes: crate::db::executor::mutation::structural::MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES,
+            publication_ready: std::cell::Cell::new(false),
+        }
+    }
+}
+
 fn dynamic_key(
     entity_tag: crate::types::EntityTag,
     key: InputValue,
@@ -695,6 +713,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Vec<DynamicMutationResult>, InternalError> {
         self.execute_mixed_mutation_batch(
             requests,
+            &TypedBatchAdmission::default(),
             |first| {
                 if first.entity().is_empty() {
                     return Err(InternalError::executor_unsupported());
@@ -726,6 +745,7 @@ impl<C: CanisterKind> DbSession<C> {
         items: Vec<AcceptedStructuralMutationBatchItem>,
         result_catalogs: Vec<AcceptedSchemaCatalogContext>,
         identity_candidate_count: usize,
+        admission: &TypedBatchAdmission,
     ) -> Result<Vec<DynamicMutationResult>, InternalError> {
         if items.len() != result_catalogs.len() {
             return Err(InternalError::executor_invariant());
@@ -740,7 +760,13 @@ impl<C: CanisterKind> DbSession<C> {
             || Ok(items.next()),
             Timestamp::now(),
             AcceptedStructuralMutationCommitOptions::standard(true),
-            |rows, _report| {
+            |rows, report| {
+                if report.staged_bytes() > admission.staged_bytes {
+                    return Err(InternalError::mutation_batch_staged_bytes_exceeded(
+                        Some(report.staged_bytes()),
+                        admission.staged_bytes,
+                    ));
+                }
                 if rows.len() != result_catalogs.len() {
                     return Err(InternalError::executor_invariant());
                 }
@@ -758,6 +784,15 @@ impl<C: CanisterKind> DbSession<C> {
                 let encoded_bytes = icydb_schema::wire::encoded_reply_len(&results)
                     .map_err(|_| InternalError::executor_invariant())?;
                 validate_structural_mutation_result_bytes(encoded_bytes)?;
+                if encoded_bytes > admission.result_bytes {
+                    return Err(InternalError::mutation_batch_result_bytes_exceeded(
+                        encoded_bytes,
+                        admission.result_bytes,
+                    ));
+                }
+                // Every fallible projection and byte check precedes this handoff.
+                // Later errors carry no automatic retry authority.
+                admission.publication_ready.set(true);
                 Ok((results, AcceptedStructuralMutationCommitDirective::Standard))
             },
         )
@@ -860,13 +895,65 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_typed_mutation_batch(requests)
     }
 
+    /// Attempt one atomic typed batch with stricter canonical byte limits.
+    /// Only the returned precommit refusal permits adaptive splitting. All
+    /// ordinary errors retain their original meaning and must stop composition.
+    /// `None` means a binding was stale and no batch was executed.
+    #[doc(hidden)]
+    pub fn attempt_trusted_typed_mutation_batch_shared(
+        &self,
+        requests: Vec<(
+            std::sync::Arc<DynamicTypedEntityBinding>,
+            DynamicTypedMutation,
+        )>,
+        max_staged_bytes: usize,
+        max_result_bytes: usize,
+    ) -> Result<Option<crate::db::DynamicTypedBatchAttempt>, InternalError> {
+        use crate::db::DynamicTypedBatchAttempt;
+        use icydb_diagnostic_code::{DiagnosticDetail, RuntimeBoundaryCode};
+
+        let admission = TypedBatchAdmission {
+            staged_bytes: max_staged_bytes,
+            result_bytes: max_result_bytes,
+            ..TypedBatchAdmission::default()
+        };
+        match self.execute_typed_mutation_batch_with_admission(requests, &admission) {
+            Ok(results) => Ok(results.map(DynamicTypedBatchAttempt::Committed)),
+            Err(error)
+                if !admission.publication_ready.get()
+                    && matches!(
+                        error.diagnostic().detail(),
+                        Some(DiagnosticDetail::RuntimeBoundary {
+                            boundary: RuntimeBoundaryCode::MutationBatchStagedBytesExceeded
+                                | RuntimeBoundaryCode::MutationBatchResultBytesExceeded,
+                            ..
+                        })
+                    ) =>
+            {
+                Ok(Some(DynamicTypedBatchAttempt::PrecommitByteRefusal(error)))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     // Both ownership forms converge before admission and retain identical checks.
     fn execute_typed_mutation_batch<B: std::borrow::Borrow<DynamicTypedEntityBinding>>(
         &self,
         requests: Vec<(B, DynamicTypedMutation)>,
     ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
+        self.execute_typed_mutation_batch_with_admission(requests, &TypedBatchAdmission::default())
+    }
+
+    fn execute_typed_mutation_batch_with_admission<
+        B: std::borrow::Borrow<DynamicTypedEntityBinding>,
+    >(
+        &self,
+        requests: Vec<(B, DynamicTypedMutation)>,
+        admission: &TypedBatchAdmission,
+    ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
         self.execute_mixed_mutation_batch(
             requests,
+            admission,
             |(binding, _)| self.current_typed_entity_binding_catalog(binding.borrow()),
             |catalog, (binding, _)| {
                 let binding = binding.borrow();
@@ -901,6 +988,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_mixed_mutation_batch<R>(
         &self,
         requests: Vec<R>,
+        admission: &TypedBatchAdmission,
         capture_catalog: impl FnOnce(&R) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError>,
         resolve_catalog: impl Fn(
             &AcceptedSchemaCatalogContext,
@@ -987,6 +1075,7 @@ impl<C: CanisterKind> DbSession<C> {
             items,
             result_catalogs,
             identity_candidate_count,
+            admission,
         )
         .map(Some)
     }

@@ -25,7 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - name: Ensure GitHub CLI
         run: make install-gh
       - name: Install actionlint
@@ -48,6 +51,10 @@ jobs:
             --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
             --install-dir "$tool_dir"
           echo "$tool_dir" >> "$GITHUB_PATH"
+      - name: Install pinned secret scanner
+        run: |
+          bin="$(bash scripts/ci/install-ci-tool.sh gitleaks --install-dir "$RUNNER_TEMP/icydb-ci-tools")"
+          echo "GITLEAKS_BIN=$bin" >> "$GITHUB_ENV"
       - name: Install pinned local tools
         run: |
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
@@ -60,6 +67,13 @@ jobs:
         run: |
           make install-release-editor
           make release-editor-check
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
+      - name: Scan repository history for secrets
+        run: |
+          "$GITLEAKS_BIN" git --redact=100 --no-banner --no-color --log-level error "$GITHUB_WORKSPACE"
       - name: Run static validation with complete feedback
         run: make ci-static
       - name: Retain tooling failure evidence
@@ -92,6 +106,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          extra-key: ${{ matrix.lane }}
       - name: Prepare temporary directory for toolchain installation
         run: mkdir -p "$TMPDIR"
       - uses: ./.github/actions/prepare-rust
@@ -128,6 +146,11 @@ jobs:
         run: |
           make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
           make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
+          extra-key: ${{ matrix.lane }}
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           MAKE_TARGET: ${{ matrix.make_target }}
@@ -166,6 +189,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - uses: ./.github/actions/prepare-rust
         with:
           components: rustfmt, clippy
@@ -174,6 +199,10 @@ jobs:
         run: cargo fetch --locked
       - name: Install native workstation prerequisites and tools
         run: make install-dev
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Prepare locked Cargo release editor for fixtures
         run: |
           make release-editor-check
@@ -253,6 +282,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - uses: ./.github/actions/prepare-rust
         with:
           components: clippy
@@ -264,6 +295,10 @@ jobs:
         run: |
           npm install --global npm@12.2.0 --ignore-scripts
           npm --prefix testing/wire-browser ci --ignore-scripts
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
       - name: Lint native browser contract owner

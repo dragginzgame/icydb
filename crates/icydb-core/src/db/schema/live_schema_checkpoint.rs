@@ -23,8 +23,9 @@ use crate::{
                 control_memory,
             },
             enum_catalog::{
-                ACCEPTED_SCHEMA_ROOT_BYTES, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES,
-                MAX_SCHEMA_STORE_PATH_BYTES,
+                ACCEPTED_SCHEMA_ROOT_BYTES, AcceptedSchemaRoot, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES,
+                MAX_SCHEMA_STORE_PATH_BYTES, decode_accepted_schema_root,
+                encode_accepted_schema_root,
             },
             identity_state::{
                 IDENTITY_STATE_RECORD_BYTES, IdentityAdvanceId, IdentityRangeAdvance,
@@ -53,9 +54,11 @@ use crate::db::schema::migration_lineage::{
     decode_entity_source_lineage_catalog,
 };
 
-const CHECKPOINT_MAGIC: &[u8; 8] = b"ICYSLIVE";
+const CHECKPOINT_MAGIC: &[u8; 8] = b"ICYSCAND";
+const IDENTITY_CHECKPOINT_MAGIC: &[u8; 8] = b"ICYIDINV";
 const CHECKPOINT_VERSION: u8 = 1;
-const CHECKPOINT_FIXED_BYTES: usize = 8 + 1 + 4 + 4 + 4 + 4 + 4;
+const CHECKPOINT_FIXED_BYTES: usize = 8 + 1 + 4 + 4 + 4 + 4;
+const IDENTITY_CHECKPOINT_FIXED_BYTES: usize = 8 + 1 + 4 + 4 + 4 + 4;
 const CHECKPOINT_KEY_PROFILE: &[u8] = b"icydb.live-schema-checkpoint.key.v1";
 const LINEAGE_KEY_PROFILE: &[u8] = b"icydb.schema-lineage.key.v1";
 const MIGRATION_KEY_PROFILE: &[u8] = b"icydb.schema-migration.key.v1";
@@ -63,10 +66,14 @@ const MAX_LIVE_SCHEMA_CHECKPOINTS: u64 = icydb_schema::MAX_SCHEMA_ASSIGNMENTS as
 const MAX_LIVE_SCHEMA_CHECKPOINT_BYTES: usize = CHECKPOINT_FIXED_BYTES
     + MAX_SCHEMA_STORE_PATH_BYTES
     + MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES
+    + ACCEPTED_SCHEMA_ROOT_BYTES;
+const MAX_IDENTITY_CHECKPOINT_BYTES: usize = IDENTITY_CHECKPOINT_FIXED_BYTES
+    + MAX_SCHEMA_STORE_PATH_BYTES
     + ACCEPTED_SCHEMA_ROOT_BYTES
     + MAX_IDENTITY_STATE_RECORDS_PER_DATABASE * IDENTITY_STATE_RECORD_BYTES;
 type CheckpointWriter = BoundedByteWriter<MAX_LIVE_SCHEMA_CHECKPOINT_BYTES>;
 type CheckpointReader<'a> = SchemaWireReader<'a>;
+type IdentityCheckpointWriter = BoundedByteWriter<MAX_IDENTITY_CHECKPOINT_BYTES>;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct LiveSchemaCheckpointKey([u8; 32]);
@@ -139,9 +146,16 @@ impl LiveSchemaCheckpoint {
 
 struct LiveSchemaCheckpointStore {
     map: SchemaControlMap<LiveSchemaCheckpointKey>,
+    identities: SchemaControlMap<LiveSchemaCheckpointKey>,
 }
 
-/// Fully encoded identity checkpoint for one synchronous commit window.
+#[derive(Debug)]
+struct LiveIdentityCheckpoint {
+    root: AcceptedSchemaRoot,
+    states: IdentityStateInventory,
+}
+
+/// Encoded identity-only record for one synchronous commit window.
 /// Recovery continues to derive its updates from the durable marker.
 #[derive(Debug)]
 pub(in crate::db) struct PreparedLiveIdentityCheckpoint {
@@ -151,20 +165,29 @@ pub(in crate::db) struct PreparedLiveIdentityCheckpoint {
 
 impl LiveSchemaCheckpointStore {
     fn open(memory: ControlMemory) -> Result<Self, InternalError> {
-        Self::from_map(SchemaControlMap::open(
-            memory,
-            ControlRecordFamily::Checkpoint,
-        )?)
+        let identities = SchemaControlMap::open(memory.clone(), ControlRecordFamily::Identity)?;
+        Self::from_maps(
+            SchemaControlMap::open(memory, ControlRecordFamily::Checkpoint)?,
+            identities,
+        )
     }
 
     fn open_existing(memory: ControlMemory) -> Result<Option<Self>, InternalError> {
-        SchemaControlMap::open_existing(memory, ControlRecordFamily::Checkpoint)?
-            .map(Self::from_map)
-            .transpose()
+        let Some(map) =
+            SchemaControlMap::open_existing(memory.clone(), ControlRecordFamily::Checkpoint)?
+        else {
+            return Ok(None);
+        };
+        let identities = SchemaControlMap::open_existing(memory, ControlRecordFamily::Identity)?
+            .ok_or_else(InternalError::store_corruption)?;
+        Self::from_maps(map, identities).map(Some)
     }
 
-    fn from_map(map: SchemaControlMap<LiveSchemaCheckpointKey>) -> Result<Self, InternalError> {
-        let store = Self { map };
+    fn from_maps(
+        map: SchemaControlMap<LiveSchemaCheckpointKey>,
+        identities: SchemaControlMap<LiveSchemaCheckpointKey>,
+    ) -> Result<Self, InternalError> {
+        let store = Self { map, identities };
         if let Some(record) = store.map.get(&LiveSchemaCheckpointKey::migration())? {
             decode_schema_migration_record(&record.0)?;
         }
@@ -176,10 +199,37 @@ impl LiveSchemaCheckpointStore {
 
     fn load(&self, store_path: &str) -> Result<Option<LiveSchemaCheckpoint>, InternalError> {
         let key = LiveSchemaCheckpointKey::for_store(store_path)?;
-        self.map
+        let Some(bytes) = self.map.get(&key)? else {
+            if self.identities.get(&key)?.is_some() {
+                return Err(InternalError::identity_state_corruption());
+            }
+            return Ok(None);
+        };
+        let candidate = decode_checkpoint(&bytes.0, key)?;
+        let identity = self.load_identity(store_path, candidate.root())?;
+        Ok(Some(LiveSchemaCheckpoint {
+            candidate,
+            identity_states: identity.states,
+        }))
+    }
+
+    // Accepted runtime root authority binds the small mutable record without
+    // reopening or decoding the immutable candidate during identity work.
+    fn load_identity(
+        &self,
+        store_path: &str,
+        root: AcceptedSchemaRoot,
+    ) -> Result<LiveIdentityCheckpoint, InternalError> {
+        let key = LiveSchemaCheckpointKey::for_store(store_path)?;
+        let bytes = self
+            .identities
             .get(&key)?
-            .map(|bytes| decode_checkpoint(&bytes.0, key))
-            .transpose()
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        let identity = decode_identity_checkpoint(&bytes.0, key)?;
+        if identity.root != root {
+            return Err(InternalError::identity_state_corruption());
+        }
+        Ok(identity)
     }
 
     fn preflight(
@@ -207,10 +257,19 @@ impl LiveSchemaCheckpointStore {
             LiveSchemaCheckpointPreflight::Ready => {}
         }
         let key = LiveSchemaCheckpointKey::for_store(store_path)?;
-        self.map.insert(
-            key,
-            SchemaControlBytes(encode_checkpoint(store_path, &checkpoint)?),
+        // Encode both before publication. The existing marker apply owner keeps
+        // this synchronous pair in one IC message and traps on contradiction.
+        let candidate_bytes = encode_checkpoint(store_path, checkpoint.candidate())?;
+        let identity_bytes = encode_identity_checkpoint(
+            store_path,
+            &LiveIdentityCheckpoint {
+                root: checkpoint.candidate().root(),
+                states: checkpoint.identity_states,
+            },
         )?;
+        self.map.insert(key, SchemaControlBytes(candidate_bytes))?;
+        self.identities
+            .insert(key, SchemaControlBytes(identity_bytes))?;
         Ok(())
     }
 
@@ -368,38 +427,33 @@ impl LiveSchemaCheckpointStore {
     fn prepare_identity_ranges(
         &self,
         store_path: &str,
+        root: AcceptedSchemaRoot,
         ranges: &[(IdentityRangeAdvance, IdentityAdvanceId)],
         budget: &dyn ConstructionBudget,
     ) -> Result<PreparedLiveIdentityCheckpoint, InternalError> {
-        let mut checkpoint = self
-            .load(store_path)?
-            .ok_or_else(InternalError::identity_state_corruption)?;
-        // Coalesce every owner of this store before encoding, so later owners
-        // cannot overwrite earlier advances with an independently prepared image.
+        let mut identity = self.load_identity(store_path, root)?;
+        // Coalesce every owner before encoding the one bounded mutable record.
         for (range, advance_id) in ranges {
             let key = (range.owner().entity_tag(), range.owner().field_id());
-            let state = checkpoint
-                .identity_states
+            let state = identity
+                .states
                 .get(&key)
                 .ok_or_else(InternalError::identity_state_corruption)?;
             state.preflight_range_advance(*range)?;
             let next = state.apply_range_advance(*range, *advance_id)?;
-            checkpoint.identity_states.insert(key, next);
+            identity.states.insert(key, next);
         }
-        // These lengths already passed bounded checkpoint decoding. Charge the
-        // retained encoded image before allocating it alongside other stores.
-        let bytes = CHECKPOINT_FIXED_BYTES
+        let bytes = IDENTITY_CHECKPOINT_FIXED_BYTES
             + store_path.len()
-            + checkpoint.candidate().encoded_bundle().len()
-            + checkpoint.candidate().encoded_root().len()
-            + checkpoint.identity_states().len() * IDENTITY_STATE_RECORD_BYTES;
+            + ACCEPTED_SCHEMA_ROOT_BYTES
+            + identity.states.len() * IDENTITY_STATE_RECORD_BYTES;
         budget.charge(
             icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes,
             bytes as u64,
         )?;
         Ok(PreparedLiveIdentityCheckpoint {
             key: LiveSchemaCheckpointKey::for_store(store_path)?,
-            bytes: encode_checkpoint(store_path, &checkpoint)?,
+            bytes: encode_identity_checkpoint(store_path, &identity)?,
         })
     }
 
@@ -407,7 +461,7 @@ impl LiveSchemaCheckpointStore {
         &mut self,
         prepared: PreparedLiveIdentityCheckpoint,
     ) -> Result<(), InternalError> {
-        self.map
+        self.identities
             .insert(prepared.key, SchemaControlBytes(prepared.bytes))?;
         Ok(())
     }
@@ -415,28 +469,24 @@ impl LiveSchemaCheckpointStore {
     fn apply_identity_range(
         &mut self,
         store_path: &str,
+        root: AcceptedSchemaRoot,
         range: IdentityRangeAdvance,
         advance_id: IdentityAdvanceId,
     ) -> Result<(), InternalError> {
-        let mut checkpoint = self
-            .load(store_path)?
-            .ok_or_else(InternalError::identity_state_corruption)?;
+        let mut identity = self.load_identity(store_path, root)?;
         let key = (range.owner().entity_tag(), range.owner().field_id());
-        let current = checkpoint
-            .identity_states
+        let current = identity
+            .states
             .get(&key)
             .ok_or_else(InternalError::identity_state_corruption)?;
         let state = current.apply_range_advance(range, advance_id)?;
-        // Replay validation belongs to IdentityState. Once it confirms the
-        // same advance is materialized, the retained checkpoint needs no write.
         if state == *current {
             return Ok(());
         }
-        checkpoint.identity_states.insert(key, state);
-        let checkpoint_key = LiveSchemaCheckpointKey::for_store(store_path)?;
-        self.map.insert(
-            checkpoint_key,
-            SchemaControlBytes(encode_checkpoint(store_path, &checkpoint)?),
+        identity.states.insert(key, state);
+        self.identities.insert(
+            LiveSchemaCheckpointKey::for_store(store_path)?,
+            SchemaControlBytes(encode_identity_checkpoint(store_path, &identity)?),
         )?;
         Ok(())
     }
@@ -457,13 +507,11 @@ fn validate_candidate_transition(
 
 fn encode_checkpoint(
     store_path: &str,
-    checkpoint: &LiveSchemaCheckpoint,
+    candidate: &CandidateSchemaRevision,
 ) -> Result<Vec<u8>, InternalError> {
-    let candidate = checkpoint.candidate();
     if candidate.store_path() != store_path
         || store_path.is_empty()
         || store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES
-        || checkpoint.identity_states().len() > MAX_IDENTITY_STATE_RECORDS_PER_DATABASE
     {
         return Err(InternalError::store_invariant());
     }
@@ -473,28 +521,18 @@ fn encode_checkpoint(
     writer.push_len_prefixed_bytes(store_path.as_bytes())?;
     writer.push_len_prefixed_bytes(candidate.encoded_bundle())?;
     writer.push_len_prefixed_bytes(candidate.encoded_root())?;
-    writer.push_u32(
-        u32::try_from(checkpoint.identity_states().len())
-            .map_err(|_| InternalError::store_invariant())?,
-    );
-    for (key, state) in checkpoint.identity_states() {
-        if *key != (state.owner().entity_tag(), state.owner().field_id()) {
-            return Err(InternalError::store_invariant());
-        }
-        writer.push_bytes(&encode_identity_state(state)?);
-    }
-    let mut encoded = writer.finish()?;
-    if encoded.len() > MAX_LIVE_SCHEMA_CHECKPOINT_BYTES.saturating_sub(size_of::<u32>()) {
+    let mut bytes = writer.finish()?;
+    if bytes.len() > MAX_LIVE_SCHEMA_CHECKPOINT_BYTES.saturating_sub(size_of::<u32>()) {
         return Err(InternalError::store_invariant());
     }
-    encoded.extend_from_slice(&crc32c(&encoded).to_be_bytes());
-    Ok(encoded)
+    bytes.extend_from_slice(&crc32c(&bytes).to_be_bytes());
+    Ok(bytes)
 }
 
 fn decode_checkpoint(
     bytes: &[u8],
     expected_key: LiveSchemaCheckpointKey,
-) -> Result<LiveSchemaCheckpoint, InternalError> {
+) -> Result<CandidateSchemaRevision, InternalError> {
     if bytes.len() < CHECKPOINT_FIXED_BYTES || bytes.len() > MAX_LIVE_SCHEMA_CHECKPOINT_BYTES {
         return Err(InternalError::store_corruption());
     }
@@ -503,59 +541,97 @@ fn decode_checkpoint(
     if reader.read_array::<8>()? != *CHECKPOINT_MAGIC || reader.read_u8()? != CHECKPOINT_VERSION {
         return Err(InternalError::store_corruption());
     }
-    let store_path_bytes = reader.read_len_prefixed_bytes()?;
-    if store_path_bytes.is_empty() || store_path_bytes.len() > MAX_SCHEMA_STORE_PATH_BYTES {
-        return Err(InternalError::store_corruption());
-    }
-    let store_path =
-        std::str::from_utf8(store_path_bytes).map_err(|_| InternalError::store_corruption())?;
-    if LiveSchemaCheckpointKey::for_store(store_path)
-        .map_err(|_| InternalError::store_corruption())?
+    let path = reader.read_len_prefixed_bytes()?;
+    let path = std::str::from_utf8(path).map_err(|_| InternalError::store_corruption())?;
+    if LiveSchemaCheckpointKey::for_store(path).map_err(|_| InternalError::store_corruption())?
         != expected_key
     {
         return Err(InternalError::store_corruption());
     }
-    let bundle_bytes = reader.read_len_prefixed_bytes()?;
-    if bundle_bytes.len() > MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES {
+    let bundle = reader.read_len_prefixed_bytes()?;
+    let root = reader.read_len_prefixed_bytes()?;
+    if bundle.len() > MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES || root.len() != ACCEPTED_SCHEMA_ROOT_BYTES {
         return Err(InternalError::store_corruption());
-    }
-    let root_bytes = reader.read_len_prefixed_bytes()?;
-    if root_bytes.len() != ACCEPTED_SCHEMA_ROOT_BYTES {
-        return Err(InternalError::store_corruption());
-    }
-    let identity_state_count =
-        usize::try_from(reader.read_u32()?).map_err(|_| InternalError::store_corruption())?;
-    if identity_state_count > MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
-        return Err(InternalError::store_corruption());
-    }
-    let mut identity_states = IdentityStateInventory::new();
-    let mut prior_key = None;
-    for _ in 0..identity_state_count {
-        let encoded_state = reader.read_array::<IDENTITY_STATE_RECORD_BYTES>()?;
-        let state = decode_identity_state(&encoded_state)?;
-        let key = (state.owner().entity_tag(), state.owner().field_id());
-        if prior_key.is_some_and(|prior| prior >= key)
-            || identity_states.insert(key, state).is_some()
-        {
-            return Err(InternalError::identity_state_corruption());
-        }
-        prior_key = Some(key);
     }
     reader.finish()?;
-    let candidate =
-        CandidateSchemaRevision::from_encoded(bundle_bytes.to_vec(), root_bytes.to_vec())?;
-    let checkpoint = LiveSchemaCheckpoint {
-        candidate,
-        identity_states,
-    };
-    // The envelope reader consumes fixed-width lengths and all input; identity
-    // decoding validates every tag and absent-field padding, while prior_key
-    // enforces the encoder's inventory order. Candidate bytes stay unchanged.
-    // Re-encoding here would only copy and checksum the complete bundle again.
-    if checkpoint.candidate().store_path() != store_path {
+    let candidate = CandidateSchemaRevision::from_encoded(bundle.to_vec(), root.to_vec())?;
+    if candidate.store_path() != path {
         return Err(InternalError::store_corruption());
     }
-    Ok(checkpoint)
+    Ok(candidate)
+}
+
+fn encode_identity_checkpoint(
+    store_path: &str,
+    identity: &LiveIdentityCheckpoint,
+) -> Result<Vec<u8>, InternalError> {
+    LiveSchemaCheckpointKey::for_store(store_path)?;
+    if identity.states.len() > MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+        return Err(InternalError::identity_state_corruption());
+    }
+    let mut writer = IdentityCheckpointWriter::new();
+    writer.push_bytes(IDENTITY_CHECKPOINT_MAGIC);
+    writer.push_u8(CHECKPOINT_VERSION);
+    writer.push_len_prefixed_bytes(store_path.as_bytes())?;
+    writer.push_len_prefixed_bytes(&encode_accepted_schema_root(identity.root)?)?;
+    writer.push_u32(
+        u32::try_from(identity.states.len()).map_err(|_| InternalError::store_invariant())?,
+    );
+    for (key, state) in &identity.states {
+        if *key != (state.owner().entity_tag(), state.owner().field_id()) {
+            return Err(InternalError::identity_state_corruption());
+        }
+        writer.push_bytes(&encode_identity_state(state)?);
+    }
+    let mut bytes = writer.finish()?;
+    if bytes.len() > MAX_IDENTITY_CHECKPOINT_BYTES.saturating_sub(size_of::<u32>()) {
+        return Err(InternalError::store_invariant());
+    }
+    bytes.extend_from_slice(&crc32c(&bytes).to_be_bytes());
+    Ok(bytes)
+}
+
+fn decode_identity_checkpoint(
+    bytes: &[u8],
+    expected_key: LiveSchemaCheckpointKey,
+) -> Result<LiveIdentityCheckpoint, InternalError> {
+    if bytes.len() < IDENTITY_CHECKPOINT_FIXED_BYTES || bytes.len() > MAX_IDENTITY_CHECKPOINT_BYTES
+    {
+        return Err(InternalError::identity_state_corruption());
+    }
+    let body = verify_crc32c_trailer(bytes).ok_or_else(InternalError::identity_state_corruption)?;
+    let mut reader = CheckpointReader::new(body);
+    if reader.read_array::<8>()? != *IDENTITY_CHECKPOINT_MAGIC
+        || reader.read_u8()? != CHECKPOINT_VERSION
+    {
+        return Err(InternalError::identity_state_corruption());
+    }
+    let path = reader.read_len_prefixed_bytes()?;
+    let path = std::str::from_utf8(path).map_err(|_| InternalError::identity_state_corruption())?;
+    if LiveSchemaCheckpointKey::for_store(path)
+        .map_err(|_| InternalError::identity_state_corruption())?
+        != expected_key
+    {
+        return Err(InternalError::identity_state_corruption());
+    }
+    let root = decode_accepted_schema_root(reader.read_len_prefixed_bytes()?)?;
+    let count = usize::try_from(reader.read_u32()?)
+        .map_err(|_| InternalError::identity_state_corruption())?;
+    if count > MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+        return Err(InternalError::identity_state_corruption());
+    }
+    let mut states = IdentityStateInventory::new();
+    let mut prior = None;
+    for _ in 0..count {
+        let state = decode_identity_state(&reader.read_array::<IDENTITY_STATE_RECORD_BYTES>()?)?;
+        let key = (state.owner().entity_tag(), state.owner().field_id());
+        if prior.is_some_and(|prior| prior >= key) || states.insert(key, state).is_some() {
+            return Err(InternalError::identity_state_corruption());
+        }
+        prior = Some(key);
+    }
+    reader.finish()?;
+    Ok(LiveIdentityCheckpoint { root, states })
 }
 
 pub(in crate::db) fn load_live_schema_checkpoint(
@@ -613,11 +689,12 @@ pub(in crate::db) fn verify_live_schema_checkpoint(
 
 pub(in crate::db) fn prepare_live_identity_ranges_checkpoint(
     store_path: &str,
+    root: AcceptedSchemaRoot,
     ranges: &[(IdentityRangeAdvance, IdentityAdvanceId)],
     budget: &dyn ConstructionBudget,
 ) -> Result<PreparedLiveIdentityCheckpoint, InternalError> {
     LiveSchemaCheckpointStore::open(control_memory()?)?
-        .prepare_identity_ranges(store_path, ranges, budget)
+        .prepare_identity_ranges(store_path, root, ranges, budget)
 }
 
 /// Publish images prepared before this synchronous window's marker. No schema
@@ -637,22 +714,24 @@ pub(in crate::db) fn apply_prepared_live_identity_checkpoints(
 
 pub(in crate::db) fn apply_live_identity_range_checkpoint(
     store_path: &str,
+    root: AcceptedSchemaRoot,
     range: IdentityRangeAdvance,
     advance_id: IdentityAdvanceId,
 ) -> Result<(), InternalError> {
     LiveSchemaCheckpointStore::open(control_memory()?)?
-        .apply_identity_range(store_path, range, advance_id)
+        .apply_identity_range(store_path, root, range, advance_id)
 }
 
 pub(in crate::db) fn verify_live_identity_range_checkpoint(
     store_path: &str,
+    root: AcceptedSchemaRoot,
     range: IdentityRangeAdvance,
     advance_id: IdentityAdvanceId,
 ) -> Result<(), InternalError> {
-    let checkpoint = load_live_schema_checkpoint(store_path)?
-        .ok_or_else(InternalError::recovery_effect_verification_failed)?;
-    let state = checkpoint
-        .identity_states()
+    let identity =
+        LiveSchemaCheckpointStore::open(control_memory()?)?.load_identity(store_path, root)?;
+    let state = identity
+        .states
         .get(&(range.owner().entity_tag(), range.owner().field_id()))
         .ok_or_else(InternalError::recovery_effect_verification_failed)?;
     if state.materialized_high_water() != range.new_high_water()

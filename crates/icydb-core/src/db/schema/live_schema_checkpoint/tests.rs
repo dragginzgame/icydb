@@ -1,7 +1,7 @@
 use super::{
-    IdentityStateInventory, LiveSchemaCheckpointKey, LiveSchemaCheckpointPreflight,
-    LiveSchemaCheckpointStore, MAX_LIVE_SCHEMA_CHECKPOINT_BYTES, decode_checkpoint,
-    encode_checkpoint, schema_migration_record_blocks_ordinary_operations,
+    LiveSchemaCheckpointKey, LiveSchemaCheckpointPreflight, LiveSchemaCheckpointStore,
+    MAX_LIVE_SCHEMA_CHECKPOINT_BYTES, decode_checkpoint, encode_checkpoint,
+    schema_migration_record_blocks_ordinary_operations,
 };
 use crate::db::schema::control_store::CONTROL_START_PAGE;
 use crate::{
@@ -9,7 +9,6 @@ use crate::{
         integrity::DatabaseIncarnationId,
         schema::{
             AcceptedSchemaRevision, empty_accepted_schema_candidate_for_tests,
-            live_schema_checkpoint::LiveSchemaCheckpoint,
             migration_lineage::{
                 AcceptedEntitySourceLineage, AcceptedEntitySourceLineageCatalog,
                 EntitySourceLineageCatalogOp,
@@ -100,20 +99,13 @@ fn prepared_migration_record() -> SchemaMigrationRecord {
 fn checkpoint_codec_is_canonical_and_checksum_bound() {
     let candidate =
         empty_accepted_schema_candidate_for_tests("test::Live", AcceptedSchemaRevision::new(1));
-    let checkpoint = LiveSchemaCheckpoint {
-        candidate: candidate.clone(),
-        identity_states: IdentityStateInventory::default(),
-    };
     let encoded =
-        encode_checkpoint("test::Live", &checkpoint).expect("accepted candidate should checkpoint");
+        encode_checkpoint("test::Live", &candidate).expect("accepted candidate should checkpoint");
     let key =
         LiveSchemaCheckpointKey::for_store("test::Live").expect("checkpoint key should derive");
     let decoded = decode_checkpoint(&encoded, key).expect("checkpoint should decode");
-    assert_eq!(
-        decoded.candidate().encoded_bundle(),
-        candidate.encoded_bundle()
-    );
-    assert_eq!(decoded.candidate().encoded_root(), candidate.encoded_root());
+    assert_eq!(decoded.encoded_bundle(), candidate.encoded_bundle());
+    assert_eq!(decoded.encoded_root(), candidate.encoded_root());
 
     let mut corrupted = encoded;
     let last = corrupted

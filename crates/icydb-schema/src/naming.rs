@@ -6,8 +6,61 @@
 
 use crate::MAX_SCHEMA_NAME_BYTES;
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
+
+/// Maximum byte length of an entity display name or an index key-term label.
+pub const MAX_ENTITY_NAME_BYTES: usize = 64;
+
+/// Admission failure for entity display names and index key-term labels.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum EntityNameError {
+    /// The name is empty.
+    #[error("entity name must not be empty")]
+    Empty,
+    /// The name exceeds the fixed-width identity limit.
+    #[error("entity name exceeds max length {max}")]
+    TooLong {
+        /// Actual byte length.
+        len: usize,
+        /// Maximum admitted byte length.
+        max: usize,
+    },
+    /// The name contains non-ASCII bytes.
+    #[error("entity name must be ASCII")]
+    NonAscii,
+    /// The name contains the reserved identity segment delimiter.
+    #[error("entity name must not contain '|'")]
+    Delimiter,
+}
+
+/// Validate the text contract shared by entity names and index key-term labels.
+///
+/// This is distinct from the longer proposal source-key/schema-name contract.
+/// Persisted consumers must separately validate their framing and padding.
+///
+/// # Errors
+///
+/// Returns the first empty, oversized, non-ASCII or reserved-delimiter failure.
+pub fn validate_entity_name(name: &str) -> Result<(), EntityNameError> {
+    if name.is_empty() {
+        return Err(EntityNameError::Empty);
+    }
+    if name.len() > MAX_ENTITY_NAME_BYTES {
+        return Err(EntityNameError::TooLong {
+            len: name.len(),
+            max: MAX_ENTITY_NAME_BYTES,
+        });
+    }
+    if !name.is_ascii() {
+        return Err(EntityNameError::NonAscii);
+    }
+    if name.as_bytes().contains(&b'|') {
+        return Err(EntityNameError::Delimiter);
+    }
+    Ok(())
+}
 
 /// Whether a name belongs to the engine-owned constraint/index namespace.
 ///

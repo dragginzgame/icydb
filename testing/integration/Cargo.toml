@@ -12,8 +12,9 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
+blake3 = { workspace = true }
 canic-icydb = { workspace = true }
-ic-platform = { workspace = true, features = ["blake3", "pocket-ic"] }
+ic-platform = { workspace = true, features = ["pocket-ic"] }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
@@ -27,7 +28,6 @@ ic-wire = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde_json = { workspace = true }
-syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true
@@ -87,10 +87,6 @@ path = "tests/canister_artifact_contract.rs"
 [[test]]
 name = "metrics_execution_mode"
 path = "tests/metrics_execution_mode.rs"
-
-[[test]]
-name = "sql_correctness"
-path = "tests/sql_correctness.rs"
 
 [[test]]
 name = "sql_perf_audit"

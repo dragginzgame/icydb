@@ -147,7 +147,6 @@ fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
         &["cache_flags_probe"],
         &CargoSelection::default(),
         Some(&flags),
-        false,
     );
     for spec in [&single_spec, specs[0].spec()] {
         let error = ic_build::artifacts::resolve_cargo_build_inputs(spec).unwrap_err();
@@ -170,7 +169,8 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
     assert_eq!(artifact_policy.max_size_bytes(), Some(CACHE_MAX_BYTES));
 
     // Inspect the supported spec contract at the actual consumer wiring.
-    // Batch builds own maintenance once, so individual batch specs omit it.
+    // The consumer wires the same policy for single and batch acquisition;
+    // Build coalesces that policy once per canonical batch target.
     let expected = SharedIncrementalTargetMaintenanceConfig::new(
         ic_build::artifacts::CacheRetentionLimits::new()
             .with_max_age(CACHE_MAX_AGE)
@@ -180,27 +180,26 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
     .with_failure_mode(SharedIncrementalTargetMaintenanceFailureMode::BestEffort);
     let root = workspace_root();
     let target = root.join("target/cache-policy-probe");
-    let single = cargo_wasm_spec(
+    let single = cargo_wasm_spec(&root, &target, &["probe"], &CargoSelection::default(), None);
+    let selection = CargoSelection::default();
+    let batch = cargo_wasm_batch_specs(
         &root,
         &target,
-        &["probe"],
-        &CargoSelection::default(),
-        None,
-        true,
-    );
-    let batch = cargo_wasm_spec(
-        &root,
-        &target,
-        &["probe"],
-        &CargoSelection::default(),
-        None,
-        false,
+        &[CargoWasmBatchEntry {
+            context: "probe",
+            package: "probe",
+            selection: &selection,
+            encoded_rustflags: None,
+        }],
     );
     assert_eq!(
         single.shared_incremental_target_maintenance(),
         Some(expected),
     );
-    assert_eq!(batch.shared_incremental_target_maintenance(), None);
+    assert_eq!(
+        batch[0].spec().shared_incremental_target_maintenance(),
+        Some(expected)
+    );
 }
 
 #[test]

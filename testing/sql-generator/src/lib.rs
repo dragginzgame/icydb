@@ -21,6 +21,9 @@ mod shrink;
 mod structural_derivation;
 mod structure;
 
+/// Shared SQL evidence normalization, scenario selection and verdict contracts.
+pub mod sql_harness;
+
 #[cfg(test)]
 mod tests;
 
@@ -85,6 +88,7 @@ pub use shard::{SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_sce
 pub use shrink::{SelectShrinkReport, shrink_select_failure};
 pub use structure::{
     ExecutionAccess, ExecutionCovering, ObservedExecutionFacts, RequiredExecutionFacts,
-    ScheduledMutationWitness, ScheduledSelectWitness, StructuralSignature,
-    scheduled_mutation_witnesses, scheduled_select_witnesses, structural_witness_schedule_hash,
+    SCHEDULED_WITNESS_DECLARATIONS, ScheduledMutationWitness, ScheduledSelectWitness,
+    ScheduledWitnessDeclaration, StructuralSignature, scheduled_mutation_witnesses,
+    scheduled_select_witnesses, scheduled_witnesses, structural_witness_schedule_hash,
 };

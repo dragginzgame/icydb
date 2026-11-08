@@ -50,7 +50,6 @@ pub(crate) fn admit(
         request.packages,
         request.selection,
         request.encoded_rustflags,
-        false,
     );
     let inputs = resolve_cargo_build_inputs(&spec).map_err(|error| error.to_string())?;
     if inputs.fingerprint() != record.fingerprint() {

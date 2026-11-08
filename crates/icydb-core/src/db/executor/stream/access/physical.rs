@@ -13,9 +13,10 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            ACCESS_SCAN_CHUNK_ENTRIES, AccessStreamExecutionPolicy, IndexLeafOrderPolicy,
-            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
-            OrderedKeyStreamBox, PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
+            ACCESS_SCAN_CHUNK_ENTRIES, AccessStreamExecutionPolicy, IndexComponentRows,
+            IndexComponentValues, IndexLeafOrderPolicy, IndexScan, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream, OrderedKeyStreamBox,
+            PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries, expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
@@ -1211,8 +1212,34 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
     chunk_entries: usize,
-    buffer: IntoIter<DecodedDataStoreKey>,
+    buffer: IndexRangeBuffer,
+    component_indices: Option<Vec<usize>>,
+    yielded_components: Option<IndexComponentValues>,
+    started: bool,
     exhausted: bool,
+}
+
+// Keep ordinary key scans key-only. Covering rows carry payloads on this same
+// leaf, so page access bounds, anchors and progress have no second owner.
+enum IndexRangeBuffer {
+    Keys(IntoIter<DecodedDataStoreKey>),
+    Components(std::vec::IntoIter<(DecodedDataStoreKey, IndexComponentValues)>),
+}
+
+impl IndexRangeBuffer {
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Keys(rows) => rows.as_slice().is_empty(),
+            Self::Components(rows) => rows.as_slice().is_empty(),
+        }
+    }
+
+    fn next(&mut self) -> Option<(DecodedDataStoreKey, Option<IndexComponentValues>)> {
+        match self {
+            Self::Keys(rows) => rows.next().map(|key| (key, None)),
+            Self::Components(rows) => rows.next().map(|(key, components)| (key, Some(components))),
+        }
+    }
 }
 
 impl IndexRangeKeyStream {
@@ -1279,9 +1306,34 @@ impl IndexRangeKeyStream {
             anchor,
             remaining: limit,
             chunk_entries,
-            buffer: Vec::new().into_iter(),
+            buffer: IndexRangeBuffer::Keys(Vec::new().into_iter()),
+            component_indices: None,
+            yielded_components: None,
+            started: false,
             exhausted: false,
         }
+    }
+
+    // Admission occurs before traversal. A declined cursorless reader may
+    // repeat preparation without changing the already-admitted payload shape.
+    pub(in crate::db::executor) fn enable_covering_components(
+        &mut self,
+        indices: &[usize],
+    ) -> bool {
+        if let Some(current) = &self.component_indices {
+            return current == indices;
+        }
+        if self.started {
+            return false;
+        }
+        self.component_indices = Some(indices.to_vec());
+        true
+    }
+
+    pub(in crate::db::executor) const fn take_covering_components(
+        &mut self,
+    ) -> Option<IndexComponentValues> {
+        self.yielded_components.take()
     }
 
     // Return the maximum raw index entries one empty-buffer pull may visit.
@@ -1294,8 +1346,7 @@ impl IndexRangeKeyStream {
     // admission to preserve chunked store traversal without over-reserving
     // every candidate.
     fn next_pull_entry_bound(&self) -> usize {
-        if !self.buffer.as_slice().is_empty() || self.exhausted || matches!(self.remaining, Some(0))
-        {
+        if !self.buffer.is_empty() || self.exhausted || matches!(self.remaining, Some(0)) {
             0
         } else {
             self.next_chunk_limit()
@@ -1311,18 +1362,39 @@ impl IndexRangeKeyStream {
 
         let chunk_entries = self.next_chunk_limit();
         let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
-        let chunk = IndexScan::chunk_structural(
-            self.store,
-            self.entity_tag,
-            &self.lower,
-            &self.upper,
-            continuation,
-            chunk_entries,
-            index_stream_output_limit_for_chunk(self.remaining, chunk_entries),
-        )?;
-        let (keys, last_raw_key) = chunk.into_decoded_keys_and_resume_anchor();
-        let emitted = keys.len();
-        self.buffer = keys.into_iter();
+        let output_limit = index_stream_output_limit_for_chunk(self.remaining, chunk_entries);
+        let (emitted, last_raw_key) = if let Some(indices) = &self.component_indices {
+            let chunk = IndexScan::components_chunk_structural(
+                self.store,
+                self.entity_tag,
+                &self.lower,
+                &self.upper,
+                continuation,
+                chunk_entries,
+                output_limit,
+                indices,
+                None,
+            )?;
+            let (rows, anchor): (IndexComponentRows, _) =
+                chunk.into_component_rows_and_resume_anchor();
+            let emitted = rows.len();
+            self.buffer = IndexRangeBuffer::Components(rows.into_iter());
+            (emitted, anchor)
+        } else {
+            let chunk = IndexScan::chunk_structural(
+                self.store,
+                self.entity_tag,
+                &self.lower,
+                &self.upper,
+                continuation,
+                chunk_entries,
+                output_limit,
+            )?;
+            let (keys, anchor) = chunk.into_decoded_keys_and_resume_anchor();
+            let emitted = keys.len();
+            self.buffer = IndexRangeBuffer::Keys(keys.into_iter());
+            (emitted, anchor)
+        };
 
         apply_index_scan_chunk_progress(
             &mut self.anchor,
@@ -1336,10 +1408,15 @@ impl IndexRangeKeyStream {
     }
 
     fn pull_next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        while self.buffer.as_slice().is_empty() && !self.exhausted {
+        self.started = true;
+        self.yielded_components = None;
+        while self.buffer.is_empty() && !self.exhausted {
             self.load_next_chunk()?;
         }
-        Ok(self.buffer.next())
+        Ok(self.buffer.next().map(|(key, components)| {
+            self.yielded_components = components;
+            key
+        }))
     }
 }
 

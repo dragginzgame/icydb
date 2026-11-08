@@ -11,9 +11,14 @@ description = "Pinned SQLite reference adapter for IcyDB SQL correctness tests"
 category = "tests"
 
 [dependencies]
-ic-platform = { workspace = true, features = ["blake3"] }
+blake3 = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 rusqlite = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true

@@ -2,11 +2,24 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey, RawRow, ReadDataRow},
         executor::{
-            projection::eval_effective_runtime_filter_program_with_slot_reader,
+            EntityAuthority, IndexComponentValues, OrderedKeyStreamBox,
+            covering::{
+                decode_covering_projection_components,
+                read_row_presence_with_consistency_from_data_store,
+            },
+            pipeline::contracts::KernelPageMaterializationRequest,
+            projection::{
+                covering::{
+                    covering_projection_component_indices,
+                    project_covering_row_from_owned_decoded_values,
+                },
+                eval_effective_runtime_filter_program_with_slot_reader,
+            },
+            route::access_order_satisfied_by_route_mode,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
-        query::plan::EffectiveRuntimeFilterProgram,
+        query::plan::{CoveringReadField, EffectiveRuntimeFilterProgram},
         registry::StoreHandle,
         resource::budget::{
             charge_current_execution_budget, charge_current_execution_budget_ordered,
@@ -31,15 +44,18 @@ use super::{KernelRow, RetainedSlotLayout, RetainedSlotRow};
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) struct ScalarRowRuntimeState {
     store: StoreHandle,
-    row_layout: RowLayout,
+    authority: EntityAuthority,
 }
 
 impl ScalarRowRuntimeState {
     /// Build one structural scalar row-runtime descriptor from resolved
     /// boundary inputs.
     #[must_use]
-    pub(in crate::db::executor) const fn new(store: StoreHandle, row_layout: RowLayout) -> Self {
-        Self { store, row_layout }
+    pub(in crate::db::executor) const fn new(
+        store: StoreHandle,
+        authority: EntityAuthority,
+    ) -> Self {
+        Self { store, authority }
     }
 
     // Read one raw row through the structural store handle while preserving
@@ -136,9 +152,11 @@ impl ScalarRowRuntimeState {
             return Ok(None);
         };
         charge_decoded_row(row.len(), 1)?;
-        ReadDataRow::filter((key, row), self.row_layout.contract(), |slots| {
-            eval_effective_runtime_filter_program_with_slot_reader(filter_program, slots)
-        })
+        ReadDataRow::filter(
+            (key, row),
+            self.authority.row_layout_ref().contract(),
+            |slots| eval_effective_runtime_filter_program_with_slot_reader(filter_program, slots),
+        )
     }
 
     // Decode one full structural row while retaining only one caller-declared
@@ -191,7 +209,7 @@ impl ScalarRowRuntimeState {
         } else {
             charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
             RowDecoder::decode_retained_slots_from_data_key(
-                &self.row_layout,
+                self.authority.row_layout_ref(),
                 &key,
                 &row,
                 retained_slot_layout,
@@ -213,7 +231,7 @@ impl ScalarRowRuntimeState {
         self.read_row_borrowed(consistency, key, |row| {
             charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
             let slots = RowDecoder::decode_retained_slots_from_data_key(
-                &self.row_layout,
+                self.authority.row_layout_ref(),
                 key,
                 row,
                 retained_slot_layout,
@@ -234,7 +252,7 @@ impl ScalarRowRuntimeState {
         charge_borrowed_traversal_row(row)?;
         charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
         let slots = RowDecoder::decode_retained_slots_from_data_key(
-            &self.row_layout,
+            self.authority.row_layout_ref(),
             key,
             row,
             retained_slot_layout,
@@ -282,7 +300,10 @@ impl ScalarRowRuntimeState {
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<RetainedSlotRow>, InternalError> {
         charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
-        let row_fields = self.row_layout.open_raw_row_with_contract(row)?;
+        let row_fields = self
+            .authority
+            .row_layout_ref()
+            .open_raw_row_with_contract(row)?;
         if !eval_effective_runtime_filter_program_with_slot_reader(filter_program, &row_fields)? {
             return Ok(None);
         }
@@ -310,8 +331,8 @@ fn charge_borrowed_traversal_row(row: &RawRow) -> Result<(), InternalError> {
 ///
 /// KernelRowPayloadMode selects whether shared scalar row production must keep
 /// a full `DataRow` payload or only decoded slot values.
-/// Slot-only rows are valid for no-cursor retained-slot materialization lanes
-/// that never reconstruct entity rows or continuation anchors.
+/// Slot-only rows retain the complete declared layout, including hidden cursor
+/// anchors when present, without reconstructing an entity row payload.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -332,6 +353,7 @@ pub(in crate::db::executor) enum KernelRowPayloadMode {
 
 pub(in crate::db::executor) struct ScalarRowRuntimeHandle<'a> {
     state: &'a ScalarRowRuntimeState,
+    covering: Option<RetainedCoveringRead>,
 }
 
 impl<'a> ScalarRowRuntimeHandle<'a> {
@@ -340,14 +362,73 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     /// query execution.
     #[must_use]
     pub(in crate::db::executor) const fn from_borrowed(state: &'a ScalarRowRuntimeState) -> Self {
-        Self { state }
+        Self {
+            state,
+            covering: None,
+        }
+    }
+
+    /// Freeze covering admission for the final layout, including cursor-only
+    /// slots. No new pager or scan loop is introduced at this boundary.
+    pub(in crate::db::executor) fn prepare_covering(
+        &mut self,
+        request: &mut KernelPageMaterializationRequest<'_>,
+    ) {
+        let capabilities = request.capabilities;
+        let Some(layout) = capabilities.retained_slot_layout else {
+            return;
+        };
+        if !capabilities.retain_slot_rows
+            || capabilities.residual_filter_program.is_some()
+            || layout.has_value_mode_overrides()
+            || !access_order_satisfied_by_route_mode(request.plan)
+        {
+            return;
+        }
+        let Some(fields) = self
+            .state
+            .authority
+            .covering_retained_fields(request.plan, layout.required_slots())
+        else {
+            return;
+        };
+        let indices = covering_projection_component_indices(&fields);
+        if request.key_stream.enable_covering_components(&indices) {
+            self.covering = Some(RetainedCoveringRead { fields, indices });
+        }
+    }
+
+    /// Recover supported index slots and verify live-row presence. Unsupported
+    /// payloads use the canonical reader; malformed payloads remain errors.
+    pub(in crate::db::executor) fn read_slot_only_from_stream(
+        &self,
+        stream: &mut OrderedKeyStreamBox,
+        consistency: MissingRowPolicy,
+        key: &DecodedDataStoreKey,
+        layout: &RetainedSlotLayout,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        if let Some(covering) = &self.covering
+            && let Some(components) = stream.take_covering_components()
+            && let Some(values) = covering.decode(key, components)?
+        {
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+            if !self.state.store.with_data(|data| {
+                read_row_presence_with_consistency_from_data_store(data, key, consistency)
+            })? {
+                return Ok(None);
+            }
+            return Ok(Some(KernelRow::new_slot_only(
+                RetainedSlotRow::from_indexed_values(layout, values),
+            )));
+        }
+        self.read_slot_only(consistency, key, layout)
     }
 
     /// Borrow the authority-owned row layout used by raw-row materialization
     /// and direct raw-row order caching.
     #[must_use]
     pub(in crate::db::executor) fn row_layout(&self) -> RowLayout {
-        self.state.row_layout.clone()
+        self.state.authority.row_layout()
     }
 
     /// Retain a primary-iterator payload under the ordinary owned-row charges.
@@ -370,9 +451,12 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         charge_materialized_data_row(row.len())?;
         charge_decoded_row(row.len(), 1)?;
-        ReadDataRow::filter_borrowed(key, row, self.state.row_layout.contract(), |slots| {
-            eval_effective_runtime_filter_program_with_slot_reader(filter_program, slots)
-        })
+        ReadDataRow::filter_borrowed(
+            key,
+            row,
+            self.state.authority.row_layout_ref().contract(),
+            |slots| eval_effective_runtime_filter_program_with_slot_reader(filter_program, slots),
+        )
     }
 
     /// Retain an iterator payload through the canonical full-row slot decoder.
@@ -502,5 +586,27 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
             filter_program,
             retained_slot_layout,
         )
+    }
+}
+
+// One execution-local materialization proof. Fields are in retained-layout order;
+// the index component decoder and projection source owner remain shared.
+struct RetainedCoveringRead {
+    fields: Vec<CoveringReadField>,
+    indices: Vec<usize>,
+}
+
+impl RetainedCoveringRead {
+    fn decode(
+        &self,
+        key: &DecodedDataStoreKey,
+        components: IndexComponentValues,
+    ) -> Result<Option<Vec<Option<crate::value::Value>>>, InternalError> {
+        charge_decoded_row(components.iter().map(Vec::len).sum(), self.fields.len())?;
+        let Some(values) = decode_covering_projection_components(components)? else {
+            return Ok(None);
+        };
+        project_covering_row_from_owned_decoded_values(key, &self.fields, &self.indices, values)
+            .map(|values| Some(values.into_iter().map(Some).collect()))
     }
 }

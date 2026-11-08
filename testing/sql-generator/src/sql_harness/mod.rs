@@ -1,4 +1,5 @@
 //! Module: sql_harness
+//!
 //! Responsibility: shared typed scenario, normalization, selection, and verdict contracts.
 //! Does not own: product SQL semantics, production planning, or runner-specific execution.
 //! Boundary: lets SQL evidence runners share facts without deriving authority from SQL text.
@@ -11,26 +12,21 @@ mod verdict;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use icydb_testing_sql_generator::{
+pub use crate::{
     EligibleProvider, EvidenceStrength, MutationKind, NullabilityClass, PredicateFamily,
     QueryShape, RouteFamily, StatementFamily, ValueTypeFamily, WindowBehavior,
 };
-pub(crate) use model::EvidenceClass;
-pub(crate) use model::{
+pub use model::{
     CorrectnessScenario, ExpectedAcceptance, RouteExpectation, RouteFact, RouteObservation,
     RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, WindowSpec,
 };
-pub(crate) use normalization::{
+pub use normalization::{
     NormalizationMismatchKind, NormalizedCell, NormalizedResult, compare_normalized_results,
 };
-#[allow(
-    unused_imports,
-    reason = "this shared module is compiled by targets with and without this import, so an expectation is not always fulfilled"
-)]
-pub(crate) use selection::select_stratified;
-pub(crate) use selection::{ScenarioStratum, SelectionError};
-pub(crate) use verdict::{
+pub use selection::select_stratified;
+pub use selection::{ScenarioStratum, SelectionError};
+pub use verdict::{
     CorrectnessObservation, CorrectnessVerdict, DiagnosticFact, ObservedOutcome,
     correctness_verdict,
 };
-pub(crate) use verdict::{FailureOwner, HarnessFailureKind, MismatchCategory};
+pub use verdict::{FailureOwner, HarnessFailureKind, MismatchCategory};

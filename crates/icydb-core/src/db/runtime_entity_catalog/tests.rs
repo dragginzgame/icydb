@@ -8,9 +8,8 @@ use crate::{
         integrity::DatabaseIncarnationId,
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode, LeafCodec,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
-            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
+            AcceptedFieldKind, AcceptedSchemaRevision, FieldId, PersistedFieldSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore, SchemaVersion,
             accepted_schema_candidate_for_tests,
         },
     },
@@ -72,16 +71,12 @@ fn test_db() -> Db<TestCanister> {
         "Entity".to_string(),
         FieldId::new(1),
         SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
+        vec![PersistedFieldSnapshot::new_initial_test_field(
+            1,
+            "id",
+            0,
             AcceptedFieldKind::Ulid,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
     );
     let candidate = accepted_schema_candidate_for_tests(

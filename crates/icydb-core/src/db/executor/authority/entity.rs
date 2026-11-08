@@ -179,6 +179,19 @@ impl EntityAuthority {
         )
     }
 
+    /// Resolve index-backed retained slots under accepted schema authority.
+    pub(in crate::db::executor) fn covering_retained_fields(
+        &self,
+        plan: &AccessPlannedQuery,
+        required_slots: &[usize],
+    ) -> Option<Vec<crate::db::query::plan::CoveringReadField>> {
+        crate::db::query::plan::covering_retained_fields_with_schema_info(
+            &self.accepted_schema_info,
+            plan,
+            required_slots,
+        )
+    }
+
     /// Derive one hybrid covering projection contract through authority-owned schema metadata.
     #[must_use]
     pub(in crate::db::executor) fn covering_hybrid_projection_plan(

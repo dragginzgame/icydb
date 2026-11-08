@@ -3,7 +3,7 @@
 //! Does not own: planner expression typing/validation or grouped aggregate folds.
 //! Boundary: pure evaluator + projected-row materialization for scalar load paths.
 
-mod covering;
+pub(in crate::db::executor) mod covering;
 mod eval;
 mod facade;
 mod grouped;

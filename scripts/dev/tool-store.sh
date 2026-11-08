@@ -6,9 +6,43 @@
 # Explicit host/IC/CI asset setup retries inside curl's transient classifier.
 # The retry window limits new attempts; an in-flight attempt keeps its own cap.
 tool_store_download() {
+    local digest="${3:-}" cache="${SHARED_TOOLING_DOWNLOAD_CACHE:-}" cached=''
+    if [[ -n "$cache" && -n "$digest" ]]; then
+        [[ "$cache" == /* && "$digest" =~ ^[0-9a-f]{64}$ ]] || {
+            echo 'download cache requires an absolute directory and SHA-256 pin' >&2; return 2;
+        }
+        (umask 077; mkdir -p "$cache") || return 1
+        tool_store_directory "$cache" || return 1
+        cached="$cache/$digest"
+        if [[ -f "$cached" && ! -L "$cached" ]] && tool_store_download_digest "$cached" "$digest"; then
+            cp "$cached" "$2" || return 1
+            # Authenticate the copied bytes too, before the caller can extract them.
+            tool_store_download_digest "$2" "$digest" && return 0
+        fi
+    fi
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
         --connect-timeout 15 --max-time 300 \
-        --retry 3 --retry-delay 2 --retry-max-time 60 -o "$2" "$1"
+        --retry 3 --retry-delay 2 --retry-max-time 60 -o "$2" "$1" || return $?
+    if [[ -n "$digest" ]]; then
+        tool_store_download_digest "$2" "$digest" || {
+            echo "download checksum mismatch: $1" >&2; return 1;
+        }
+    fi
+    if [[ -n "$cached" ]]; then
+        local candidate
+        candidate="$(mktemp "$cache/.download.XXXXXX")" || return 1
+        if cp "$2" "$candidate" && tool_store_download_digest "$candidate" "$digest" &&
+            perl -e 'rename($ARGV[0],$ARGV[1]) or die "publish download cache: $!\n"' "$candidate" "$cached"; then :
+        else rm -f "$candidate"; return 1; fi
+    fi
+}
+
+# Core Perl is available before host tools; never execute a cached asset to admit it.
+tool_store_download_digest() {
+    perl -MDigest::SHA -e '
+        open my $f,"<",$ARGV[0] or exit 1; binmode $f;
+        exit(Digest::SHA->new(256)->addfile($f)->hexdigest eq $ARGV[1] ? 0 : 1);
+    ' "$1" "$2"
 }
 
 # Resolve the configured root without creating it. Existing ancestor aliases

@@ -1,5 +1,7 @@
 //! Compile actual actor output with caller-defined standard names and macros.
 
+mod bulk_tests;
+
 // No endpoint adapter is needed to compile private actor wiring. Most generated
 // helpers are deliberately unused by this native compile contract.
 #[expect(

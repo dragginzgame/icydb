@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: ci/external-ic-dependencies.txt ci/cbor-dependencies.json
+# Shared companions: ci/external-ic-dependencies.txt ci/cbor-dependencies.json ci/hash-dependencies.json
 set -euo pipefail
 [[ ( $# -eq 2 || ( $# -eq 3 && "$3" == --external-ic ) ) && "$1" == --consumer ]] || {
     echo 'usage: check-cargo-dependency-boundaries.sh --consumer ROOT [--external-ic]' >&2
@@ -8,10 +8,12 @@ set -euo pipefail
 consumer="$2"
 common=''
 cbor=''
+hashes=''
 if [[ $# == 3 ]]; then
     common="${BASH_SOURCE[0]}"
     [[ "$common" == /* ]] || common="$PWD/$common"
     cbor="${common%/*}/../../ci/cbor-dependencies.json"
+    hashes="${common%/*}/../../ci/hash-dependencies.json"
     common="${common%/*}/../../ci/external-ic-dependencies.txt"
 fi
 case "$consumer$PWD" in *$'\n'*|*$'\r'*) echo 'consumer directory contains CR/LF' >&2; exit 2 ;; esac
@@ -58,6 +60,26 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                 $name =~ /\A[A-Za-z0-9_-]+\z/ && !$cbor{$name}++
                     or die "invalid or duplicate CBOR package\n";
             }
+        }
+        my %hash_review;
+        if (length $ARGV[4]) {
+            open my $file, "<", $ARGV[4] or die "cannot read hash inventory: $!\n";
+            my $inventory = decode_json(<$file>);
+            close $file or die $!;
+            ref($inventory) eq "HASH" && keys(%$inventory) == 2
+                && ref($inventory->{approved}) eq "HASH" && keys(%{$inventory->{approved}})
+                && ref($inventory->{review_required}) eq "ARRAY" && @{$inventory->{review_required}}
+                or die "invalid hash inventory\n";
+            my %seen;
+            for my $name (keys %{$inventory->{approved}}, @{$inventory->{review_required}}) {
+                defined($name) && !ref($name) && $name =~ /\A[A-Za-z0-9_-]+\z/ && !$seen{$name}++
+                    or die "invalid or duplicate hash package\n";
+            }
+            for my $purpose (values %{$inventory->{approved}}) {
+                defined($purpose) && !ref($purpose) && $purpose =~ /\S/
+                    or die "missing approved hash purpose\n";
+            }
+            %hash_review = map {$_ => 1} @{$inventory->{review_required}};
         }
         my %rules;
         for my $rule (@$policy) {
@@ -106,6 +128,8 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                     && !ref($dependency->{name}) && length($dependency->{name})
                     or die "invalid Cargo dependency\n";
                 my $name = $dependency->{name};
+                $violations{"$package->{name} -> $name (hash/crypto dependency requires shared review: rules/hashing.md)"} = 1
+                    if $members{$package->{id}} && $hash_review{$name};
                 $violations{"$package->{name} -> $name"} = 1
                     if $members{$package->{id}} && (
                         (exists($rules{$name}) && !$rules{$name}{$package->{name}})
@@ -124,4 +148,4 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
         die "Forbidden direct Cargo dependencies:\n" . join("\n", sort keys %violations) . "\n"
             if keys %violations;
         print "Cargo dependency boundaries passed.\n";
-    ' "$policy" "$PWD" "$common" "$cbor"
+    ' "$policy" "$PWD" "$common" "$cbor" "$hashes"

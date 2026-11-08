@@ -1,11 +1,11 @@
-//! Module: sql_correctness_support::coverage_manifest
+//! Module: sql_coverage
 //! Responsibility: machine-readable SQL contract coverage obligations and consistency checks.
 //! Does not own: product behavior or the deterministic evidence supplied by cited tests.
 //! Boundary: validates code-owned manifest entries against repository test providers.
 
 mod obligations;
 
-use crate::sql_harness::{EligibleProvider, EvidenceClass, EvidenceStrength};
+use icydb_testing_sql_generator::{EligibleProvider, EvidenceStrength};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -13,9 +13,41 @@ use std::{
     process::Command,
 };
 
-use ic_platform::blake3;
 use icydb_testing_sql_generator::TIER_C_SQL_COVERAGE_MANIFEST_REVISION;
 use icydb_testing_sqlite_reference::required_sqlite_reference_scenarios;
+
+///
+/// EvidenceClass
+///
+/// SQL contract layer exercised by an evidence provider.
+/// Owned by the repository coverage manifest.
+///
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum EvidenceClass {
+    Boundary,
+    Execute,
+    Lower,
+    Parse,
+    ReferenceDifferential,
+    Route,
+    State,
+}
+
+impl EvidenceClass {
+    /// Return the stable machine-readable evidence-layer identity.
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Boundary => "boundary",
+            Self::Execute => "execute",
+            Self::Lower => "lower",
+            Self::Parse => "parse",
+            Self::ReferenceDifferential => "reference_differential",
+            Self::Route => "route",
+            Self::State => "state",
+        }
+    }
+}
 
 ///
 /// FeatureKind
@@ -128,8 +160,8 @@ struct CoverageCell {
     evidence: &'static [EvidenceRequirement],
     eligible_providers: &'static [EligibleProvider],
     deterministic_providers: &'static [&'static str],
-    generated_families: &'static [&'static str],
     reference_exclusion: Option<&'static str>,
+    no_interaction_reason: Option<&'static str>,
 }
 
 ///
@@ -267,21 +299,21 @@ macro_rules! provider {
 const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "build.sql.trusted_entrypoints",
-        "crates/icydb-model/src/build/actor/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql/tests.rs",
         "generated_sql_capability_uses_trusted_query_and_admin_ddl",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.introspection_guard",
-        "crates/icydb-model/src/build/actor/db/sql.rs",
+        "crates/icydb-model/src/build/actor/db/sql/tests.rs",
         "generated_sql_query_capability_keeps_introspection_gate",
         BoundaryAssertion,
         [Boundary]
     ),
     provider!(
         "build.sql.update_disabled_by_default",
-        "crates/icydb-model/src/build/actor/mod.rs",
+        "crates/icydb-model/src/build/actor/tests.rs",
         "complete_generated_actor_cannot_create_a_public_endpoint",
         BoundaryAssertion,
         [Boundary]
@@ -757,7 +789,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.ddl.check_not_valid_lifecycle",
-        "crates/icydb-core/src/db/schema/constraint.rs",
+        "crates/icydb-core/src/db/schema/constraint/tests.rs",
         "check_activation_preserves_identity_through_validation_and_promotion",
         ContractAssertion,
         [State]
@@ -960,7 +992,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.blob.order_rejected",
-        "crates/icydb-core/src/db/schema/capabilities.rs",
+        "crates/icydb-core/src/db/schema/capabilities/tests.rs",
         "sql_capabilities_keep_blob_selectable_and_comparable_but_not_orderable",
         ContractAssertion,
         [Lower]
@@ -1011,6 +1043,22 @@ macro_rules! deterministic_providers {
     };
 }
 
+const NO_INTERACTION_OPERATIONAL_OR_POLICY: Option<&str> = Some(
+    "Operational exposure or policy has direct boundary evidence and does not create a generated structural interaction.",
+);
+
+const NO_INTERACTION_CATALOG_OR_DDL: Option<&str> = Some(
+    "Catalog mutation or introspection remains with deterministic accepted-schema evidence outside the generated query/mutation profiles.",
+);
+
+const NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION: Option<&str> = Some(
+    "The feature retains exact deterministic evidence and adds no separately reviewed cross-feature tuple.",
+);
+
+const NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY: Option<&str> = Some(
+    "Parser, unsupported-syntax, naming, or entry-boundary behavior is closed by direct typed evidence rather than a generated structural interaction.",
+);
+
 macro_rules! cell {
     (
         $id:literal,
@@ -1022,6 +1070,7 @@ macro_rules! cell {
         $eligible:ident,
         [$($provider:literal),+ $(,)?],
         $reference_exclusion:expr
+        $(, $no_interaction:ident)?
     ) => {
         CoverageCell {
             id: $id,
@@ -1035,10 +1084,12 @@ macro_rules! cell {
                 $evidence,
                 [$($provider),+]
             ),
-            generated_families: &[],
             reference_exclusion: $reference_exclusion,
+            no_interaction_reason: cell!(@reason $($no_interaction)?),
         }
     };
+    (@reason $reason:ident) => { $reason };
+    (@reason) => { None };
 }
 
 const MANIFEST: &[CoverageCell] = &[
@@ -1062,7 +1113,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_BOUNDARY,
         ELIGIBLE_ICYDB,
         ["build.sql.trusted_entrypoints"],
-        NO_EXTERNAL_POLICY
+        NO_EXTERNAL_POLICY,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "pagination.scalar_cursor",
@@ -1073,7 +1125,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "pagination.scalar_limit_offset",
@@ -1109,7 +1162,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "operational.byte_metrics",
@@ -1120,7 +1174,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "select.scalar_rows",
@@ -1244,7 +1299,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_LOWER,
         ELIGIBLE_REJECTION,
         ["core.query.parameters_rejected"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "explain.query_delete",
@@ -1258,7 +1314,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.query.explain_public",
             "core.query.explain_route_facts"
         ],
-        NO_EXTERNAL_ROUTE
+        NO_EXTERNAL_ROUTE,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "introspection.describe",
@@ -1269,7 +1326,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_indexes",
@@ -1280,7 +1338,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_columns",
@@ -1291,7 +1350,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_constraints",
@@ -1302,7 +1362,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_entities",
@@ -1313,7 +1374,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_entity",
@@ -1324,7 +1386,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.catalog_metadata"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_stores",
@@ -1335,7 +1398,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.show_memory",
@@ -1346,7 +1410,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "introspection.catalog_projection",
@@ -1357,7 +1422,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.catalog_metadata"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "introspection.generated_policy",
@@ -1368,7 +1434,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_BOUNDARY,
         ELIGIBLE_ICYDB,
         ["build.sql.introspection_guard"],
-        NO_EXTERNAL_POLICY
+        NO_EXTERNAL_POLICY,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "introspection.storage_modes",
@@ -1379,7 +1446,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_ICYDB,
         ["core.query.catalog_metadata"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "introspection.index_origin",
@@ -1390,7 +1458,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_field_path"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "introspection.unsupported_modifiers",
@@ -1401,7 +1470,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.create_index_field_path",
@@ -1434,7 +1504,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.index_ascending"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.create_index_filtered",
@@ -1445,7 +1516,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_filtered"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.create_index_expression",
@@ -1467,7 +1539,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_if_not_exists"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.create_unique_index",
@@ -1482,7 +1555,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.ddl.create_unique_field_path_precommit",
             "core.ddl.create_unique_expression_precommit"
         ],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.drop_index",
@@ -1493,7 +1567,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.drop_index"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.drop_index_if_exists",
@@ -1504,7 +1579,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.drop_index_if_exists"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_add_column",
@@ -1515,7 +1591,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.add_column"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_add_check_constraint",
@@ -1526,7 +1603,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.add_check", "core.ddl.check_plain_rejection"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_add_check_not_valid",
@@ -1537,7 +1615,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.check_not_valid_lifecycle"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_validate_constraint",
@@ -1548,7 +1627,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.check_not_valid_lifecycle"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_drop_constraint",
@@ -1559,7 +1639,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.check_not_valid_lifecycle"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_column_default",
@@ -1570,7 +1651,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.alter_default"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.alter_column_nullability",
@@ -1581,7 +1663,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.alter_nullability"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.rename_column",
@@ -1592,7 +1675,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.rename_column"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.drop_column",
@@ -1603,7 +1687,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_ICYDB,
         ["core.ddl.drop_column"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.index_descending",
@@ -1614,7 +1699,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_REJECTION,
         ["core.ddl.desc_rejected"],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.generated_owned_objects",
@@ -1631,7 +1717,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.ddl.generated_field_nullability_rejected",
             "core.ddl.generated_field_rename_rejected",
         ],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "ddl.destructive_publication_atomicity",
@@ -1646,7 +1733,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.ddl.drop_index_precommit_atomicity",
             "core.ddl.index_recovery_retry"
         ],
-        NO_EXTERNAL_CATALOG
+        NO_EXTERNAL_CATALOG,
+        NO_INTERACTION_CATALOG_OR_DDL
     ),
     cell!(
         "mutation.insert",
@@ -1734,7 +1822,8 @@ const MANIFEST: &[CoverageCell] = &[
             "canister.mutation.query_rejects_update",
             "canister.mutation.ddl_rejects_rows"
         ],
-        NO_EXTERNAL_POLICY
+        NO_EXTERNAL_POLICY,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "mutation.generated_update_disabled",
@@ -1745,7 +1834,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_BOUNDARY,
         ELIGIBLE_ICYDB,
         ["build.sql.update_disabled_by_default"],
-        NO_EXTERNAL_POLICY
+        NO_EXTERNAL_POLICY,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "mutation.generated_update_primary_key",
@@ -1759,7 +1849,8 @@ const MANIFEST: &[CoverageCell] = &[
             "build.sql.update_primary_key_policy",
             "canister.mutation.primary_key_policy"
         ],
-        NO_EXTERNAL_POLICY
+        NO_EXTERNAL_POLICY,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "mutation.generated_update_bounded",
@@ -1773,7 +1864,8 @@ const MANIFEST: &[CoverageCell] = &[
             "build.sql.update_bounded_policy",
             "canister.mutation.bounded_policy"
         ],
-        NO_EXTERNAL_POLICY
+        NO_EXTERNAL_POLICY,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "mutation.trusted_update_window",
@@ -1795,7 +1887,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_STATE,
         ["core.mutation.trusted_resumable_update_state"],
-        None
+        None,
+        NO_INTERACTION_OPERATIONAL_OR_POLICY
     ),
     cell!(
         "blob.hex_literal",
@@ -1806,7 +1899,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_STATE,
         ["core.blob.insert_hex"],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "blob.literal_size_limit",
@@ -1817,7 +1911,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_BOUNDARY,
         ELIGIBLE_ICYDB,
         ["core.blob.literal_boundary"],
-        NO_EXTERNAL_BLOB_LIMIT
+        NO_EXTERNAL_BLOB_LIMIT,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "blob.read_write_compare",
@@ -1833,7 +1928,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.blob.equality",
             "core.blob.octet_length",
         ],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "blob.ordering",
@@ -1844,7 +1940,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_LOWER,
         ELIGIBLE_REJECTION,
         ["core.blob.order_rejected"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "naming.single_binding",
@@ -1855,7 +1952,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         ELIGIBLE_SQLITE,
         ["core.query.qualified_names"],
-        None
+        None,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "projection.scalar",
@@ -1903,7 +2001,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_LOWER,
         ELIGIBLE_REJECTION,
         ["core.query.invalid_grouped_projection"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "expression.numeric_functions",
@@ -1914,7 +2013,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         ELIGIBLE_SQLITE,
         ["core.query.computed_projection"],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "expression.text_functions",
@@ -1925,7 +2025,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_FRONTEND,
         ["core.query.computed_projection"],
-        NO_EXTERNAL_TEXT
+        NO_EXTERNAL_TEXT,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "expression.value_selection",
@@ -1952,7 +2053,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.query.searched_case_grouped_having",
             "core.query.aggregate_inputs",
         ],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "expression.simple_case",
@@ -1963,7 +2065,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.simple_case_rejected"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "projection.aliases",
@@ -1999,7 +2102,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.query.scalar_matrix",
             "core.query.parenthesized_boolean"
         ],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.field_comparison",
@@ -2010,7 +2114,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         ELIGIBLE_SQLITE,
         ["core.query.field_comparison"],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.grouped_where_field_comparison",
@@ -2021,7 +2126,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         ELIGIBLE_SQLITE,
         ["core.query.grouped_where_field_comparison"],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.membership",
@@ -2068,7 +2174,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_SQLITE,
         ["core.query.boolean_truth"],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.prefix_pattern",
@@ -2084,7 +2191,8 @@ const MANIFEST: &[CoverageCell] = &[
             "core.query.prefix_not_ilike",
             "core.query.starts_with",
         ],
-        NO_EXTERNAL_TEXT
+        NO_EXTERNAL_TEXT,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.starts_with",
@@ -2117,7 +2225,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE_REFERENCE,
         ELIGIBLE_SQLITE,
         ["core.query.field_bound_range"],
-        None
+        None,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.expression_arguments",
@@ -2128,7 +2237,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_EXECUTE,
         ELIGIBLE_FRONTEND,
         ["core.query.expression_arguments"],
-        NO_EXTERNAL_TEXT
+        NO_EXTERNAL_TEXT,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "predicate.non_prefix_pattern",
@@ -2139,7 +2249,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_LOWER,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
-        NO_EXTERNAL_TEXT
+        NO_EXTERNAL_TEXT,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "having.grouped_aggregate",
@@ -2175,7 +2286,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_LOWER,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "returning.star",
@@ -2208,7 +2320,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_STATE,
         ELIGIBLE_REJECTION,
         ["core.mutation.returning_rejected"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_DETERMINISTIC_VALUE_OR_EXPRESSION
     ),
     cell!(
         "query.multi_entity",
@@ -2219,7 +2332,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "query.subquery_cte",
@@ -2230,7 +2344,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "query.set_operations",
@@ -2241,7 +2356,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "query.window_functions",
@@ -2252,7 +2368,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "query.transactions",
@@ -2263,7 +2380,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
     cell!(
         "expression.cast",
@@ -2274,7 +2392,8 @@ const MANIFEST: &[CoverageCell] = &[
         REQ_PARSE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
-        NO_EXTERNAL_SYNTAX
+        NO_EXTERNAL_SYNTAX,
+        NO_INTERACTION_SYNTAX_OR_ENTRY_BOUNDARY
     ),
 ];
 
@@ -2538,7 +2657,6 @@ fn validate_cell(
         ));
     }
     let _ = cell.category;
-    let _ = cell.generated_families;
 
     let permits_reference = cell.eligible_providers.iter().any(|provider| {
         matches!(
@@ -2660,7 +2778,6 @@ pub(super) fn sql_coverage_manifest_revision() -> String {
                 .map(|provider| provider.code()),
         );
         hash_text_list(&mut hasher, cell.deterministic_providers.iter().copied());
-        hash_text_list(&mut hasher, cell.generated_families.iter().copied());
         match cell.reference_exclusion {
             Some(reason) => {
                 hasher.update(&[1]);

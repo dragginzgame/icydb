@@ -310,17 +310,7 @@ fn projection_contract(
     storage: FieldStorageDecode,
 ) -> StructuralRowContract {
     let fields = vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".into(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        ),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false),
         PersistedFieldSnapshot::new_initial(
             FieldId::new(2),
             "payload".into(),

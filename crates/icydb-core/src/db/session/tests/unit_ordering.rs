@@ -25,11 +25,10 @@ use crate::{
         index::{IndexEntryValue, IndexStore, IndexStoreVisit, RawIndexStoreKey},
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
         schema::{
-            AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode,
-            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
-            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
-            SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
-            accepted_schema_candidate_with_field_bindings_for_tests,
+            AcceptedFieldKind, AcceptedSchemaRevision, FieldId, PersistedFieldSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaStore,
+            SchemaVersion, accepted_schema_candidate_with_field_bindings_for_tests,
         },
         sql_statement_dispatch, sum,
     },
@@ -1294,19 +1293,7 @@ fn publish_schema_with_label(
 }
 
 fn field(id: u32, name: &str, slot: u16, kind: AcceptedFieldKind) -> PersistedFieldSnapshot {
-    let storage_decode = FieldStorageDecode::ByKind;
-    let leaf_codec = kind.leaf_codec_for_storage(storage_decode);
-    PersistedFieldSnapshot::new_initial(
-        FieldId::new(id),
-        name.to_string(),
-        SchemaFieldSlot::new(slot),
-        kind,
-        Vec::new(),
-        false,
-        SchemaInsertDefault::None,
-        storage_decode,
-        leaf_codec,
-    )
+    PersistedFieldSnapshot::new_initial_test_field(id, name, slot, kind, false)
 }
 
 fn field_source(source: &str) -> FieldSourceKey {

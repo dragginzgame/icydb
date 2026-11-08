@@ -16,9 +16,11 @@ the independent, non-mutating formatting gate.
 - Every Rust repository provides `make fmt` and `make fmt-check`. Both cover the
   same maintained Rust workspaces, including standalone nested workspaces,
   examples or harnesses with their own manifests. Following IcyDB and Canic,
-  `fmt` runs `cargo sort --workspace --grouped` before `cargo fmt --all` for each workspace;
+  `fmt` runs `cargo sort --workspace --grouped` before `cargo fmt` with explicit
+  `--package` selections from that owner's Cargo `workspace_members`;
   `fmt-check` uses `cargo sort --workspace --grouped --check` and
-  `cargo fmt --all -- --check`. This sorts the root and every member's Cargo.toml,
+  the same package selections with `-- --check`. Never use `cargo fmt --all`
+  to traverse external sibling path dependencies. This sorts the root and every member's Cargo.toml,
   including members under `crates/`, `apps/` and approved layout trees, the root
   dependency catalog and inherited child tables. Explicitly cover
   standalone/excluded manifests outside that workspace's member set.
@@ -163,8 +165,8 @@ selected tracked lockfile, for example:
 
 ```make
 PRETTIER_VERSION = $(shell jq -er '.packages["node_modules/prettier"].version' frontend/package-lock.json)
-FORMAT_WRITE_COMMAND = bash -ec 'cargo sort --workspace --grouped; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
-FORMAT_CHECK_COMMAND = bash -ec 'cargo sort --workspace --grouped --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
+FORMAT_WRITE_COMMAND = bash -ec 'perl scripts/ci/run-rust-formatting.pl --write; bash scripts/dev/format-frontend.sh --write frontend'
+FORMAT_CHECK_COMMAND = bash -ec 'perl scripts/ci/run-rust-formatting.pl --check; bash scripts/dev/format-frontend.sh --check frontend'
 include make/consumer.mk
 fmt fmt-check: export PRETTIER_VERSION := $(PRETTIER_VERSION)
 ```

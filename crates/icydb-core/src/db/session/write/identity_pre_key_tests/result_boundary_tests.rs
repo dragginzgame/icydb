@@ -22,6 +22,7 @@ const BLOB_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
 enum BatchSurface {
     Structural,
     Typed,
+    BoundedTyped,
     SameEntityTyped,
 }
 
@@ -30,7 +31,9 @@ impl BatchSurface {
     // metadata overhead differs, so payload length alone is not the boundary.
     fn encode_results(self, results: Vec<DynamicMutationResult>) -> Vec<u8> {
         match self {
-            Self::Structural | Self::Typed => icydb_schema::wire::encode_one(&results),
+            Self::Structural | Self::Typed | Self::BoundedTyped => {
+                icydb_schema::wire::encode_one(&results)
+            }
             Self::SameEntityTyped => {
                 let rows = results.into_iter().flat_map(|result| result.rows).collect();
                 icydb_schema::wire::encode_one(DynamicMutationResult {
@@ -62,7 +65,7 @@ impl BatchSurface {
                     patch: blob_patch(vec![2; payload_len]),
                 },
             ])?,
-            Self::Typed | Self::SameEntityTyped => {
+            Self::Typed | Self::BoundedTyped | Self::SameEntityTyped => {
                 let patch = |value| {
                     binding
                         .bind_write_ordinals(vec![(
@@ -80,7 +83,24 @@ impl BatchSurface {
                         patch: patch(vec![2; payload_len]),
                     },
                 ];
-                if matches!(self, Self::Typed) {
+                if matches!(self, Self::BoundedTyped) {
+                    let outcome = session
+                        .attempt_trusted_typed_mutation_batch_shared(
+                            mutations
+                                .into_iter()
+                                .map(|item| (std::sync::Arc::new(binding.clone()), item))
+                                .collect(),
+                            usize::MAX,
+                            usize::MAX,
+                        )?
+                        .expect("current bounded typed binding");
+                    match outcome {
+                        crate::db::DynamicTypedBatchAttempt::Committed(results) => results,
+                        crate::db::DynamicTypedBatchAttempt::PrecommitByteRefusal(error) => {
+                            return Err(error);
+                        }
+                    }
+                } else if matches!(self, Self::Typed) {
                     session
                         .execute_trusted_typed_mutation_batch(
                             mutations
@@ -368,4 +388,9 @@ fn insert_only_batch_exact_result_boundary_preserves_rows_and_identity() {
 #[test]
 fn insert_only_batch_below_result_boundary_preserves_rows_and_identity() {
     assert_insert_only_result_boundary(1);
+}
+
+#[test]
+fn bulk_attempt_wide_rows_obey_exact_and_plus_one_canonical_result_limit() {
+    assert_result_boundary(BatchSurface::BoundedTyped);
 }

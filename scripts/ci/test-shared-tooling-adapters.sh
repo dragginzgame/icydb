@@ -209,7 +209,7 @@ CARGO
 # Runtime selection has its own fixture; this suite substitutes product gates.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/test-model-runtime-selection.sh"
 chmod +x "$native/bin/cargo"
-for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter ci-adapter-sql-tier-a; do
+for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter; do
   PATH="$native/bin:$PATH" ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/failure-logs" \
     make --no-print-directory -C "$native" -j2 "$lane" \
     "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/$lane.log" 2>&1
@@ -217,7 +217,7 @@ done
 printf '%s\n' 'check default' 'check default' 'check default' 'clippy default' 'test 8' \
   'clippy default' 'clippy default' 'clippy default' 'test 2' 'test default' 'test default' \
   'clippy default' 'clippy default' 'clippy default' 'test 2' 'test 2' 'test default' \
-  'test 2' 'test 2' 'test 2' 'test default' 'test 2' 'test 2' > "$native/expected-trace"
+  'test 2' 'test 2' 'test 2' 'test default' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 # The native workspace keeps explicit testing and generation feature lint lanes.
 grep -Fx -- 'clippy --locked -p icydb --all-targets --features testing -- -D warnings' \

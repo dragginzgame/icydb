@@ -1,4 +1,5 @@
 //! Module: sql_harness::normalization
+//!
 //! Responsibility: lossless typed result normalization for correctness comparisons.
 //! Does not own: SQL value semantics, query execution, or verdict attribution.
 //! Boundary: compares runner results while preserving row order, shape, and value identity.
@@ -13,7 +14,7 @@ use crate::sql_harness::RowOrder;
 ///
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum NormalizedCell {
+pub enum NormalizedCell {
     Null,
     Bool(bool),
     Int(i128),
@@ -32,15 +33,15 @@ pub(crate) enum NormalizedCell {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct NormalizedResult {
+pub struct NormalizedResult {
     /// Ordered output-column names.
-    pub(crate) columns: Vec<String>,
+    pub columns: Vec<String>,
 
     /// Normalized rows in observed execution order.
-    pub(crate) rows: Vec<Vec<NormalizedCell>>,
+    pub rows: Vec<Vec<NormalizedCell>>,
 
     /// Whether observed row position is part of the result contract.
-    pub(crate) row_order: RowOrder,
+    pub row_order: RowOrder,
 }
 
 impl NormalizedResult {
@@ -62,7 +63,7 @@ impl NormalizedResult {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NormalizationMismatchKind {
+pub enum NormalizationMismatchKind {
     ColumnShape,
     OrderingContract,
     RowCount,
@@ -78,15 +79,15 @@ pub(crate) enum NormalizationMismatchKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct NormalizationMismatch {
+pub struct NormalizationMismatch {
     /// Category of the first detected mismatch.
-    pub(crate) kind: NormalizationMismatchKind,
+    pub kind: NormalizationMismatchKind,
 
     /// Zero-based mismatching row, when the category has a row location.
-    pub(crate) row: Option<usize>,
+    pub row: Option<usize>,
 
     /// Zero-based mismatching column, when the category has a cell location.
-    pub(crate) column: Option<usize>,
+    pub column: Option<usize>,
 }
 
 impl NormalizationMismatch {
@@ -101,7 +102,7 @@ impl NormalizationMismatch {
 }
 
 /// Compare two normalized results under their declared row-order contract.
-pub(crate) fn compare_normalized_results(
+pub fn compare_normalized_results(
     subject: &NormalizedResult,
     reference: &NormalizedResult,
 ) -> Result<(), NormalizationMismatch> {

@@ -144,7 +144,7 @@ if ! rg -q --fixed-strings 'ADAPTER_MANIFEST := $(ROOT_DIR)/testing/canic-adapte
   fail "adapter selections must use the independently locked qualification workspace"
 fi
 
-for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-adapter ci-adapter-sql-tier-a ci-sql-tier-b; do
+for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-adapter ci-sql-tier-b; do
   if ! rg -q "^${target}:$" Makefile; then
     fail "Make is missing the shared $target validation authority"
   fi
@@ -189,7 +189,7 @@ fi
 
 for target in _test-canister-libs test-integration-feedback \
   _test-durability-integration test-sql-canister-matrix \
-  _ci-tier-a-integration ci-sql-tier-b; do
+  ci-sql-tier-b; do
   if ! make_target_recipe "$target" |
     rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)'; then
     fail "$target must share the bounded workspace/integration test concurrency"
@@ -237,7 +237,7 @@ done
 for target in ci-core ci-workspace ci-sql-tier-a test test-unit _test-workspace \
   clippy validate validate-fast check-invariants check-portable-automation check-product-invariants check-automation \
   test-durability test-documentation release-preflight; do
-  if make_target_recipe "$target" | rg -q '\$\(ADAPTER_|_test-adapter|_test-canister-libs|_test-durability-integration|_ci-adapter|_ci-workspace-integration|_ci-tier-a-integration|test-canister-artifact-contract|fetch-adapter|test-testkit-tooling|test-pocketic-server-wrapper|icydb-testing-model-facade-only'; then
+  if make_target_recipe "$target" | rg -q '\$\(ADAPTER_|_test-adapter|_test-canister-libs|_test-durability-integration|_ci-adapter|_ci-workspace-integration|test-canister-artifact-contract|fetch-adapter|test-testkit-tooling|test-pocketic-server-wrapper|icydb-testing-model-facade-only'; then
     fail "$target routes product acceptance into adapter qualification"
   fi
 done
@@ -268,7 +268,7 @@ for target in _ci-tier-a-sqlite _ci-tier-a-mutation; do
   fi
 done
 
-for target in _ci-workspace-tests _ci-tier-a-integration; do
+for target in _ci-workspace-tests _ci-adapter-workspace-tests; do
   if make_target_recipe "$target" | rg -q --fixed-strings '$(IC_TESTKIT_ENV)'; then
     fail "$target must run native tests without a server prerequisite"
   fi

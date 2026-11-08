@@ -13,7 +13,11 @@
   },
   {
     "dependency": "blake3",
-    "allowed_packages": []
+    "allowed_packages": [
+      "icydb-core",
+      "icydb-testing-sql-generator",
+      "icydb-testing-sqlite-reference"
+    ]
   },
   {
     "dependency": "ic-metrics",
@@ -23,11 +27,7 @@
   },
   {
     "dependency": "ic-platform",
-    "allowed_packages": [
-      "icydb-core",
-      "icydb-testing-sql-generator",
-      "icydb-testing-sqlite-reference"
-    ]
+    "allowed_packages": []
   },
   {
     "dependency": "ic-platform-runtime",

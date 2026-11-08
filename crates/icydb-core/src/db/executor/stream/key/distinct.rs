@@ -28,6 +28,11 @@ pub(in crate::db::executor) struct DistinctOrderedKeyStream<S> {
 }
 
 impl<S> DistinctOrderedKeyStream<S> {
+    // Payload forwarding is restricted to the owned transparent wrapper.
+    pub(in crate::db::executor) const fn inner_mut(&mut self) -> &mut S {
+        &mut self.inner
+    }
+
     /// Construct one distinct stream adapter.
     #[must_use]
     pub(in crate::db::executor) const fn new(inner: S, comparator: KeyOrderComparator) -> Self {

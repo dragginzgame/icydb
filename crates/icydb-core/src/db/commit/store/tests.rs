@@ -27,7 +27,6 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
-use ic_platform::blake3;
 use ic_storage::Memory;
 use icydb_schema::{
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposalDigest, SchemaSubmissionKey,

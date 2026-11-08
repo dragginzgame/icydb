@@ -228,18 +228,26 @@ migration's own exact record transaction may publish its candidate authority.
 Recovery retains the reservation, so an admitted schema edit cannot strand
 advance or pre-rewrite abort on a changed head.
 
-Schema-application receipts, live-schema checkpoints, source lineage and
-migration progress share one variable-page BTreeMap after the first 257 Wasm
+Schema-application receipts, immutable live-schema checkpoints, identity
+inventories, source lineage and migration progress share one variable-page BTreeMap after the first 257 Wasm
 pages reserved for bounded commit control. A fixed key prefix separates
-application and checkpoint records; lineage and migration retain their
-reserved checkpoint keys. One checksummed version-1 `ICYSCMAP` header owns
+application, checkpoint and identity records; lineage and migration retain their
+reserved checkpoint keys. One checksummed version-1 `ICYSCMID` header owns
 the tree, with no fixed partition between record families. The current
-`ICYDBST\0` version-1 boot identity requires fresh installations for Storage
-0.68 collection images. Earlier boot identities refuse before collection or
+`ICYDBID\0` version-1 boot identity requires fresh installations for split
+identity checkpoints and Storage 0.68 collection images. Earlier boot identities refuse before collection or
 recovery decoding, without rewriting retained bytes; there is no conversion,
 automatic reset or compatibility reader. Current images retain interruption
 recovery. Storage engine/codec failures trap; a native mutation panic poisons
 its runtime, which must be discarded along with its leases.
+An immutable candidate checkpoint and its mutable identity inventory carry the
+same exact accepted root. Schema publication encodes both before writing and
+applies both synchronously in the existing preflighted marker window. Fatal
+apply contradictions and IC message rollback prevent a partial pair becoming a
+successful message outcome. A retained marker resumes before the operation or
+recognizes its complete after-state. Missing or mismatched pairs are corruption.
+Identity advances use accepted SchemaStore root authority and write only the
+identity inventory, preserving exact replay and retired-owner rules.
 The marker and metadata regions cannot overlap. The current version-1 marker carries at most four
 canonically ordered exact before/after database-control effects. Normal apply
 and recovery accept only each recorded compare value or its already-applied

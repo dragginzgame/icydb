@@ -1,12 +1,11 @@
 use super::*;
 use crate::{
-    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         commit::CommitSchemaFingerprint,
         schema::{
             AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision, FieldId,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault,
-            SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout,
+            SchemaVersion, empty_accepted_enum_catalog_for_tests,
         },
     },
     types::EntityTag,
@@ -41,16 +40,12 @@ fn snapshot() -> AcceptedSchemaSnapshot {
         "InspectionEntity".to_string(),
         FieldId::new(1),
         SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
+        vec![PersistedFieldSnapshot::new_initial_test_field(
+            1,
+            "id",
+            0,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         )],
     ))
 }

@@ -11,7 +11,7 @@ description = "Typed deterministic SQL correctness generator for IcyDB tests"
 category = "tests"
 
 [dependencies]
-ic-platform = { workspace = true, features = ["blake3"] }
+blake3 = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }
 serde_json = { workspace = true }
 

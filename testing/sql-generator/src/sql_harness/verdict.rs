@@ -1,4 +1,5 @@
 //! Module: sql_harness::verdict
+//!
 //! Responsibility: fail-closed correctness and performance verdict attribution.
 //! Does not own: scenario intent, SQL execution, result normalization, or route observation.
 //! Boundary: turns typed expectations and observations into stable pass or failure identities.
@@ -16,12 +17,12 @@ use crate::sql_harness::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct DiagnosticFact {
+pub struct DiagnosticFact {
     /// Stable public error code.
-    pub(crate) error_code: u16,
+    pub error_code: u16,
 
     /// Stable diagnostic cause code.
-    pub(crate) diagnostic_code: u16,
+    pub diagnostic_code: u16,
 }
 
 ///
@@ -32,7 +33,7 @@ pub(crate) struct DiagnosticFact {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum HarnessFailureKind {
+pub enum HarnessFailureKind {
     Artifact,
     Fixture,
     Infrastructure,
@@ -48,7 +49,7 @@ pub(crate) enum HarnessFailureKind {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ObservedOutcome {
+pub enum ObservedOutcome {
     Accepted(NormalizedResult),
     Rejected(DiagnosticFact),
     HarnessFailure(HarnessFailureKind),
@@ -62,15 +63,15 @@ pub(crate) enum ObservedOutcome {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CorrectnessObservation {
+pub struct CorrectnessObservation {
     /// Outcome produced by IcyDB under test.
-    pub(crate) subject: ObservedOutcome,
+    pub subject: ObservedOutcome,
 
     /// Outcome produced by the declared reference provider, when required.
-    pub(crate) provider: Option<ObservedOutcome>,
+    pub provider: Option<ObservedOutcome>,
 
     /// Route fact observed for the IcyDB execution, when available.
-    pub(crate) route: Option<RouteFact>,
+    pub route: Option<RouteFact>,
 }
 
 ///
@@ -81,7 +82,7 @@ pub(crate) struct CorrectnessObservation {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FailureOwner {
+pub enum FailureOwner {
     HarnessRendering,
     Infrastructure,
     Product,
@@ -91,7 +92,8 @@ pub(crate) enum FailureOwner {
 
 impl FailureOwner {
     /// Return the stable report code for this failure owner.
-    pub(crate) const fn code(self) -> &'static str {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
         match self {
             Self::HarnessRendering => "harness_rendering_failure",
             Self::Infrastructure => "infrastructure_failure",
@@ -110,7 +112,7 @@ impl FailureOwner {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MismatchCategory {
+pub enum MismatchCategory {
     Acceptance,
     Harness,
     MissingProvider,
@@ -123,7 +125,8 @@ pub(crate) enum MismatchCategory {
 
 impl MismatchCategory {
     /// Return the stable report code for this mismatch category.
-    pub(crate) const fn code(self) -> &'static str {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
         match self {
             Self::Acceptance => "acceptance",
             Self::Harness => "harness",
@@ -145,36 +148,36 @@ impl MismatchCategory {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MismatchSignature {
+pub struct MismatchSignature {
     /// Stable scenario identity.
-    pub(crate) scenario_id: String,
+    pub scenario_id: String,
 
     /// Stable identity of the declared reference or invariant provider.
-    pub(crate) provider_id: &'static str,
+    pub provider_id: &'static str,
 
     /// Layer attributed as the mismatch owner.
-    pub(crate) owner: FailureOwner,
+    pub owner: FailureOwner,
 
     /// Semantic mismatch category.
-    pub(crate) category: MismatchCategory,
+    pub category: MismatchCategory,
 
     /// Expected public error code, when rejection was expected.
-    pub(crate) expected_error_code: Option<u16>,
+    pub expected_error_code: Option<u16>,
 
     /// Observed public error code, when the subject rejected the scenario.
-    pub(crate) observed_error_code: Option<u16>,
+    pub observed_error_code: Option<u16>,
 
     /// Expected diagnostic cause code, when rejection was expected.
-    pub(crate) expected_diagnostic: Option<u16>,
+    pub expected_diagnostic: Option<u16>,
 
     /// Observed diagnostic cause code, when the subject rejected the scenario.
-    pub(crate) observed_diagnostic: Option<u16>,
+    pub observed_diagnostic: Option<u16>,
 
     /// Route required by the scenario contract, when applicable.
-    pub(crate) expected_route: Option<RouteFact>,
+    pub expected_route: Option<RouteFact>,
 
     /// Route observed during execution, when available.
-    pub(crate) observed_route: Option<RouteFact>,
+    pub observed_route: Option<RouteFact>,
 }
 
 ///
@@ -185,9 +188,9 @@ pub(crate) struct MismatchSignature {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CorrectnessFailure {
+pub struct CorrectnessFailure {
     /// Stable typed identity of the failure.
-    pub(crate) signature: MismatchSignature,
+    pub signature: MismatchSignature,
 }
 
 ///
@@ -198,7 +201,7 @@ pub(crate) struct CorrectnessFailure {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum CorrectnessVerdict {
+pub enum CorrectnessVerdict {
     Passed,
     Failed(CorrectnessFailure),
 }
@@ -285,7 +288,7 @@ fn provider_failure<S>(
 }
 
 /// Derive a fail-closed correctness verdict from typed scenario and observation facts.
-pub(crate) fn correctness_verdict<S>(
+pub fn correctness_verdict<S>(
     scenario: &CorrectnessScenario<S>,
     observation: &CorrectnessObservation,
 ) -> CorrectnessVerdict {

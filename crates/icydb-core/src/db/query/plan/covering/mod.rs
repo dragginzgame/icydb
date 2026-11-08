@@ -384,6 +384,59 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
     ))
 }
 
+/// Resolve every retained slot, including hidden ordering and cursor fields,
+/// through the same index-source classification as outward projections.
+/// Residual filters and expression projections retain their row-backed reader.
+pub(in crate::db) fn covering_retained_fields_with_schema_info(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    required_slots: &[usize],
+) -> Option<Vec<CoveringReadField>> {
+    if plan.scalar_plan().distinct
+        || (plan.access.as_index_prefix_contract_path().is_none()
+            && plan.access.as_index_range_path().is_none())
+        || plan
+            .frozen_projection_spec()
+            .ok()?
+            .fields()
+            .any(|field| field.direct_field_name().is_none())
+    {
+        return None;
+    }
+    let primary_key_names = primary_key_names_from_schema(schema)?;
+    let (facts, _) = prepare_covering_index_projection_plan(plan, primary_key_names, false)?;
+    let context = CoveringProjectionSourceContext {
+        coverable_component_fields: &facts.coverable_component_fields,
+        coverable_component_exprs: &facts.coverable_component_exprs,
+        prefix_values: facts.prefix_values,
+        primary_key_names,
+        source_policy: CoveringProjectionFieldSourcePolicy::StrictCovering,
+    };
+    if required_slots.is_empty() {
+        return Some(Vec::new());
+    }
+    let names = schema.field_names_in_slot_order();
+    required_slots
+        .iter()
+        .map(|slot| {
+            let name = names
+                .iter()
+                .copied()
+                .find(|name| schema.field_slot_index(name) == Some(*slot))?;
+            let field_slot = FieldSlot::resolve_with_schema(schema, name)?;
+            let source = covering_direct_field_source(name, context)?;
+            if matches!(source, CoveringReadFieldSource::IndexComponent { .. })
+                && !field_slot
+                    .accepted_kind()
+                    .is_some_and(index_component_projection_supported)
+            {
+                return None;
+            }
+            Some(CoveringReadField { field_slot, source })
+        })
+        .collect()
+}
+
 // Freeze the complete narrow admission proof once; execution never reclassifies it.
 fn ordered_distinct_group_seek_plan(
     schema: &SchemaInfo,
@@ -942,6 +995,14 @@ fn covering_projection_field_source(
             );
     };
 
+    covering_direct_field_source(field_name, source_context)
+}
+
+// Both projected and hidden retained fields use this source authority.
+fn covering_direct_field_source(
+    field_name: &str,
+    source_context: CoveringProjectionSourceContext<'_>,
+) -> Option<CoveringReadFieldSource> {
     if let Some(component_index) = source_context
         .primary_key_names
         .iter()

@@ -142,16 +142,14 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter {
 
 impl ExecutionRuntimeAdapter {
     /// Build one structural runtime adapter for scalar execution paths.
-    pub(in crate::db::executor) fn from_scalar_runtime(
+    pub(in crate::db::executor) const fn from_scalar_runtime(
         runtime: TraversalRuntime,
         store: StoreHandle,
         authority: EntityAuthority,
     ) -> Self {
-        let row_layout = authority.row_layout();
-
         Self {
             runtime,
-            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, row_layout)),
+            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, authority)),
         }
     }
 
@@ -311,9 +309,10 @@ impl ExecutionRuntimeAdapter {
     /// Attempt the cursorless row-collector short path and erase the typed page result.
     fn try_materialize_load_via_row_collector<'req>(
         &'req self,
-        request: KernelPageMaterializationRequest<'req>,
+        mut request: KernelPageMaterializationRequest<'req>,
     ) -> Result<Option<ScalarPageMaterialization>, InternalError> {
         self.with_scalar_row_runtime_handle(|row_runtime| {
+            row_runtime.prepare_covering(&mut request);
             ExecutionKernel::try_materialize_load_via_row_collector(request, row_runtime)
         })
     }
@@ -334,15 +333,14 @@ impl ExecutionRuntimeAdapter {
         };
 
         self.with_scalar_row_runtime_handle(|row_runtime| {
-            materialize_key_stream_into_execution_payload(
-                contract.materialization_request(
-                    cursor_emission,
-                    continuation,
-                    consistency,
-                    key_stream,
-                ),
-                row_runtime,
-            )
+            let mut request = contract.materialization_request(
+                cursor_emission,
+                continuation,
+                consistency,
+                key_stream,
+            );
+            row_runtime.prepare_covering(&mut request);
+            materialize_key_stream_into_execution_payload(request, row_runtime)
         })
     }
 
@@ -355,15 +353,14 @@ impl ExecutionRuntimeAdapter {
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         self.with_scalar_row_runtime_handle(|row_runtime| {
-            materialize_key_stream_into_kernel_rows(
-                contract.materialization_request(
-                    CursorEmissionMode::Suppress,
-                    continuation,
-                    consistency,
-                    key_stream,
-                ),
-                row_runtime,
-            )
+            let mut request = contract.materialization_request(
+                CursorEmissionMode::Suppress,
+                continuation,
+                consistency,
+                key_stream,
+            );
+            row_runtime.prepare_covering(&mut request);
+            materialize_key_stream_into_kernel_rows(request, row_runtime)
         })
     }
 }

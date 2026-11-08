@@ -63,6 +63,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - name: Ensure GitHub CLI
         run: make install-gh
       - name: Install actionlint
@@ -103,6 +105,10 @@ jobs:
         run: |
           make install-release-editor
           make release-editor-check
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Check adapter formatting
         run: make fmt-adapter-check
       - name: Run static validation with complete feedback
@@ -125,8 +131,6 @@ jobs:
         include:
           - lane: workspace
             make_target: ci-adapter
-          - lane: tier-a
-            make_target: ci-adapter-sql-tier-a
           - lane: tier-b
             make_target: ci-sql-tier-b
     env:
@@ -137,6 +141,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          extra-key: ${{ matrix.lane }}
       - name: Prepare temporary directory for toolchain installation
         run: mkdir -p "$TMPDIR"
       - uses: ./.github/actions/prepare-rust
@@ -192,6 +200,11 @@ jobs:
         run: |
           make install-testkit > "$RUNNER_TEMP/tools-testkit-install.log" 2>&1
           make testkit-check > "$RUNNER_TEMP/tools-testkit-check.log" 2>&1
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
+          extra-key: ${{ matrix.lane }}
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           MAKE_TARGET: ${{ matrix.make_target }}
@@ -229,6 +242,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - uses: ./.github/actions/prepare-rust
         with:
           components: rustfmt, clippy
@@ -242,6 +257,10 @@ jobs:
           make install-dev
           make install-testkit
           make testkit-check
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Prepare locked Cargo release editor for fixtures
         run: |
           make release-editor-check
@@ -315,6 +334,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - uses: ./.github/actions/prepare-rust
         with:
           components: clippy
@@ -338,6 +359,10 @@ jobs:
           make testkit-check
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Lint native browser contract owners
         run: |
           cargo clippy --locked -p icydb-testing-build --example wire_bindings -- -D warnings
@@ -386,6 +411,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - uses: ./.github/actions/prepare-rust
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install wasm target
@@ -415,6 +442,10 @@ jobs:
           make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Report default-empty and request-future-scale wasm sizes
         run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty --canister request_future_scale
       - name: Retain tooling failure evidence

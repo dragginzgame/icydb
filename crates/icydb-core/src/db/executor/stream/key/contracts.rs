@@ -6,6 +6,7 @@
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawRow, StoreVisit},
+        executor::IndexComponentValues,
         executor::stream::{
             FlatMergeSiblingSet,
             access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
@@ -107,6 +108,34 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) fn page_access_entry_bound(&self) -> Option<usize> {
         OrderedKeyStream::page_access_entry_bound(self)
+    }
+
+    /// Retain index payloads only through transparent wrappers around one
+    /// physical leaf. Merge/lookahead streams decline before consuming input.
+    pub(in crate::db::executor) fn enable_covering_components(
+        &mut self,
+        indices: &[usize],
+    ) -> bool {
+        match self {
+            Self::IndexRange(stream) => stream.enable_covering_components(indices),
+            Self::Budgeted(stream) => stream.inner.enable_covering_components(indices),
+            Self::Observed(stream) => stream.inner.enable_covering_components(indices),
+            Self::Distinct(stream) => stream.inner_mut().enable_covering_components(indices),
+            _ => false,
+        }
+    }
+
+    /// Take payloads for the last yielded key exactly once, before another pull.
+    pub(in crate::db::executor) fn take_covering_components(
+        &mut self,
+    ) -> Option<IndexComponentValues> {
+        match self {
+            Self::IndexRange(stream) => stream.take_covering_components(),
+            Self::Budgeted(stream) => stream.inner.take_covering_components(),
+            Self::Observed(stream) => stream.inner.take_covering_components(),
+            Self::Distinct(stream) => stream.inner_mut().take_covering_components(),
+            _ => None,
+        }
     }
 
     /// Visit one unconsumed primary leaf in its direction through one physical row

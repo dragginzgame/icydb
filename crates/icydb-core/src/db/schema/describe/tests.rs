@@ -139,16 +139,12 @@ fn constraint_description_fixture() -> (PersistedSchemaSnapshot, AcceptedValueCa
             (FieldId::new(2), SchemaFieldSlot::new(1)),
         ]),
         vec![
-            PersistedFieldSnapshot::new_initial(
-                FieldId::new(1),
-                "id".to_string(),
-                SchemaFieldSlot::new(0),
+            PersistedFieldSnapshot::new_initial_test_field(
+                1,
+                "id",
+                0,
                 AcceptedFieldKind::Ulid,
-                Vec::new(),
                 false,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
             PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
@@ -1018,16 +1014,12 @@ fn reachable_compact_reply_schema() -> AcceptedSchemaSnapshot {
             )
         })
         .collect::<Vec<_>>();
-    let mut fields = vec![PersistedFieldSnapshot::new_initial(
-        FieldId::new(1),
-        "id".to_string(),
-        SchemaFieldSlot::new(0),
+    let mut fields = vec![PersistedFieldSnapshot::new_initial_test_field(
+        1,
+        "id",
+        0,
         AcceptedFieldKind::Nat64,
-        Vec::new(),
         false,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Nat64),
     )];
     let mut layout = vec![(FieldId::new(1), SchemaFieldSlot::new(0))];
     for index in 0..REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES {

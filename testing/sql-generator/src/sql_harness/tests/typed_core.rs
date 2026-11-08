@@ -1,4 +1,4 @@
-//! Module: sql_correctness_support::typed_core
+//! Module: sql_harness::tests::typed_core
 //! Responsibility: focused boundary tests for shared typed SQL harness behavior.
 //! Does not own: harness implementation, production SQL semantics, or performance reports.
 //! Boundary: proves route, normalization, verdict, and stratified-selection contracts.

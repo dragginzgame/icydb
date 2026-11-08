@@ -174,6 +174,10 @@ pub(in crate::db) struct AcceptedStructuralMutationPackingReport {
 }
 
 impl AcceptedStructuralMutationPackingReport {
+    pub(in crate::db) const fn staged_bytes(self) -> usize {
+        self.staged_bytes
+    }
+
     #[must_use]
     pub(in crate::db) const fn admitted_mutations(self) -> usize {
         self.admitted_mutations

@@ -141,6 +141,11 @@ still governs demonstrated integration blockers.
   runtime identities and wire/storage contracts still require real compatibility
   assessment. A changed dependency declaration cannot be republished under an
   already published package version.
+- Private tooling/test maintenance does not by itself select its group's public
+  packages for publication. Apply the
+  [publication-impact decision](../docs/releases.md#decide-whether-publication-is-needed)
+  before bumping versions; group membership and qualification ownership remain
+  unchanged. Retain current aligned member versions until an actual group release.
 - Start each group from its existing package/release history. Do not reset
   versions, rewrite tags or re-upload published identities when adopting groups.
   Keep one [canonical changelog per group](changelogs.md#release-group-changelogs-and-shared-history)

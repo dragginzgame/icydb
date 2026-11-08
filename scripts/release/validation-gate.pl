@@ -31,16 +31,11 @@ sub command {
     close $in or die "gate observation failed\n"; return $raw;
 }
 sub regular {
-    my ($path)=@_;
-    $path !~ m{[\x00-\x1f]|(?:^|/)\.\.(?:/|$)} or die "unsafe gate path\n";
-    my $route=$path =~ m{^/}?'/':'.';
-    for (grep {length} split m{/},$path) { $route.="/$_"; !-l $route or die "redirected gate\n"; }
-    -f $path or die "missing gate file\n";
-    open my $in,'<:raw',$path or die "read gate: $!\n";
-    my $raw;
-    defined(read($in,$raw,1048577)) && length($raw)<=1048576 && eof($in)
-        or die "gate document exceeds 1 MiB\n";
-    return $raw;
+    my ($path) = @_;
+    # Durable receipts may be absolute; keep Shared's component-by-component admission.
+    return $path =~ m{\A/}
+        ? ValidationPlan::bytes('/', substr($path, 1))
+        : ValidationPlan::bytes('.', $path);
 }
 sub document { $json->decode(regular($_[0])) }
 sub save {

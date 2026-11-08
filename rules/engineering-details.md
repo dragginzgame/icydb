@@ -530,6 +530,43 @@ contracts; ordinary development does not require rereading these mechanics.
 - Enforce structured facts, schemas, hashes and executable behavior in guards.
   Do not freeze explanatory prose or require manual status-marker rotation.
 
+### Hosted tool setup
+
+Restore the shared pinned-download cache before the first host/CI tool install,
+then save after successful setup and before product checks. Use
+[the shared action](../.github/actions/cache-tool-downloads/action.yml) rather than
+per-repository download wrappers. Keep cache identities tied to tool pins and
+host/job selection, not each source commit or release group. Cached bytes must
+pass the same pinned checksums and tool admission as fresh downloads. Cache
+outages fall back to bounded downloads; persistent setup failures remain
+infrastructure failures, not successful qualification or grounds for identical
+blind retries.
+
+### Repository secret scanning
+
+- Every maintained repository owns one Gitleaks scan in its repository CI run,
+  including documentation-only changes. Give it one execution owner, normally
+  the Linux lint/security job, outside OS, feature, package and release-group
+  matrices. Multiple workflows for the same tested revision should share that
+  owner rather than each scheduling another scan.
+- Use the pinned shared installer and scan the repository's complete checked-out
+  Git history with `gitleaks git --redact=100 --no-banner --no-color --log-level error`.
+  Prepare full checkout history in that CI job. Keep credentials out of logs;
+  findings must fail the scan. Do not add blanket exclusions to make it pass.
+- Do not add secret scans or scanner installation to per-crate checks, group
+  qualification, release preparation, frozen-batch setup, publication or retries.
+  A multi-group deployment does not multiply the repository scan. A manual
+  `check-secrets` target may remain for investigation; deployment must not invoke
+  it through a nested aggregate.
+- Keep the scan asynchronous alongside other repository CI. Deployment does not
+  launch or wait for an additional scan solely because a group is being released.
+  Existing required GitHub checks and known failures still apply; this is not
+  permission to bypass protections or treat missing evidence as a pass.
+- Consumers adopt this wiring with their reviewed Shared snapshot. Carrying the
+  installer or version catalog alone is not adoption. Audit actual workflow and
+  Make callers for both missing scans and duplicate execution; do not require
+  each consumer to replay Shared's generic scanner-installer tests.
+
 ## Release commands
 
 - Grouped Cargo increment commands capture frozen inputs by default; an explicit
@@ -960,8 +997,9 @@ contracts; ordinary development does not require rereading these mechanics.
   source separately from a committed revision. Include affected callers/hosts
   and the smallest useful verification.
 - Track upstream acceptance separately from verified consumer adoption. Close
-  producer issues when their own delivered implementation and required checks
-  are complete; keep concrete, independently actionable adoption work in linked
+  producer issues when their own implementation and focused checks are complete
+  under the issue maintenance procedure; delivery is not a default prerequisite.
+  Keep concrete, independently actionable adoption work in linked
   consumer-owned issues. Shared waiting findings follow the rule below.
   Do not keep or reopen a completed producer issue solely for fleet adoption,
   or create a second open tracker for the same consumer obligations. The

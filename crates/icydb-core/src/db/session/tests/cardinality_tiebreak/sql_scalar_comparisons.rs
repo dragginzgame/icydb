@@ -12,17 +12,7 @@ fn nullable_scalar_field(
     slot: u16,
     kind: AcceptedFieldKind,
 ) -> PersistedFieldSnapshot {
-    PersistedFieldSnapshot::new_initial(
-        FieldId::new(id),
-        name.into(),
-        SchemaFieldSlot::new(slot),
-        kind.clone(),
-        Vec::new(),
-        true,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        kind.leaf_codec_for_storage(FieldStorageDecode::ByKind),
-    )
+    PersistedFieldSnapshot::new_initial_test_field(id, name, slot, kind, true)
 }
 
 fn seed_scalar_pairs(
@@ -941,39 +931,42 @@ fn sql_mixed_numeric_comparisons_preserve_exact_values() {
     }
 }
 
+fn numeric_bounds_session(kind: AcceptedFieldKind, with_index: bool) -> DbSession<TestCanister> {
+    let indexes = if with_index {
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).unwrap(),
+            1,
+            "amount_idx".into(),
+            STORE_PATH.into(),
+            false,
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["amount".into()],
+                    kind.clone(),
+                    false,
+                ),
+            ]),
+            None,
+        )]
+    } else {
+        Vec::new()
+    };
+    initialize_field_schema(
+        vec![
+            field(1, "id", 0, AcceptedFieldKind::Nat64),
+            field(2, "amount", 1, kind),
+        ],
+        indexes,
+    )
+}
+
 #[test]
 fn sql_mixed_numeric_bounds_agree_with_and_without_secondary_index() {
     for indexed in [false, true] {
         crate::testing::run_isolated(move || {
-            let kind = AcceptedFieldKind::Float64;
-            let indexes = if indexed {
-                vec![PersistedIndexSnapshot::new(
-                    SchemaIndexId::new(1).unwrap(),
-                    1,
-                    "amount_idx".into(),
-                    STORE_PATH.into(),
-                    false,
-                    PersistedIndexKeySnapshot::from_field_paths(vec![
-                        PersistedIndexFieldPathSnapshot::new(
-                            FieldId::new(2),
-                            SchemaFieldSlot::new(1),
-                            vec!["amount".into()],
-                            kind.clone(),
-                            false,
-                        ),
-                    ]),
-                    None,
-                )]
-            } else {
-                Vec::new()
-            };
-            let session = initialize_field_schema(
-                vec![
-                    field(1, "id", 0, AcceptedFieldKind::Nat64),
-                    field(2, "amount", 1, kind),
-                ],
-                indexes,
-            );
+            let session = numeric_bounds_session(AcceptedFieldKind::Float64, indexed);
             for (id, value) in [
                 (1, 0.3_f64),
                 (2, f64::from_bits(0.3_f64.to_bits() + 1)),
@@ -1025,6 +1018,86 @@ fn sql_mixed_numeric_bounds_agree_with_and_without_secondary_index() {
                     let plan = explain(&session, predicate);
                     assert!(plan.contains("fallback(non_strict_compare_coercion)"));
                     assert!(plan.contains("selected_access=full_scan"));
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn sql_nat128_index_ranges_agree_with_residual_comparisons() {
+    for indexed in [false, true] {
+        crate::testing::run_isolated(move || {
+            let session = numeric_bounds_session(AcceptedFieldKind::Nat128, indexed);
+            let boundary = 1_u128 << 127;
+            for (id, value) in [
+                (1, boundary - 1),
+                (2, boundary),
+                (3, boundary + 1),
+                (4, u128::MAX),
+                (5, boundary),
+            ] {
+                session
+                    .execute_trusted_dynamic_insert_batch(
+                        ENTITY_NAME,
+                        vec![DynamicStructuralPatch::new(vec![
+                            ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                            (
+                                "amount".into(),
+                                DynamicWriteCell::Value(InputValue::nat128(value)),
+                            ),
+                        ])],
+                    )
+                    .unwrap();
+            }
+            // Independent expected rows cover both sides of the signed ceiling,
+            // duplicate boundary keys, and the maximum unsigned value.
+            for (suffix, ids, range) in [
+                (format!("> {boundary}"), vec![3, 4], true),
+                (format!(">= {boundary}"), vec![2, 3, 4, 5], true),
+                (format!("< {boundary}"), vec![1], true),
+                (format!("<= {boundary}"), vec![1, 2, 5], true),
+                (format!("= {boundary}"), vec![2, 5], false),
+                (format!("<> {boundary}"), vec![1, 3, 4], false),
+                (
+                    format!("BETWEEN {boundary} AND {}", u128::MAX),
+                    vec![2, 3, 4, 5],
+                    true,
+                ),
+                (
+                    format!("NOT BETWEEN {boundary} AND {}", u128::MAX),
+                    vec![1],
+                    false,
+                ),
+            ] {
+                let predicate = format!("amount {suffix}");
+                // A boolean identity CASE is extracted back into an index bound.
+                // Positive fixture IDs keep this value-producing CASE equivalent
+                // while requiring expression evaluation on the full-scan control.
+                let residual = format!("CASE WHEN {predicate} THEN id ELSE 0 END > 0");
+                if indexed && range {
+                    let plan = explain(&session, &predicate);
+                    assert!(plan.contains("IndexRange(amount_idx)"), "{plan}");
+                }
+                let plan = explain(&session, &residual);
+                assert!(plan.contains("selected_access=full_scan"), "{plan}");
+                let expected = ids
+                    .into_iter()
+                    .map(|id| vec![OutputValue::nat64(id)])
+                    .collect::<Vec<_>>();
+                for condition in [&predicate, &residual] {
+                    for _ in 0..2 {
+                        assert_eq!(
+                            projection_rows(
+                                &session,
+                                &format!(
+                                    "SELECT id FROM PlannerRow WHERE {condition} ORDER BY id LIMIT 20"
+                                )
+                            ),
+                            expected,
+                            "indexed={indexed}: {condition}"
+                        );
+                    }
                 }
             }
         });

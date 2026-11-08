@@ -233,16 +233,12 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
         "Validated".to_string(),
         FieldId::new(1),
         SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
+        vec![PersistedFieldSnapshot::new_initial_test_field(
+            1,
+            "id",
+            0,
             AcceptedFieldKind::Ulid,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
     );
     let catalog = snapshot
@@ -1753,16 +1749,12 @@ fn catalog_selection_fixture() -> (EntityTag, CandidateSchemaRevision, SchemaSto
         "CachedEntity".to_string(),
         FieldId::new(1),
         SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
+        vec![PersistedFieldSnapshot::new_initial_test_field(
+            1,
+            "id",
+            0,
             AcceptedFieldKind::Ulid,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Ulid),
         )],
     );
     let bundle = AcceptedSchemaRevisionBundle::new(
@@ -2785,17 +2777,7 @@ fn persisted_schema_snapshot_with_index_for_test(
 
 fn persisted_schema_fields_for_test() -> Vec<PersistedFieldSnapshot> {
     vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Ulid,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Ulid),
-        ),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Ulid, false),
         PersistedFieldSnapshot::new_initial(
             FieldId::new(2),
             "payload".to_string(),

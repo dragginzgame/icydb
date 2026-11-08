@@ -35,7 +35,8 @@ use crate::{
         schema::{
             IdentityAdvanceId, IdentityRangeAdvance, PreparedLiveIdentityCheckpoint,
             PreparedSchemaPositionPublication, SchemaStore,
-            apply_prepared_live_identity_checkpoints, prepare_live_identity_ranges_checkpoint,
+            apply_prepared_live_identity_checkpoints, enum_catalog::AcceptedSchemaRootSelection,
+            prepare_live_identity_ranges_checkpoint,
         },
     },
     error::InternalError,
@@ -903,7 +904,7 @@ fn preflight_identity_range_applies(
     identity_ranges: &[PreparedIdentityRangeApply],
     budget: &dyn ConstructionBudget,
 ) -> Result<Vec<PreparedLiveIdentityCheckpoint>, InternalError> {
-    let mut live_ranges = BTreeMap::<_, Vec<_>>::new();
+    let mut live_ranges = BTreeMap::<_, (_, Vec<_>)>::new();
     for prepared in identity_ranges {
         prepared
             .handle
@@ -911,15 +912,26 @@ fn preflight_identity_range_applies(
         if prepared.handle.storage_capabilities().schema_metadata()
             == StoreSchemaMetadataCapability::LiveRebuiltMetadata
         {
-            live_ranges
+            let root = prepared.handle.with_schema(|store| {
+                store
+                    .current_accepted_schema_root()?
+                    .map(AcceptedSchemaRootSelection::root)
+                    .ok_or_else(InternalError::identity_state_corruption)
+            })?;
+            let (accepted_root, ranges) = live_ranges
                 .entry(prepared.store_path)
-                .or_default()
-                .push((prepared.range, prepared.advance_id));
+                .or_insert_with(|| (root, Vec::new()));
+            if *accepted_root != root {
+                return Err(InternalError::identity_state_corruption());
+            }
+            ranges.push((prepared.range, prepared.advance_id));
         }
     }
     live_ranges
         .into_iter()
-        .map(|(path, ranges)| prepare_live_identity_ranges_checkpoint(path, &ranges, budget))
+        .map(|(path, (root, ranges))| {
+            prepare_live_identity_ranges_checkpoint(path, root, &ranges, budget)
+        })
         .collect()
 }
 

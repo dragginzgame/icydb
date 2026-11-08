@@ -60,9 +60,10 @@ use crate::{
                 CardinalityBuildCheckpoint, CardinalityBuildCursor, CardinalityBuildPhase,
                 CardinalityCountDigest, CardinalityGenerationState,
             },
-            decode_constraint_validation_job, load_live_schema_checkpoint,
-            verify_live_identity_range_checkpoint, verify_live_schema_checkpoint,
-            verify_schema_application_record_op,
+            decode_constraint_validation_job,
+            enum_catalog::AcceptedSchemaRootSelection,
+            load_live_schema_checkpoint, verify_live_identity_range_checkpoint,
+            verify_live_schema_checkpoint, verify_schema_application_record_op,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -1670,6 +1671,12 @@ fn apply_journal_record(
                     {
                         apply_live_identity_range_checkpoint(
                             expected_store_path,
+                            expected_handle.with_schema(|store| {
+                                store
+                                    .current_accepted_schema_root()?
+                                    .map(AcceptedSchemaRootSelection::root)
+                                    .ok_or_else(InternalError::identity_state_corruption)
+                            })?,
                             *range,
                             advance_id,
                         )?;
@@ -2672,6 +2679,12 @@ fn verify_recovered_record<C: CanisterKind>(
                 {
                     verify_live_identity_range_checkpoint(
                         runtime_entity.store_path(),
+                        handle.with_schema(|store| {
+                            store
+                                .current_accepted_schema_root()?
+                                .map(AcceptedSchemaRootSelection::root)
+                                .ok_or_else(InternalError::recovery_effect_verification_failed)
+                        })?,
                         *range,
                         advance_id,
                     )?;

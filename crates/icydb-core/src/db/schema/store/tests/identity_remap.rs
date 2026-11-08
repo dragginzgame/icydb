@@ -15,16 +15,12 @@ fn candidate(removed: bool, source: &str) -> CandidateSchemaRevision {
     let slot = SchemaFieldSlot::new(u16::from(!removed));
     let mut fields = Vec::new();
     if !removed {
-        fields.push(PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "archived".into(),
-            SchemaFieldSlot::new(0),
+        fields.push(PersistedFieldSnapshot::new_initial_test_field(
+            1,
+            "archived",
+            0,
             AcceptedFieldKind::Bool,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Bool),
         ));
     }
     fields.push(PersistedFieldSnapshot::new_initial_with_write_policy(

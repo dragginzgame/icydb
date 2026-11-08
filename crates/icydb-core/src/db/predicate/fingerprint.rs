@@ -20,7 +20,6 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_platform::blake3;
 use sha2::{Digest, Sha256};
 
 /// Hash canonical predicate structure into the plan hash stream.

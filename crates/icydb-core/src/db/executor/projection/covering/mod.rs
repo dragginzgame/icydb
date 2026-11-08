@@ -8,6 +8,10 @@ mod hybrid;
 mod pure;
 mod shared;
 
+pub(in crate::db::executor) use shared::{
+    covering_projection_component_indices, project_covering_row_from_owned_decoded_values,
+};
+
 use std::rc::Rc;
 
 use self::contracts::{

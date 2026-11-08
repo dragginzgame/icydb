@@ -883,9 +883,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.78.0"
+version = "0.79.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f76b3173a2e04b6b133a08b1709ff8d1798af5484550dc86717a6ca8f3dd603c"
+checksum = "fd1623af0c35840ce4678271b14d6a82a19245de3aaf59bd0ff0f0e3286e788a"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -951,9 +951,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-text"
-version = "0.74.2"
+version = "0.74.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30860587e603f03d689556174dda9216228e3f0926171507b4682683daea6d67"
+checksum = "8a0ccc1af70b449c0845961ca502549d6c16cc9d91eec1f25150647a1d2c01a6"
 dependencies = [
  "serde",
  "unicode-width",
@@ -962,9 +962,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.85.0"
+version = "0.86.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f0fe55f656678940b38567ba06429ad17cec9f7b4ff6a1a0480b09203a75c2c"
+checksum = "ef78643d2a2ae0df317787a11db341232bf1d0722b3b6e5920e477504f8177dd"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-text",
@@ -992,9 +992,9 @@ checksum = "7aa1b95a894d02d797929104bbbd0998fc1e69f3b45eb2342deaa0c69d769723"
 
 [[package]]
 name = "ic-platform"
-version = "0.24.0"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f2bafc5da7b457cb0efdb622151e74c3367740d26eb8892f72be2c9b4683c53"
+checksum = "76bc9d6ea3bf2d8c274541aa482c0b47f43177b7d3a6bfe2555531080bfb0100"
 dependencies = [
  "candid",
  "ic-certification",
@@ -1008,19 +1008,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-platform"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f446080bf2af9617bb49a18b6b1ec872b59867a51e82911029a2f9ad6780c3e1"
-dependencies = [
- "blake3",
-]
-
-[[package]]
 name = "ic-platform-runtime"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edd7cdf5798dc7830346a971d33a9790073d769d676d8902af3f5928a3a434f7"
+checksum = "7aa4d9ac3936b5fe1bc0fc77b37a26d0fd68f9d5470e2f9b70e8b53be71f2c3b"
 
 [[package]]
 name = "ic-platform-types"
@@ -1039,9 +1030,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.68.7"
+version = "0.68.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "473af01505cd385baf2cb019059a88143497275de268fc5ef924b63761ebdb02"
+checksum = "2816133757077368b8b7b5359b96ffd410fec2f218932d5b0275e5dc0f69b208"
 dependencies = [
  "ic-platform-runtime",
  "ic-wire",
@@ -1051,9 +1042,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.92.0"
+version = "0.93.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a45ed18109c81668ab742d2c3ed9f762331730be294ebaa6682ba28b4fa1113"
+checksum = "5535b541aecaa279a17a600c647bdebb9c727ec877d0b8327254e406a556b5e2"
 dependencies = [
  "base64",
  "candid",
@@ -1062,7 +1053,7 @@ dependencies = [
  "ic-host-fs",
  "ic-host-process",
  "ic-management-canister-types",
- "ic-platform 0.24.0",
+ "ic-platform",
  "ic-platform-types",
  "libc",
  "reqwest",
@@ -1094,9 +1085,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.17.12"
+version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f153b6cf7ab5239b1887db98c873b930abc76d85c08e51e3b259131ba775039d"
+checksum = "e77897d1793a8b3f40bb15b32045536904cca76bc1cf0aab8a282594e7ee99ae"
 dependencies = [
  "bytemuck",
  "ic-wire-derive",
@@ -1108,9 +1099,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.17.12"
+version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7ffe0a1b41927712ffb12d4638ee98a6eef1cd639ba9ba0a54a621c47bc9b80"
+checksum = "1b714a982add4b4f7e5b11881d46985437f6b518423b5ae3c3de18874d1abf1e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1255,9 +1246,9 @@ name = "icydb-core"
 version = "0.302.0"
 dependencies = [
  "base64",
+ "blake3",
  "getrandom 0.4.3",
  "ic-metrics",
- "ic-platform 0.25.0",
  "ic-platform-runtime",
  "ic-platform-types",
  "ic-storage",
@@ -1445,7 +1436,7 @@ dependencies = [
 name = "icydb-testing-sql-generator"
 version = "0.302.0"
 dependencies = [
- "ic-platform 0.25.0",
+ "blake3",
  "serde",
  "serde_json",
 ]
@@ -1454,9 +1445,12 @@ dependencies = [
 name = "icydb-testing-sqlite-reference"
 version = "0.302.0"
 dependencies = [
- "ic-platform 0.25.0",
+ "blake3",
  "icydb-testing-sql-generator",
  "rusqlite",
+ "serde",
+ "serde_json",
+ "syn 3.0.9",
 ]
 
 [[package]]

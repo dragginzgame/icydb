@@ -1,5 +1,5 @@
 # Cargo dependency ownership
-<!-- Shared companions: ci/examples/platform-owner-boundaries.json rules/rust-workspaces.md -->
+<!-- Shared companions: ci/examples/platform-owner-boundaries.json rules/rust-workspaces.md rules/hashing.md -->
 
 These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md).
 The repository's root `Cargo.toml` is the authoritative catalog of direct
@@ -59,8 +59,9 @@ ic-platform = { version = "0.17.0", default-features = false }
 
 An identity-only member inherits Types. An IC0-only member inherits Runtime with
 `features = ["ic0"]`; this graph needs neither Types, Candid, CDK, executor guard
-nor crypto. A crypto consumer may separately inherit Platform with, for example,
-`features = ["blake3"]`. Runtime's higher-level features have different closures:
+nor crypto. IC crypto consumers separately select Platform's needed capabilities.
+Pure hashing uses approved direct dependencies under the [hashing policy](hashing.md),
+not the Platform facade. Runtime's higher-level features have different closures:
 the executor needs its guard; raw calls need Types; CDK adds entrypoint generation.
 Do not apply the IC0-only exclusions to a consumer that actually needs those APIs.
 

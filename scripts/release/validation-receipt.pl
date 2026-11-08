@@ -5,24 +5,14 @@ use warnings;
 use JSON::PP;
 use Digest::SHA qw(sha256_hex);
 use File::Temp qw(tempdir);
+use FindBin;
+use lib "$FindBin::Bin/../ci";
+use ValidationPlan ();
 my $json=JSON::PP->new->canonical->utf8;
 my ($plan_path,$run,$proof_path)=@ARGV;
 @ARGV==3 or die "usage: validation-receipt.pl PLAN RUN-DIRECTORY SHARED-PROOF\n";
 sub bytes {
-    my ($path)=@_;
-    $path !~ m{[\x00-\x1f]|(?:^|/)\.\.(?:/|$)} or die "unsafe evidence path\n";
-    my $route=$path =~ m{^/}?'/':'.';
-    for (grep {length} split m{/},$path) { $route.="/$_"; !-l $route or die "redirected evidence\n"; }
-    -f $path or die "missing evidence $path\n";
-    open my $fh,'<:raw',$path or die "read $path: $!\n";
-    my $raw = '';
-    while (1) {
-        my $n = read $fh, my $chunk, 65536;
-        defined($n) or die "cannot read observation\n";
-        last unless $n;
-        $raw .= $chunk; length($raw) <= 1048576 or die "receipt input exceeds 1 MiB\n";
-    }
-    return $raw;
+    return ValidationPlan::bytes('.', $_[0]);
 }
 sub command {
     open my $fh,'-|',@_ or die "execute @_: $!\n";

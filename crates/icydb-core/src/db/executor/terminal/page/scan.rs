@@ -48,8 +48,8 @@ struct KernelRowScanBounds<'a> {
     order_window: Option<KernelRowOrderWindow<'a>>,
 }
 
-type KernelRowReader<'a> =
-    dyn FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError> + 'a;
+type KernelRowReader<'a> = dyn FnMut(&mut OrderedKeyStreamBox, DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>
+    + 'a;
 type BorrowedKernelRowReader<'a> =
     dyn FnMut(&DecodedDataStoreKey, &RawRow) -> Result<Option<KernelRow>, InternalError> + 'a;
 
@@ -125,7 +125,9 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
     match scan_strategy {
         KernelRowScanStrategy::DataRows => {
             let row_runtime = &*row_runtime;
-            let mut read_row = |key| row_runtime.read_data_row_only(consistency, key);
+            let mut read_row = |_stream: &mut OrderedKeyStreamBox, key| {
+                row_runtime.read_data_row_only(consistency, key)
+            };
 
             let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
                 ScalarRowRuntimeHandle::read_borrowed_data_row(key.clone(), row)
@@ -142,7 +144,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
         }
         KernelRowScanStrategy::DataRowsFiltered { filter_program } => {
             let row_runtime = &*row_runtime;
-            let mut read_row = |key| {
+            let mut read_row = |_stream: &mut OrderedKeyStreamBox, key| {
                 row_runtime
                     .read_data_row_with_filter_program(consistency, key, filter_program)
                     .map(|row| row.map(KernelRow::new_read_data_row))
@@ -166,8 +168,9 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             retained_slot_layout,
         } => {
             let row_runtime = &*row_runtime;
-            let mut read_row =
-                |key| row_runtime.read_full_row_retained(consistency, key, retained_slot_layout);
+            let mut read_row = |_stream: &mut OrderedKeyStreamBox, key| {
+                row_runtime.read_full_row_retained(consistency, key, retained_slot_layout)
+            };
 
             let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
                 row_runtime.read_borrowed_full_row_retained(
@@ -191,7 +194,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             retained_slot_layout,
         } => {
             let row_runtime = &*row_runtime;
-            let mut read_row = |key| {
+            let mut read_row = |_stream: &mut OrderedKeyStreamBox, key| {
                 row_runtime.read_full_row_retained_with_filter_program(
                     consistency,
                     key,
@@ -221,8 +224,14 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             retained_slot_layout,
         } => {
             let row_runtime = &*row_runtime;
-            let mut read_row =
-                |key| row_runtime.read_slot_only(consistency, &key, retained_slot_layout);
+            let mut read_row = |stream: &mut OrderedKeyStreamBox, key| {
+                row_runtime.read_slot_only_from_stream(
+                    stream,
+                    consistency,
+                    &key,
+                    retained_slot_layout,
+                )
+            };
             let mut read_borrowed_row = |key: &DecodedDataStoreKey, row: &RawRow| {
                 row_runtime
                     .read_borrowed_slot_only(key, row, retained_slot_layout)
@@ -242,7 +251,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             retained_slot_layout,
         } => {
             let row_runtime = &*row_runtime;
-            let mut read_row = |key| {
+            let mut read_row = |_stream: &mut OrderedKeyStreamBox, key| {
                 row_runtime.read_slot_only_with_filter_program(
                     consistency,
                     &key,
@@ -359,7 +368,7 @@ fn scan_kernel_rows_with(
         bounds.row_keep_cap,
         bounds.row_skip_count,
         next_kernel_scan_key,
-        |_key_stream, key| read_row(key),
+        |stream, key| read_row(stream, key),
     )?;
 
     Ok(RowScanResult {
@@ -401,7 +410,7 @@ fn scan_kernel_rows_with_bounded_order_window(
             break;
         };
         rows_scanned = rows_scanned.saturating_add(1);
-        let row = read_row(key)?;
+        let row = read_row(key_stream, key)?;
         finish_scan_page_unit(page_unit)?;
         let Some(row) = row else {
             continue;

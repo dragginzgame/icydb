@@ -1011,7 +1011,9 @@ fn encode_accepted_schema_revision_bundle(
     writer.finish()
 }
 
-fn encode_accepted_schema_root(root: AcceptedSchemaRoot) -> Result<Vec<u8>, InternalError> {
+pub(in crate::db::schema) fn encode_accepted_schema_root(
+    root: AcceptedSchemaRoot,
+) -> Result<Vec<u8>, InternalError> {
     root.validate()
         .map_err(|_| InternalError::store_invariant())?;
     let mut bytes = Vec::with_capacity(ACCEPTED_SCHEMA_ROOT_BYTES);
@@ -1028,7 +1030,9 @@ fn encode_accepted_schema_root(root: AcceptedSchemaRoot) -> Result<Vec<u8>, Inte
     Ok(bytes)
 }
 
-fn decode_accepted_schema_root(bytes: &[u8]) -> Result<AcceptedSchemaRoot, InternalError> {
+pub(in crate::db::schema) fn decode_accepted_schema_root(
+    bytes: &[u8],
+) -> Result<AcceptedSchemaRoot, InternalError> {
     if bytes.len() != ACCEPTED_SCHEMA_ROOT_BYTES
         || bytes.get(..ACCEPTED_SCHEMA_ROOT_MAGIC.len()) != Some(ACCEPTED_SCHEMA_ROOT_MAGIC)
     {

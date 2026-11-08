@@ -21,7 +21,6 @@ use crate::{
     },
     value::{Value, ValueEnum},
 };
-use ic_platform::blake3;
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,

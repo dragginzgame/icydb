@@ -388,7 +388,9 @@ fn covering_scan_time_page_window_applied(
     page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
 }
 
-pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usize> {
+pub(in crate::db::executor) fn covering_projection_component_indices(
+    fields: &[CoveringReadField],
+) -> Vec<usize> {
     let mut component_indices = Vec::with_capacity(fields.len());
 
     for field in fields {
@@ -493,7 +495,7 @@ fn project_single_primary_key_covering_row(
     ]))
 }
 
-pub(super) fn project_covering_row_from_owned_decoded_values(
+pub(in crate::db::executor) fn project_covering_row_from_owned_decoded_values(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
     component_indices: &[usize],

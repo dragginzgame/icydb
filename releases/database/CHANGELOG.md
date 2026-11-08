@@ -3,6 +3,74 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.303.0]
+
+### Added
+
+- Add explicitly multi-commit typed bulk writes with canonical byte admission,
+  bounded attempted work, ordered assigned-key results and committed-prefix
+  progress. Split only stage-proven precommit byte refusals; keep atomic batches
+  unchanged ([#323 — Bounded typed bulk writes](https://github.com/dragginzgame/icydb/issues/323)).
+
+### 🧪 Testing
+
+- Cover exhaustive covering-page refusal after data or index-readiness changes;
+  reject missing/rebound proofs before scanning on public and trusted paths
+  ([#345 — Covering cursor source proofs](https://github.com/dragginzgame/icydb/issues/345)).
+
+- Give native SQL harness and coverage checks one root-workspace owner, removing
+  duplicate harness execution and the dedicated Canic pure-harness CI lane.
+  Consolidate ordinary accepted-field fixtures without dropping boundary cases.
+
+- Qualify Nat128 index ranges against full-scan expression comparisons across
+  the signed ceiling, repeated boundary keys and the maximum unsigned value
+  ([#110 — Numeric comparison acceptance](https://github.com/dragginzgame/icydb/issues/110)).
+
+### ⚠️ Breaking
+
+- Separate live identity updates from immutable schema checkpoints. Require fresh
+  database images; reject prior images without modifying retained data
+  ([#102 — Identity checkpoint storage](https://github.com/dragginzgame/icydb/issues/102)).
+
+- Adopt Testkit 0.93 and its owned structured CBOR error contract behind the
+  public testing facade. Align native Host Tools 0.86 and Platform 0.25.
+
+### 🧹 Cleanup
+
+- Adopt Shared 0.31.11: close locally implemented, focused-validated issues
+  separately from delivery, retaining issue-specific external acceptance.
+- Adopt Build 0.79 and Testkit 0.93.1. Share target-maintenance policy between
+  single and batch builds while retaining Testkit-owned server acquisition.
+- Adopt Shared 0.31.10 with workspace-scoped formatting, LOC module/depth
+  selection, authenticated CI download caching and one full-history secret scan.
+
+- Use the scalar pager for eligible direct covering reads, including hidden order
+  fields and authenticated continuations. Preserve row-presence checks and
+  specialized readers for unsupported shapes
+  ([#345 — Covering scalar pages](https://github.com/dragginzgame/icydb/issues/345)).
+
+- Derive all generated coverage-witness metadata from one declaration owner;
+  retain the existing schedule and coverage identities. Reuse ordinary schema
+  field fixtures at 51 further sites while keeping codec oracles explicit.
+
+- Keep SQL interaction exemptions and required evidence beside their owning
+  declarations; repair stale provider paths and retire unused coverage metadata.
+- Share naming admission and canonical catalog-retention mechanics. Derive
+  executor diagnostic categories from the existing typed diagnostic registry.
+- Reuse Shared's bounded regular-file reader for release evidence and source
+  admission; preserve full validation until current native mapping qualification
+  completes ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603)).
+
+- Remove Core and SQL helper dependencies on the Platform hashing facade;
+  consume the same BLAKE3 1.8.7 implementation/features directly. Migrate the
+  integration hashing imports while retaining its genuine Platform capabilities;
+  independent Canic qualification remains blocked under #373
+  ([#631 — Direct pure hashing](https://github.com/dragginzgame/icydb/issues/631)).
+- Adopt Shared Tooling 0.31.6's hashing inventory and dependency guard. Copy
+  the checker's companion inventory into Cargo-adoption fixtures.
+
+[Detailed changes](0.303.md).
+
 ## [0.302.0] - 2026-11-07
 
 ### 🩹 Fixed

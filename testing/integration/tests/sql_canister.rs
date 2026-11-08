@@ -3,13 +3,6 @@
     reason = "each test intentionally retains its exclusive pooled fixture lease for its full scope"
 )]
 
-#[expect(
-    dead_code,
-    unused_imports,
-    reason = "this boundary target consumes only the verdict subset of the shared test harness"
-)]
-mod sql_harness;
-
 mod batch_workload;
 mod catalog_workload;
 mod collection_workload;
@@ -17,14 +10,13 @@ mod collection_workload;
 use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, io, num::NonZeroUsize, sync::LazyLock};
 
-use crate::sql_harness::{
+use icydb_testing_sql_generator::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, EligibleProvider,
     EvidenceStrength, ExpectedAcceptance, MutationKind, NormalizedCell, NormalizedResult,
     NullabilityClass, ObservedOutcome, PredicateFamily, QueryShape, RouteExpectation, RouteFact,
     RouteFamily, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
-use ic_platform::blake3;
 use ic_platform::{pocket_ic::PocketIc, principal::ExternalPrincipal as Principal};
 use ic_testkit::pic::{
     CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard, SnapshotRestoreFunding,

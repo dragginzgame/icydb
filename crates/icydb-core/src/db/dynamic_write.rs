@@ -144,6 +144,23 @@ pub struct DynamicMutationResult {
     pub affected_rows: u32,
 }
 
+/// Stage-qualified outcome of one bounded typed atomic attempt.
+#[doc(hidden)]
+#[derive(Debug)]
+pub enum DynamicTypedBatchAttempt {
+    /// The complete attempted batch committed, in input order.
+    Committed(Vec<DynamicMutationResult>),
+    /// Canonical byte admission refused before the commit handoff. No effect
+    /// from this attempt was published; a smaller attempt is permitted.
+    PrecommitByteRefusal(crate::error::InternalError),
+}
+
+impl DynamicTypedBatchAttempt {
+    /// Canonical maximum number of inputs in one atomic attempt.
+    pub const MAX_ROWS: usize =
+        crate::db::executor::mutation::structural::MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS;
+}
+
 impl DynamicMutationResult {
     /// Return the number of row payloads carried by this result.
     #[must_use]

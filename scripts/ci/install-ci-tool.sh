@@ -99,7 +99,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 # shellcheck source=scripts/dev/tool-store.sh
 source "$SCRIPT_DIR/../dev/tool-store.sh"
-tool_store_download "https://github.com/$repo/releases/download/v$version/$archive" "$stage/$archive"
+tool_store_download "https://github.com/$repo/releases/download/v$version/$archive" "$stage/$archive" "$checksum"
 bash "$SCRIPT_DIR/verify-file-checksum.sh" sha256 "$checksum" "$stage/$archive"
 case "$format" in
     gzip) tar -xzf "$stage/$archive" -C "$stage" "$member" ;;

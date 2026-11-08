@@ -467,10 +467,11 @@ make _ci-tier-a-sqlite
 make _ci-tier-a-mutation
 ```
 
-The adapter's native protocol comparison is separate:
+Check coverage declarations and shared harness semantics in the root workspace:
 
 ```bash
-cargo test --locked --manifest-path testing/canic-adapter/Cargo.toml -p icydb-testing-integration --test sql_correctness
+cargo test --locked -p icydb-testing-sqlite-reference --test coverage
+cargo test --locked -p icydb-testing-sql-generator --lib sql_harness
 ```
 
 Run the generated live-canister SQL boundary separately with:

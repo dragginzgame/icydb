@@ -5,22 +5,7 @@ use crate::types::Principal;
 use icydb_diagnostic_code::{DiagnosticDetail, QueryReadAdmissionCode};
 
 fn initialize_sparse_indexes(complete_index: bool) -> DbSession<TestCanister> {
-    DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
-    INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
-    SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = DbSession::new(
-        &STORE_REGISTRY,
-        &crate::db::RequestExecutionRoot::__new_runtime_root(),
-    );
-    session.db.drive_startup_recovery_page().unwrap();
-    crate::db::commit::publish_accepted_schema_candidate(
-        STORE_PATH,
-        session.db.store_handle(STORE_PATH).unwrap(),
-        AcceptedSchemaRevision::NONE,
-        &sparse_schema_candidate(complete_index),
-    )
-    .unwrap();
-    session
+    initialize_schema_candidate(sparse_schema_candidate(complete_index))
 }
 
 fn sparse_schema_candidate(complete_index: bool) -> CandidateSchemaRevision {
@@ -35,16 +20,12 @@ fn sparse_schema_candidate(complete_index: bool) -> CandidateSchemaRevision {
     .into_iter()
     .enumerate()
     .map(|(slot, (name, kind, nullable))| {
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(u32::try_from(slot + 1).unwrap()),
-            name.to_string(),
-            SchemaFieldSlot::new(u16::try_from(slot).unwrap()),
-            kind.clone(),
-            Vec::new(),
+        PersistedFieldSnapshot::new_initial_test_field(
+            u32::try_from(slot + 1).unwrap(),
+            name,
+            u16::try_from(slot).unwrap(),
+            kind,
             nullable,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            kind.leaf_codec_for_storage(FieldStorageDecode::ByKind),
         )
     })
     .collect::<Vec<_>>();

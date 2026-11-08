@@ -1,4 +1,5 @@
 //! Module: sql_harness::selection
+//!
 //! Responsibility: deterministic bounded selection over declared scenario strata.
 //! Does not own: scenario generation, SQL rendering, or evidence verdicts.
 //! Boundary: selects scenarios exclusively from typed metadata and stable scenario identities.
@@ -18,7 +19,7 @@ use crate::sql_harness::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum ScenarioStratum {
+pub enum ScenarioStratum {
     EvidenceStrength(EvidenceStrength),
     Mutation(MutationKind),
     Nullability(NullabilityClass),
@@ -56,7 +57,7 @@ const fn scenario_strata<S>(scenario: &CorrectnessScenario<S>) -> [ScenarioStrat
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SelectionError {
+pub enum SelectionError {
     DuplicateScenarioId(String),
 
     InsufficientBudget {
@@ -66,7 +67,7 @@ pub(crate) enum SelectionError {
 }
 
 /// Select a stable bounded scenario set that covers every declared stratum.
-pub(crate) fn select_stratified<S>(
+pub fn select_stratified<S>(
     scenarios: &[CorrectnessScenario<S>],
     budget: usize,
 ) -> Result<Vec<&CorrectnessScenario<S>>, SelectionError> {

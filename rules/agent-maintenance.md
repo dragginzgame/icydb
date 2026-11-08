@@ -104,23 +104,27 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   and linked PRs. Prefer confirmed current CI defects, maintainer priorities and
   reproducible bugs with a clear local owner. Check whether another contributor
   or an open PR already covers the work before recommending or starting it.
-- For routine issue acceptance, select the latest delivered version containing
-  the maintained behavior and the checks required for that issue's acceptance.
-  Require a complete matrix only when it is an actual delivery/product obligation;
-  issue review does not add full-suite requirements or activate new test runs.
-  Verify that the implementation and relevant checks still cover the issue;
-  a newer green run alone does not establish that coverage. Close superseded
-  adoption or producer issues when this current evidence meets their owned
-  criteria. Local drafts have no hosted result; a failed, incomplete or cancelled
-  latest required gate remains unqualified.
-- Keep an older run as an active acceptance gate only for a concrete historical
-  obligation: version-specific compatibility or migration proof, an old-version
-  regression to reproduce, or an unresolved production failure confined to that
-  source. State the reason, exact source/run and required action. A formerly
-  queued or cancelled run alone is not such a reason. Update current issue
-  descriptions and decisions to use the selected delivered evidence; preserve
-  historical logs, comments and audit records without relabelling an older
-  commit as passed. This changes issue acceptance, not CI retention or dispatch.
+- Close ordinary implementation issues when the fix is present in the normal
+  working checkout, focused checks pass and the owning root changelog links the
+  issue. A commit, push, PR merge, release, publication, deployment or full hosted
+  matrix is not a default closure prerequisite. Do not initiate those actions or
+  extra tests merely to close an issue.
+- The closure note identifies the changed files or commit, focused checks and
+  delivery state. Explicitly say when the fix is uncommitted, unpushed or
+  unpublished; closure means the owned fix is complete, not that users have
+  received it. A proposal, detached patch, partial implementation or failed
+  relevant check is not a completed fix.
+- Wait for hosted/native/deployment evidence only when it proves the issue's
+  actual outcome: for example a host-specific failure, installed upgrade or
+  publication defect, or an explicitly agreed acceptance requirement. General
+  release gates and boilerplate “CI must pass” do not automatically become issue
+  closure gates. Explain any specific unmet requirement. An unrelated setup
+  outage or pending broad matrix does not keep a locally verified fix open.
+- When such external evidence is required, verify the relevant implementation
+  and checks at the tested revision; a green run alone is not enough. Missing,
+  failed or cancelled required checks are not success. Prefer current applicable
+  evidence; retain an older run as a gate only for an identified version-specific
+  obligation. Preserve historical records without relabelling old commits.
 - Recommend a short ordered list with issue links, the concrete next action and
   any missing input. If CI inspection was inconclusive, state that limitation
   alongside issue recommendations. If nothing is actionable, report that and
@@ -154,21 +158,21 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   Distinguish committed and dirty source, local checks and native qualification,
   upstream acceptance and consumer adoption. Keep immutable snapshots intact.
 - After an adoption is delivered or the user reports its push, reconcile its
-  owning issue during the current inspection pass. Verify the exact delivered
+  owning issue during the current inspection pass if it remains open. Verify the
   consumer revision, recorded Shared snapshot and relevant checks against the
   issue's completion criteria. Close completed consumer issues with those source
   identities and evidence links. Update a linked Shared issue only when its
   own remaining work changes; do not repeat consumer status in a closed producer
   issue. A push, version bump or upstream release alone is
-  not completion. Pending, cancelled or missing required native checks leave
-  acceptance open. Do not poll indefinitely; revisit on the next requested or
-  already-enabled maintenance pass.
+  not completion. Pending native checks leave acceptance open only when they
+  are required for that specific issue under the closure policy above. Do not poll
+  indefinitely; revisit on the next requested or already-enabled maintenance pass.
 - Keep producer fixes and fleet coordination distinct. A producer issue can
-  close once its own implementation is delivered and its required qualification
-  is complete. Record the producer revision/check evidence and link unresolved
-  consumer work to its owning issues; consumer adoption is not an additional
-  producer closure gate. Pending or cancelled required producer checks still
-  block closure. Reopen only for an actual producer defect or unmet producer
+  close once its own implementation and focused validation are complete under
+  the closure policy above. Record the producer source/check evidence and link
+  unresolved consumer work to its owning issues; consumer adoption is not an additional
+  producer closure gate. Only unmet issue-specific producer acceptance blocks
+  closure. Reopen only for an actual producer defect or unmet producer
   obligation, not a consumer that has yet to adopt.
 - Keep one active issue per owned outcome. Do not create open Shared umbrella
   issues solely to mirror consumer adoption. During reconciliation, retire an

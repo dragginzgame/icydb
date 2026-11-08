@@ -1,8 +1,8 @@
 use crate::db::schema::{
-    AcceptedFieldKind, FieldId, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+    AcceptedFieldKind, FieldId, FieldStorageDecode, PersistedFieldSnapshot,
     PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    PersistedRelationEdgeSnapshot, RelationId, ScalarCodec, SchemaFieldSlot, SchemaIndexId,
-    SchemaInsertDefault, SchemaRowLayout,
+    PersistedRelationEdgeSnapshot, RelationId, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
+    SchemaRowLayout,
     integrity::{
         schema_snapshot_index_integrity_detail, schema_snapshot_relation_integrity_detail,
     },
@@ -11,16 +11,12 @@ use crate::db::schema::{
 fn field_contract() -> (SchemaRowLayout, Vec<PersistedFieldSnapshot>) {
     (
         SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
-        vec![PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".into(),
-            SchemaFieldSlot::new(0),
+        vec![PersistedFieldSnapshot::new_initial_test_field(
+            1,
+            "id",
+            0,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         )],
     )
 }

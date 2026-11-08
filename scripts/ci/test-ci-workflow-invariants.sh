@@ -209,7 +209,7 @@ reset
 mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).if = "matrix.lane == '\''tier-a'\''"'
 check fail server-preparation-wrong-lane
 reset
-mutate '(.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-a")).make_target = "ci-sql-tier-b" | (.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-b")).make_target = "ci-adapter-sql-tier-a"'
+mutate '(.jobs.rust.strategy.matrix.include[] | select(.lane == "workspace")).make_target = "ci-sql-tier-b" | (.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-b")).make_target = "ci-adapter"'
 check fail live-target-wrong-lane
 reset
 mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).continue-on-error = true'

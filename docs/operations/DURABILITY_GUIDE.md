@@ -83,6 +83,57 @@ batch, use the atomic structural mutation helper. When partial progress is
 acceptable and intentional, issue separate mutation calls and document that
 already successful calls remain committed.
 
+### Bounded typed bulk writes
+
+`DbSession::execute_trusted_typed_write_batch` remains one atomic operation.
+For intentionally partial progress, use `execute_trusted_typed_write_bulk` with
+a borrowed slice of generated `TypedWrite` inputs and `TypedBulkWriteLimits`.
+The bulk terminal executes separate atomic batches and returns
+`TypedBulkWriteProgress`, or `TypedBulkWriteFailure` containing the confirmed
+prefix and a structured stop reason. Empty input succeeds without a commit.
+
+Limits select rows, canonical staged bytes and canonical encoded result-vector
+bytes per batch, total attempted inputs and successful batches. All limits must
+be nonzero; engine ceilings remain binding. Attempted work includes byte-refused
+attempts. It bounds input attempts, not instructions or application preparation
+before the call. The caller already owns the complete input slice. Retained
+results are bounded by the batch-result and successful-batch limits; this is not
+an IC reply-size guarantee for the application's enclosing response.
+
+The canonical mutation owner encodes real after-images and result envelopes.
+There is no Candid estimate. Only a byte refusal proven to precede its commit
+handoff permits halving the current attempt; the reduced size is retained for
+the remaining inputs. A single oversized input stops with `InputTooLarge`.
+Constraint, execution-budget, backlog and uncertain publication failures stop
+without splitting or retry. The atomic API itself never splits.
+
+Each progress batch records its original `first_input` and one ordered result
+per input, including assigned keys and affected-row counts. `next_input` is the
+first **unconfirmed** position, relative to the supplied slice. Never replay the
+confirmed prefix. `WorkLimit` leaves the suffix unattempted; `InputTooLarge`
+certifies no effect from its rejected single input. `Operation` retains the
+adapter/database cause and gives no retry authority for its unconfirmed batch.
+Reconcile an uncertain failure through normal recovery/application policy.
+
+Applications must inspect progress on both success and failure, and own
+authorization, normalization, `data_revision`, public error mapping and any
+cross-message checkpoint or resume decision. For example:
+
+```rust,ignore
+match session.execute_trusted_typed_write_bulk(&writes, limits) {
+    Ok(progress) => record_successful_batches(&progress.batches),
+    Err(failure) => {
+        record_successful_batches(&failure.progress.batches);
+        handle_stop(failure.progress.next_input, failure.error);
+    }
+}
+```
+
+Returning an application `Err` does not undo earlier batches. An IC trap can
+roll back the enclosing message; the returned in-memory progress is neither a
+durable checkpoint nor an enclosing transaction. The existing journal backlog,
+request budget and marker recovery contracts are unchanged.
+
 ## Async And Reentry
 
 IcyDB mutation and recovery runtime paths are synchronous.

@@ -6,20 +6,16 @@ use JSON::PP;
 use Digest::SHA qw(sha256_hex);
 use FindBin;
 use lib $FindBin::Bin;
+use lib "$FindBin::Bin/../ci";
+use ValidationPlan ();
 use ValidationScope qw(exclusions);
 my $json = JSON::PP->new->canonical->utf8;
 @ARGV == 2 or die "usage: compare-validation-plans.pl FULL-ATTEMPT SELECTED-ATTEMPT\n";
 sub bytes {
     my ($path) = @_;
-    $path =~ m{\Atarget/[A-Za-z0-9_./-]+\z} && $path !~ m{(?:^|/)\.\.?(?:/|$)}
+    $path =~ m{\Atarget/[A-Za-z0-9_./-]+\z}
         or die "comparison evidence must be beneath target\n";
-    my $route = '.';
-    for (split m{/}, $path) { $route .= "/$_"; !-l $route or die "redirected comparison evidence\n"; }
-    -f $path or die "missing comparison evidence\n";
-    open my $in, '<:raw', $path or die "read evidence: $!\n";
-    local $/; my $raw = <$in>;
-    length($raw) <= 1048576 or die "comparison evidence exceeds 1 MiB\n";
-    return $raw;
+    return ValidationPlan::bytes('.', $path);
 }
 my (@receipts, @plans, @identities);
 for my $attempt (@ARGV) {

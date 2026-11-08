@@ -1,21 +1,16 @@
 use super::*;
 use crate::db::schema::{
-    FieldId, FieldStorageDecode, LeafCodec, RelationId, ScalarCodec, SchemaFieldSlot,
-    SchemaInsertDefault, empty_accepted_enum_catalog_for_tests,
+    FieldId, RelationId, SchemaFieldSlot, empty_accepted_enum_catalog_for_tests,
 };
 
 #[test]
 fn nested_relation_terminal_is_derived_from_catalog_authority() {
-    let fields = vec![PersistedFieldSnapshot::new_initial(
-        FieldId::new(1),
-        "target_id".to_string(),
-        SchemaFieldSlot::new(0),
+    let fields = vec![PersistedFieldSnapshot::new_initial_test_field(
+        1,
+        "target_id",
+        0,
         AcceptedFieldKind::Nat64,
-        Vec::new(),
         true,
-        SchemaInsertDefault::None,
-        FieldStorageDecode::ByKind,
-        LeafCodec::Scalar(ScalarCodec::Nat64),
     )];
     let layout = SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]);
     let valid = PersistedRelationEdgeSnapshot::new_nested(

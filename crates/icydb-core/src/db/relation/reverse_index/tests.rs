@@ -236,16 +236,12 @@ fn accepted_relations_require_accepted_target_authority() {
             (FieldId::new(2), SchemaFieldSlot::new(1)),
         ]),
         vec![
-            PersistedFieldSnapshot::new_initial(
-                FieldId::new(1),
-                "id".to_string(),
-                SchemaFieldSlot::new(0),
+            PersistedFieldSnapshot::new_initial_test_field(
+                1,
+                "id",
+                0,
                 AcceptedFieldKind::Ulid,
-                Vec::new(),
                 false,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
             PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),

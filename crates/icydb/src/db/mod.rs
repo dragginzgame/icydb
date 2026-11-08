@@ -57,9 +57,11 @@ pub use session::{
     OutputRow, PreparedExactKeyOutput, PreparedLivePageCursor, PreparedLivePageOutput,
     PreparedOutputRows, RequestBudgetSnapshot, RequestExecutionFuture, RequestExecutionRoot,
     StructuralMutation, StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError,
-    TypedEntityAdapter, TypedEntityBinding, TypedOperationError, TypedRowAdapter, TypedWrite,
-    TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
-    with_request_execution, with_request_execution_async, with_request_execution_root,
+    TypedBulkWriteBatch, TypedBulkWriteError, TypedBulkWriteFailure, TypedBulkWriteLimits,
+    TypedBulkWriteProgress, TypedEntityAdapter, TypedEntityBinding, TypedOperationError,
+    TypedRowAdapter, TypedWrite, TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults,
+    TypedWriteHandle, WriteCell, with_request_execution, with_request_execution_async,
+    with_request_execution_root,
 };
 pub use startup::provide_boot_entropy;
 pub use startup::{

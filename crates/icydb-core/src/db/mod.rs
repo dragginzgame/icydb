@@ -79,8 +79,8 @@ pub use diagnostics::{
 };
 #[doc(hidden)]
 pub use dynamic_write::{
-    DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicTypedStructuralPatch,
-    DynamicWriteCell,
+    DynamicMutation, DynamicStructuralPatch, DynamicTypedBatchAttempt, DynamicTypedMutation,
+    DynamicTypedStructuralPatch, DynamicWriteCell,
 };
 pub use dynamic_write::{
     DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,

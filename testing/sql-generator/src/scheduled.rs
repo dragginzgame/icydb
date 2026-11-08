@@ -9,7 +9,6 @@ use crate::{
     StructuralSignature, TIER_C_ROOT_SEEDS, is_valid_tier_c_failure_artifact_id,
     replay::canonical_json_bytes, scheduled_sql_scenario_shard, structural_witness_schedule_hash,
 };
-use ic_platform::blake3;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -22,10 +21,10 @@ pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 1;
 
 /// Semantic SQL coverage-manifest revision required by current Tier C evidence.
 ///
-/// The integration manifest gate rederives and golden-vector checks this transport
+/// The root reference-package manifest gate rederives and golden-vector checks this transport
 /// identity from the authoritative typed coverage cells and provider declarations.
 pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
-    "f729d1c6229edd51e361750e86d95de5fa8c3376579283bd522d5dca10da1188";
+    "c944463bafa1806f7a80f2c62bc6c61669fdbb80810803481fd910d2db02cd50";
 
 /// Largest individual Tier C shard, failure or coverage-distribution artifact.
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;

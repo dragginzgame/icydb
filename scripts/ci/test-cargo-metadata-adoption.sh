@@ -73,7 +73,6 @@ if [[ "$ordering_only" == false ]]; then
   done
   for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
     scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
-    scripts/ci/check-cargo-dependency-boundaries.sh ci/external-ic-dependencies.txt \
     ci/cargo-dependency-boundaries.json; do
     cp "$ROOT/$path" "$fixture/repo/$path"
   done
@@ -82,7 +81,8 @@ if [[ "$ordering_only" == false ]]; then
   cp "$ROOT/scripts/release/"{group.sh,version.sh} "$fixture/repo/scripts/release/"
   # Graph admission must execute the current helper, not its archived HEAD copy.
   bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/repo" \
-    scripts/ci/check-dependency-pins.sh scripts/ci/check-cargo-graph.pl
+    scripts/ci/check-dependency-pins.sh scripts/ci/check-cargo-graph.pl \
+    scripts/ci/check-cargo-dependency-boundaries.sh
   cd "$fixture/repo"
   git init --quiet
   git add -- .

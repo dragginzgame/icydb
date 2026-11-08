@@ -10,8 +10,8 @@ use crate::{
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             AcceptedValueAdmissionContract, FieldId, LeafCodec, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaInsertDefault,
-            SchemaRowLayout, SchemaVersion, TestEnumDefinition, TestEnumVariant,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
+            SchemaVersion, TestEnumDefinition, TestEnumVariant,
             build_accepted_enum_catalog_for_tests, empty_accepted_enum_catalog_for_tests,
         },
     },
@@ -66,17 +66,7 @@ fn row_contract(
     kind: AcceptedFieldKind,
 ) -> StructuralRowContract {
     let fields = vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".into(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        ),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false),
         PersistedFieldSnapshot::new_initial(
             FieldId::new(2),
             "payload".into(),

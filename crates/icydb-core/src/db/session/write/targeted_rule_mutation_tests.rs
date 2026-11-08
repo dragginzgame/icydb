@@ -240,17 +240,7 @@ fn targeted_rules_converge_across_dynamic_typed_sql_default_timestamp_and_batch_
         profile_input(12),
     );
     let fields = vec![
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(1),
-            "id".to_string(),
-            SchemaFieldSlot::new(0),
-            AcceptedFieldKind::Nat64,
-            Vec::new(),
-            false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
-        ),
+        PersistedFieldSnapshot::new_initial_test_field(1, "id", 0, AcceptedFieldKind::Nat64, false),
         PersistedFieldSnapshot::new_initial(
             FieldId::new(2),
             "profile".to_string(),

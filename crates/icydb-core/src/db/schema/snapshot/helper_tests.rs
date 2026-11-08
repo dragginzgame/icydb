@@ -104,6 +104,32 @@ impl PersistedIndexKeySnapshot {
 }
 
 impl PersistedFieldSnapshot {
+    /// Build an ordinary initial field fixture without defaults or write policies.
+    ///
+    /// Tests of alternate codecs, historical layouts and generated values retain
+    /// the explicit constructors so those contracts remain visible at each case.
+    pub(in crate::db) fn new_initial_test_field(
+        id: u32,
+        name: &str,
+        slot: u16,
+        kind: AcceptedFieldKind,
+        nullable: bool,
+    ) -> Self {
+        let storage_decode = FieldStorageDecode::ByKind;
+        let leaf_codec = kind.leaf_codec_for_storage(storage_decode);
+        Self::new_initial(
+            FieldId::new(id),
+            name.into(),
+            SchemaFieldSlot::new(slot),
+            kind,
+            Vec::new(),
+            nullable,
+            SchemaInsertDefault::None,
+            storage_decode,
+            leaf_codec,
+        )
+    }
+
     /// Build one persisted field snapshot from already-validated pieces.
     #[expect(
         clippy::too_many_arguments,

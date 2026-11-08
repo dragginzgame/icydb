@@ -23,16 +23,12 @@ fn replacement_snapshot(
             FieldStorageDecode::ByKind,
             codec,
         ),
-        PersistedFieldSnapshot::new_initial(
-            FieldId::new(2),
-            "payload".into(),
-            SchemaFieldSlot::new(1),
+        PersistedFieldSnapshot::new_initial_test_field(
+            2,
+            "payload",
+            1,
             AcceptedFieldKind::Nat64,
-            Vec::new(),
             false,
-            SchemaInsertDefault::None,
-            FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
         ),
     ];
     PersistedSchemaSnapshot::new(

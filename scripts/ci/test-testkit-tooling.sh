@@ -111,18 +111,17 @@ make --silent probe POCKET_IC_BIN="$fixture/explicit-server"
 [[ "$(cat "$fixture/child-selection")" == "$fixture/explicit-server" ]]
 if rg -q '^setup$' "$fixture/server-requests"; then exit 1; fi
 
-# These selected CI bodies are native even though one belongs to the integration
-# package. Failed infrastructure must not prevent their Cargo invocation.
+# Root and adapter workspace tests are native. Failed infrastructure must not
+# prevent their Cargo invocation; pure SQL harness checks live in the root helper.
 : > "$fixture/server-requests"
 : > "$fixture/installation-requests"
-for target in _ci-workspace-tests _ci-adapter-workspace-tests _ci-tier-a-integration; do
+for target in _ci-workspace-tests _ci-adapter-workspace-tests; do
   env TEST_SELECTION_FAIL=1 TEST_CLI_FAIL=1 TEST_SERVER_FAIL=1 \
     make --silent "$target" > "$fixture/$target.log"
 done
 [[ ! -s "$fixture/server-requests" && ! -s "$fixture/installation-requests" ]]
 rg -q --fixed-strings -- '--workspace --all-targets --exclude icydb-testing-integration' "$fixture/native-test-requests"
-rg -q --fixed-strings -- '-p icydb-testing-integration --test sql_correctness' "$fixture/native-test-requests"
-if env TEST_CARGO_FAIL=17 make --silent _ci-tier-a-integration > "$fixture/native-failure.log" 2>&1; then
+if env TEST_CARGO_FAIL=17 make --silent _ci-workspace-tests > "$fixture/native-failure.log" 2>&1; then
   echo 'accepted failed native Cargo test' >&2; exit 1
 fi
 # An installed predecessor cannot satisfy a changed locked selection. Setup

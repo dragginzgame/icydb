@@ -34,12 +34,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Restore pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
       - uses: ./.github/actions/prepare-rust
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - name: Prepare the declared native workstation
         run: make install-dev
+      - name: Save pinned tool downloads
+        uses: ./.github/actions/cache-tool-downloads
+        with:
+          mode: save
       - name: Prepare the fixed dependency cache
         run: make fetch
       - name: Compare actual full and selected group plans

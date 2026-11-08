@@ -2521,11 +2521,12 @@ fn mutation_capture_signals_stop_once_and_remove_arguments() {
         let output = child.wait_with_output().unwrap();
         assert!(
             armed && completed,
-            "capture must observe cancellation after complete readiness"
+            "{signal}: capture must observe cancellation after complete readiness; \
+             armed={armed}, completed={completed}, output={output:?}"
         );
-        assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
-        assert!(!output.stderr.is_empty());
+        assert_eq!(output.status.code(), Some(1), "{signal}: {output:?}");
+        assert!(output.stdout.is_empty(), "{signal}: {output:?}");
+        assert!(!output.stderr.is_empty(), "{signal}: {output:?}");
         fixture.assert_call("icydb_update", false);
         assert_eq!(fixture.call_arguments("icydb_update").len(), 1);
         for path in fs::read_to_string(fixture.directory.join("argument-paths"))
@@ -2735,16 +2736,21 @@ fn migration_response(phase: SchemaMigrationPhase, rows: u64) -> String {
 }
 
 fn assert_migration_outcome(output: Output, phase: SchemaMigrationPhase, exit: i32) {
-    assert_eq!(output.status.code(), Some(exit));
-    assert_eq!(output.stderr.is_empty(), exit == 0);
-    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(exit), "{phase:?}: {output:?}");
+    assert_eq!(output.stderr.is_empty(), exit == 0, "{phase:?}: {output:?}");
+    let stdout = std::str::from_utf8(&output.stdout)
+        .unwrap_or_else(|error| panic!("{phase:?}: {error}: {output:?}"));
     assert!(
         stdout
             .lines()
-            .any(|line| line == format!("  phase: {phase:?}"))
+            .any(|line| line == format!("  phase: {phase:?}")),
+        "{phase:?}: {output:?}"
     );
     if phase == SchemaMigrationPhase::Rejected {
-        assert!(stdout.contains("UniqueIndex: entity 11 key 0709"));
+        assert!(
+            stdout.contains("UniqueIndex: entity 11 key 0709"),
+            "{output:?}"
+        );
     }
 }
 

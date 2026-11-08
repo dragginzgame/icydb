@@ -40,7 +40,7 @@ fn index_name_max_len_matches_limits() {
 
     assert_eq!(entity.as_str().len(), MAX_ENTITY_NAME_LEN);
     for field in &fields {
-        assert_eq!(field.len(), MAX_INDEX_FIELD_NAME_LEN);
+        assert_eq!(field.len(), MAX_ENTITY_NAME_BYTES);
     }
     assert_eq!(fields.len(), MAX_INDEX_FIELDS);
 
@@ -99,7 +99,7 @@ fn rejects_empty_index_field_segment() {
 #[test]
 fn rejects_index_field_over_len() {
     let entity = EntityName::try_from_str("entity").unwrap();
-    let long_field = "a".repeat(MAX_INDEX_FIELD_NAME_LEN + 1);
+    let long_field = "a".repeat(MAX_ENTITY_NAME_BYTES + 1);
 
     let err = IndexName::try_from_entity_fields(&entity, &[long_field.as_str()]).unwrap_err();
     std::assert_matches!(err, IndexNameError::FieldTooLong { .. });
@@ -350,7 +350,7 @@ fn index_max_width_fixture_covers_every_accepted_ascii_byte() {
         entity_bytes.extend(vec![byte; MAX_ENTITY_NAME_LEN - 1]);
         let entity_name = String::from_utf8(entity_bytes).unwrap();
         let mut field_bytes = vec![b'a'];
-        field_bytes.extend(vec![byte; MAX_INDEX_FIELD_NAME_LEN - 1]);
+        field_bytes.extend(vec![byte; MAX_ENTITY_NAME_BYTES - 1]);
         let field_name = String::from_utf8(field_bytes).unwrap();
         let entity = EntityName::try_from_str(entity_name.as_str()).unwrap();
         let fields = [
@@ -428,7 +428,7 @@ fn fuzz_index_name_roundtrip_and_ordering() {
 
         let mut fields = Vec::with_capacity(field_count);
         for f in 0..field_count {
-            let s = gen_ascii(i * 31 + f as u64, MAX_INDEX_FIELD_NAME_LEN);
+            let s = gen_ascii(i * 31 + f as u64, MAX_ENTITY_NAME_BYTES);
             fields.push(s);
         }
 

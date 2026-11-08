@@ -152,14 +152,15 @@ for tool in jq yq; do
         jq) url="https://github.com/jqlang/jq/releases/download/jq-$jq_version/jq-$jq_platform" ;;
         yq) url="https://github.com/mikefarah/yq/releases/download/v$yq_version/yq_$yq_platform" ;;
     esac
-    tool_store_download "$url" "$stage/bin/$tool"
+    case "$tool" in jq) digest="$jq_digest" ;; yq) digest="$yq_digest" ;; esac
+    tool_store_download "$url" "$stage/bin/$tool" "$digest"
     chmod 0755 "$stage/bin/$tool"
 done
 tool_store_download \
-    "https://github.com/AlDanial/cloc/releases/download/v$cloc_version/cloc-$cloc_version.pl" "$stage/bin/cloc"
+    "https://github.com/AlDanial/cloc/releases/download/v$cloc_version/cloc-$cloc_version.pl" "$stage/bin/cloc" "$cloc_digest"
 chmod 0755 "$stage/bin/cloc"
 tool_store_download \
-    "https://github.com/BurntSushi/ripgrep/releases/download/$rg_version/ripgrep-$rg_version-$rg_target.tar.gz" "$stage/ripgrep.tar.gz"
+    "https://github.com/BurntSushi/ripgrep/releases/download/$rg_version/ripgrep-$rg_version-$rg_target.tar.gz" "$stage/ripgrep.tar.gz" "$rg_digest"
 bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$rg_digest" "$stage/ripgrep.tar.gz"
 tar -xOzf "$stage/ripgrep.tar.gz" "$rg_member" > "$stage/bin/rg"
 chmod 0755 "$stage/bin/rg"
