@@ -31,6 +31,12 @@ use separate download-cache keys where their tool selections differ. The precedi
 0.31.6 hashing inventory remains in force. These changes do not qualify selected
 release-stage omissions or native macOS hosts for the new dependency cohort.
 
+The repository's [scanner exceptions](../../.gitleaksignore) identify 43 reviewed
+historical false positives by exact commit, path, rule and line: deterministic
+test keys, evidence hashes, SQL scenario names and ordinary prose. No file or
+detector is excluded. The complete history scan passes with those exceptions;
+a fresh synthetic secret at an excepted path and line still fails admission.
+
 The database 0.301.0 deployment exposed the upstream checksum helper's Bash 3.2
 parse failure in both macOS hosts. This canonical refresh restores system-Bash
 admission, retains NUL/backend refusal and reports missing LOC scratch inputs

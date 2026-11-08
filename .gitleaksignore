@@ -1,0 +1,133 @@
+# Reviewed false positives from the full-history scan on 2026-11-08.
+# Each exception fixes one immutable commit, path, detector and line only.
+# Default detectors and full-history coverage remain enabled for future edits.
+# No credential material is stored here.
+
+# Deterministic startup test submission key (generated/0123456789abcdef).
+97b1dd2a19595fbf0240f2afd1d15ee740cfb42c:crates/icydb-core/src/db/startup/receipt/tests.rs:generic-api-key:113
+
+# Retained post-link artifact content hash.
+97b1dd2a19595fbf0240f2afd1d15ee740cfb42c:docs/reports/investigations/write-cost-reduction.md:generic-api-key:84
+
+# Ordinary prose about query keys, API contracts or validation coverage.
+9e97fcf6d43b8bf0c2c457eb8c608d145d4e6995:docs/code-review/closeout-audit.md:generic-api-key:418
+
+# Ordinary prose about query keys, API contracts or validation coverage.
+9e97fcf6d43b8bf0c2c457eb8c608d145d4e6995:docs/code-review/status.md:generic-api-key:825
+
+# Ordinary prose about query keys, API contracts or validation coverage.
+c6eb60f9422bb71be907e818f43e8163e0519fd8:docs/design/0.264-signed-index-admission/0.264-status.md:generic-api-key:1062
+
+# Recorded source-file digest in historical audit/measurement evidence.
+11a06aee9bda395ce3d5a3f9d0a81d13b10ee593:docs/design/0.261-entity-rename/c24-c26-measurements.json:generic-api-key:19
+
+# Recorded source-file digest in historical audit/measurement evidence.
+11a06aee9bda395ce3d5a3f9d0a81d13b10ee593:docs/design/0.261-entity-rename/c24-c26-measurements.json:generic-api-key:30
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-catalogue-reads/01/sources.json:generic-api-key:49
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-catalogue-reads/01/sources.json:generic-api-key:73
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-catalogue-reads/01/sources.json:generic-api-key:101
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-catalogue-reads/01/sources.json:generic-api-key:130
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:37
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:61
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:89
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:118
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:338
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:362
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:390
+
+# Recorded source-file digest in historical audit/measurement evidence.
+53036eb18a314747ce80c1627916a8bf0c7e1bb4:docs/reports/investigations/2026/09/21/toko-miner-shared-shard-convergence/01/sources.json:generic-api-key:419
+
+# Retained post-link artifact content hash.
+39f757e574b19cf90c19e46fa645c8736d171a45:docs/reports/investigations/2026/09/19/write-cost-reduction/01/report.md:generic-api-key:109
+
+# Recorded production cache_key.rs source-file digest.
+fa6272ceba0cc90b68dbd1592e808a17192769ec:docs/reports/investigations/2026/09/16/cache-traversal/01/report.md:generic-api-key:129
+
+# Ordinary prose about query keys, API contracts or validation coverage.
+2c9db36b85aa18e5c541bc8a0f8789daf441ee11:docs/design/0.255-owned-value-handoff/0.255-slice-8-receipt.md:generic-api-key:31
+
+# Recorded source-file digest in historical audit/measurement evidence.
+b30d4124ca17367a9a4282d51656c2b418d28a89:docs/reports/investigations/2026/09/05/nested-relation-integrity-recovery/01/artifacts/source-snapshot.json:generic-api-key:11
+
+# Recorded source-file digest in historical audit/measurement evidence.
+69c784d53aa22e78fdb7afe506440b3c51bd2226:docs/reports/investigations/2026/09/05/audit-framework-review/01/artifacts/source-snapshot.json:generic-api-key:10
+
+# Deterministic startup test submission key (generated/0123456789abcdef).
+483497be8df949ed84442bd455ed7feae03fa421:crates/icydb-core/src/db/startup/receipt.rs:generic-api-key:716
+
+# Ordinary prose about query keys, API contracts or validation coverage.
+ca658d8c46d71121776f351e34ed1c820ed750a6:docs/reports/investigations/2026/07/28/current-architecture-state/01/report.md:generic-api-key:1129
+
+# Ordinary prose about query keys, API contracts or validation coverage.
+e77131ebd79c34ad7ce337d4f3b6b08429324c0a:docs/changelog/0.185.md:generic-api-key:129
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_after_show_entities_catalog.stdout.txt:generic-api-key:3384
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_after_show_entities_catalog.stdout.txt:generic-api-key:3552
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_audit_harness_reports_instruction_samples.stdout.txt:generic-api-key:3380
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_audit_harness_reports_instruction_samples.stdout.txt:generic-api-key:3548
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_after_catalog_metadata.stdout.txt:generic-api-key:3383
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_after_catalog_metadata.stdout.txt:generic-api-key:3551
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_after_show_entities_snapshot_only.stdout.txt:generic-api-key:3384
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+cea277104f5be67e1f6f5d2f6afcf66693bc7133:docs/audits/reports/2026-06/2026-06-13/artifacts/perf-audit/sql_perf_after_show_entities_snapshot_only.stdout.txt:generic-api-key:3552
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+aec91c8102079ea384e78be7c8f7fc4fc1db61b7:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-output-rerun.txt:generic-api-key:3381
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+aec91c8102079ea384e78be7c8f7fc4fc1db61b7:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-output-rerun.txt:generic-api-key:3549
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+2f6e81264f98eedad4d15627033f172b3c5b8572:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-octet-data-row-output.txt:generic-api-key:3399
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+2f6e81264f98eedad4d15627033f172b3c5b8572:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-octet-data-row-output.txt:generic-api-key:3567
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+2f6e81264f98eedad4d15627033f172b3c5b8572:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-octet-fast-path-output.txt:generic-api-key:3401
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+2f6e81264f98eedad4d15627033f172b3c5b8572:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-octet-fast-path-output.txt:generic-api-key:3569
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+2f6e81264f98eedad4d15627033f172b3c5b8572:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-output.txt:generic-api-key:3390
+
+# SQL scenario name: blob.bucket.lengths.asc.limit3 or its repeat variant.
+2f6e81264f98eedad4d15627033f172b3c5b8572:docs/audits/reports/2026-05/2026-05-01/artifacts/sql-perf-audit/sql-perf-audit-output.txt:generic-api-key:3558
