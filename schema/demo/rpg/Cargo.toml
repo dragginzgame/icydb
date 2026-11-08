@@ -2,7 +2,7 @@
 name = "icydb-testing-demo-rpg-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.303.0"
+version = "0.304.0"
 publish = false
 license-file = { workspace = true }
 description = "RPG demo schema fixtures for the demo canister"

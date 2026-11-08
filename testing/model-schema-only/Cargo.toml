@@ -2,7 +2,7 @@
 name = "icydb-testing-model-schema-only"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.303.0"
+version = "0.304.0"
 publish = false
 license-file = { workspace = true }
 description = "Schema-only compile fixture for the standalone IcyDB model package"
