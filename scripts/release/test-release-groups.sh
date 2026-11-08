@@ -41,6 +41,13 @@ done
 mkdir -p "$fixture/base/scripts" "$fixture/base/ci" "$fixture/base/releases"
 cp -R "$root/scripts/ci" "$root/scripts/release" "$fixture/base/scripts/"
 cd "$fixture/base"
+# Publication now admits tooling through Make before registry/Cargo effects.
+# Shared owns that admission; this fixture checks its consumer call boundary.
+cat > Makefile <<'MAKE'
+.PHONY: shared-tooling-check
+shared-tooling-check:
+	@test "$${FAIL_TOOLING_CHECK:-0}" = 0
+MAKE
 printf '[workspace]\nresolver = "3"\nmembers = ["crates/*"]\n\n[workspace.package]\nedition = "2024"\nrust-version = "1.99.1"\n\n[workspace.dependencies]\n' > Cargo.toml
 packages=(icydb-diagnostic-code icydb-schema icydb-model-macros icydb-model icydb-core icydb icydb-cli)
 for package in "${packages[@]}"; do
@@ -144,6 +151,9 @@ CARGO
     chmod +x "$fixture/$group-bin/cargo"
     printf '#!/usr/bin/env bash\nexit 1\n' > scripts/ci/check-crates-io-version.sh
     git add .; git commit -qm 'Registry substitute'
+    expect_failure env PATH="$fixture/$group-bin:$PATH" FAIL_TOOLING_CHECK=1 \
+        PUBLISH_DRY_RUN=1 PUBLISH_VERIFY=always bash scripts/ci/publish-workspace.sh
+    [[ ! -e "$fixture/$group-published" ]]
     PATH="$fixture/$group-bin:$PATH" PUBLISH_DRY_RUN=1 PUBLISH_VERIFY=always bash scripts/ci/publish-workspace.sh > "$fixture/$group-publication.log" 2>&1
     if [[ "$group" == cli ]]; then
         [[ "$(wc -l < "$fixture/$group-published")" == 1 ]]
@@ -159,8 +169,8 @@ done
 # execution is substituted; metadata, receipts, tags and recovery are real.
 cp -R "$fixture/base" "$fixture/recovery"
 cd "$fixture/recovery"
-mkdir make
-cp "$root/make/"{release,execution}.mk make/
+bash "$root/scripts/ci/prepare-script-fixture.sh" "$root" "$fixture/recovery" \
+    make/release.mk make/execution.mk
 cat > Makefile <<'MAKE'
 .DEFAULT_GOAL := release-version
 # Exercise the inner saved runner explicitly; ordinary CI has no parent batch.
