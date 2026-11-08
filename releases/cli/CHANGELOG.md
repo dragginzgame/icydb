@@ -26,6 +26,8 @@ begin with 0.295.0 below.
 
 ### 🧪 Testing
 
+- Qualify release routing from a fixture-owned Git root and verify current
+  tooling admission before runner dispatch, including refusal controls.
 - Retain failed static-CI automation fixtures and failing source locations so
   release-tooling regressions remain diagnosable
   ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603),

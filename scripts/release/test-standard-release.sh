@@ -28,6 +28,9 @@ trap finish EXIT
 fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
 export TMPDIR="${fixture%/*}"
+# The actual release prerequisites admit the current Git root before cleanup.
+# Own that root here so dispatch controls cannot resolve the parent checkout.
+git -C "$fixture" init --quiet
 release_inputs=(scripts/release/group.sh scripts/release/verify.sh scripts/ci/release-receipts.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
 bash "$root/scripts/ci/check-release-commands.sh" "$root" "${release_inputs[@]}"
 # Exercise this consumer's actual Make adapters after the checker changes cwd.
@@ -47,6 +50,11 @@ set -euo pipefail
 if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh || "$1" == scripts/release/verify.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
 fi
+if [[ "$1" == */scripts/dev/shared-tooling.sh ]]; then
+    [[ "$#" == 6 && "$2 $3" == 'check --consumer' && "$4" == "$RELEASE_FIXTURE_ROOT" && "$5 $6" == '--manifest .shared-tooling.snapshot' ]]
+    printf 'tooling admission\n' >> "$EVENTS"
+    exit "${FAIL_TOOLING:-0}"
+fi
 if [[ "$1" == scripts/ci/release-candidate-receipt.sh ]]; then
     [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
     reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
@@ -60,6 +68,7 @@ STUB
 chmod +x "$fixture/bin/bash"
 if [[ -f "$root/tool-versions.env" ]]; then cp "$root/tool-versions.env" "$fixture/"; fi
 export EVENTS="$fixture/events"
+export RELEASE_FIXTURE_ROOT="$fixture"
 cd "$fixture"
 real_make="$(command -v make)"
 # The common owner qualifies explicit remote/branch overrides. Exercise the
@@ -73,14 +82,21 @@ for kind in patch minor major resume; do
              -f "$root/Makefile" "release-$kind" VERSION=0.269.1) \
              > "$fixture/default-$kind-$failure.log" 2>&1 || status=$?
         if [[ "$failure" == 0 ]]; then [[ "$status" == 0 ]]; else [[ "$status" != 0 ]]; fi
+        printf 'tooling admission\n' > "$fixture/expected"
         if [[ "$kind" == resume ]]; then
-            printf '%s resume 0.269.1 origin main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
+            printf '%s resume 0.269.1 origin main\n' "$root/scripts/ci/run-release.sh" >> "$fixture/expected"
         else
-            printf '%s %s origin main\n' "$root/scripts/ci/run-release.sh" "$kind" > "$fixture/expected"
+            printf '%s %s origin main\n' "$root/scripts/ci/run-release.sh" "$kind" >> "$fixture/expected"
         fi
         cmp "$fixture/expected" "$EVENTS"
     done
 done
+# Failed admission must stop the actual Make caller before runner dispatch.
+: > "$EVENTS"
+if PATH="$fixture/bin:$PATH" FAIL_TOOLING=31 "$real_make" --no-print-directory \
+    -f "$root/Makefile" release-patch > "$fixture/admission-refused.log" 2>&1; then exit 1; fi
+printf 'tooling admission\n' > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
 # The adopted frozen entrypoint must keep IcyDB's real Make routing, selected
 # roster and publication boundary. Substitute only the effectful batch runner;
 # this proves dispatch, not frozen product builds or publication qualification.
@@ -100,7 +116,7 @@ chmod +x "$fixture/bin/perl"
 env -u RELEASE_GROUPS -u RELEASE_BATCH_ACTIVE PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory \
     -f "$root/Makefile" release-patch RELEASE_GROUP=database RELEASE_REMOTE=reviewed \
     RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-default.log" 2>&1
-printf '%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
+printf 'tooling admission\n%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
     "$root/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 for groups in database cli database,cli; do
@@ -110,7 +126,7 @@ for groups in database cli database,cli; do
             "release-$kind" RELEASE_GROUP="${groups%%,*}" RELEASE_GROUPS="$groups" RELEASE_BATCH_ACTIVE=0 \
             RELEASE_PUBLISH_TARGET=publish RELEASE_REMOTE=reviewed RELEASE_BRANCH=main \
             RELEASE_DELIVERY=direct > "$fixture/frozen-$groups-$kind.log" 2>&1
-        printf '%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish --setup-target release-candidate-setup\n' \
+        printf 'tooling admission\n%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish --setup-target release-candidate-setup\n' \
             "$root/scripts/ci/run-release-batch.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
         cmp "$fixture/expected" "$EVENTS"
     done
@@ -119,14 +135,14 @@ done
 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
     RELEASE_GROUP=cli RELEASE_GROUPS=cli RELEASE_BATCH_ACTIVE=0 RELEASE_PUBLISH_TARGET= \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-git-only.log" 2>&1
-printf '%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
+printf 'tooling admission\n%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
     "$root/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 : > "$EVENTS"
 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
     RELEASE_GROUP=database RELEASE_GROUPS=database,cli RELEASE_BATCH_ACTIVE=1 \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main > "$fixture/frozen-child.log" 2>&1
-printf '%s patch reviewed main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
+printf 'tooling admission\n%s patch reviewed main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 # Shared owns saved-batch operations; they need no new group selection.
 for operation in status resume reconcile retire; do
@@ -172,7 +188,7 @@ for failure in none scripts/release/test-release-groups.sh; do
     PATH="$fixture/roster-bin:$PATH" ROSTER_ROOT="$root" ROSTER_FAILURE="$failure" \
         "$real_make" --no-print-directory -C "$root" -f "$root/Makefile" check-portable-automation \
         RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
-    [[ "$(head -n 1 "$EVENTS")" == scripts/ci/verify-shared-tooling-snapshot.sh ]]
+    [[ "$(head -n 1 "$EVENTS")" == scripts/dev/shared-tooling.sh ]]
     for proof in scripts/ci/test-shared-tooling-adapters.sh scripts/release/test-standard-release.sh \
         scripts/release/test-release-groups.sh; do
         [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
@@ -347,7 +363,7 @@ for stage in success fetch setup check; do
             "RELEASE_EDITOR_CHECK=$fixture/bin/editor-selector" \
             >> "$fixture/output" 2>&1 || status=$?
     fi
-    printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
+    printf '%s\n' 'tooling admission' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
         > "$fixture/expected"
     if [[ "$stage" == fetch ]]; then
         [[ -s "$FETCH_EVENTS" && ! -e "$CACHE_READY" ]]
@@ -381,7 +397,7 @@ for ready in prepared missing; do
         RELEASE_SOURCE=1111111111111111111111111111111111111111 \
         RELEASE_VERSION=0.1.1 RELEASE_DATE=2026-10-05 \
         "RELEASE_TMP_DIR=$fixture/release-tmp" > "$fixture/output" 2>&1 || status=$?
-    printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
+    printf '%s\n' 'tooling admission' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
         'selected tools check' > "$fixture/expected"
     assert_fetches
     cmp "$fixture/expected" "$EVENTS"
