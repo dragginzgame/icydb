@@ -721,8 +721,11 @@ for host in Linux:x86_64:linux_amd64 Linux:aarch64:linux_arm64 \
   remainder="${host#*:}"
   arch="${remainder%%:*}"
   platform="${remainder#*:}"
+  # Fake platform archives share a digest. Give each URL assertion a cold,
+  # fixture-owned cache instead of reusing another platform's valid bytes.
   bin="$(PATH="$FIXTURE/bin:$PATH" TEST_HOST="$os" TEST_ARCH="$arch" \
     TEST_REQUEST="$FIXTURE/request" TEST_ARCHIVE="$FIXTURE/artifact.tar.gz" \
+    SHARED_TOOLING_DOWNLOAD_CACHE="$FIXTURE/download-cache/$platform" \
     ACTIONLINT_INSTALL_DIR="$FIXTURE/install" \
     bash "$FIXTURE/scripts/ci/install-icydb-actionlint.sh")"
   [[ "$("$bin" -version)" == 1.7.12 ]]

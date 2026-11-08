@@ -3,6 +3,16 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.304.1]
+
+### 🧪 Testing
+
+- Prevent hosted installer-fixture failures with download caching enabled while
+  retaining platform URL coverage
+  ([#632 — Hosted adapter assertion diagnosis](https://github.com/dragginzgame/icydb/issues/632)).
+
+[Detailed changes](0.304.md).
+
 ## [0.304.0] - 2026-11-08
 
 ### 🩹 Fixed
