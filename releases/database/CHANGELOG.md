@@ -14,6 +14,9 @@ begin with 0.295.0 below.
 
 ### 🧪 Testing
 
+- Qualify shared formatter dispatch with workspace metadata and explicit member
+  selection in consumer fixtures, preserving separate product/adapter ownership.
+
 - Cover exhaustive covering-page refusal after data or index-readiness changes;
   reject missing/rebound proofs before scanning on public and trusted paths
   ([#345 — Covering cursor source proofs](https://github.com/dragginzgame/icydb/issues/345)).

@@ -14,6 +14,9 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Qualify shared formatting against workspace metadata and explicit member
+  selection in the automation fixtures used by release validation.
+
 - Adopt Shared 0.31.11: close locally implemented, focused-validated issues
   separately from delivery, retaining issue-specific external acceptance.
 - Adopt Shared 0.31.10's scoped formatting, richer LOC selection and CI download

@@ -185,6 +185,19 @@ if [[ "${CI_CARGO_FAIL:-0}" == 1 &&
 fi
 case "$1 ${2:-}" in
   'locate-project --workspace') printf '%s\n' "$CI_CARGO_ROOT/Cargo.toml" ;;
+  'metadata '*)
+    # The shared formatter admits workspace owners before dispatch. Supply the
+    # real metadata shape, with distinct member names for the two selected roots.
+    case "$PWD" in
+      "$CI_CARGO_ROOT") member=fixture-product ;;
+      "$CI_CARGO_ROOT/testing/canic-adapter") member=fixture-adapter ;;
+      *) exit 2 ;;
+    esac
+    jq -nc --arg root "$PWD" --arg member "$member" '{
+      workspace_root: $root, workspace_members: [$member],
+      packages: [{id: $member, name: $member, manifest_path: ($root + "/Cargo.toml")}]
+    }'
+    ;;
   'sort --version') printf 'cargo-sort 2.1.4\n' ;;
   # Qualify Make dispatch through the real nonempty-test helper. Product test
   # execution and oracle comparisons are checked separately, without substitutes.
@@ -533,12 +546,17 @@ unset RELEASE_GROUP
 # Explicit composition formatting retains both workspaces; product formatting
 # above stays independent of the adapter manifest and dependency selection.
 : > "$CI_CARGO_TRACE"
+: > "$CI_CARGO_ARGUMENT_TRACE"
 PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 fmt-adapter-check \
   > "$native/fmt-adapter-check.log" 2>&1
-printf '%s\n' 'sort default' 'fmt default' 'metadata default' \
-  'sort-derives default' 'sort default' 'sort-derives default' \
-  'fmt default' 'sort default' 'fmt default' > "$native/expected-trace"
-cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+# Metadata/version observations belong to Shared's shortcut policy. Qualify the
+# consumer's actual workspace selection without fixing their incidental order.
+for member in fixture-product fixture-adapter; do
+  [[ "$(grep -Fxc -- "fmt --package $member -- --check" "$CI_CARGO_ARGUMENT_TRACE")" == 1 ]]
+done
+[[ "$(grep -Fxc -- 'sort --workspace --grouped --check' "$CI_CARGO_ARGUMENT_TRACE")" == 2 ]]
+[[ "$(grep -Fxc -- 'sort-derives --check' "$CI_CARGO_ARGUMENT_TRACE")" == 1 ]]
+if grep -F -- 'fmt --all' "$CI_CARGO_ARGUMENT_TRACE"; then exit 1; fi
 
 # CLI installation must keep the user's selected Cargo paths while preserving
 # the same parallel descriptors. The substitute never installs a binary.

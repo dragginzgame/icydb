@@ -57,6 +57,8 @@ bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/product" mak
 cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"
 cd "$fixture/product"
 git init --quiet
+# Workspace admission precedes formatter dispatch, even with substitute Cargo.
+printf '[workspace]\n\n[package]\nname = "icydb-formatting-fixture"\nversion = "0.1.0"\nedition = "2024"\n' > Cargo.toml
 # Qualify the local derive prerequisite and Cargo environment through the actual
 # Makefile, including parallel dispatch and refusal before shared formatters.
 cat > "$fixture/cargo" <<'CARGO'
@@ -73,6 +75,12 @@ fi
 case "$*" in
   'sort --version') echo "cargo-sort $SHARED_TOOLING_CARGO_SORT_VERSION"; exit 0 ;;
   'fmt --version') exit 0 ;;
+  'metadata --locked --offline --no-deps --format-version 1')
+    jq -nc --arg root "$PWD" '{
+      workspace_root: $root, workspace_members: ["fixture"],
+      packages: [{id: "fixture", name: "icydb-formatting-fixture", manifest_path: ($root + "/Cargo.toml")}]
+    }'
+    exit 0 ;;
 esac
 printf '%s\n' "$*" >> "$FORMAT_FIXTURE_EVENTS"
 printf 'formatter stdout: %s\n' "$*"
@@ -95,9 +103,9 @@ make --no-print-directory > "$fixture/default-goal.log" 2>&1
 [[ ! -e "$FORMAT_FIXTURE_EVENTS" ]]
 for target in fmt fmt-check; do
   if [[ "$target" == fmt ]]; then
-    derive='sort-derives'; sort='sort --workspace --grouped'; format='fmt --all'
+    derive='sort-derives'; sort='sort --workspace --grouped'; format='fmt --package icydb-formatting-fixture'
   else
-    derive='sort-derives --check'; sort='sort --workspace --grouped --check'; format='fmt --all -- --check'
+    derive='sort-derives --check'; sort='sort --workspace --grouped --check'; format='fmt --package icydb-formatting-fixture -- --check'
   fi
   : > "$FORMAT_FIXTURE_EVENTS"
   FORMAT_REQUIRE_JOBSERVER=1 make --no-print-directory -j2 "$target" "FORMAT_CARGO=$fixture/cargo" \
