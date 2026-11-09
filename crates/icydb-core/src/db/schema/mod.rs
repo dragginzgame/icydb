@@ -104,14 +104,14 @@ pub(in crate::db) use application::{
 pub(in crate::db) use application_lowering::lower_field_type;
 #[cfg(feature = "migration")]
 pub(in crate::db) use application_lowering::lower_scalar_type;
+#[cfg(feature = "migration")]
+pub(in crate::db::schema) use application_lowering::{
+    AcceptedFieldLowering, lower_migration_index, lower_migration_nested_leaves,
+    lower_new_migration_index,
+};
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
     lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
-};
-#[cfg(feature = "migration")]
-pub(in crate::db::schema) use application_lowering::{
-    lower_migration_index, lower_migration_nested_leaves, lower_new_migration_index,
-    lower_proposed_field,
 };
 #[cfg(feature = "migration")]
 pub(in crate::db::schema) use application_lowering::{

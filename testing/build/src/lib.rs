@@ -27,14 +27,16 @@ use std::{
 
 use ic_build::{
     artifacts::{
-        ArtifactCacheOutcome, ArtifactCacheRecord, WasmBuildBatchContractError,
-        WasmBuildBatchReport, WasmBuildOutcome, WasmBuildRecord,
+        ArtifactCacheOutcome, ArtifactCacheRecord, WasmBuildBatchReport, WasmBuildOutcome,
+        WasmBuildRecord,
     },
     cargo::{
         flags::combined_encoded_rustflags,
         selection::{CargoFeatureSelection, CargoSelection},
     },
 };
+
+use ic_host_artifacts::batch::BatchLabelError;
 
 struct FixtureCanister {
     policy: &'static canister_artifact::MaintainedCanisterPolicy,
@@ -768,7 +770,10 @@ pub fn build_maintained_canisters_with_options(
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let root = workspace_root();
     let plan = plan_maintained_canister_builds(&root, options)?;
-    let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(&root));
+    let specs = plan
+        .cargo_specs(&root)
+        .map_err(|error| format!("maintained canister build configuration failed: {error}"))?;
+    let cargo_report = build_cached_cargo_wasm_batch(&specs);
 
     finish_maintained_canister_builds(&root, plan, cargo_report)
 }
@@ -812,7 +817,10 @@ pub fn build_maintained_canister_contract_profiles()
                 let build_profile = plan.options.build_profile;
                 let root = &root;
                 let handle = scope.spawn(move || {
-                    let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(root));
+                    let specs = plan.cargo_specs(root).map_err(|error| {
+                        format!("maintained canister build configuration failed: {error}")
+                    })?;
+                    let cargo_report = build_cached_cargo_wasm_batch(&specs);
                     finish_maintained_canister_builds(root, plan, cargo_report)
                 });
                 (build_profile, handle)
@@ -847,7 +855,7 @@ pub fn build_maintained_canister_contract_profiles()
 fn finish_maintained_canister_builds(
     root: &Path,
     plan: MaintainedCanisterBuildPlan,
-    cargo_report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
+    cargo_report: Result<WasmBuildBatchReport, BatchLabelError>,
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let options = plan.options;
     let cargo_report = cargo_report.map_err(|error| {

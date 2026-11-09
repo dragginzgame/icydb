@@ -155,6 +155,12 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
     "adapter qualification must scope automatic runs to integration changes"),
   require(all(.on.push.paths[],.on.pull_request.paths[]; . != "crates/**" and . != "Cargo.toml" and . != "Cargo.lock");
     "unrelated core edits must not require adapter alignment"),
+  (.jobs[] | .steps // [] | . as $steps | range(0; length) as $i |
+    select($steps[$i] | run_text == "cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml") |
+    require(any($steps[0:$i][];
+      run_text == "make check-adapter-tooling" and .if == null
+      and (.["continue-on-error"] // false) == false);
+      "adapter fetching requires earlier independent tooling admission")),
   (.jobs.rust | compiler_gate("check-canic-adapter-compiler.sh"; true)),
   require(.jobs.wasm_size_report.env.IC_TOOLS=="ic-wasm wasm-opt"; "adapter Wasm report needs its IC selection"),
   (.jobs.rust | ic_preparation("matrix.lane == 'workspace' || matrix.lane == 'tier-b'"; "make \"$MAKE_TARGET\"")),

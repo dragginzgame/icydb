@@ -15,13 +15,14 @@ use icydb_schema::{
 use crate::{
     db::schema::{
         AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedConstraintKind,
-        AcceptedConstraintSnapshot, AcceptedEnumCatalog, AcceptedNamedTypeIdentity,
-        AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog, CandidateSchemaRevision,
-        ConstraintId, ConstraintOrigin, ExistingProposalStore, PersistedFieldSnapshot,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion, bind_source_check_expr,
-        lower_existing_schema_proposal, lower_migration_index, lower_migration_nested_leaves,
-        lower_new_migration_index, lower_proposed_field, lower_relation_source,
+        AcceptedConstraintSnapshot, AcceptedEnumCatalog, AcceptedFieldLowering,
+        AcceptedNamedTypeIdentity, AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog,
+        CandidateSchemaRevision, ConstraintId, ConstraintOrigin, ExistingProposalStore,
+        PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
+        PersistedSchemaSnapshot, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
+        SchemaRowLayout, SchemaVersion, bind_source_check_expr, lower_existing_schema_proposal,
+        lower_migration_index, lower_migration_nested_leaves, lower_new_migration_index,
+        lower_relation_source,
         migration_lineage::{
             AcceptedEntitySourceLineageCatalog, AcceptedEntitySourceLineageState,
             AcceptedEntitySourceVersion,
@@ -178,6 +179,15 @@ impl<'a> WorkingStore<'a> {
             bindings: store.bundle.source_bindings().clone(),
             snapshots: store.bundle.entity_snapshots().clone(),
             touched: BTreeSet::new(),
+        }
+    }
+
+    // Borrow the current rekeyed catalogs only after any identity allocation.
+    const fn field_lowering(&self) -> AcceptedFieldLowering<'_> {
+        AcceptedFieldLowering {
+            bindings: &self.bindings,
+            enum_catalog: &self.enums,
+            composite_catalog: &self.composites,
         }
     }
 
@@ -857,16 +867,9 @@ fn rebuild_transitioned_snapshots(
             before.indexes(),
             indexes.as_slice(),
         )?;
-        let with_indexes = rebuild_snapshot_shell(
-            binding,
-            &before,
-            target_version,
-            provisional.row_layout().clone(),
-            provisional.fields().to_vec(),
-            indexes,
-            before.relations().to_vec(),
-            constraint_catalog,
-        );
+        let with_indexes = provisional
+            .with_indexes(indexes)
+            .with_constraint_catalog(constraint_catalog);
         install_reserved_migration_relation_ids(binding, store, with_indexes)?;
     }
 
@@ -880,20 +883,14 @@ fn rebuild_transitioned_snapshots(
             .get(&binding.entity_tag)
             .cloned()
             .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
-        let with_relations = rebuild_snapshot_shell(
-            binding,
-            &current,
-            current.version(),
-            current.row_layout().clone(),
-            current.fields().to_vec(),
-            current.indexes().to_vec(),
-            relations.clone(),
-            rebuild_physical_relation_constraints(
-                current.constraint_catalog(),
-                current.relations(),
-                relations.as_slice(),
-            )?,
-        );
+        let constraints = rebuild_physical_relation_constraints(
+            current.constraint_catalog(),
+            current.relations(),
+            relations.as_slice(),
+        )?;
+        let with_relations = current
+            .with_relations(relations)
+            .with_constraint_catalog(constraints);
         store.snapshots.insert(binding.entity_tag, with_relations);
     }
 
@@ -907,16 +904,7 @@ fn rebuild_transitioned_snapshots(
             .cloned()
             .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
         let constraints = rebuild_constraints(binding, store, &current)?;
-        let target = rebuild_snapshot_shell(
-            binding,
-            &current,
-            current.version(),
-            current.row_layout().clone(),
-            current.fields().to_vec(),
-            current.indexes().to_vec(),
-            current.relations().to_vec(),
-            constraints,
-        );
+        let target = current.with_constraint_catalog(constraints);
         store.snapshots.insert(binding.entity_tag, target);
     }
     Ok(())
@@ -985,16 +973,16 @@ fn rebuild_fields(
                 }
                 fields[position] = if target {
                     let introduced_in_layout = fields[position].introduced_in_layout();
-                    lower_proposed_field(
-                        proposed,
-                        id,
-                        fields[position].slot(),
-                        introduced_in_layout,
-                        &store.bindings,
-                        &store.enums,
-                        &store.composites,
-                    )
-                    .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?
+                    store
+                        .field_lowering()
+                        .lower_field(
+                            proposed,
+                            id,
+                            fields[position].slot(),
+                            introduced_in_layout,
+                            SchemaHistoricalFill::Reject,
+                        )
+                        .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?
                 } else {
                     let nested_leaves =
                         lower_migration_nested_leaves(fields[position].kind(), &store.composites)
@@ -1017,16 +1005,16 @@ fn rebuild_fields(
                     .insert_migration_field(binding.entity_tag, proposed.source_key().clone(), id)
                     .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)?;
                 fields.push(
-                    lower_proposed_field(
-                        proposed,
-                        id,
-                        slot,
-                        layout_version,
-                        &store.bindings,
-                        &store.enums,
-                        &store.composites,
-                    )
-                    .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?,
+                    store
+                        .field_lowering()
+                        .lower_field(
+                            proposed,
+                            id,
+                            slot,
+                            layout_version,
+                            SchemaHistoricalFill::Reject,
+                        )
+                        .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?,
                 );
                 layout.push((id, slot));
             }

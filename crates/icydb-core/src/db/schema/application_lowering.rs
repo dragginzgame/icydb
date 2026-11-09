@@ -128,16 +128,16 @@ impl NamedTypeIdentityLookup<'_> {
     }
 }
 
-/// Accepted catalogs required to lower one future insert-default policy.
+/// Accepted identities and value catalogs used to lower proposed field facts.
 #[derive(Clone, Copy)]
-struct AcceptedDefaultLowering<'a> {
-    bindings: &'a AcceptedSourceBindingCatalog,
-    enum_catalog: &'a AcceptedEnumCatalog,
-    composite_catalog: &'a AcceptedCompositeCatalog,
+pub(in crate::db::schema) struct AcceptedFieldLowering<'a> {
+    pub(in crate::db::schema) bindings: &'a AcceptedSourceBindingCatalog,
+    pub(in crate::db::schema) enum_catalog: &'a AcceptedEnumCatalog,
+    pub(in crate::db::schema) composite_catalog: &'a AcceptedCompositeCatalog,
 }
 
-impl AcceptedDefaultLowering<'_> {
-    fn lower(
+impl AcceptedFieldLowering<'_> {
+    fn lower_default(
         self,
         policy: &FieldInsertPolicy,
         field_name: &str,
@@ -167,6 +167,54 @@ impl AcceptedDefaultLowering<'_> {
             &mut budget,
         )?;
         Ok(SchemaInsertDefault::SlotPayload(payload))
+    }
+}
+
+impl AcceptedFieldLowering<'_> {
+    /// Lower generated field facts once while retaining the caller's explicit
+    /// identity, slot, introduced layout and historical-absence contract.
+    ///
+    /// Reconciliation preserves accepted historical fill. Initial construction has
+    /// no predecessor rows, and full-layout migration rewrites every row; those
+    /// callers explicitly reject absent historical slots.
+    pub(in crate::db::schema) fn lower_field(
+        self,
+        proposed: &icydb_schema::FieldFragment,
+        id: FieldId,
+        slot: SchemaFieldSlot,
+        introduced_in_layout: RowLayoutVersion,
+        historical_fill: SchemaHistoricalFill,
+    ) -> Result<PersistedFieldSnapshot, InternalError> {
+        let kind = lower_field_type(proposed.field_type(), self.bindings)?;
+        let storage_decode = field_storage_decode(proposed.field_type());
+        let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
+        let nested_leaves = lower_migration_nested_leaves(&kind, self.composite_catalog)?;
+        let write_policy =
+            lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
+        let insert_default = self.lower_default(
+            proposed.insert_policy(),
+            proposed.name().as_str(),
+            &kind,
+            proposed.nullable(),
+            storage_decode,
+            leaf_codec,
+        )?;
+
+        Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
+            id,
+            proposed.name().as_str().to_string(),
+            slot,
+            kind,
+            nested_leaves,
+            proposed.nullable(),
+            introduced_in_layout,
+            insert_default,
+            historical_fill,
+            write_policy,
+            PersistedFieldOrigin::Generated,
+            storage_decode,
+            leaf_codec,
+        ))
     }
 }
 
@@ -1995,40 +2043,18 @@ fn lower_existing_fields(
         if !accepted.generated() {
             return Err(InternalError::store_unsupported());
         }
-        let kind = lower_field_type(proposed.field_type(), bindings)?;
-        let storage_decode = field_storage_decode(proposed.field_type());
-        let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
-        let nested_leaves = lower_migration_nested_leaves(&kind, &catalogs.composite_catalog)?;
-        let write_policy =
-            lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
-        let insert_default = AcceptedDefaultLowering {
+        let candidate = AcceptedFieldLowering {
             bindings,
             enum_catalog: &catalogs.enum_catalog,
             composite_catalog: &catalogs.composite_catalog,
         }
-        .lower(
-            proposed.insert_policy(),
-            proposed.name().as_str(),
-            &kind,
-            proposed.nullable(),
-            storage_decode,
-            leaf_codec,
-        )?;
-        let candidate = PersistedFieldSnapshot::new_with_write_policy_and_origin(
+        .lower_field(
+            proposed,
             accepted.id(),
-            proposed.name().as_str().to_string(),
             accepted.slot(),
-            kind,
-            nested_leaves,
-            proposed.nullable(),
             accepted.introduced_in_layout(),
-            insert_default,
             accepted.historical_fill().clone(),
-            write_policy,
-            PersistedFieldOrigin::Generated,
-            storage_decode,
-            leaf_codec,
-        );
+        )?;
         if candidate.kind() != accepted.kind()
             || candidate.nullable() != accepted.nullable()
             || candidate.write_policy() != accepted.write_policy()
@@ -2050,57 +2076,6 @@ fn lower_existing_fields(
         changed,
         field_names_changed,
     })
-}
-
-/// Lower one generated field for an initial schema or a full-layout rewrite,
-/// retaining the caller's explicit identity, slot and introduced layout.
-///
-/// Neither path admits absent historical slots: an initial schema has no
-/// predecessor rows, and a physical migration validates and rewrites every row.
-/// Existing-head reconciliation separately preserves accepted historical fill.
-pub(in crate::db::schema) fn lower_proposed_field(
-    proposed: &icydb_schema::FieldFragment,
-    id: FieldId,
-    slot: SchemaFieldSlot,
-    introduced_in_layout: RowLayoutVersion,
-    bindings: &AcceptedSourceBindingCatalog,
-    enum_catalog: &AcceptedEnumCatalog,
-    composite_catalog: &AcceptedCompositeCatalog,
-) -> Result<PersistedFieldSnapshot, InternalError> {
-    let kind = lower_field_type(proposed.field_type(), bindings)?;
-    let storage_decode = field_storage_decode(proposed.field_type());
-    let leaf_codec = field_leaf_codec(proposed.field_type(), &kind);
-    let nested_leaves = lower_migration_nested_leaves(&kind, composite_catalog)?;
-    let write_policy = lower_write_policy(proposed.insert_policy(), proposed.management(), &kind)?;
-    let insert_default = AcceptedDefaultLowering {
-        bindings,
-        enum_catalog,
-        composite_catalog,
-    }
-    .lower(
-        proposed.insert_policy(),
-        proposed.name().as_str(),
-        &kind,
-        proposed.nullable(),
-        storage_decode,
-        leaf_codec,
-    )?;
-
-    Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
-        id,
-        proposed.name().as_str().to_string(),
-        slot,
-        kind,
-        nested_leaves,
-        proposed.nullable(),
-        introduced_in_layout,
-        insert_default,
-        SchemaHistoricalFill::Reject,
-        write_policy,
-        PersistedFieldOrigin::Generated,
-        storage_decode,
-        leaf_codec,
-    ))
 }
 
 fn lower_existing_indexes(
@@ -2164,8 +2139,8 @@ fn lower_existing_indexes(
 
 /// Catalog and entity facts shared by initial, reconciled and migration indexes.
 struct IndexLowering<'a> {
-    enum_catalog: &'a AcceptedEnumCatalog,
-    composite_catalog: &'a AcceptedCompositeCatalog,
+    pub(in crate::db::schema) enum_catalog: &'a AcceptedEnumCatalog,
+    pub(in crate::db::schema) composite_catalog: &'a AcceptedCompositeCatalog,
     entity_tag: EntityTag,
     snapshot: &'a PersistedSchemaSnapshot,
     bindings: &'a AcceptedSourceBindingCatalog,
@@ -2945,15 +2920,20 @@ fn lower_initial_entity_fields(
         let raw_slot = u16::try_from(offset).map_err(|_| InternalError::store_unsupported())?;
         let id = FieldId::new(raw_id);
         let slot = SchemaFieldSlot::new(raw_slot);
-        fields.push(lower_proposed_field(
-            field,
-            id,
-            slot,
-            RowLayoutVersion::INITIAL,
-            &context.named_type_bindings,
-            &context.enum_catalog,
-            &context.composite_catalog,
-        )?);
+        fields.push(
+            AcceptedFieldLowering {
+                bindings: &context.named_type_bindings,
+                enum_catalog: &context.enum_catalog,
+                composite_catalog: &context.composite_catalog,
+            }
+            .lower_field(
+                field,
+                id,
+                slot,
+                RowLayoutVersion::INITIAL,
+                SchemaHistoricalFill::Reject,
+            )?,
+        );
         layout.push((id, slot));
         bindings.insert((entity_tag, field.source_key().clone()), id);
     }

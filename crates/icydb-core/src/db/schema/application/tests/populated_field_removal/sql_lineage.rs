@@ -107,7 +107,7 @@ fn finish_migration(
         if interrupted && !recovered && phase == SchemaMigrationPhase::RewritingRows {
             interrupt_next_migration_rewrite_at(MigrationRewriteInterruption::JournalPublished);
             assert!(migrate_schema(db, candidate, advance_command(candidate)).is_err());
-            restart(db);
+            restart_journaled_store(db, MIGRATION_EXECUTION_STORE_PATH);
             recovered = true;
         }
     }
@@ -126,7 +126,7 @@ fn finish_migration(
 // Its catalog-owned name must be available without retiring retained constraints.
 fn qualify_post_migration_field_addition(db: &Db<MigrationExecutionCanister>) {
     execute_sql_edit(db, "ADD COLUMN extra nat64 DEFAULT 77 NOT NULL");
-    restart(db);
+    restart_journaled_store(db, MIGRATION_EXECUTION_STORE_PATH);
     let root = RequestExecutionRoot::__new_runtime_root();
     let session =
         DbSession::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, &root);
@@ -158,7 +158,7 @@ fn qualify_post_migration_field_addition(db: &Db<MigrationExecutionCanister>) {
             ]),
         })
         .unwrap();
-    restart(db);
+    restart_journaled_store(db, MIGRATION_EXECUTION_STORE_PATH);
     let page = session
         .execute_trusted_live_page(
             &DynamicQuery::new("Remapped")
@@ -179,7 +179,7 @@ fn run_sql_then_source_migration(interrupted: bool) {
     execute_sql_edit(&db, "ADD COLUMN note nat64 DEFAULT 77 NOT NULL");
     assert_eq!(load_entity_source_lineage_catalog().unwrap(), lineage);
     if interrupted {
-        restart(&db);
+        restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     }
 
     let root = RequestExecutionRoot::__new_runtime_root();
@@ -203,14 +203,14 @@ fn run_sql_then_source_migration(interrupted: bool) {
     finish_migration(&db, &candidate, interrupted);
     assert_rows(&session, true);
     assert_sql_values(&session);
-    restart(&db);
+    restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     assert_rows(&session, true);
     assert_sql_values(&session);
 
     // Later SQL edits must not make the already-applied source plan pending again.
     let lineage = load_entity_source_lineage_catalog().unwrap();
     execute_sql_edit(&db, "ALTER COLUMN note SET DEFAULT 99");
-    restart(&db);
+    restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     assert_eq!(load_entity_source_lineage_catalog().unwrap(), lineage);
     let current = proposal(&db, true, false);
     let status =

@@ -4,6 +4,7 @@ set -euo pipefail
 # Qualify the isolated public graph on the repository's admitted compiler.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$ROOT"
+make --no-print-directory check-adapter-tooling
 bash "$ROOT/scripts/ci/check-rust-compiler.sh"
 
 expected="$(bash "$ROOT/scripts/ci/read-cargo-workspace-rust-version.sh" "$ROOT/Cargo.toml")"

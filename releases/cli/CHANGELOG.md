@@ -5,8 +5,17 @@ begin with 0.295.0 below.
 
 ## [0.296.7]
 
+### 🔧 Changed
+
+- Adopt Wire 0.18 and the current Host Foundation 0.76.1 / Platform 0.27.1
+  cohort, preserving CLI commands, payload contracts and existing diagnostics.
+
 ### 🧪 Testing
 
+- Publish executable ICP fixtures through the Host Process writer, preventing
+  parallel forks from inheriting writable script descriptors and causing
+  pre-script spawn refusal
+  ([#599 — CLI process failure diagnosis](https://github.com/dragginzgame/icydb/issues/599)).
 - Prevent hosted installer-fixture failures with download caching enabled while
   retaining platform URL coverage
   ([#632 — Hosted adapter assertion diagnosis](https://github.com/dragginzgame/icydb/issues/632)).

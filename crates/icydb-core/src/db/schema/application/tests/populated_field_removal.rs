@@ -129,33 +129,6 @@ fn advance_command(proposal: &SchemaProposal) -> SchemaMigrationCommand {
     }
 }
 
-fn restart(db: &Db<MigrationExecutionCanister>) {
-    let store = db.store_handle(MIGRATION_EXECUTION_STORE_PATH).unwrap();
-    let generation = store.with_data_mut(|data| {
-        data.reset_journaled_live_projection().unwrap();
-        data.generation()
-    });
-    let watermark = store
-        .journal_tail_store()
-        .unwrap()
-        .with_borrow(JournalTailStore::fold_watermark)
-        .unwrap();
-    store
-        .with_index_mut(|index| {
-            index.reset_journaled_live_projection(
-                generation,
-                watermark,
-                &std::collections::BTreeSet::new(),
-            )
-        })
-        .unwrap();
-    store
-        .with_schema_mut(SchemaStore::reset_journaled_live_projection)
-        .unwrap();
-    forget_recovered_domain_for_tests(db).unwrap();
-    drive_startup_recovery_to_completion(db);
-}
-
 fn assert_rows(session: &DbSession<MigrationExecutionCanister>, current: bool) {
     let status = if current { "state" } else { "status" };
     let value = if current { "z_value" } else { "a_old" };
@@ -261,14 +234,14 @@ fn run_removal(case: RemovalCase) {
         if interrupted && !recovered && phase == SchemaMigrationPhase::RewritingRows {
             interrupt_next_migration_rewrite_at(MigrationRewriteInterruption::JournalPublished);
             assert!(migrate_schema(&db, &candidate, advance_command(&candidate)).is_err());
-            restart(&db);
+            restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
             recovered = true;
         }
     }
     assert!(finished);
     assert_eq!(recovered, interrupted);
     assert_rows(&session, !abort);
-    restart(&db);
+    restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     assert_rows(&session, !abort);
     if generated && !abort {
         session

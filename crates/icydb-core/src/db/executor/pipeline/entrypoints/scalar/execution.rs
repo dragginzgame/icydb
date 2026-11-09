@@ -12,7 +12,7 @@ use crate::{
                     ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputContext,
                 },
                 entrypoints::scalar::{
-                    hints::{ScalarRouteTerminal, normalize_scalar_route_for_execution},
+                    hints::{ScalarRouteTerminal, finalize_scalar_route_for_execution},
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
@@ -37,16 +37,16 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         store,
         authority,
         plan_core,
-        mut route_plan,
+        route_plan,
         prep,
         projection,
         continuation,
-        unpaged_rows_mode,
+        unpaged_rows_mode: _,
         cursor_emission,
         projection_runtime_mode,
-        suppress_route_scan_hints,
+        suppress_route_scan_hints: _,
         enforced_scan_probe_limit,
-    } = prepared;
+    } = finalize_scalar_route_for_execution(prepared, terminal);
     let accepted_schema = authority.accepted_schema_authority();
     let accepted_root = CardinalityAcceptedRootIdentity::new(
         accepted_schema.revision(),
@@ -73,24 +73,6 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     let plan = plan_core.plan();
     let index_prefix_specs = plan_core.index_prefix_specs();
     let index_range_specs = plan_core.index_range_specs();
-    normalize_scalar_route_for_execution(
-        &mut route_plan,
-        plan,
-        &continuation,
-        unpaged_rows_mode,
-        suppress_route_scan_hints,
-        terminal,
-        &prep,
-    );
-    if enforced_scan_probe_limit.is_some() {
-        // Exact selection must observe one authoritative bounded traversal,
-        // never an incomplete top-N/index-window probe followed by fallback.
-        route_plan.index_range_limit_spec = None;
-        route_plan.top_n_seek_spec = None;
-        route_plan.scan_hints.physical_fetch_hint = None;
-        route_plan.scan_hints.load_scan_budget_hint = None;
-    }
-
     let route_continuation = route_plan.continuation();
     continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
     let direction = route_plan.direction();

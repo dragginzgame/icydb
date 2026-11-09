@@ -2,12 +2,14 @@
 set -euo pipefail
 
 deployment_only=false
+adapter_tooling_only=false
 if [[ $# != 0 ]]; then
-  [[ $# == 2 && "$1" == --case && "$2" == deployment ]] || {
-    echo 'usage: test-shared-tooling-adapters.sh [--case deployment]' >&2
+  [[ $# == 2 && "$1" == --case && ( "$2" == deployment || "$2" == adapter-tooling ) ]] || {
+    echo 'usage: test-shared-tooling-adapters.sh [--case deployment|adapter-tooling]' >&2
     exit 2
   }
   deployment_only=true
+  [[ "$2" != adapter-tooling ]] || adapter_tooling_only=true
 fi
 
 # These isolated Make calls select their own flags and recursive context.
@@ -245,6 +247,11 @@ set -euo pipefail
 [[ "$*" == "check --consumer $CI_CARGO_ROOT --manifest .shared-tooling.snapshot" ]]
 [[ "${CI_TOOLING_CHECK_FAIL:-0}" == 0 ]]
 TOOLING
+cat > "$native/scripts/ci/check-adapter-tooling.sh" <<'ADAPTER'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${CI_ADAPTER_TOOLING_CHECK_FAIL:-0}" == 0 ]]
+ADAPTER
 
 check_deployment_build() {
   # ICP's deployment build hook must finish the existing lint gate before its
@@ -297,6 +304,21 @@ MAKE
     [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
   done
 }
+
+if [[ "$adapter_tooling_only" == true ]]; then
+  PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 ci-adapter \
+    "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/adapter-tooling-pass.log" 2>&1
+  [[ -s "$CI_CARGO_TRACE" ]]
+  : > "$CI_CARGO_TRACE"
+  status=0
+  PATH="$native/bin:$PATH" CI_ADAPTER_TOOLING_CHECK_FAIL=1 \
+    make --no-print-directory -C "$native" -j2 ci-adapter \
+    "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/adapter-tooling-refusal.log" 2>&1 || status=$?
+  [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
+  fixture_complete=true
+  echo 'Adapter CI tooling admission precedes product dispatch (substitutes; parallel Make).'
+  exit 0
+fi
 
 if [[ "$deployment_only" == true ]]; then
   check_deployment_build

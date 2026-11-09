@@ -103,6 +103,7 @@ fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
             },
         ],
     );
+    let specs = specs.unwrap();
     let batch = build_cached_cargo_wasm_batch(&specs).unwrap();
     assert_eq!(batch.batch.failures().count(), 0, "{batch:?}");
     let same = batch.batch.entries()[0].result().unwrap().record();
@@ -148,6 +149,7 @@ fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
         &CargoSelection::default(),
         Some(&flags),
     );
+    let single_spec = single_spec.unwrap();
     for spec in [&single_spec, specs[0].spec()] {
         let error = ic_build::artifacts::resolve_cargo_build_inputs(spec).unwrap_err();
         let ic_build::artifacts::WasmBuildError::InvalidCargoConfiguration { path, .. } = error
@@ -180,7 +182,8 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
     .with_failure_mode(SharedIncrementalTargetMaintenanceFailureMode::BestEffort);
     let root = workspace_root();
     let target = root.join("target/cache-policy-probe");
-    let single = cargo_wasm_spec(&root, &target, &["probe"], &CargoSelection::default(), None);
+    let single =
+        cargo_wasm_spec(&root, &target, &["probe"], &CargoSelection::default(), None).unwrap();
     let selection = CargoSelection::default();
     let batch = cargo_wasm_batch_specs(
         &root,
@@ -192,6 +195,7 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
             encoded_rustflags: None,
         }],
     );
+    let batch = batch.unwrap();
     assert_eq!(
         single.shared_incremental_target_maintenance(),
         Some(expected),

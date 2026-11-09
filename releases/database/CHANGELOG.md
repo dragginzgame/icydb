@@ -3,15 +3,43 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
-## [0.304.1]
+## [0.305.0]
+
+### ⚠️ Breaking
+
+- Adopt Storage 0.70, Wire 0.18 and Testkit 0.95 at IcyDB's public dependency
+  boundaries. Retain the current storage image and Wire contracts; no reset
+  or schema regeneration is required. Canic integration remains deferred.
+
+### 🔧 Changed
+
+- Adopt Build 0.81 with fallible maintenance configuration and the common Host
+  batch-label error. Retain Host Foundation 0.76.1, Platform 0.27.1 and Metrics
+  0.29.7 while preserving unrelated lock selections.
+
+### 🧹 Cleanup
+
+- Share schema field preparation and reuse accepted snapshot updates while
+  preserving historical values and migration admission.
+- Derive journal record bytes and allocation-free size bounds from one layout;
+  retain independent decoding and corruption checks.
+- Generate public diagnostic projections from shared local declarations while
+  preserving public types, named formatting and wire codes.
+- Share constraint-validation progress handling while retaining separate proofs
+  and atomic unique-index staging.
+- Finalize scalar scan hints and exact-probe overrides together before execution.
+- Share migration cold-restart fixtures without removing behavioral scenarios.
 
 ### 🧪 Testing
 
+- Admit independent Canic tooling before adapter dependency fetching and checks;
+  preserve the deferred runtime graph
+  ([#373 — Canic adapter qualification](https://github.com/dragginzgame/icydb/issues/373)).
 - Prevent hosted installer-fixture failures with download caching enabled while
   retaining platform URL coverage
   ([#632 — Hosted adapter assertion diagnosis](https://github.com/dragginzgame/icydb/issues/632)).
 
-[Detailed changes](0.304.md).
+[Detailed changes](0.305.md).
 
 ## [0.304.0] - 2026-11-08
 

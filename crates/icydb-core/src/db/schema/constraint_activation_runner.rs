@@ -633,55 +633,34 @@ fn resume_journaled_unique_validation(
         std::convert::identity,
     )?;
 
-    match job.phase() {
-        ConstraintValidationPhase::Forward => {
+    resume_journaled_validation_page(
+        store,
+        store_path,
+        job,
+        |checkpoint, phase| {
+            let mode = match phase {
+                ConstraintValidationPhase::Forward => UniqueValidationMode::Forward,
+                ConstraintValidationPhase::Verify => UniqueValidationMode::Verify,
+            };
             let scan = scan_unique_validation_page(
                 store,
                 entity_tag,
-                job.checkpoint(),
+                checkpoint,
                 &contract,
                 &projection,
                 dependency_fields.as_slice(),
-                UniqueValidationMode::Forward,
+                mode,
                 &construction,
             )?;
-            scan.page.record_forward(store, store_path, &mut job)?;
+            Ok((scan.page, scan.staged_entries))
+        },
+        |job, entries| {
             publish_constraint_validation_job_with_candidate_index_entries(
-                store_path,
-                store,
-                &job,
-                scan.staged_entries,
-            )?;
-            Ok(progress_for_job(&job))
-        }
-        ConstraintValidationPhase::Verify => {
-            let captured = required_captured_revision(&job, store_path)?;
-            if let Some(progress) =
-                restart_validation_if_revision_changed(store, store_path, &mut job, captured)?
-            {
-                return Ok(progress);
-            }
-            let scan = scan_unique_validation_page(
-                store,
-                entity_tag,
-                job.checkpoint(),
-                &contract,
-                &projection,
-                dependency_fields.as_slice(),
-                UniqueValidationMode::Verify,
-                &construction,
-            )?;
-            if let Some(progress) = scan
-                .page
-                .finish_verify(store, store_path, &mut job, captured)?
-            {
-                return Ok(progress);
-            }
-            let rows_scanned = job.rows_scanned();
-            promote_unique_activation(store, store_path, entity_tag, constraint_id)?;
-            Ok(ConstraintValidationProgress::Promoted { rows_scanned })
-        }
-    }
+                store_path, store, job, entries,
+            )
+        },
+        || promote_unique_activation(store, store_path, entity_tag, constraint_id),
+    )
 }
 
 #[expect(
@@ -725,20 +704,47 @@ fn resume_journaled_row_local_validation(
         required_kind,
     )?;
 
-    match job.phase() {
-        ConstraintValidationPhase::Forward => {
-            let scan = scan_row_local_validation_page(
+    resume_journaled_validation_page(
+        store,
+        store_path,
+        job,
+        |checkpoint, _phase| {
+            let page = scan_row_local_validation_page(
                 store,
                 entity_tag,
-                job.checkpoint(),
+                checkpoint,
                 contract,
                 &constraints,
                 fingerprint,
                 constraint_id,
                 activation_dependency_fields(accepted, constraint_id)?,
             )?;
-            scan.record_forward(store, store_path, &mut job)?;
-            publish_constraint_validation_job(store_path, store, &job)?;
+            Ok((page, ()))
+        },
+        |job, ()| publish_constraint_validation_job(store_path, store, job),
+        || promote_row_local_activation(store, store_path, entity_tag, constraint_id),
+    )
+}
+
+// One lifecycle owns revision fences and progress publication. The two callers
+// keep their scanner payload and atomic forward publisher paired: unique pages
+// carry index entries, while row-local pages carry no staged physical writes.
+fn resume_journaled_validation_page<T>(
+    store: StoreHandle,
+    store_path: &'static str,
+    mut job: ConstraintValidationJob,
+    scan: impl FnOnce(
+        Option<&RawDataStoreKey>,
+        ConstraintValidationPhase,
+    ) -> Result<(ValidationPageScan, T), InternalError>,
+    publish_forward: impl FnOnce(&ConstraintValidationJob, T) -> Result<(), InternalError>,
+    promote: impl FnOnce() -> Result<(), InternalError>,
+) -> Result<ConstraintValidationProgress, InternalError> {
+    match job.phase() {
+        ConstraintValidationPhase::Forward => {
+            let (page, staged) = scan(job.checkpoint(), ConstraintValidationPhase::Forward)?;
+            page.record_forward(store, store_path, &mut job)?;
+            publish_forward(&job, staged)?;
             Ok(progress_for_job(&job))
         }
         ConstraintValidationPhase::Verify => {
@@ -748,21 +754,12 @@ fn resume_journaled_row_local_validation(
             {
                 return Ok(progress);
             }
-            let scan = scan_row_local_validation_page(
-                store,
-                entity_tag,
-                job.checkpoint(),
-                contract,
-                &constraints,
-                fingerprint,
-                constraint_id,
-                activation_dependency_fields(accepted, constraint_id)?,
-            )?;
-            if let Some(progress) = scan.finish_verify(store, store_path, &mut job, captured)? {
+            let (page, _staged) = scan(job.checkpoint(), ConstraintValidationPhase::Verify)?;
+            if let Some(progress) = page.finish_verify(store, store_path, &mut job, captured)? {
                 return Ok(progress);
             }
             let rows_scanned = job.rows_scanned();
-            promote_row_local_activation(store, store_path, entity_tag, constraint_id)?;
+            promote()?;
             Ok(ConstraintValidationProgress::Promoted { rows_scanned })
         }
     }

@@ -11,11 +11,11 @@ retains further placement decisions.
 This workspace inherits Rust 1.99.1 and the root's exact toolchain pin.
 The existing workspace CI lane runs `scripts/ci/check-canic-adapter-compiler.sh`
 for external native/Wasm consumers under both supported dependency spellings.
-The lock now resolves current repository path dependencies with `--locked`.
-Direct fixture Wire uses 0.14.2, matching IcyDB's codec and limits. This repairs
-preparation and fixture serving under [#373](https://github.com/dragginzgame/icydb/issues/373);
-generated endpoint and installed acceptance remain separate. Root compiler
-qualification remains independent.
+The retained lock does not qualify current repository path dependencies.
+Direct fixture Wire remains 0.14.2; current root Wire has a different identity.
+Full graph, generated endpoint and installed acceptance remain blocked under
+[#373](https://github.com/dragginzgame/icydb/issues/373). Root compiler and
+tooling-selection qualification remain independent.
 
 The root workspace owns the database implementation, public libraries, CLI and
 framework-neutral build/fixture helpers. It contains no Canic dependency, including
@@ -25,23 +25,37 @@ exports and host lifecycle; IC Testkit supplies simulator admission/lifecycle;
 IC Wire supplies encoding and admission. No supplier checkout overrides are used.
 
 The retained forward-qualification candidate selects Canic 0.113.0, Platform
-0.8.3, Storage 0.64.0, Wire 0.14.2, Timers 0.32.4 and Testkit 0.75.0. Its manifest
-and lock remain unchanged by the root adoption; the lock is the source of truth.
-Current root path dependencies select Storage 0.67.1, Wire 0.17.2, Platform
-0.22.1, Runtime 0.19.2 and Types 0.18.1. This retained candidate still has its
+0.8.3, Storage 0.64.0, Wire 0.14.2, Timers 0.32.4 and Testkit 0.75.0. Runtime
+alignment remains deferred. A maintainer-approved tooling-only repair adds the root's
+Cargo-selected Toko Tooling 0.36.0 record and 31 workspace dev-dependency edges,
+preserving every existing version and checksum. Current root path dependencies
+select Storage 0.70, Wire 0.18, Platform 0.27.1, Runtime 0.20.3 and Types 0.18.3.
+This retained candidate still has its
 recorded executor-links conflict and does not qualify current-source composition.
 
-The official published adapter is now **canic-icydb 0.115.0**. Its verified
+The earlier verified **canic-icydb 0.115.0**
 archive selects Platform 0.22 but still requires Wire 0.16.1 for the endpoint
-limits it exchanges with IcyDB. Root Wire 0.17 is a different type identity.
+limits it exchanges with IcyDB. Root Wire 0.18 is a different type identity.
 That publication does not establish a matching composed stack; do not substitute
 supplier paths or bridge those limits locally. Follow
 [IcyDB #373](https://github.com/dragginzgame/icydb/issues/373) and
 [Canic #590](https://github.com/dragginzgame/canic/issues/590).
 
 The server runner follows this workspace's locked Testkit, matching its native
-integration clients. Root Testkit 0.86 does not silently select another server
+integration clients. Root Testkit 0.95 does not silently select another server
 for this retained graph.
+
+## Tooling admission
+
+`make check-adapter-tooling` admits the installed root snapshot, then uses
+Shared's offline helper to admit both workspaces' tooling declarations and
+lock selections and require the same version/checksum. Adapter fetching,
+formatting, lint/test entrypoints and CI run this gate before later work.
+Missing or mismatched nested selection fails even when root admission passes.
+This checks tooling custody; it does not claim full locked Cargo resolution.
+Cargo's attempted full refresh still fails on the existing executor-links
+conflict. The one-off tooling-only repair was explicitly approved instead of
+changing the deferred runtime cohort; ordinary lock refreshes remain Cargo-owned.
 
 ## Historical candidate evidence
 

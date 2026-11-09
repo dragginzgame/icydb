@@ -415,187 +415,107 @@ impl ErrorKind {
     }
 }
 
-#[cfg_attr(doc, doc = "RuntimeErrorKind\n\nPublic runtime error class.")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RuntimeErrorKind {
-    Corruption,
-    IncompatiblePersistedFormat,
-    InvariantViolation,
-    Conflict,
-    NotFound,
-    Unsupported,
-    Internal,
+// Keep the facade's named Debug and public type identities while declaring
+// each category/code pair once for both compact-code and detail projections.
+macro_rules! facade_error_kind {
+    ($kind:ident { $( $(#[$attr:meta])* $variant:ident => $code:ident, )+ }) => {
+        #[doc = concat!(stringify!($kind), " public error category.")]
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub enum $kind {
+            $( $(#[$attr])* $variant, )+
+        }
+
+        impl $kind {
+            /// Return the compact diagnostic code for this error category.
+            #[must_use]
+            pub const fn diagnostic_code(self) -> icydb_diagnostic_code::DiagnosticCode {
+                match self {
+                    $(Self::$variant => icydb_diagnostic_code::DiagnosticCode::$code,)+
+                }
+            }
+
+            const fn diagnostic_kind(self) -> icydb_diagnostic_code::$kind {
+                match self {
+                    $(Self::$variant => icydb_diagnostic_code::$kind::$variant,)+
+                }
+            }
+        }
+    };
 }
 
-impl RuntimeErrorKind {
-    /// Return the compact diagnostic code for this runtime category.
-    #[must_use]
-    pub const fn diagnostic_code(self) -> icydb_diagnostic_code::DiagnosticCode {
-        match self {
-            Self::Corruption => icydb_diagnostic_code::DiagnosticCode::RuntimeCorruption,
-            Self::IncompatiblePersistedFormat => {
-                icydb_diagnostic_code::DiagnosticCode::RuntimeIncompatiblePersistedFormat
-            }
-            Self::InvariantViolation => {
-                icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
-            }
-            Self::Conflict => icydb_diagnostic_code::DiagnosticCode::RuntimeConflict,
-            Self::NotFound => icydb_diagnostic_code::DiagnosticCode::RuntimeNotFound,
-            Self::Unsupported => icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
-            Self::Internal => icydb_diagnostic_code::DiagnosticCode::RuntimeInternal,
-        }
-    }
-
-    const fn diagnostic_kind(self) -> icydb_diagnostic_code::RuntimeErrorKind {
-        match self {
-            Self::Corruption => icydb_diagnostic_code::RuntimeErrorKind::Corruption,
-            Self::IncompatiblePersistedFormat => {
-                icydb_diagnostic_code::RuntimeErrorKind::IncompatiblePersistedFormat
-            }
-            Self::InvariantViolation => icydb_diagnostic_code::RuntimeErrorKind::InvariantViolation,
-            Self::Conflict => icydb_diagnostic_code::RuntimeErrorKind::Conflict,
-            Self::NotFound => icydb_diagnostic_code::RuntimeErrorKind::NotFound,
-            Self::Unsupported => icydb_diagnostic_code::RuntimeErrorKind::Unsupported,
-            Self::Internal => icydb_diagnostic_code::RuntimeErrorKind::Internal,
-        }
+facade_error_kind! {
+    RuntimeErrorKind {
+        Corruption => RuntimeCorruption,
+        IncompatiblePersistedFormat => RuntimeIncompatiblePersistedFormat,
+        InvariantViolation => RuntimeInvariantViolation,
+        Conflict => RuntimeConflict,
+        NotFound => RuntimeNotFound,
+        Unsupported => RuntimeUnsupported,
+        Internal => RuntimeInternal,
     }
 }
 
-#[cfg_attr(doc, doc = "QueryErrorKind\n\nPublic query error class.")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum QueryErrorKind {
-    /// Validation failed.
-    Validate,
-
-    /// Intent validation failed.
-    Intent,
-
-    /// Planning failed.
-    Plan,
-
-    /// Pagination lacked ordering.
-    UnorderedPagination,
-
-    /// Continuation cursor was invalid.
-    InvalidContinuationCursor,
-
-    /// No rows matched.
-    NotFound,
-
-    /// More than one row matched.
-    NotUnique,
-}
-
-impl QueryErrorKind {
-    /// Return the compact diagnostic code for this query category.
-    #[must_use]
-    pub const fn diagnostic_code(self) -> icydb_diagnostic_code::DiagnosticCode {
-        match self {
-            Self::Validate => icydb_diagnostic_code::DiagnosticCode::QueryValidate,
-            Self::Intent => icydb_diagnostic_code::DiagnosticCode::QueryIntent,
-            Self::Plan => icydb_diagnostic_code::DiagnosticCode::QueryPlan,
-            Self::UnorderedPagination => {
-                icydb_diagnostic_code::DiagnosticCode::QueryUnorderedPagination
-            }
-            Self::InvalidContinuationCursor => {
-                icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor
-            }
-            Self::NotFound => icydb_diagnostic_code::DiagnosticCode::QueryNotFound,
-            Self::NotUnique => icydb_diagnostic_code::DiagnosticCode::QueryNotUnique,
-        }
-    }
-
-    const fn diagnostic_kind(self) -> icydb_diagnostic_code::QueryErrorKind {
-        match self {
-            Self::Validate => icydb_diagnostic_code::QueryErrorKind::Validate,
-            Self::Intent => icydb_diagnostic_code::QueryErrorKind::Intent,
-            Self::Plan => icydb_diagnostic_code::QueryErrorKind::Plan,
-            Self::UnorderedPagination => icydb_diagnostic_code::QueryErrorKind::UnorderedPagination,
-            Self::InvalidContinuationCursor => {
-                icydb_diagnostic_code::QueryErrorKind::InvalidContinuationCursor
-            }
-            Self::NotFound => icydb_diagnostic_code::QueryErrorKind::NotFound,
-            Self::NotUnique => icydb_diagnostic_code::QueryErrorKind::NotUnique,
-        }
+facade_error_kind! {
+    QueryErrorKind {
+        /// Validation failed.
+        Validate => QueryValidate,
+        /// Intent validation failed.
+        Intent => QueryIntent,
+        /// Planning failed.
+        Plan => QueryPlan,
+        /// Pagination lacked ordering.
+        UnorderedPagination => QueryUnorderedPagination,
+        /// Continuation cursor was invalid.
+        InvalidContinuationCursor => QueryInvalidContinuationCursor,
+        /// No rows matched.
+        NotFound => QueryNotFound,
+        /// More than one row matched.
+        NotUnique => QueryNotUnique,
     }
 }
 
-#[cfg_attr(doc, doc = "ErrorOrigin\n\nPublic error origin.")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ErrorOrigin {
-    Cursor,
-    Executor,
-    Identity,
-    Index,
-    Interface,
-    Planner,
-    Query,
-    Recovery,
-    Response,
-    Runtime,
-    Serialize,
-    Store,
+// The facade intentionally exposes named Debug rather than compact numeric
+// Debug. Generate its identity projection in both directions from one list.
+macro_rules! facade_error_origin {
+    ($($variant:ident),+ $(,)?) => {
+        /// Public error origin.
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub enum ErrorOrigin {
+            $($variant,)+
+        }
+
+        impl ErrorOrigin {
+            const fn wire_code(self) -> u8 {
+                self.diagnostic_origin().wire_code()
+            }
+
+            const fn from_wire_code(code: u8) -> Self {
+                Self::from_diagnostic_origin(icydb_diagnostic_code::ErrorOrigin::from_wire_code(code))
+            }
+
+            const fn diagnostic_origin(self) -> icydb_diagnostic_code::ErrorOrigin {
+                match self {
+                    $(Self::$variant => icydb_diagnostic_code::ErrorOrigin::$variant,)+
+                }
+            }
+
+            const fn from_diagnostic_origin(origin: icydb_diagnostic_code::ErrorOrigin) -> Self {
+                match origin {
+                    $(icydb_diagnostic_code::ErrorOrigin::$variant => Self::$variant,)+
+                }
+            }
+        }
+    };
 }
 
-impl ErrorOrigin {
-    const fn wire_code(self) -> u8 {
-        self.diagnostic_origin().wire_code()
-    }
-
-    const fn from_wire_code(code: u8) -> Self {
-        Self::from_diagnostic_origin(icydb_diagnostic_code::ErrorOrigin::from_wire_code(code))
-    }
-
-    const fn diagnostic_origin(self) -> icydb_diagnostic_code::ErrorOrigin {
-        match self {
-            Self::Cursor => icydb_diagnostic_code::ErrorOrigin::Cursor,
-            Self::Executor => icydb_diagnostic_code::ErrorOrigin::Executor,
-            Self::Identity => icydb_diagnostic_code::ErrorOrigin::Identity,
-            Self::Index => icydb_diagnostic_code::ErrorOrigin::Index,
-            Self::Interface => icydb_diagnostic_code::ErrorOrigin::Interface,
-            Self::Planner => icydb_diagnostic_code::ErrorOrigin::Planner,
-            Self::Query => icydb_diagnostic_code::ErrorOrigin::Query,
-            Self::Recovery => icydb_diagnostic_code::ErrorOrigin::Recovery,
-            Self::Response => icydb_diagnostic_code::ErrorOrigin::Response,
-            Self::Runtime => icydb_diagnostic_code::ErrorOrigin::Runtime,
-            Self::Serialize => icydb_diagnostic_code::ErrorOrigin::Serialize,
-            Self::Store => icydb_diagnostic_code::ErrorOrigin::Store,
-        }
-    }
-
-    const fn from_diagnostic_origin(origin: icydb_diagnostic_code::ErrorOrigin) -> Self {
-        match origin {
-            icydb_diagnostic_code::ErrorOrigin::Cursor => Self::Cursor,
-            icydb_diagnostic_code::ErrorOrigin::Executor => Self::Executor,
-            icydb_diagnostic_code::ErrorOrigin::Identity => Self::Identity,
-            icydb_diagnostic_code::ErrorOrigin::Index => Self::Index,
-            icydb_diagnostic_code::ErrorOrigin::Interface => Self::Interface,
-            icydb_diagnostic_code::ErrorOrigin::Planner => Self::Planner,
-            icydb_diagnostic_code::ErrorOrigin::Query => Self::Query,
-            icydb_diagnostic_code::ErrorOrigin::Recovery => Self::Recovery,
-            icydb_diagnostic_code::ErrorOrigin::Response => Self::Response,
-            icydb_diagnostic_code::ErrorOrigin::Runtime => Self::Runtime,
-            icydb_diagnostic_code::ErrorOrigin::Serialize => Self::Serialize,
-            icydb_diagnostic_code::ErrorOrigin::Store => Self::Store,
-        }
-    }
+facade_error_origin! {
+    Cursor, Executor, Identity, Index, Interface, Planner, Query, Recovery,
+    Response, Runtime, Serialize, Store,
 }
 
 impl From<CoreErrorOrigin> for ErrorOrigin {
     fn from(origin: CoreErrorOrigin) -> Self {
-        match origin {
-            CoreErrorOrigin::Cursor => Self::Cursor,
-            CoreErrorOrigin::Executor => Self::Executor,
-            CoreErrorOrigin::Identity => Self::Identity,
-            CoreErrorOrigin::Index => Self::Index,
-            CoreErrorOrigin::Interface => Self::Interface,
-            CoreErrorOrigin::Planner => Self::Planner,
-            CoreErrorOrigin::Query => Self::Query,
-            CoreErrorOrigin::Recovery => Self::Recovery,
-            CoreErrorOrigin::Response => Self::Response,
-            CoreErrorOrigin::Serialize => Self::Serialize,
-            CoreErrorOrigin::Store => Self::Store,
-        }
+        Self::from_diagnostic_origin(origin.diagnostic_origin())
     }
 }
 

@@ -43,6 +43,9 @@ include $(ROOT_DIR)/make/consumer.mk
 ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b ci-adapter: shared-tooling-check
 build-canister-local build-canister-production: shared-tooling-check
 
+# A shared installed snapshot also needs admission from the independent lock.
+fetch-adapter test-adapter clippy-adapter validate-adapter fmt-adapter fmt-adapter-check check-adapter-automation ci-adapter ci-sql-tier-b: check-adapter-tooling
+
 _icydb_release_selection_mode :=
 ifneq ($(filter release-patch release-minor release-major,$(MAKECMDGOALS)),)
 ifneq ($(RELEASE_BATCH_ACTIVE),1)
@@ -128,6 +131,7 @@ help:
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
 	@echo "  shared-tooling-check Verify the reviewed shared snapshot offline"
+	@echo "  check-adapter-tooling Admit the independent Canic tooling selection"
 	@echo "  install-testkit  Prepare the explicit adapter Testkit CLI/server after make fetch-adapter"
 	@echo "  testkit-check    Verify Testkit offline and print its admitted server path"
 	@echo "  install          Install the local icydb CLI binary"
@@ -562,7 +566,12 @@ check-automation:
 	bash scripts/ci/test-pre-commit.sh
 	bash scripts/release/test-finalize-notes.sh
 
+.PHONY: check-adapter-tooling
+check-adapter-tooling: shared-tooling-check
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-adapter-tooling.sh
+
 check-adapter-automation:
+	bash scripts/ci/test-adapter-tooling.sh
 	bash scripts/ci/test-testkit-tooling.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)/testing/canic-adapter" --external-ic

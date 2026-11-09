@@ -5,14 +5,17 @@ identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lo
 and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
-The root adopts Storage 0.69's direct collection API, preserving stored-image
-format and fallible admission/record decoding. Build 0.80, Host Tools 0.88 and
-direct Host Artifacts/FS/Process 0.76 share the same typed Wasm boundary. Host
-Tools 0.88 was published during adoption, resolving the earlier 0.87/0.76 facts
-mismatch. The later Testkit 0.94 adoption aligns its Host dependencies to 0.76
-and selects its required Platform 0.27; obsolete transitive Host 0.75 packages
-are removed. No consumer bridge or supplier requirement is patched. Canic's
-older Testkit and extension imports remain in its unchanged independent stack.
+The pending database 0.305 root selects published Storage 0.70, Wire/Derive 0.18,
+Testkit 0.95 and Build 0.81. Storage retains direct collection results and the
+current image format; the root and Storage share one Wire identity. Build's
+fallible shared-target maintenance configuration propagates through the existing
+build and dependency-admission boundaries; Host Artifacts owns batch-label
+errors. Host Tools 0.88 and Host Foundation 0.76.1 retain their typed Wasm
+boundary. Testkit introduces Host HTTP 0.76.1 and retains Platform 0.27.1;
+Runtime 0.20.3, Types 0.18.3 and Metrics 0.29.7 remain selected. Preserve incoming
+unrelated lock changes. No consumer bridge or supplier requirement is patched.
+Canic's older Testkit and extension imports remain in its deferred independent
+stack. This adoption changes no IcyDB package versions or installed snapshots.
 
 ## Ownership and provenance
 
@@ -38,10 +41,15 @@ Both maintained workspaces retain their package ownership: 23 root packages and
 31 independent Canic packages. All 54 have inherited declarations and merged
 exemptions; real tools/tests, memberships and release groups remain intact.
 The root lock adds only the empty tooling package and member edges; other locked
-versions/checksums are preserved. The Canic lock refresh fails on the existing
-Storage 0.64 / Platform 0.17 runtime-guard versus Platform 0.8.3 executor links
-conflict under [#373](https://github.com/dragginzgame/icydb/issues/373). Preserve
-its unchanged lock and supplier requirements; no integrated pass is claimed.
+versions/checksums are preserved. The Canic full lock refresh still fails on the
+existing Storage 0.64 / Platform 0.17 runtime-guard versus Platform 0.8.3 executor
+links conflict under [#373](https://github.com/dragginzgame/icydb/issues/373).
+The maintainer explicitly approved a tooling-only exception: copy the verified
+root Cargo-selected 0.36.0 record and add 31 workspace dev edges while preserving
+all existing versions/checksums. Both workspaces now pass offline tooling
+selection admission against the one installed snapshot. Adapter checks and CI
+admit the nested selection before fetching or product dispatch. This does not
+qualify the retained runtime graph or refresh its stale path-package identities.
 The shared extra-workspace formatter also rejects this approved workspace's
 outside-root member paths before formatting; that qualification remains blocked.
 

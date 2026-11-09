@@ -21,12 +21,12 @@ use ic_build::artifacts::{
     ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCacheSpec,
     CacheRetentionLimits, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    WasmBuildBatchContractError, WasmBuildBatchProgressEvent, WasmBuildBatchReport,
-    WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildSpec,
-    build_artifact_caches_batch, build_wasm_canisters_cached_batch,
-    build_wasm_canisters_cached_with_progress,
+    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildError, WasmBuildOutcome,
+    WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
+    build_wasm_canisters_cached_batch, build_wasm_canisters_cached_with_progress,
 };
 use ic_build::cargo::{environment::ConfigurationLimits, selection::CargoSelection};
+use ic_host_artifacts::batch::BatchLabelError;
 use ic_host_process::child::{CleanupPolicy, OwnedChild};
 
 // Build 0.67 requires caller-owned admission for discovered Cargo configuration.
@@ -87,7 +87,8 @@ pub(crate) fn build_cached_cargo_wasm(
         request.packages,
         request.selection,
         request.encoded_rustflags,
-    );
+    )
+    .map_err(|error| format!("cached Cargo Wasm configuration failed: {error}"))?;
 
     let outcome = build_wasm_canisters_cached_with_progress(
         &spec,
@@ -105,11 +106,11 @@ pub(crate) fn cargo_wasm_batch_specs(
     workspace_root: &Path,
     target_dir: &Path,
     entries: &[CargoWasmBatchEntry<'_>],
-) -> Vec<LabeledWasmBuildSpec> {
+) -> Result<Vec<LabeledWasmBuildSpec>, WasmBuildError> {
     entries
         .iter()
         .map(|entry| {
-            LabeledWasmBuildSpec::new(
+            Ok(LabeledWasmBuildSpec::new(
                 entry.context,
                 cargo_wasm_spec(
                     workspace_root,
@@ -117,15 +118,15 @@ pub(crate) fn cargo_wasm_batch_specs(
                     &[entry.package],
                     entry.selection,
                     entry.encoded_rustflags,
-                ),
-            )
+                )?,
+            ))
         })
         .collect()
 }
 
 pub(crate) fn build_cached_cargo_wasm_batch(
     specs: &[LabeledWasmBuildSpec],
-) -> Result<WasmBuildBatchReport, WasmBuildBatchContractError> {
+) -> Result<WasmBuildBatchReport, BatchLabelError> {
     let mut observer = report_wasm_build_batch_progress;
     let report = build_wasm_canisters_cached_batch(
         specs,
@@ -148,7 +149,7 @@ pub(crate) fn cargo_wasm_spec(
     packages: &[&str],
     selection: &CargoSelection,
     encoded_rustflags: Option<&str>,
-) -> WasmBuildSpec {
+) -> Result<WasmBuildSpec, WasmBuildError> {
     // Build clears child inheritance. Select the caller's environment once so
     // probes, compilation and the retained fingerprint observe the same inputs.
     let mut environment: BTreeMap<_, _> = env::vars_os().collect();

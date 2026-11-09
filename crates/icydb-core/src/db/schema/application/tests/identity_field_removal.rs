@@ -92,33 +92,6 @@ fn delete(session: &DbSession<MigrationExecutionCanister>, id: u8) {
         .unwrap();
 }
 
-fn restart(db: &Db<MigrationExecutionCanister>) {
-    let store = db.store_handle(MIGRATION_EXECUTION_STORE_PATH).unwrap();
-    let generation = store.with_data_mut(|data| {
-        data.reset_journaled_live_projection().unwrap();
-        data.generation()
-    });
-    let watermark = store
-        .journal_tail_store()
-        .unwrap()
-        .with_borrow(JournalTailStore::fold_watermark)
-        .unwrap();
-    store
-        .with_index_mut(|index| {
-            index.reset_journaled_live_projection(
-                generation,
-                watermark,
-                &std::collections::BTreeSet::new(),
-            )
-        })
-        .unwrap();
-    store
-        .with_schema_mut(SchemaStore::reset_journaled_live_projection)
-        .unwrap();
-    forget_recovered_domain_for_tests(db).unwrap();
-    drive_startup_recovery_to_completion(db);
-}
-
 fn assert_repeated_removal(restart_after_publication: bool) {
     let root = crate::db::RequestExecutionRoot::__new_runtime_root();
     let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, root.scope());
@@ -140,7 +113,7 @@ fn assert_repeated_removal(restart_after_publication: bool) {
         delete(&session, pending_id);
         apply_schema(&db, &proposal(&db, stage)).unwrap();
         if restart_after_publication {
-            restart(&db);
+            restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
         }
         let id = pending_id + 1;
         insert_and_assert(&session, id);
@@ -162,7 +135,7 @@ fn assert_repeated_removal(restart_after_publication: bool) {
         );
         assert_eq!(inventory[0].materialized_high_water(), u128::from(id));
     }
-    restart(&db);
+    restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     insert_and_assert(&session, 8);
 }
 

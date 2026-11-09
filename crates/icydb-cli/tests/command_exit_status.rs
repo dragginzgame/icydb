@@ -16,6 +16,7 @@ use std::{
 };
 
 use ic_host_fs::testing::create_fixture_directory;
+use ic_host_process::testing::write_executable_script;
 use ic_host_process::tool::{OutputLimit, OutputLimits, capture_command};
 use icydb::{
     Error, ErrorOrigin,
@@ -59,7 +60,10 @@ impl IcpFixture {
         let executable = directory.join("icp");
         // Only the child receives this PATH. Unexpected calls fail closed;
         // the log proves the CLI reached the selected endpoint and call lane.
-        fs::write(
+        // Keep writable executable descriptors out of this parallel parent.
+        // Another test's fork can retain one after fs::write closes it and make
+        // exec refuse the fixture with ETXTBSY before its first shell command.
+        write_executable_script(
             &executable,
             r#"#!/bin/sh
 printf '%s\n' "$@" >> "$ICP_FIXTURE_LOG"

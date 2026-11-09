@@ -15,6 +15,8 @@ on:
       - "Makefile"
       - "scripts/app/build.sh"
       - "scripts/ci/check-canic-adapter-compiler.sh"
+      - "scripts/ci/check-adapter-tooling.sh"
+      - "scripts/ci/test-adapter-tooling.sh"
       - "scripts/ci/testkit-runner.sh"
       - ".github/workflows/canic-adapter.yml"
       - ".github/actions/prepare-rust/**"
@@ -34,6 +36,8 @@ on:
       - "Makefile"
       - "scripts/app/build.sh"
       - "scripts/ci/check-canic-adapter-compiler.sh"
+      - "scripts/ci/check-adapter-tooling.sh"
+      - "scripts/ci/test-adapter-tooling.sh"
       - "scripts/ci/testkit-runner.sh"
       - ".github/workflows/canic-adapter.yml"
       - ".github/actions/prepare-rust/**"
@@ -95,6 +99,8 @@ jobs:
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Admit independent Canic tooling
+        run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
         run: cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml
       - name: Prepare locked Testkit CLI for substitute-server fixtures
@@ -179,6 +185,8 @@ jobs:
             icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Admit independent Canic tooling
+        run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
         run: cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml
       - name: Qualify external Canic compiler consumers
@@ -250,6 +258,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Admit independent Canic tooling
+        run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
         run: cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml
       - name: Install native workstation prerequisites and tools
@@ -350,6 +360,8 @@ jobs:
           testing/wire-browser/node_modules/.bin/playwright install --with-deps chromium
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Admit independent Canic tooling
+        run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
         run: cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml
       - name: Prepare governed IC tools and Testkit server
@@ -424,6 +436,8 @@ jobs:
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Admit independent Canic tooling
+        run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
         run: cargo fetch --locked --manifest-path testing/canic-adapter/Cargo.toml
       - name: Check shared SQL source in both Wasm profiles

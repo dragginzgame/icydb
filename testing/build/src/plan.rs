@@ -6,7 +6,7 @@ use crate::{
     canister_build_cache::{CargoWasmBatchEntry, cargo_wasm_batch_specs},
     configure_canister_build, target_dir,
 };
-use ic_build::artifacts::LabeledWasmBuildSpec;
+use ic_build::artifacts::{LabeledWasmBuildSpec, WasmBuildError};
 use std::path::Path;
 
 pub(super) struct PlannedCanisterBuild {
@@ -24,7 +24,10 @@ impl MaintainedCanisterBuildPlan {
     // Derive the request list in the same order as the retained entries. Only
     // upstream report indices need admission; local configuration/context cannot
     // drift between separately stored vectors.
-    pub(super) fn cargo_specs(&self, root: &Path) -> Vec<LabeledWasmBuildSpec> {
+    pub(super) fn cargo_specs(
+        &self,
+        root: &Path,
+    ) -> Result<Vec<LabeledWasmBuildSpec>, WasmBuildError> {
         let entries = self
             .entries
             .iter()

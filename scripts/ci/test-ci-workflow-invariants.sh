@@ -5,11 +5,11 @@ set -euo pipefail
 
 selected_case=all
 if [[ $# != 0 ]]; then
-  [[ $# == 2 && "$1" == --case && "$2" == static-fixtures ]] || {
-    echo 'usage: test-ci-workflow-invariants.sh [--case static-fixtures]' >&2
+  [[ $# == 2 && "$1" == --case && ( "$2" == static-fixtures || "$2" == adapter-tooling ) ]] || {
+    echo 'usage: test-ci-workflow-invariants.sh [--case static-fixtures|adapter-tooling]' >&2
     exit 2
   }
-  selected_case=static-fixtures
+  selected_case="$2"
 fi
 
 # Actual parser/policies over copied inputs: no workflows or Git effects run.
@@ -59,6 +59,29 @@ mutate() { "$YQ" -i "$1" "$subject"; }
 
 reset
 check pass baseline
+if [[ "$selected_case" == adapter-tooling || "$selected_case" == all ]]; then
+  subject="$adapter_subject"
+  for job in static rust macos_host wire_browser wasm_size_report; do
+    export ADAPTER_TOOLING_JOB="$job"
+    for control in missing conditional ignored late; do
+      reset
+      case "$control" in
+        missing) mutate '.jobs[strenv(ADAPTER_TOOLING_JOB)].steps |= map(select(.run != "make check-adapter-tooling"))' ;;
+        conditional) mutate '(.jobs[strenv(ADAPTER_TOOLING_JOB)].steps[] | select(.run == "make check-adapter-tooling")).if = "false"' ;;
+        ignored) mutate '(.jobs[strenv(ADAPTER_TOOLING_JOB)].steps[] | select(.run == "make check-adapter-tooling"))["continue-on-error"] = true' ;;
+        late) mutate '.jobs[strenv(ADAPTER_TOOLING_JOB)].steps |= (map(select(.run != "make check-adapter-tooling")) + [.[] | select(.run == "make check-adapter-tooling")])' ;;
+      esac
+      check fail "adapter-tooling-$job-$control"
+    done
+  done
+  if [[ "$selected_case" == adapter-tooling ]]; then
+    fixture_complete=true
+    printf '[OK] adapter tooling workflow fixtures passed: %s cases\n' "$count"
+    exit 0
+  fi
+  subject="$core_subject"
+  reset
+fi
 reset
 mutate '(.jobs.static.steps[] | select(.name == "Run static validation with complete feedback") | .run) |= sub("make ci-static"; "make help")'
 check fail missing-static-gate

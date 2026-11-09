@@ -61,35 +61,6 @@ fn assert_restricted(session: &DbSession<MigrationExecutionCanister>, id: u64) {
     )));
 }
 
-// A restart drops every volatile projection, while online folding retains the
-// newest catalog and must still prepare old journal rows canonically.
-fn cold_restart(db: &Db<MigrationExecutionCanister>) {
-    let handle = db.store_handle(MIGRATION_EXECUTION_STORE_PATH).unwrap();
-    let generation = handle.with_data_mut(|data| {
-        data.reset_journaled_live_projection().unwrap();
-        data.generation()
-    });
-    let watermark = handle
-        .journal_tail_store()
-        .unwrap()
-        .with_borrow(JournalTailStore::fold_watermark)
-        .unwrap();
-    handle
-        .with_index_mut(|index| {
-            index.reset_journaled_live_projection(
-                generation,
-                watermark,
-                &std::collections::BTreeSet::new(),
-            )
-        })
-        .unwrap();
-    handle
-        .with_schema_mut(SchemaStore::reset_journaled_live_projection)
-        .unwrap();
-    forget_recovered_domain_for_tests(db).unwrap();
-    drive_startup_recovery_to_completion(db);
-}
-
 fn assert_retained_relations(inbound: bool, restart: bool) {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = initialize(&root, inbound);
@@ -118,7 +89,7 @@ fn assert_retained_relations(inbound: bool, restart: bool) {
         delete(&session, "Holder", 10);
     }
     if restart {
-        cold_restart(&db);
+        restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     } else {
         drive_startup_recovery_to_completion(&db);
     }
@@ -158,7 +129,7 @@ fn assert_retained_relations(inbound: bool, restart: bool) {
     }
     delete(&session, "CatalogItem", 4);
     drive_startup_recovery_to_completion(&db);
-    cold_restart(&db);
+    restart_journaled_store(&db, MIGRATION_EXECUTION_STORE_PATH);
     journal_routing::assert_current_rows(&session, &[]);
     let state = physical_state(&db);
     assert!(state.rows.is_empty());

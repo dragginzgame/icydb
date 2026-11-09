@@ -261,6 +261,7 @@ version = "0.291.0"
 dependencies = [
  "ic-wire 0.14.2",
  "icydb-testing-codec-query",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -270,6 +271,7 @@ dependencies = [
  "canic-icydb",
  "icydb",
  "icydb-testing-audit-default-empty-fixtures",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -279,6 +281,7 @@ dependencies = [
  "canic-icydb",
  "icydb",
  "icydb-testing-audit-default-empty-fixtures",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -290,6 +293,7 @@ dependencies = [
  "icydb-testing-audit-group-path-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -300,6 +304,7 @@ dependencies = [
  "icydb",
  "icydb-testing-audit-nested-relation-fixtures",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -310,6 +315,7 @@ dependencies = [
  "icydb",
  "icydb-testing-audit-nested-relation-fixtures",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -320,6 +326,7 @@ dependencies = [
  "icydb",
  "icydb-testing-audit-nested-relation-fixtures",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -330,6 +337,7 @@ dependencies = [
  "icydb",
  "icydb-testing-audit-nested-relation-fixtures",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -343,6 +351,7 @@ dependencies = [
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -356,6 +365,7 @@ dependencies = [
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -367,6 +377,7 @@ dependencies = [
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -379,6 +390,7 @@ dependencies = [
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -390,6 +402,7 @@ dependencies = [
  "icydb-testing-audit-default-empty-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -404,6 +417,7 @@ dependencies = [
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -417,6 +431,7 @@ dependencies = [
  "icydb-testing-audit-ten-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -428,6 +443,7 @@ dependencies = [
  "icydb-testing-audit-ten-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -437,6 +453,7 @@ dependencies = [
  "canic-icydb",
  "icydb",
  "icydb-testing-demo-rpg-fixtures",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -451,6 +468,7 @@ dependencies = [
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -463,6 +481,7 @@ dependencies = [
  "icydb",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -475,6 +494,7 @@ dependencies = [
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -488,6 +508,7 @@ dependencies = [
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -497,6 +518,7 @@ dependencies = [
  "canic-icydb",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -512,6 +534,7 @@ dependencies = [
  "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -526,6 +549,7 @@ dependencies = [
  "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -539,6 +563,7 @@ dependencies = [
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -549,6 +574,7 @@ dependencies = [
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -1818,6 +1844,7 @@ dependencies = [
  "icydb-model",
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -1876,6 +1903,7 @@ dependencies = [
  "icydb",
  "icydb-testing-wasm-helpers",
  "serde",
+ "toko-tooling",
  "trybuild",
 ]
 
@@ -1902,6 +1930,7 @@ dependencies = [
  "canic-icydb",
  "icydb",
  "icydb-testing-audit-default-empty-fixtures",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -1922,6 +1951,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 3.0.9",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -1935,6 +1965,7 @@ dependencies = [
  "icydb-testing-canic-adapter",
  "icydb-testing-wasm-helpers",
  "serde_json",
+ "toko-tooling",
 ]
 
 [[package]]
@@ -3320,6 +3351,12 @@ dependencies = [
  "pin-project-lite",
  "tokio",
 ]
+
+[[package]]
+name = "toko-tooling"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de0dd05b6437061622a76942baa25d40d2181497e7ba66d9fd809132a3082936"
 
 [[package]]
 name = "toml"

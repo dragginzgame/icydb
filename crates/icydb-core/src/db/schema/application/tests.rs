@@ -110,6 +110,35 @@ fn drive_startup_recovery_to_completion<C: CanisterKind>(db: &Db<C>) {
     panic!("test startup recovery should complete within 1,024 bounded pages");
 }
 
+// Reset only derived live projections; replay retains the original durable data.
+#[cfg(feature = "migration")]
+fn restart_journaled_store<C: CanisterKind>(db: &Db<C>, store_path: &str) {
+    let store = db.store_handle(store_path).unwrap();
+    let generation = store.with_data_mut(|data| {
+        data.reset_journaled_live_projection().unwrap();
+        data.generation()
+    });
+    let watermark = store
+        .journal_tail_store()
+        .unwrap()
+        .with_borrow(JournalTailStore::fold_watermark)
+        .unwrap();
+    store
+        .with_index_mut(|index| {
+            index.reset_journaled_live_projection(
+                generation,
+                watermark,
+                &std::collections::BTreeSet::new(),
+            )
+        })
+        .unwrap();
+    store
+        .with_schema_mut(SchemaStore::reset_journaled_live_projection)
+        .unwrap();
+    forget_recovered_domain_for_tests(db).unwrap();
+    drive_startup_recovery_to_completion(db);
+}
+
 fn drive_cardinality_to_ready(store: StoreHandle) {
     let journal = store
         .journal_tail_store()
