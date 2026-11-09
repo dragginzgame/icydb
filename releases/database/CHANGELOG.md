@@ -23,6 +23,9 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Restore execution-mode admission on consumer-owned build, test and release
+  entrypoints after the shared tooling guard became recipe-scoped.
+
 - Adopt Storage's bounded directory reads and allocation lookup/verification
   improvements while retaining the 0.71 backing format and reopen contract.
 

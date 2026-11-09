@@ -39,6 +39,16 @@ RELEASE_SETUP_TARGET := release-candidate-setup
 export RELEASE_GROUP
 include $(ROOT_DIR)/make/consumer.mk
 
+# Consumer-owned entrypoints need the same execution-mode admission as shared
+# recipes, including direct calls that bypass the generic CI/release targets.
+ci-core test build-canister-local build-canister-production wasm-size-report wasm-audit-report \
+fetch build check clippy test-documentation check-feature-matrix clean test-watch \
+test-sql-tier-c-shard test-sql-tier-c-merge test-sql-tier-c-replay ci-sql-tier-b \
+version release-version check-versioning check-dependency-pins \
+release-prepared-check release-commit-check release-committed-check release-tagged-check \
+release-prepare-version install install-dev update-dev package publish \
+ensure-clean toko-tooling-check security-check check-portable-automation check-invariants: toko-execution-check
+
 # These consumer entrypoints bypass Shared's generic `ci` target.
 ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b ci-adapter: toko-tooling-check
 build-canister-local build-canister-production: toko-tooling-check
