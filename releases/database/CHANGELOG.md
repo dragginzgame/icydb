@@ -30,6 +30,12 @@ begin with 0.295.0 below.
 - Finalize scalar scan hints and exact-probe overrides together before execution.
 - Share migration cold-restart fixtures without removing behavioral scenarios.
 
+### 🩹 Fixed
+
+- Readmit reviewed gate declarations after the tooling-admission and release-note
+  updates so full release validation can start; preserve conservative fallback
+  ([#603 — Release validation qualification](https://github.com/dragginzgame/icydb/issues/603)).
+
 ### 🧪 Testing
 
 - Admit independent Canic tooling before adapter dependency fetching and checks;

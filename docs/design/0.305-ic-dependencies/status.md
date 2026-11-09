@@ -181,3 +181,18 @@ No network lifecycle, staging, commit, push or deployment occurs. Full workspace
 and release gates, native macOS and installed Canic acceptance were not requested
 and remain unrun. IC cycles/instructions and total/code-section Wasm changes are
 unmeasured. Final focused logs are under `target/evidence/simplification-20261109/`.
+
+
+## Deployment admission repair — 9 November 2026
+
+The maintainer authorizes delivery of database 0.305.0 and CLI 0.296.7. Source
+`4da92b07bbb086a32e9f408e4f35780dbdb29b62` is captured in database batch
+`batch-qMzsGtoo`; admission refuses stale Make/group digests before any version,
+commit/tag push or registry publication. Preserve that batch and failure log.
+
+Review readmits only the independent-tooling prerequisites/test target and the
+0.305 detail-note path. Full product stage membership and dispatch remain
+unchanged. The canonical contract check and all 53 existing selector/refusal,
+drift and recovery fixture cases pass with substitute stage bodies. Native
+comparison certificates remain unchanged, so fresh release execution retains
+full validation. These controls do not qualify product-suite omissions.

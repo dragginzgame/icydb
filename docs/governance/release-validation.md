@@ -108,6 +108,14 @@ metadata review or its substituted regression fixtures. The current dependency,
 workflow and other shared changes still require full validation; no receipt or
 selected-stage omission is inferred from the digest repair.
 
+The 0.305 deployment review readmits the database detail-note move to
+`releases/database/0.305.md` and the Makefile's independent Canic-tooling
+admission prerequisites and focused test target. None changes the product
+validation stages, fail-fast/collect split or release dispatch. Refresh only
+the reviewed Make/group declaration digests so full validation can start.
+Preserve native comparison certificates: the changed inputs still select the
+full gate, and this metadata correction authorizes no selected-stage omission.
+
 `ci/release-validation.json` is the single complete stage roster. Its mapping
 contract classifies four supplemental CLI stages and two collecting stages;
 `validation-stages.pl` derives the full gate's fail-fast and collecting selections
