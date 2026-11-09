@@ -1,7 +1,7 @@
 # Content-bound release validation reuse
 
 This is the opt-in stage contract for
-[#334 — Review content-bound validation proof reuse across independent release groups](https://github.com/dragginzgame/shared-tooling/issues/334).
+[#334 — Review content-bound validation proof reuse across independent release groups](https://github.com/dragginzgame/toko-tooling/issues/334).
 `scripts/ci/run-validation-stage.pl` implements exact-input execution and reuse
 with new stage evidence. Existing release runners, whole-gate receipts and
 complete gates keep their current behavior. A consumer must explicitly select

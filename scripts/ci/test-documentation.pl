@@ -46,7 +46,7 @@ isnt($status, 0, 'shared failure stops the consumer adapter');
 for my $document (
     'CHANGELOG.md', 'releases/history.md',
     'README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
-    'docs/governance/shared-tooling.md', 'docs/audits/README.md',
+    'docs/governance/toko-tooling.md', 'docs/audits/README.md',
     'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
     'docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md',
     'docs/audits/targeted/modules/module-surface-hardening.md',
@@ -58,7 +58,7 @@ fixture('README.md', "icydb = { tag = \"v0.1.1\" }\nicydb = { tag = \"v0.1.1\" }
 fixture('crates/owner.rs', "// Source owner\n");
 fixture('docs/contracts/PERSISTED_FORMAT_INVENTORY.md', '`crates/owner.rs`');
 fixture('shared-guide.md', '[Owner](crates/owner.rs)');
-fixture('.shared-tooling.snapshot', "file\tunused\t-\tshared-guide.md\n");
+fixture('.toko-tooling.snapshot', "file\tunused\t-\tshared-guide.md\n");
 ($status) = check_document();
 is($status, 0, 'default roster admits current version and persisted source owner');
 fixture('shared-guide.md', '[Owner](missing.md)');

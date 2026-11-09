@@ -1,6 +1,6 @@
 # Change reporting
 
-This rule is part of the [engineering baseline](../DRAGGINZGAME.md). It governs
+This rule is part of the [engineering baseline](../TOKO-TOOLING.md). It governs
 completed maintainer reports: delivery handoffs, audit/inspection findings and
 issue-only outcomes. Default to the practical outcome, relevant verification and
 actionable blockers, with file or evidence links where useful. Report material

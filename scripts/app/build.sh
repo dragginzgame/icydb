@@ -15,7 +15,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 # Admit repository tooling before lint, artifact acquisition or staging effects.
-make --no-print-directory -C "$ROOT" shared-tooling-check
+make --no-print-directory -C "$ROOT" toko-tooling-check
 
 CAN="$1"
 ICP_DIR="$ROOT/.icp/local/canisters/$CAN"

@@ -162,9 +162,10 @@ fn control_capacity_refusal_preserves_existing_frame_bytes() {
     maximum_pages.set(ic_storage::Memory::size(&backing));
     let before = backing.borrow().clone();
     let summary = runtime.memory_allocations().unwrap();
-    // The bounded backing cannot reserve four application pages plus its
-    // manager and ledger. A rejected reservation must not publish any frame.
-    let error = super::reserve_commit_control_capacity(&memory, 4 * 65_536).unwrap_err();
+    // Exceed the entire capped physical backing so reserved bucket slack cannot
+    // satisfy the request. Refusal must preserve the existing frame and metadata.
+    let unavailable_bytes = (maximum_pages.get() + 1) * 65_536;
+    let error = super::reserve_commit_control_capacity(&memory, unavailable_bytes).unwrap_err();
     assert_eq!(error.class(), ErrorClass::Internal);
     assert_eq!(error.origin(), ErrorOrigin::Store);
     assert_eq!(*backing.borrow(), before);

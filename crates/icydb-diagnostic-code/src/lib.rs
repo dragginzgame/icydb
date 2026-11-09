@@ -28,153 +28,68 @@ pub use query_field::{
     validate_query_field_schema,
 };
 
-///
-/// DiagnosticCode
-///
-/// Stable machine-readable diagnostic reason.
-///
+// Keep broad code identity and its default projections in one declaration.
+// Detailed wire codes remain owned by the numeric registry below.
+macro_rules! diagnostic_codes {
+    ($($(#[$meta:meta])* $variant:ident => ($class:ident, $origin:ident, $code:ident)),+ $(,)?) => {
+        /// Stable machine-readable diagnostic reason.
+        #[remain::sorted]
+        #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+        pub enum DiagnosticCode {
+            $($(#[$meta])* $variant),+
+        }
 
-#[remain::sorted]
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub enum DiagnosticCode {
-    /// An admitted exact count has no available exact-cardinality metadata.
-    QueryExactCountMetadataUnavailable,
-    QueryIntent,
-    QueryInvalidContinuationCursor,
-    QueryNotFound,
-    QueryNotUnique,
-    QueryNumericNotRepresentable,
-    QueryNumericOverflow,
-    QueryPlan,
-    QueryReadAdmission,
-    QuerySqlSurfaceMismatch,
-    QuerySqlWriteBoundary,
-    QueryUnknownAggregateTargetField,
-    QueryUnorderedPagination,
-    QueryUnsupportedProjection,
-    QueryUnsupportedSqlFeature,
-    QueryValidate,
-    RuntimeConflict,
-    RuntimeCorruption,
-    RuntimeIncompatiblePersistedFormat,
-    RuntimeInternal,
-    RuntimeInvariantViolation,
-    RuntimeNotFound,
-    RuntimeUnsupported,
-    SchemaDdlAdmission,
-    StoreCorruption,
-    StoreInvariantViolation,
-    StoreNotFound,
+        impl DiagnosticCode {
+            /// Return the broad diagnostic class for this code.
+            #[must_use]
+            pub const fn class(self) -> ErrorClass {
+                match self { $(Self::$variant => ErrorClass::$class),+ }
+            }
+
+            /// Return the default diagnostic origin for this code.
+            #[must_use]
+            pub const fn origin(self) -> ErrorOrigin {
+                match self { $(Self::$variant => ErrorOrigin::$origin),+ }
+            }
+
+            /// Return the compact public wire code for this broad diagnostic reason.
+            #[must_use]
+            pub const fn error_code(self) -> ErrorCode {
+                match self { $(Self::$variant => ErrorCode::$code),+ }
+            }
+        }
+    };
 }
 
-impl DiagnosticCode {
-    /// Return the broad diagnostic class for this code.
-    #[must_use]
-    pub const fn class(self) -> ErrorClass {
-        match self {
-            Self::StoreCorruption | Self::RuntimeCorruption => ErrorClass::Corruption,
-            Self::RuntimeIncompatiblePersistedFormat => ErrorClass::IncompatiblePersistedFormat,
-            Self::QueryNotFound | Self::StoreNotFound | Self::RuntimeNotFound => {
-                ErrorClass::NotFound
-            }
-            Self::RuntimeConflict => ErrorClass::Conflict,
-            Self::QueryExactCountMetadataUnavailable
-            | Self::QueryUnsupportedSqlFeature
-            | Self::QueryUnknownAggregateTargetField
-            | Self::QueryUnsupportedProjection
-            | Self::QuerySqlSurfaceMismatch
-            | Self::QuerySqlWriteBoundary
-            | Self::RuntimeUnsupported => ErrorClass::Unsupported,
-            Self::StoreInvariantViolation | Self::RuntimeInvariantViolation => {
-                ErrorClass::InvariantViolation
-            }
-            Self::RuntimeInternal => ErrorClass::Internal,
-            Self::QueryValidate
-            | Self::QueryIntent
-            | Self::QueryPlan
-            | Self::QueryReadAdmission
-            | Self::QueryUnorderedPagination
-            | Self::QueryInvalidContinuationCursor
-            | Self::QueryNotUnique
-            | Self::QueryNumericOverflow
-            | Self::QueryNumericNotRepresentable
-            | Self::SchemaDdlAdmission => ErrorClass::Query,
-        }
-    }
-
-    /// Return the default diagnostic origin for this code.
-    #[must_use]
-    pub const fn origin(self) -> ErrorOrigin {
-        match self {
-            Self::StoreNotFound | Self::StoreCorruption | Self::StoreInvariantViolation => {
-                ErrorOrigin::Store
-            }
-            Self::RuntimeCorruption
-            | Self::RuntimeIncompatiblePersistedFormat
-            | Self::RuntimeInvariantViolation
-            | Self::RuntimeConflict
-            | Self::RuntimeNotFound
-            | Self::RuntimeUnsupported
-            | Self::RuntimeInternal => ErrorOrigin::Runtime,
-            Self::QueryExactCountMetadataUnavailable
-            | Self::QueryValidate
-            | Self::QueryIntent
-            | Self::QueryPlan
-            | Self::QueryReadAdmission
-            | Self::QueryUnorderedPagination
-            | Self::QueryInvalidContinuationCursor
-            | Self::QueryNotFound
-            | Self::QueryNotUnique
-            | Self::QueryNumericOverflow
-            | Self::QueryNumericNotRepresentable
-            | Self::QueryUnknownAggregateTargetField
-            | Self::QueryUnsupportedProjection
-            | Self::QueryUnsupportedSqlFeature
-            | Self::QuerySqlSurfaceMismatch
-            | Self::QuerySqlWriteBoundary
-            | Self::SchemaDdlAdmission => ErrorOrigin::Query,
-        }
-    }
-
-    /// Return the compact public wire code for this broad diagnostic reason.
-    #[must_use]
-    pub const fn error_code(self) -> ErrorCode {
-        match self {
-            Self::QueryExactCountMetadataUnavailable => {
-                ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE
-            }
-            Self::QueryValidate => ErrorCode::QUERY_VALIDATE,
-            Self::QueryIntent => ErrorCode::QUERY_INTENT,
-            Self::QueryPlan => ErrorCode::QUERY_PLAN,
-            Self::QueryReadAdmission => ErrorCode::QUERY_READ_ADMISSION,
-            Self::QueryUnorderedPagination => ErrorCode::QUERY_UNORDERED_PAGINATION,
-            Self::QueryInvalidContinuationCursor => ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
-            Self::QueryNotFound => ErrorCode::QUERY_NOT_FOUND,
-            Self::QueryNotUnique => ErrorCode::QUERY_NOT_UNIQUE,
-            Self::QueryNumericOverflow => ErrorCode::QUERY_NUMERIC_OVERFLOW,
-            Self::QueryNumericNotRepresentable => ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE,
-            Self::QueryUnknownAggregateTargetField => {
-                ErrorCode::QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD
-            }
-            Self::QueryUnsupportedProjection => ErrorCode::QUERY_UNSUPPORTED_PROJECTION,
-            Self::QueryUnsupportedSqlFeature => ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
-            Self::QuerySqlSurfaceMismatch => ErrorCode::QUERY_SQL_SURFACE_MISMATCH,
-            Self::QuerySqlWriteBoundary => ErrorCode::QUERY_SQL_WRITE_BOUNDARY,
-            Self::SchemaDdlAdmission => ErrorCode::SCHEMA_DDL_ADMISSION,
-            Self::StoreNotFound => ErrorCode::STORE_NOT_FOUND,
-            Self::StoreCorruption => ErrorCode::STORE_CORRUPTION,
-            Self::StoreInvariantViolation => ErrorCode::STORE_INVARIANT_VIOLATION,
-            Self::RuntimeCorruption => ErrorCode::RUNTIME_CORRUPTION,
-            Self::RuntimeIncompatiblePersistedFormat => {
-                ErrorCode::RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT
-            }
-            Self::RuntimeInvariantViolation => ErrorCode::RUNTIME_INVARIANT_VIOLATION,
-            Self::RuntimeConflict => ErrorCode::RUNTIME_CONFLICT,
-            Self::RuntimeNotFound => ErrorCode::RUNTIME_NOT_FOUND,
-            Self::RuntimeUnsupported => ErrorCode::RUNTIME_UNSUPPORTED,
-            Self::RuntimeInternal => ErrorCode::RUNTIME_INTERNAL,
-        }
-    }
+diagnostic_codes! {
+    /// An admitted exact count has no available exact-cardinality metadata.
+    QueryExactCountMetadataUnavailable => (Unsupported, Query, QUERY_EXACT_COUNT_METADATA_UNAVAILABLE),
+    QueryIntent => (Query, Query, QUERY_INTENT),
+    QueryInvalidContinuationCursor => (Query, Query, QUERY_INVALID_CONTINUATION_CURSOR),
+    QueryNotFound => (NotFound, Query, QUERY_NOT_FOUND),
+    QueryNotUnique => (Query, Query, QUERY_NOT_UNIQUE),
+    QueryNumericNotRepresentable => (Query, Query, QUERY_NUMERIC_NOT_REPRESENTABLE),
+    QueryNumericOverflow => (Query, Query, QUERY_NUMERIC_OVERFLOW),
+    QueryPlan => (Query, Query, QUERY_PLAN),
+    QueryReadAdmission => (Query, Query, QUERY_READ_ADMISSION),
+    QuerySqlSurfaceMismatch => (Unsupported, Query, QUERY_SQL_SURFACE_MISMATCH),
+    QuerySqlWriteBoundary => (Unsupported, Query, QUERY_SQL_WRITE_BOUNDARY),
+    QueryUnknownAggregateTargetField => (Unsupported, Query, QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD),
+    QueryUnorderedPagination => (Query, Query, QUERY_UNORDERED_PAGINATION),
+    QueryUnsupportedProjection => (Unsupported, Query, QUERY_UNSUPPORTED_PROJECTION),
+    QueryUnsupportedSqlFeature => (Unsupported, Query, QUERY_UNSUPPORTED_SQL_FEATURE),
+    QueryValidate => (Query, Query, QUERY_VALIDATE),
+    RuntimeConflict => (Conflict, Runtime, RUNTIME_CONFLICT),
+    RuntimeCorruption => (Corruption, Runtime, RUNTIME_CORRUPTION),
+    RuntimeIncompatiblePersistedFormat => (IncompatiblePersistedFormat, Runtime, RUNTIME_INCOMPATIBLE_PERSISTED_FORMAT),
+    RuntimeInternal => (Internal, Runtime, RUNTIME_INTERNAL),
+    RuntimeInvariantViolation => (InvariantViolation, Runtime, RUNTIME_INVARIANT_VIOLATION),
+    RuntimeNotFound => (NotFound, Runtime, RUNTIME_NOT_FOUND),
+    RuntimeUnsupported => (Unsupported, Runtime, RUNTIME_UNSUPPORTED),
+    SchemaDdlAdmission => (Query, Query, SCHEMA_DDL_ADMISSION),
+    StoreCorruption => (Corruption, Store, STORE_CORRUPTION),
+    StoreInvariantViolation => (InvariantViolation, Store, STORE_INVARIANT_VIOLATION),
+    StoreNotFound => (NotFound, Store, STORE_NOT_FOUND),
 }
 
 impl fmt::Debug for DiagnosticCode {

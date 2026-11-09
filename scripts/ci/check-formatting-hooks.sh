@@ -130,7 +130,7 @@ reject_hook() {
     preserved_locks
 }
 new_case refresh
-printf '\npub fn shared_tooling_hook_fixture( ) { }\n' >> "$rust"
+printf '\npub fn toko_tooling_hook_fixture( ) { }\n' >> "$rust"
 if [[ "$perturb_manifest" == true ]]; then cp "$unsorted" "$manifest"; fi
 git --literal-pathspecs add -- "$rust" "$manifest"
 printf '\nUnrelated working edit.\n' >> README.md
@@ -141,7 +141,7 @@ bash .githooks/pre-commit > .git/formatting.log 2>&1
 [[ "$(git write-tree)" != "$tree" ]] || exit 1
 git --literal-pathspecs diff --exit-code -- "$rust" "$manifest" > .git/working-diff
 cmp "$fixture/sorted-manifest" "$manifest"
-grep -Fx 'pub fn shared_tooling_hook_fixture() {}' "$rust" >/dev/null
+grep -Fx 'pub fn toko_tooling_hook_fixture() {}' "$rust" >/dev/null
 cmp .git/readme README.md
 git diff --cached --exit-code HEAD -- README.md > .git/readme-index
 [[ "$(cat shared-hook-untracked.txt)" == 'untracked evidence' && -z "$(git ls-files -- shared-hook-untracked.txt)" ]] || exit 1

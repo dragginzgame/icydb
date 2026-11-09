@@ -10,7 +10,7 @@ where applicable; consumers supply other language conventions and commands.
 1. Inventory public APIs, trust-state transitions, source/test/generated roots,
    and tracked versus ignored artifacts. Separate raw, decoded, validated and
    authoritative data, including constructors and deserialization paths.
-   Apply the [self-contained file policy](../DRAGGINZGAME.md#repository-files-no-symlinks)
+   Apply the [self-contained file policy](../TOKO-TOOLING.md#repository-files-no-symlinks)
    to relevant Git mode `120000`, working-tree links and package inventories.
    Distinguish justified internal links, tool-store pointers and rejection
    fixtures from external dependencies or unsafe filesystem traversal. A link's

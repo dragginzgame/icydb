@@ -42,25 +42,14 @@ fn initialize_payload_store() {
 fn unique_numeric_ranges_preserve_page_union_and_every_resume_suffix() {
     fn collect_pages(
         query: &DynamicQuery,
-        mut continuation: Option<String>,
-        tokens: &mut Vec<(String, usize)>,
-    ) -> Vec<Vec<OutputValue>> {
-        let mut rows = Vec::new();
-        for _ in 0..16 {
+        continuation: Option<String>,
+    ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
+        collect_test_pages(continuation, 16, |cursor| {
             let root = RequestExecutionRoot::__new_runtime_root();
-            let page = new_request_session(&root)
-                .execute_trusted_live_page(query, continuation.as_deref())
-                .unwrap();
-            rows.extend(page.rows);
-            let Some(next) = page.continuation else {
-                return rows;
-            };
-            assert_ne!(Some(&next), continuation.as_ref());
-            assert!(!tokens.iter().any(|(token, _)| token == &next));
-            tokens.push((next.clone(), rows.len()));
-            continuation = Some(next);
-        }
-        panic!("numeric range must exhaust within the bounded page count");
+            new_request_session(&root)
+                .execute_trusted_live_page(query, cursor)
+                .unwrap()
+        })
     }
 
     // Fixed minimized cases: modulo selection yields [1, 5) over 1..=13,
@@ -121,12 +110,11 @@ fn unique_numeric_ranges_preserve_page_union_and_every_resume_suffix() {
             if descending {
                 expected.reverse();
             }
-            let mut tokens = Vec::new();
-            let actual = collect_pages(&query, None, &mut tokens);
+            let (actual, tokens) = collect_pages(&query, None);
             assert_eq!(actual, expected);
             assert_eq!(tokens.is_empty(), upper == 2);
             for (token, offset) in tokens {
-                let suffix = collect_pages(&query, Some(token), &mut Vec::new());
+                let suffix = collect_pages(&query, Some(token)).0;
                 assert_eq!(suffix, expected[offset..]);
             }
             let limited = new_request_session(&RequestExecutionRoot::__new_runtime_root())
@@ -281,23 +269,12 @@ fn selective_small_limit_preserves_empty_page_progress() {
         .filter(FieldRef::new("id").gt(InputValue::nat64(14)))
         .order_by(asc("id"))
         .limit(1);
-    let mut continuation = None;
-    let mut actual = Vec::new();
-    for _ in 0..16 {
+    let (actual, _) = collect_test_pages(None, 16, |cursor| {
         let root = RequestExecutionRoot::__new_runtime_root();
-        let page = new_request_session(&root)
-            .execute_trusted_live_page(&query, continuation.as_deref())
-            .unwrap();
-        actual.extend(page.rows);
-        if page.continuation.is_some() {
-            assert_ne!(page.continuation, continuation);
-        }
-        continuation = page.continuation;
-        if continuation.is_none() {
-            break;
-        }
-    }
-    assert!(continuation.is_none());
+        new_request_session(&root)
+            .execute_trusted_live_page(&query, cursor)
+            .unwrap()
+    });
     assert_eq!(actual, vec![vec![OutputValue::nat64(15)]]);
 }
 
@@ -313,20 +290,12 @@ fn authored_total_limit_stays_stable_across_filtered_pages() {
         ]))
         .order_by(asc("id"))
         .limit(5);
-    let mut continuation = None;
-    let mut actual = Vec::new();
-    for _ in 0..16 {
+    let (actual, _) = collect_test_pages(None, 16, |cursor| {
         let root = RequestExecutionRoot::__new_runtime_root();
-        let page = new_request_session(&root)
-            .execute_trusted_live_page(&query, continuation.as_deref())
-            .unwrap();
-        actual.extend(page.rows);
-        continuation = page.continuation;
-        if continuation.is_none() {
-            break;
-        }
-    }
-    assert!(continuation.is_none());
+        new_request_session(&root)
+            .execute_trusted_live_page(&query, cursor)
+            .unwrap()
+    });
     assert_eq!(
         actual,
         (0..5)
@@ -346,21 +315,14 @@ fn unfiltered_small_pages_resume_until_physical_exhaustion() {
         let query = DynamicQuery::new(ENTITY_NAME)
             .select(["id"])
             .order_by(order);
-        let mut continuation = None;
-        let mut actual = Vec::new();
-        for _ in 0..16 {
+        let (actual, _) = collect_test_pages(None, 16, |cursor| {
             let root = RequestExecutionRoot::__new_runtime_root();
             let page = new_request_session(&root)
-                .execute_trusted_live_page(&query, continuation.as_deref())
+                .execute_trusted_live_page(&query, cursor)
                 .unwrap();
             assert!(root.observed(Resource::RowsVisited) <= 3);
-            actual.extend(page.rows);
-            continuation = page.continuation;
-            if continuation.is_none() {
-                break;
-            }
-        }
-        assert!(continuation.is_none());
+            page
+        });
         assert_eq!(
             actual,
             expected
@@ -402,25 +364,15 @@ fn one_sided_primary_ranges_resume_across_small_pages() {
                 .select(["id"])
                 .filter(filter)
                 .order_by(order.clone());
-            let mut continuation = None;
-            let mut actual = Vec::new();
-            let mut pages = 0;
-            for _ in 0..16 {
+            let (actual, tokens) = collect_test_pages(None, 16, |cursor| {
                 let root = RequestExecutionRoot::__new_runtime_root();
                 let page = new_request_session(&root)
-                    .execute_trusted_live_page(&query, continuation.as_deref())
+                    .execute_trusted_live_page(&query, cursor)
                     .unwrap();
                 assert!(root.observed(Resource::RowsVisited) <= 4);
-                assert!(page.continuation.is_none() || page.continuation != continuation);
-                actual.extend(page.rows);
-                pages += 1;
-                continuation = page.continuation;
-                if continuation.is_none() {
-                    break;
-                }
-            }
-            assert!(continuation.is_none());
-            assert!(pages > 1);
+                page
+            });
+            assert!(!tokens.is_empty());
             assert_eq!(
                 actual,
                 expected

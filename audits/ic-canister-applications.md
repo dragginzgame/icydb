@@ -13,7 +13,7 @@ bindings/codecs alongside Rust visibility; a `.did` file alone is not the invent
 Rust `pub` is not the complete external boundary. Record endpoint names, caller
 classes, authorization, mutation/effect authority and retained-state obligations.
 
-Apply the [IC application encoding policy](../DRAGGINZGAME.md#ic-application-encoding).
+Apply the [IC application encoding policy](../TOKO-TOOLING.md#ic-application-encoding).
 Trace each Candid dependency, derive and codec helper to its remaining required
 boundary. Include public, third-party callers when checking owned application
 endpoints for Wire adoption; caller location is not a Candid requirement. Check
@@ -71,4 +71,4 @@ A machine-consumed allowlist can record an approved scoped exception with its
 reason, owner, exact identity and linked evidence/issue. It is not a parallel
 backlog: unresolved `unfixed` records belong in the owning GitHub issue. Historical
 reports and frozen exceptions remain evidence; current triage and adoption status
-stay on GitHub under the [baseline](../DRAGGINZGAME.md#feedback-and-handoff).
+stay on GitHub under the [baseline](../TOKO-TOOLING.md#feedback-and-handoff).

@@ -1,7 +1,7 @@
 # Validation target runner
 
 Reusable execution and retained evidence for consumer-selected Make targets.
-Shared Tooling's [validation policy](../DRAGGINZGAME.md#validation-and-evidence)
+Toko Tooling's [validation policy](../TOKO-TOOLING.md#validation-and-evidence)
 determines which checks to select; this runner does not authorize broader gates.
 
 `scripts/ci/run-validation-targets.sh` runs one or more Make targets in order,

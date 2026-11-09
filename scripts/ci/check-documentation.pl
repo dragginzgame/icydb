@@ -14,7 +14,7 @@ my @documents = @ARGV ? @ARGV : (
     glob('docs/*.md'), glob('docs/contracts/*.md'),
     glob('docs/guides/*.md'), glob('docs/operations/*.md'),
     glob('crates/*/README.md'),
-    'docs/governance/shared-tooling.md', 'docs/audits/README.md',
+    'docs/governance/toko-tooling.md', 'docs/audits/README.md',
     'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
     'docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md',
     'docs/audits/targeted/modules/module-surface-hardening.md',
@@ -33,7 +33,7 @@ sub read_file {
 unless (@ARGV) {
     # The snapshot owns its Markdown file set; keep navigation qualification
     # aligned with it instead of maintaining a second shared-document roster.
-    my $snapshot = read_file('.shared-tooling.snapshot');
+    my $snapshot = read_file('.toko-tooling.snapshot');
     push @documents, ($snapshot =~ /^file\t[^\t]+\t[^\t]+\t([^\n]+\.md)$/mg);
 }
 my %seen;

@@ -442,3 +442,39 @@ pub trait HasSchemaPart {
         quote!()
     }
 }
+
+// List and Set share one-item schema metadata; Map owns separate key/value parts.
+macro_rules! impl_sequence_node {
+    ($node:ty, $kind:ident) => {
+        impl HasDef for $node {
+            fn def(&self) -> &Def {
+                &self.def
+            }
+        }
+
+        impl HasSchema for $node {
+            fn schema_node_kind() -> SchemaNodeKind {
+                SchemaNodeKind::$kind
+            }
+        }
+
+        impl HasSchemaPart for $node {
+            fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+                let model = &paths.model;
+                let def = self.def.schema_part(paths);
+                let name = self.current_name_literal(self.name.as_ref());
+                let item = self.item.schema_part(paths);
+                let ty = self.ty.schema_part(paths);
+
+                // quote
+                quote! {
+                    #model::node::$kind::new(#def, #name, #item, #ty)
+                }
+            }
+        }
+
+        impl_collection_has_traits!($node, $kind);
+    };
+}
+
+pub(crate) use impl_sequence_node;

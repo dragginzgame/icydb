@@ -11,14 +11,14 @@ set -euo pipefail
 for flags in "${MAKEFLAGS-}" "${MFLAGS-}"; do
     status=0
     output="$(MAKEFLAGS="$flags" "${1:-make}" --no-print-directory -f - MAKEFILES= 2>&1 <<'MAKE'
-.PHONY: shared-tooling-execution-check
-shared-tooling-execution-check:
-	@printf '%s\n' shared-tooling-make-executed
+.PHONY: toko-tooling-execution-check
+toko-tooling-execution-check:
+	@printf '%s\n' toko-tooling-make-executed
 	@exit 23
 MAKE
     )" || status=$?
-    if [[ "$status" != 2 ]] || ! printf '%s\n' "$output" | grep -Fx shared-tooling-make-executed >/dev/null; then
-        echo 'shared-tooling requires recipe execution and failure propagation; remove Make ignore-errors, dry-run, question, touch and version-only modes' >&2
+    if [[ "$status" != 2 ]] || ! printf '%s\n' "$output" | grep -Fx toko-tooling-make-executed >/dev/null; then
+        echo 'toko-tooling requires recipe execution and failure propagation; remove Make ignore-errors, dry-run, question, touch and version-only modes' >&2
         exit 1
     fi
 done

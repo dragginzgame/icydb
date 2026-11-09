@@ -1,6 +1,6 @@
 # User-triggered agent maintenance
 
-These rules are part of the [engineering baseline](../DRAGGINZGAME.md). They
+These rules are part of the [engineering baseline](../TOKO-TOOLING.md). They
 define chat instructions for agents working in an authorized repository. The
 repository's `AGENTS.md` loads the baseline; consumers own their workflow names,
 required checks and issue priorities. This uses ordinary
@@ -41,7 +41,7 @@ run while the agent is handling work; future timed runs require a separately
 requested schedule. Report an access or authentication failure as unavailable
 evidence, and continue independent authorized work.
 
-Shared Tooling owns repeatable task definitions in `tasks/`; use their common
+Toko Tooling owns repeatable task definitions in `tasks/`; use their common
 run contract instead of copying prompts into each consumer. An explicitly enabled
 local schedule can invoke those same definitions. Its cadence does not expand
 repair authority, and adopting task files does not activate a schedule.

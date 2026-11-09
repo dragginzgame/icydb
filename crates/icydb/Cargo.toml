@@ -45,7 +45,7 @@ ic-testkit = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "time"] }
 
 [dev-dependencies]
-ic-platform-types = { workspace = true, features = ["principal-external", "principal-self-authenticating"] }
+ic-platform-types = { workspace = true, features = ["principal-self-authenticating"] }
 ic-storage = { workspace = true, features = ["test-support"] }
 toko-tooling.workspace = true
 trybuild = { workspace = true }

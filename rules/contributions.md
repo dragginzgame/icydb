@@ -1,7 +1,7 @@
 # Contributions, commits and pull requests
 <!-- Shared companions: docs/release-batches.md -->
 
-These rules are part of the [engineering baseline](../DRAGGINZGAME.md).
+These rules are part of the [engineering baseline](../TOKO-TOOLING.md).
 Direct local edits are the default; requested or required review contributions
 use a topic branch and PR. Human contributors use their normal repository/fork
 permissions. The agent authority below does not restrict that human workflow.
@@ -23,7 +23,7 @@ does not establish current access or authorship of every included commit.
 
 For repositories that adopt an approved contributor agreement, verify executed
 acceptance and rights-holder authority before merging covered contributions.
-Follow the canonical [CLA and relicensing guidance](https://github.com/dragginzgame/shared-tooling/blob/main/docs/licenses.md#contributor-agreements-and-relicensing).
+Follow the canonical [CLA and relicensing guidance](https://github.com/dragginzgame/toko-tooling/blob/main/docs/licenses.md#contributor-agreements-and-relicensing).
 A PR, DCO sign-off or agent-generated checkbox does not establish a signed CLA;
 agents must not sign on another person's or entity's behalf. Publishing an
 agreement does not establish acceptance or configure fleet-wide signing checks.
@@ -34,14 +34,14 @@ agreement does not establish acceptance or configure fleet-wide signing checks.
 
 **Prefer direct edits in the normal authorized checkout when a PR is optional.**
 Ordinary fixes end with reviewable working-tree changes, focused checks and
-[pending notes](changelogs.md#automatic-next-version-selection). Shared Tooling
+[pending notes](changelogs.md#automatic-next-version-selection). Toko Tooling
 also prepares its local `VERSION`; other package versions remain unchanged.
 Use a PR when requested or required by the authorized delivery workflow or branch
 protections. Optional hosted CI is not a reason to add a PR or approval round.
 
 The [authorization table](#agent-authorization) defines Git and release effects.
 Inspect wrappers and Make targets for those effects before running them.
-Beyond the pending notes and Shared Tooling `VERSION` preparation above,
+Beyond the pending notes and Toko Tooling `VERSION` preparation above,
 implementation and validation alone do not authorize staging, commits, package
 version changes, tags, pushes or publication. Disposable validation fixtures may
 exercise those operations only in their documented test repositories.
@@ -238,7 +238,7 @@ workflow. Prefer direct edits when authorized and a PR is optional.
 `dragginzgame/toko` and `dragginzgame/toko-miner` require explicit inclusion.
 Repositories outside Dragginzgame require explicit destination/action authority;
 DFINITY contributions remain excluded under the
-[own-the-solution rule](../DRAGGINZGAME.md#dfinity-dependencies-own-the-solution).
+[own-the-solution rule](../TOKO-TOOLING.md#dfinity-dependencies-own-the-solution).
 Explicit read-only and no-push instructions remain binding.
 
 - Verify the repository, read its adopted baseline/local overlay, and compare
@@ -280,7 +280,7 @@ PR closure or branch deletion; a policy update does not request fleet adoption P
   authority. Ordinary delivery does not waive these restrictions.
 - Respect branch protections, required checks/reviews and repository permissions.
   Report actual unmet requirements without inventing optional approval gates.
-  Follow the [asynchronous CI policy](../DRAGGINZGAME.md#validation-and-evidence);
+  Follow the [asynchronous CI policy](../TOKO-TOOLING.md#validation-and-evidence);
   pending optional CI alone does not require holding the turn open.
 - Keep each PR scoped to one destination and coherent change. Use its template,
   describing behavior, relevant validation and remaining gaps. Maintain

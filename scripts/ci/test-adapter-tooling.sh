@@ -42,8 +42,8 @@ chmod +x "$fixture/.tools/host/bin/cargo"
     cat <<'MAKE'
 ADAPTER_MANIFEST_FLAG := --manifest-path "$(ROOT_DIR)/testing/canic-adapter/Cargo.toml"
 export PATH := $(ROOT_DIR)/.tools/host/bin:$(PATH)
-.PHONY: shared-tooling-check check-adapter-tooling fetch-adapter
-shared-tooling-check:
+.PHONY: toko-tooling-check check-adapter-tooling fetch-adapter
+toko-tooling-check:
 	@test "$$ADAPTER_TOOLING_CASE" != snapshot-failure
 MAKE
     awk '/^fetch-adapter .*: check-adapter-tooling$/ { print }

@@ -21,7 +21,7 @@ is an optimization, not a security boundary against workflow authors.
 Submodule identity changes always select full CI, even when local Git settings
 normally hide them. Relative-diff settings cannot narrow the compared paths.
 
-Shared Tooling opts into `--allow-version-bump` for root `Cargo.toml` package.version.
+Toko Tooling opts into `--allow-version-bump` for root `Cargo.toml` package.version.
 Alongside reviewed prose, a literal version-only edit may use the reduced path when
 `CHANGELOG.md` is also changed and allowlisted. Both committed endpoints must have
 regular non-executable version/changelog files, canonical stable versions and
@@ -41,7 +41,7 @@ fails as a job, dependent checks must fail or run full qualification, never repo
 unverified success. Full code/tooling checks keep all required native hosts;
 release gates remain complete and independent of this selection.
 
-Shared Tooling's allowlist covers reviewed root, governance and developer-guide
+Toko Tooling's allowlist covers reviewed root, governance and developer-guide
 prose. The guide expansion excludes documents with snapshot-companion declarations
 because those headers control exported payloads. New paths still require explicit
 review; embedded/build inputs remain outside the list. Documentation-only

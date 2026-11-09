@@ -1,7 +1,7 @@
 # IcyDB audit overlay
 
 Apply [the shared audit contract](../../audits/README.md) at the reviewed revision
-recorded in [the snapshot](../../.shared-tooling.snapshot). This overlay owns
+recorded in [the snapshot](../../.toko-tooling.snapshot). This overlay owns
 IcyDB's product obligations, audit selection and report destinations. Shared methods own generic
 inspection, evidence, findings and authorized cleanup; they add no schedule or
 automatic full gate. Compact topic summaries stay in `docs/reports/`; raw output

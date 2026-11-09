@@ -22,7 +22,7 @@ sub toml {
 my $manifest=toml("$root/Cargo.toml");
 my $workspace=exists($manifest->{workspace});
 !exists($manifest->{workspace}{metadata}{'toko-tooling'})
-    && !exists($manifest->{package}{metadata}{'toko-tooling'})
+    && !grep({ $_ ne 'loc' } keys %{$manifest->{package}{metadata}{'toko-tooling'} // {}})
     && !-e "$root/toko-tooling.lock" && !-l "$root/toko-tooling.lock"
     or die "Remove the old toko-tooling metadata tables and toko-tooling.lock; select tooling through Cargo dependencies and Cargo.lock.\n";
 my $selection=$workspace ? $manifest->{workspace}{dependencies}{'toko-tooling'}

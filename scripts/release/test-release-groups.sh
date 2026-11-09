@@ -44,8 +44,8 @@ cd "$fixture/base"
 # Publication now admits tooling through Make before registry/Cargo effects.
 # Shared owns that admission; this fixture checks its consumer call boundary.
 cat > Makefile <<'MAKE'
-.PHONY: shared-tooling-check
-shared-tooling-check:
+.PHONY: toko-tooling-check
+toko-tooling-check:
 	@test "$${FAIL_TOOLING_CHECK:-0}" = 0
 MAKE
 printf '[workspace]\nresolver = "3"\nmembers = ["crates/*"]\n\n[workspace.package]\nedition = "2024"\nrust-version = "1.99.1"\n\n[workspace.dependencies]\n' > Cargo.toml

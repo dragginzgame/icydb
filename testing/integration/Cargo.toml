@@ -128,5 +128,5 @@ path = "tests/convergence_candidate.rs"
 name = "memory_allocations"
 path = "tests/memory_allocations.rs"
 
-[package.metadata.shared-tooling.loc]
+[package.metadata.toko-tooling.loc]
 category = "tests"

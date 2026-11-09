@@ -1,8 +1,8 @@
 # Shared audit methods
 <!-- Shared companions: audits/ci-release-integrity.md audits/code-hygiene.md audits/complexity-and-technical-debt.md audits/flow-convergence-and-duplication.md audits/ic-canister-applications.md audits/module-cleanup.md audits/module-surface-hardening.md docs/provenance.md -->
 
-These methods apply the [engineering baseline](../DRAGGINZGAME.md) to a named
-review scope. Shared Tooling owns the common questions and evidence contract;
+These methods apply the [engineering baseline](../TOKO-TOOLING.md) to a named
+review scope. Toko Tooling owns the common questions and evidence contract;
 consumers own product invariants, source roots, focused commands and report
 locations. Adopting these files does not schedule audits or add release gates.
 The [task catalog](../tasks/README.md) selects bounded recurring audit work and
@@ -49,7 +49,7 @@ distinct questions into a general structural verdict.
 
 ## Evidence and report contract
 
-Record the method path, exact Shared Tooling revision and consumer overlay
+Record the method path, exact Toko Tooling revision and consumer overlay
 identity, source commit and relevant dirty changes, trigger, scope, baseline,
 and inspection/execution mode. Behavioral or measured evidence also identifies
 commands, toolchain, features, dependencies, host, configuration and artifacts.
@@ -110,7 +110,7 @@ Reports and necessary artifacts stay in the audited repository's established
 report hierarchy. If none exists, use a new
 `docs/reports/audits/YYYY/MM/DD/<scope>/<run>/report.md`, with numbered runs from
 `01` and artifacts alongside. Never overwrite historical runs, relabel old
-evidence, or move consumer reports into Shared Tooling during consolidation.
+evidence, or move consumer reports into Toko Tooling during consolidation.
 
 ## Consumer overlay and adoption
 

@@ -6,14 +6,14 @@ maintainer-only workstation setup for this repository.
 Repository tooling uses the exact root `[workspace.dependencies]` pin for
 `toko-tooling`, inherited as a dev-dependency by every real package with a
 cargo-machete exemption. Cargo.lock records the version/checksum. After deliberately
-updating the pin and Cargo.lock, run `make shared-tooling-update`; use
-`make shared-tooling-install` to reinstall that selection and
-`make shared-tooling-check` for offline member/lock/snapshot admission.
+updating the pin and Cargo.lock, run `make toko-tooling-update`; use
+`make toko-tooling-install` to reinstall that selection and
+`make toko-tooling-check` for offline member/lock/snapshot admission.
 No metadata selector, separate tooling lock, helper package or Rust import is used.
 The independent Canic workspace has matching declarations, but its existing
 resolver conflict still blocks its lock refresh and qualification under #373. See the
 [tooling migration guide](docs/consuming-snapshots.md#migration-from-cargo-dependencies)
-and [IcyDB adoption record](docs/governance/shared-tooling.md).
+and [IcyDB adoption record](docs/governance/toko-tooling.md).
 
 ## Downstream Canisters
 
@@ -255,7 +255,7 @@ This section is for maintaining this repository. It is not required for ordinary
 downstream canister dependency installation.
 
 macOS host support is required; the
-[host qualification matrix](docs/governance/shared-tooling.md#host-qualification)
+[host qualification matrix](docs/governance/toko-tooling.md#host-qualification)
 records the current native-validation gaps. Setup selects apt packages on Linux
 and Homebrew packages on macOS; installer branches do not qualify native builds,
 tests or deployment workflows.
@@ -313,8 +313,8 @@ This selects pinned jq, Mike Farah yq, PCRE2-enabled ripgrep and cloc through
 `.tools/host/bin`, plus the explicitly selected ICP CLI, ic-wasm and Binaryen through
 `.tools/ic/bin`. Shared Tooling stores the verified host and IC bundles once per
 user; matching checkouts reuse them while retaining their own pinned selections.
-The default store is `${XDG_DATA_HOME:-$HOME/.local/share}/shared-tooling/tools`.
-An explicit `SHARED_TOOLING_STORE` must use the same absolute directory for
+The default store is `${XDG_DATA_HOME:-$HOME/.local/share}/toko-tooling/tools`.
+An explicit `TOKO_TOOLING_STORE` must use the same absolute directory for
 installation, offline checks and failure-evidence collection. Previous local
 bundles remain retained; rerun setup to select the shared bundles.
 
@@ -385,7 +385,7 @@ by the repository:
 ```bash
 source ci/tool-versions.env
 source ci/icydb-tools.env
-cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
+cargo install cargo-sort --version "$TOKO_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
@@ -449,7 +449,7 @@ PCRE2-enabled ripgrep in `.tools/host/bin`.
 Run `make check-dependency-pins` for an offline declaration and tracked-lockfile
 check; static CI and release validation include it. Builds and tests preserve
 the selected dependency graph with `--locked`. Exact constraints are documented
-in [dependency selection](docs/governance/shared-tooling.md#dependency-selection),
+in [dependency selection](docs/governance/toko-tooling.md#dependency-selection),
 and release preparation updates coupled IcyDB exception values automatically.
 The same gate checks package-version and dependency inheritance structurally,
 including ordinary TOML tables and renamed dependencies. IcyDB retains its
@@ -681,7 +681,7 @@ Shared dependencies, including ic-metrics 0.2, resolve through the registry;
 the isolated index copy does not need sibling repository checkouts. Hook
 formatting still requires the selected Cargo dependencies and formatter tools
 to be prepared. See
-[dependency adoption](docs/governance/shared-tooling.md#consumer-owned-instruction-measurement).
+[dependency adoption](docs/governance/toko-tooling.md#consumer-owned-instruction-measurement).
 
 `git commit --no-verify` remains an explicit bypass, and `git push` performs no
 repository validation. `make validate` retains the non-mutating `fmt-check`
@@ -764,7 +764,7 @@ Install the repository's formatting helper binaries:
 ```bash
 source ci/tool-versions.env
 source ci/icydb-tools.env
-cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
+cargo install cargo-sort --version "$TOKO_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
@@ -832,4 +832,4 @@ same-kind retry finishes only the saved release. Explicit
 `make release-resume VERSION=X.Y.Z` selects only that version. Genuine history,
 tag, destination or concurrent-run conflicts still stop safely
 ([IcyDB #299](https://github.com/dragginzgame/icydb/issues/299),
-[Shared Tooling #5](https://github.com/dragginzgame/shared-tooling/issues/5)).
+[Shared Tooling #5](https://github.com/dragginzgame/toko-tooling/issues/5)).

@@ -168,7 +168,7 @@ fn fold_aggregate_input_constant_coalesce(args: &[Expr]) -> Option<Expr> {
         let Expr::Literal(value) = arg else {
             return None;
         };
-        literal_values.push(value.clone());
+        literal_values.push(value);
     }
 
     Some(Expr::Literal(

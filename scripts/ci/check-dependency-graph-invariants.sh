@@ -85,8 +85,8 @@ function record_package(    identity, parts) {
   }
   if (name in sensitive_set) {
     identity = name
-    # Approved coexistence: database/host hashing uses 0.10 and Platform Types
-    # uses 0.11. Retain one resolved version per family and reject other lines.
+    # Approved coexistence: direct hashing uses 0.11; older suppliers retain
+    # 0.10. Retain one resolved version per family and reject other lines.
     if (name == "sha2" || name == "digest") {
       split(version, parts, ".")
       if (parts[1] != "0" || (parts[2] != "10" && parts[2] != "11")) {

@@ -50,8 +50,8 @@ set -euo pipefail
 if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh || "$1" == scripts/release/verify.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
 fi
-if [[ "$1" == */scripts/dev/shared-tooling.sh ]]; then
-    [[ "$#" == 6 && "$2 $3" == 'check --consumer' && "$4" == "$RELEASE_FIXTURE_ROOT" && "$5 $6" == '--manifest .shared-tooling.snapshot' ]]
+if [[ "$1" == */scripts/dev/toko-tooling.sh ]]; then
+    [[ "$#" == 6 && "$2 $3" == 'check --consumer' && "$4" == "$RELEASE_FIXTURE_ROOT" && "$5 $6" == '--manifest .toko-tooling.snapshot' ]]
     printf 'tooling admission\n' >> "$EVENTS"
     exit "${FAIL_TOOLING:-0}"
 fi
@@ -188,8 +188,8 @@ for failure in none scripts/release/test-release-groups.sh; do
     PATH="$fixture/roster-bin:$PATH" ROSTER_ROOT="$root" ROSTER_FAILURE="$failure" \
         "$real_make" --no-print-directory -C "$root" -f "$root/Makefile" check-portable-automation \
         RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
-    [[ "$(head -n 1 "$EVENTS")" == scripts/dev/shared-tooling.sh ]]
-    for proof in scripts/ci/test-shared-tooling-adapters.sh scripts/release/test-standard-release.sh \
+    [[ "$(head -n 1 "$EVENTS")" == scripts/dev/toko-tooling.sh ]]
+    for proof in scripts/ci/test-toko-tooling-adapters.sh scripts/release/test-standard-release.sh \
         scripts/release/test-release-groups.sh; do
         [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
     done

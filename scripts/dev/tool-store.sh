@@ -6,7 +6,7 @@
 # Explicit host/IC/CI asset setup retries inside curl's transient classifier.
 # The retry window limits new attempts; an in-flight attempt keeps its own cap.
 tool_store_download() {
-    local digest="${3:-}" cache="${SHARED_TOOLING_DOWNLOAD_CACHE:-}" cached=''
+    local digest="${3:-}" cache="${TOKO_TOOLING_DOWNLOAD_CACHE:-}" cached=''
     if [[ -n "$cache" && -n "$digest" ]]; then
         [[ "$cache" == /* && "$digest" =~ ^[0-9a-f]{64}$ ]] || {
             echo 'download cache requires an absolute directory and SHA-256 pin' >&2; return 2;
@@ -48,7 +48,7 @@ tool_store_download_digest() {
 # Resolve the configured root without creating it. Existing ancestor aliases
 # (notably macOS /var) are allowed; the managed root itself may not be a link.
 tool_store_root() {
-    local configured="${SHARED_TOOLING_STORE:-${XDG_DATA_HOME:-$HOME/.local/share}/shared-tooling/tools}"
+    local configured="${TOKO_TOOLING_STORE:-${XDG_DATA_HOME:-$HOME/.local/share}/toko-tooling/tools}"
     perl -MCwd=abs_path -MFile::Basename=dirname,basename -e '
         my $p=shift;
         $p =~ m{^/} && $p !~ /[\r\n]/ or die "tool store must be an absolute path without CR/LF\n";

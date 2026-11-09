@@ -1,7 +1,7 @@
 # IcyDB Agent Rules
 
 For scope, delegated delivery, validation, compiler support and reporting, use
-[Toko Tooling 0.36.0 policy](https://github.com/dragginzgame/toko-tooling/blob/1542683b6d8af295d5366f95f85a292e978ff5ea/DRAGGINZGAME.md)
+[Toko Tooling 0.37.5 policy](https://github.com/dragginzgame/toko-tooling/blob/1ea86ca5ff60cb9748a7e8e4df9bc322f9ee740e/TOKO-TOOLING.md)
 and its revision-bound references over older snapshot or local-guide wording.
 This includes Rust 1.99.1 as minimum and pinned development/release compiler;
 check local declarations and qualification before claiming adoption is complete.
@@ -10,12 +10,12 @@ This policy reference does not refresh executable snapshots.
 
 Select tooling with one exact root workspace dependency, inherited as a
 dev-dependency by every real package with its cargo-machete exemption. Cargo.lock
-owns the selection; update the installed snapshot with `make shared-tooling-update`
-and admit it offline with `make shared-tooling-check`. Keep real tools/tests;
+owns the selection; update the installed snapshot with `make toko-tooling-update`
+and admit it offline with `make toko-tooling-check`. Keep real tools/tests;
 do not create selection-only packages, Rust imports or a separate tooling lock.
 
-Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
-[the snapshot manifest](.shared-tooling.snapshot). This file is IcyDB's local overlay.
+Apply the local [shared engineering baseline](TOKO-TOOLING.md), recorded in
+[the snapshot manifest](.toko-tooling.snapshot). This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
 retains existing package directories under `crates/`, `canisters/`, `schema/`
 and `testing/`. The maintainer approved one exception on 2026-10-31: Canic
@@ -26,7 +26,7 @@ qualification owns its integration checks and may retain an older qualified stac
 The maintainer authorized Shared 0.30's singular-to-plural test-directory cut on
 2026-11-05 (`canisters/tests/` and `schema/tests/`); package identities and workspace
 ownership remain unchanged. Ordinary adoption does not authorize further relocation or workspaces; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
-owns future placement decisions. See [shared-tooling adoption](docs/governance/shared-tooling.md)
+owns future placement decisions. See [toko-tooling adoption](docs/governance/toko-tooling.md)
 for provenance and consumer boundaries. Keep this file small; open detailed docs as needed.
 
 ## Hard Rules
@@ -58,7 +58,7 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
   skipped user-owned validation when they were not requested.
 - Use absolute filesystem paths in final file references.
 - macOS host workflows are required by the baseline. See the local
-  [host qualification matrix](docs/governance/shared-tooling.md#host-qualification)
+  [host qualification matrix](docs/governance/toko-tooling.md#host-qualification)
   for declared hosts and evidence gaps; Linux checks do not qualify macOS.
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - Wasm size reports include total uncompressed module bytes and code-section bytes.
@@ -80,7 +80,7 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
 
 ## Pre-1.0 hard cuts
 
-Follow the [shared hard-cut contract](DRAGGINZGAME.md#pre-10-contracts), including
+Follow the [shared hard-cut contract](TOKO-TOOLING.md#pre-10-contracts), including
 retained-data obligations and same-contract recovery. Remove superseded paths
 and update active docs, diagnostics and fixtures; test the maintained surface
 rather than prohibiting retired names.

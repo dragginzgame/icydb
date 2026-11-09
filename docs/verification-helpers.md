@@ -10,7 +10,7 @@ native CI qualifies each supported host separately.
 ## Repository symlink admission
 
 This optional helper enforces an all-regular repository inventory. It is stricter
-than the [baseline file policy](../DRAGGINZGAME.md#repository-files-no-symlinks),
+than the [baseline file policy](../TOKO-TOOLING.md#repository-files-no-symlinks),
 which permits justified internal links. It is not a universal compliance gate.
 
 ```sh
@@ -109,7 +109,7 @@ identity, command outcomes, manifests, upload and retention. Archiving alone
 does not qualify evidence or prove a hosted upload/download round trip.
 
 Adopt `scripts/ci/archive-evidence.sh` through a reviewed snapshot; it has no
-shared-script dependencies. Shared Tooling's failure-collection action uses this
+shared-script dependencies. Toko Tooling's failure-collection action uses this
 helper too. Consumers can replace their tar mechanics while preserving their
 product-specific collection and identity records.
 
@@ -142,7 +142,7 @@ the omitted payload. Archive size and collection time depend on the actual sets.
 For shared host/IC storage, the selector retains local references and explicitly
 selects their admitted physical bundles under the configured store. It never
 scans unrelated store entries or follows arbitrary links. Use the same
-`SHARED_TOOLING_STORE` setting as setup; preserved local bundles remain eligible
+`TOKO_TOOLING_STORE` setting as setup; preserved local bundles remain eligible
 for full evidence retention, even though installers no longer admit them as active.
 The selector requires Perl core modules and the declared host/IC check companions;
 it never installs or downloads tools. Invalid selections refuse before dispatch.
@@ -277,7 +277,7 @@ yq are required; no Cargo invocation, fetch, installation, editing or Git mutati
 Consumers retain root-manifest authentication, member/package eligibility,
 version policy and independent graph admission. This input preparation does not
 implement a TOML editor and survives the planned editor replacement in
-[#273 — Adopt released IC Build Cargo editor and retire Perl renderers](https://github.com/dragginzgame/shared-tooling/issues/273).
+[#273 — Adopt released IC Build Cargo editor and retire Perl renderers](https://github.com/dragginzgame/toko-tooling/issues/273).
 
 ## CI binary installers
 
@@ -403,7 +403,7 @@ A passing check only covers the supported local references in the supplied
 roster. Product-specific inventories, version examples and document selection
 remain consumer-owned.
 
-Shared Tooling's `make check-doc-links` selects root, audit, rule and guide
+Toko Tooling's `make check-doc-links` selects root, audit, rule and guide
 Markdown files and runs in CI and the release gate. Consumers choose their own
 roster; snapshot-relative links must exist in the adopted file set.
 
@@ -473,7 +473,7 @@ entry-point contract, not release execution, Git reconciliation, receipts,
 publication or caches. Keep those consumer-specific tests alongside a thin
 call to this helper, and keep the shared runner's own fixtures upstream.
 
-Shared Tooling exercises its own Makefile in the portable suite; the focused
+Toko Tooling exercises its own Makefile in the portable suite; the focused
 `make check-release-commands` target offers the same adoption check.
 
 ## Consumer-owned Cargo publication admission
@@ -600,7 +600,7 @@ them. File-read errors, backend failures and malformed output fail without emitt
 a digest; a failing backend is never retried through another.
 No network access or build is involved.
 
-Shared Tooling uses this same owner for IC installer receipts and snapshot
+Toko Tooling uses this same owner for IC installer receipts and snapshot
 manifest generation. Their existing manifest formats are unchanged. Digest
 support for arbitrary filenames does not widen those formats: IC receipts still
 use unescaped line records and reject backslashes/newlines. Failed receipt
@@ -670,7 +670,7 @@ must retain policy/order checks and prove audit cannot run after preparation fai
 
 Use the explicitly prepared IC Build release editor for manifest and local lock
 versions. Its lock renderer changes only selected unsourced package versions and
-exact unqualified local references. Shared Tooling retains originals and runs
+exact unqualified local references. Toko Tooling retains originals and runs
 locked/offline Cargo graph validation before completing preparation.
 
 See [Cargo candidate rendering](releases.md#cargo-release-candidate-rendering) for
@@ -682,10 +682,10 @@ authorization remain consumer-owned.
 
 ```bash
 source ci/tool-versions.env
-bash scripts/ci/check-format-tools.sh "$SHARED_TOOLING_CARGO_SORT_VERSION"
+bash scripts/ci/check-format-tools.sh "$TOKO_TOOLING_CARGO_SORT_VERSION"
 # An independent workspace can select its prepared toolchain explicitly:
 RUSTUP_TOOLCHAIN="$VALIDATION_TOOLCHAIN" \
-  bash scripts/ci/check-format-tools.sh "$SHARED_TOOLING_CARGO_SORT_VERSION" /path/to/cargo
+  bash scripts/ci/check-format-tools.sh "$TOKO_TOOLING_CARGO_SORT_VERSION" /path/to/cargo
 ```
 
 The helper requires an explicit exact cargo-sort version and accepts an optional
@@ -713,7 +713,7 @@ for explicit invocation. Set `PRETTIER_BIN` to a prepared absolute executable
 and `PRETTIER_VERSION` to its exact lockfile version. Setup stays explicit.
 
 The pinned Prettier owns language recognition through `--ignore-unknown`;
-Shared Tooling does not maintain an extension allowlist. Consumer configuration
+Toko Tooling does not maintain an extension allowlist. Consumer configuration
 and `.prettierignore` own formatting exclusions. The adapter retains scope and
 symlink checks, NUL-delimited selection and exact-version admission. Upgrading
 to this contract can include previously skipped formats such as `.mjs` and
@@ -773,7 +773,7 @@ running the formatter. A consumer with an approved hook adapter that exports
 only regular entries must keep its own qualification for that model, including
 selected-symlink refusal and unrelated-evidence preservation. Passing the shared
 fixture cannot qualify that adapter. Do not remove historical links merely to
-make this checker pass. See [#33](https://github.com/dragginzgame/shared-tooling/issues/33).
+make this checker pass. See [#33](https://github.com/dragginzgame/toko-tooling/issues/33).
 
 Review the consumer's Makefile and formatting commands before execution. This
 helper executes those commands; it is not a sandbox for arbitrary Make code.
@@ -793,7 +793,7 @@ Success also requires the checker to reach its final completion point. Premature
 exits, including Bash 3.2 expansion failures that report zero, return failure and
 retain evidence; existing nonzero statuses are preserved.
 Consumer-specific formatter stages and runtime obligations still need their local
-tests. Shared Tooling exercises this helper against its real nested Cargo fixture;
+tests. Toko Tooling exercises this helper against its real nested Cargo fixture;
 that does not qualify a consumer's formatter or establish native macOS adoption.
 
 ## Coordinated Cargo graph admission

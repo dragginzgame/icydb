@@ -1082,6 +1082,42 @@ fn scan_checkpoint(
         .map(|key| key.or_else(|| checkpoint.cloned()))
 }
 
+// Resume exclusively after the checkpoint within the accepted entity prefix.
+fn validation_scan_bounds(
+    entity_tag: EntityTag,
+    checkpoint: Option<&RawDataStoreKey>,
+) -> (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>) {
+    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
+    let lower = checkpoint.cloned().map_or_else(
+        || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
+        Bound::Excluded,
+    );
+    let upper = range
+        .upper_exclusive()
+        .map(RawDataStoreKey::from_store_range_bound)
+        .map_or(Bound::Unbounded, Bound::Excluded);
+    (lower, upper)
+}
+
+// Both validation kinds prove stored key/row identity before reading values.
+// Page admission and maintenance charging remain owned by their callers.
+fn validation_scan_row<'a>(
+    entity_tag: EntityTag,
+    raw_key: &RawDataStoreKey,
+    raw_row: &'a crate::db::data::RawRow,
+    contract: &'a crate::db::data::StructuralRowContract,
+) -> Result<(PrimaryKeyValue, StructuralSlotReader<'a>), InternalError> {
+    let (decoded_entity, primary_key) =
+        decode_data_store_key(raw_key).map_err(|_| InternalError::identity_corruption())?;
+    if decoded_entity != entity_tag {
+        return Err(InternalError::identity_corruption());
+    }
+    let row =
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
+    row.validate_primary_key_value(&primary_key)?;
+    Ok((primary_key, row))
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "one scan keeps exact row, schema, program, and finding identities explicit"
@@ -1096,15 +1132,7 @@ fn scan_row_local_validation_page(
     constraint_id: ConstraintId,
     dependency_fields: Vec<crate::db::schema::FieldId>,
 ) -> Result<ValidationPageScan, InternalError> {
-    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
-    let lower = checkpoint.cloned().map_or_else(
-        || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Bound::Excluded,
-    );
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
+    let (lower, upper) = validation_scan_bounds(entity_tag, checkpoint);
     let mut last_key = None;
     let mut rows_scanned = 0usize;
     let mut decoded_bytes = 0usize;
@@ -1139,15 +1167,7 @@ fn scan_row_local_validation_page(
                 };
                 return Ok(StoreVisit::Stop);
             }
-            let (decoded_entity, primary_key) =
-                decode_data_store_key(raw_key).map_err(|_| InternalError::identity_corruption())?;
-            if decoded_entity != entity_tag {
-                return Err(InternalError::identity_corruption());
-            }
-            let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                raw_row, contract,
-            )?;
-            row.validate_primary_key_value(&primary_key)?;
+            let (primary_key, row) = validation_scan_row(entity_tag, raw_key, raw_row, contract)?;
             let values = row.decode_selected_slot_values(constraints.required_slots())?;
             match constraints.evaluate(schema_fingerprint, values.as_slice()) {
                 Ok(()) => {}
@@ -1424,15 +1444,7 @@ fn scan_unique_validation_page(
 
     construction.run(
         |work| {
-            let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
-            let lower = checkpoint.cloned().map_or_else(
-                || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-                Bound::Excluded,
-            );
-            let upper = range
-                .upper_exclusive()
-                .map(RawDataStoreKey::from_store_range_bound)
-                .map_or(Bound::Unbounded, Bound::Excluded);
+            let (lower, upper) = validation_scan_bounds(entity_tag, checkpoint);
             let mut last_key = None;
             let mut rows_scanned = 0usize;
             let mut decoded_bytes = 0usize;
@@ -1442,65 +1454,61 @@ fn scan_unique_validation_page(
             let mut has_more = false;
 
             store.with_data(|data| {
-                data.visit_range((lower, upper), |raw_key, raw_row| {
-                    let row_bytes = raw_row.len();
-                    if rows_scanned == MAX_VALIDATION_ROWS_PER_PAGE
-                        || findings.len() == MAX_VALIDATION_FINDINGS_PER_PAGE
-                        || (rows_scanned != 0
-                            && decoded_bytes.saturating_add(row_bytes)
-                                > MAX_VALIDATION_DECODED_BYTES_PER_PAGE)
-                    {
-                        has_more = true;
-                        return Ok(StoreVisit::Stop);
-                    }
-                    work.charge(Resource::RowsVisited, 1)?;
-                    work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
-                    let (decoded_entity, primary_key) = decode_data_store_key(raw_key)
-                        .map_err(|_| InternalError::identity_corruption())?;
-                    if decoded_entity != entity_tag {
-                        return Err(InternalError::identity_corruption());
-                    }
-                    let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                        raw_row, contract,
-                    )?;
-                    row.validate_primary_key_value(&primary_key)?;
-                    work.charge(Resource::PredicateExpressionSteps, 1)?;
-                    let candidate_key = projection.derive_key(&primary_key, &row)?;
-                    if let Some(candidate_key) = candidate_key {
-                        let next_staged_bytes =
-                            staged_bytes.saturating_add(candidate_key.as_bytes().len());
-                        if rows_scanned != 0
-                            && next_staged_bytes > MAX_VALIDATION_STAGED_BYTES_PER_PAGE
+                data.visit_range(
+                    (lower, upper),
+                    |raw_key, raw_row| -> Result<_, InternalError> {
+                        let row_bytes = raw_row.len();
+                        if rows_scanned == MAX_VALIDATION_ROWS_PER_PAGE
+                            || findings.len() == MAX_VALIDATION_FINDINGS_PER_PAGE
+                            || (rows_scanned != 0
+                                && decoded_bytes.saturating_add(row_bytes)
+                                    > MAX_VALIDATION_DECODED_BYTES_PER_PAGE)
                         {
                             has_more = true;
                             return Ok(StoreVisit::Stop);
                         }
-                        let conflict = candidate_unique_key_conflicts(
-                            store,
-                            &candidate_key,
-                            page_keys.as_slice(),
-                        )?;
-                        let missing = mode == UniqueValidationMode::Verify
-                            && store.with_index(|index_store| {
-                                index_store.get(&candidate_key).is_none()
-                            });
-                        if conflict || missing {
-                            let error = InternalError::index_conflict();
-                            findings.push(ConstraintValidationFinding::new(
-                                raw_key.clone(),
-                                dependency_fields.to_vec(),
-                                error.diagnostic().error_code().raw(),
-                            ));
-                        } else {
-                            staged_bytes = next_staged_bytes;
-                            page_keys.push(candidate_key);
+                        work.charge(Resource::RowsVisited, 1)?;
+                        work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
+                        let (primary_key, row) =
+                            validation_scan_row(entity_tag, raw_key, raw_row, contract)?;
+                        work.charge(Resource::PredicateExpressionSteps, 1)?;
+                        let candidate_key = projection.derive_key(&primary_key, &row)?;
+                        if let Some(candidate_key) = candidate_key {
+                            let next_staged_bytes =
+                                staged_bytes.saturating_add(candidate_key.as_bytes().len());
+                            if rows_scanned != 0
+                                && next_staged_bytes > MAX_VALIDATION_STAGED_BYTES_PER_PAGE
+                            {
+                                has_more = true;
+                                return Ok(StoreVisit::Stop);
+                            }
+                            let conflict = candidate_unique_key_conflicts(
+                                store,
+                                &candidate_key,
+                                page_keys.as_slice(),
+                            )?;
+                            let missing = mode == UniqueValidationMode::Verify
+                                && store.with_index(|index_store| {
+                                    index_store.get(&candidate_key).is_none()
+                                });
+                            if conflict || missing {
+                                let error = InternalError::index_conflict();
+                                findings.push(ConstraintValidationFinding::new(
+                                    raw_key.clone(),
+                                    dependency_fields.to_vec(),
+                                    error.diagnostic().error_code().raw(),
+                                ));
+                            } else {
+                                staged_bytes = next_staged_bytes;
+                                page_keys.push(candidate_key);
+                            }
                         }
-                    }
-                    decoded_bytes = decoded_bytes.saturating_add(row_bytes);
-                    rows_scanned = rows_scanned.saturating_add(1);
-                    last_key = Some(primary_key);
-                    Ok(StoreVisit::Continue)
-                })
+                        decoded_bytes = decoded_bytes.saturating_add(row_bytes);
+                        rows_scanned = rows_scanned.saturating_add(1);
+                        last_key = Some(primary_key);
+                        Ok(StoreVisit::Continue)
+                    },
+                )
             })?;
             // Forward publishes the same keys used for page-local conflict checks.
             // Verify retains those checks but must not emit index writes.

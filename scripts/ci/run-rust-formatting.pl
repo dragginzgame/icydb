@@ -65,7 +65,7 @@ my %sources;
     $absolute;
 } @standalone;
 my $script = abs_path($0);
-my $receipt = "$root/target/shared-tooling/formatting.receipt";
+my $receipt = "$root/target/toko-tooling/formatting.receipt";
 my @check = $mode eq '--check' ? ('--check') : ();
 my @fmt_check = $mode eq '--check' ? ('--', '--check') : ();
 $| = 1;
@@ -265,7 +265,7 @@ sub fingerprint {
 }
 
 my ($before, $started) = (undef, now());
-my $reuse = !$no_cache && !@standalone && !length($ENV{SHARED_TOOLING_FORMAT_WORKTREE} // '');
+my $reuse = !$no_cache && !@standalone && !length($ENV{TOKO_TOOLING_FORMAT_WORKTREE} // '');
 print "Standalone Rust sources selected; running without shortcut\n" if @standalone;
 if ($reuse) {
     print "Checking formatting inputs... ";
@@ -304,7 +304,7 @@ if (defined $before) {
     if (defined($after) && $after eq $before) {
         eval {
             my $directory = dirname($receipt);
-            -l "$root/target" || -l "$root/target/shared-tooling" || -l $receipt and die "cache symlink\n";
+            -l "$root/target" || -l "$root/target/toko-tooling" || -l $receipt and die "cache symlink\n";
             make_path($directory);
             my ($file, $temporary) = tempfile('formatting-receipt.XXXXXX', DIR => $directory, UNLINK => 0);
             print {$file} "formatting-1 $after\n" or die "write receipt: $!\n";

@@ -9,7 +9,7 @@ publish = false
 [package.metadata.cargo-machete]
 ignored = ["toko-tooling"]
 
-[package.metadata.shared-tooling.loc]
+[package.metadata.toko-tooling.loc]
 category = "build_tooling"
 
 [dependencies]

@@ -24,13 +24,13 @@ migration = []
 [dependencies]
 base64 = { workspace = true }
 blake3 = { workspace = true }
+ic-entropy = { workspace = true }
 ic-metrics = { workspace = true, optional = true }
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
 ic-storage = { workspace = true }
 ic-wire = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
-rand_chacha = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }

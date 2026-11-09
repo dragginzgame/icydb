@@ -159,7 +159,7 @@ cp "$ROOT/Makefile" "$fixture/Makefile"
 perl -pi -e 's/\$\(MAKE\) --no-print-directory check-product-invariants/\$\(MAKE\) --no-print-directory help/' "$fixture/Makefile"
 check fail missing-product-invariant-owner
 cp "$ROOT/Makefile" "$fixture/Makefile"
-perl -0777 -pi -e 's/(check-product-invariants: shared-tooling-check\n)/$1\tbash scripts\/release\/test-standard-release.sh\n/' "$fixture/Makefile"
+perl -0777 -pi -e 's/(check-product-invariants: toko-tooling-check\n)/$1\tbash scripts\/release\/test-standard-release.sh\n/' "$fixture/Makefile"
 check fail automation-in-product-owner
 cp "$ROOT/Makefile" "$fixture/Makefile"
 reset

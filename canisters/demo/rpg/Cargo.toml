@@ -31,7 +31,7 @@ icydb-testing-demo-rpg-fixtures = { workspace = true, features = ["build"] }
 [lints]
 workspace = true
 
-[package.metadata.shared-tooling.loc]
+[package.metadata.toko-tooling.loc]
 category = "examples"
 
 [dev-dependencies]

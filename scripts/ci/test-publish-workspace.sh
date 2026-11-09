@@ -31,8 +31,8 @@ printf '[workspace.package]\nversion = "0.265.0"\n' > "$fixture/Cargo.toml"
 # Shared qualifies tooling admission; this consumer fixture checks that a failed
 # admission stops the direct publisher before registry or Cargo effects.
 cat > "$fixture/Makefile" <<'MAKE'
-.PHONY: shared-tooling-check
-shared-tooling-check:
+.PHONY: toko-tooling-check
+toko-tooling-check:
 	@test "$${FAIL_TOOLING_CHECK:-0}" = 0
 MAKE
 crates=(icydb-diagnostic-code icydb-schema icydb-model-macros icydb-model icydb-core icydb icydb-cli)

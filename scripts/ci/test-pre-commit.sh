@@ -27,10 +27,10 @@ cd "$ROOT"
 # Skip comment-prefixed entries rather than detaching their TOML decoration.
 perl -0777 -pe 's/(\[workspace.dependencies\]\n.*?^(?![ \t]*#)[^\n]*\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)/$1$3$2/sm or die "expected adjacent formatter inputs\n"' \
   Cargo.toml > "$fixture/unsorted.toml"
-overlays=(Cargo.lock .shared-tooling.snapshot rust-toolchain.toml ci/icydb-tools.env)
+overlays=(Cargo.lock .toko-tooling.snapshot rust-toolchain.toml ci/icydb-tools.env)
 # Keep the exported Shared layer coherent with its selected Makefiles, including
 # newly declared companions absent from the committed consumer baseline.
-bash scripts/ci/verify-shared-tooling-snapshot.sh --read-manifest .shared-tooling.snapshot > "$fixture/shared-manifest"
+bash scripts/ci/verify-toko-tooling-snapshot.sh --read-manifest .toko-tooling.snapshot > "$fixture/shared-manifest"
 while IFS=$'\t' read -r kind _digest _mode path; do
   [[ "$kind" != file ]] || overlays[${#overlays[@]}]="$path"
 done < "$fixture/shared-manifest"
@@ -73,7 +73,7 @@ if [[ "${FORMAT_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
   : >&"$writer"
 fi
 case "$*" in
-  'sort --version') echo "cargo-sort $SHARED_TOOLING_CARGO_SORT_VERSION"; exit 0 ;;
+  'sort --version') echo "cargo-sort $TOKO_TOOLING_CARGO_SORT_VERSION"; exit 0 ;;
   'fmt --version') exit 0 ;;
   'metadata --locked --offline --no-deps --format-version 1')
     jq -nc --arg root "$PWD" '{
@@ -174,7 +174,7 @@ make --no-print-directory fmt > "$fixture/product-baseline.log" 2>&1
 # Real prepared tools and the consumer's declarative selection must converge,
 # reuse only unchanged inputs, and still support a deliberately forced run.
 make --no-print-directory fmt-check > "$fixture/product-checked.log" 2>&1
-[[ -f target/shared-tooling/formatting.receipt ]]
+[[ -f target/toko-tooling/formatting.receipt ]]
 make --no-print-directory fmt-check > "$fixture/product-reused.log" 2>&1
 grep -F 'Checking formatting inputs... unchanged (' "$fixture/product-reused.log" >/dev/null
 printf '// Changed consumer source.\n' >> src/lib.rs

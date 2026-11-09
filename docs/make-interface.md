@@ -4,13 +4,13 @@ Use one reviewed snapshot entrypoint for common contributor commands:
 
 ```make
 .DEFAULT_GOAL := help
-override SHARED_TOOLING_ROOT := $(CURDIR)
+override TOKO_TOOLING_ROOT := $(CURDIR)
 include make/consumer.mk
 ```
 
 For a nested snapshot, select its local directory and include its
 `make/consumer.mk`. Never include a moving sibling checkout. A non-Rust repository
-sets `SHARED_TOOLING_RUST := 0` before the include; it still prepares the complete
+sets `TOKO_TOOLING_RUST := 0` before the include; it still prepares the complete
 common toolset, but does not expose Rust formatting or hook installation.
 The include preserves the consumer's default goal, even when declared later.
 Parsing it never installs tools, activates hooks or starts a release.
@@ -29,7 +29,7 @@ before effects, using that same file; never source it as shell code. An empty
 file-path argument admits the standard direct/PR set. File selection and delivery
 choice remain consumer-owned; this helper grants no release or merge authority.
 Make admission resolves the helper beside the selected include, independently of
-runtime `SHARED_TOOLING_ROOT` overrides. Keep its snapshot companion selected.
+runtime `TOKO_TOOLING_ROOT` overrides. Keep its snapshot companion selected.
 
 Selecting `make/consumer.mk` as a snapshot entrypoint includes the common
 installers, common pin catalogs and default LOC helper through their declared
@@ -42,18 +42,28 @@ reports require explicit selection.
 | `tools-report` | Aggregate existing offline checks and retain all failures | Same ordered local check targets; no setup or release admission |
 | `fmt`, `fmt-check`, `format-tools-check` | Prerequisite check, compact output, retained failure logs | Cargo environment and complete custom formatter commands when needed |
 | `install-hooks` | Safe repository-local activation | Tracked root `.githooks/pre-commit` and its companions |
-| `shared-tooling-status`, `shared-tooling-update`, `shared-tooling-install` | Report installed/locked registry identities; update Cargo selection or install the locked crate, then install/check tools | Optional `SHARED_TOOLING_VERSION` for update, `SHARED_TOOLING_MANIFEST`; `SHARED_TOOLING_SOURCE` only for one-time Git migration proof |
-| `shared-tooling-check` | Offline snapshot integrity and Cargo selection agreement | `SHARED_TOOLING_MANIFEST`, default `.shared-tooling.snapshot` |
+| `toko-tooling-status`, `toko-tooling-update`, `toko-tooling-install` | Report installed/locked registry identities; update Cargo selection or install the locked crate, then install/check tools | Optional `TOKO_TOOLING_VERSION` for update, `TOKO_TOOLING_MANIFEST`; `TOKO_TOOLING_SOURCE` only for one-time Git migration proof |
+| `toko-tooling-check` | Offline snapshot integrity and Cargo selection agreement | `TOKO_TOOLING_MANIFEST`, default `.toko-tooling.snapshot` |
+| `toko-tooling-preview` | Preview the selected crate refresh without changing consumer files or tools | `TOKO_TOOLING_MANIFEST`, optional `TOKO_TOOLING_SOURCE` |
 | `cloc` | Workspace report | Optional report/manifest selection |
 | `release-patch`, `release-minor`, `release-major`, `release-resume` | Admission and exact-version recovery runner | Metadata, validation, delivery policy, branch and remote |
 
 The included `tools.mk`, `rust-format.mk`, `release.mk` and `execution.mk` are
 the implementation owners. Existing focused includes remain supported; full
 consumer adoption uses `consumer.mk` instead of including the same modules twice.
-Shared Tooling itself selects the non-Rust profile. Its source checkout has no
-consumer snapshot to verify; `shared-tooling-check` is for adopted copies.
+Toko Tooling itself selects the non-Rust profile. Its source checkout has no
+consumer snapshot to verify; `toko-tooling-check` is for adopted copies.
 
-Tooling adoption uses the [agent audit tasks](https://github.com/dragginzgame/shared-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#tooling-adoption-audit),
+Execution admission runs only when a protected formatting, setup or release
+recipe is selected, including through a wrapper target. Unrelated `make -n`
+previews and completion queries do not execute the probe. Protected recipes still
+reject ignore-errors, dry-run, touch and question modes. Consumer-owned effectful
+targets can add `| toko-execution-check` to their prerequisites.
+Set `TOKO_TOOLING_INSTALL_TOOLS=0` for snapshot-only install/update; normal updates
+still prepare and check tools. See the [adoption guide](consuming-snapshots.md#baseline-filename-migration-in-0370)
+for bootstrap, prerequisites and the hard-cut migration.
+
+Tooling adoption uses the [agent audit tasks](https://github.com/dragginzgame/toko-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#tooling-adoption-audit),
 not a consumer LOC target or deployment gate. `make cloc` remains the Rust LOC
 report, with `CLOC_ROOT` and optional `CLOC_DEPTH=0` for crates or larger values
 for module levels beneath them.
@@ -176,7 +186,7 @@ workspace/source/manifests/lock/configuration, formatter identities and policy.
 It observes Cargo metadata and hashes source bytes; Git cleanliness or mtimes
 alone do not establish an unchanged input set. Input observation and result
 recording have their own timings, so shortcut overhead remains visible.
-The local receipt is `target/shared-tooling/formatting.receipt`. Missing, corrupt
+The local receipt is `target/toko-tooling/formatting.receipt`. Missing, corrupt
 or unreadable bookkeeping is a miss. Cargo member selection must succeed before
 any write, even with `--no-cache`; metadata failure cannot fall back to `--all`.
 Each selected workspace formats only its explicit member packages. External path
@@ -275,8 +285,8 @@ recipe warnings rather than filtering them from every invocation.
    locally used commands and governance roots; this entrypoint is not their inventory.
 2. Replace the separate shared includes and equivalent local hook/snapshot-check
    recipes. Retain stronger prerequisites, target environment and extra snapshot
-   checks. `SHARED_TOOLING_MANIFEST` names one manifest; additional bundles remain
-   explicitly checked by consumer-owned targets attached to `shared-tooling-check`.
+   checks. `TOKO_TOOLING_MANIFEST` names one manifest; additional bundles remain
+   explicitly checked by consumer-owned targets attached to `toko-tooling-check`.
 3. Move custom formatting commands into the two inputs above, deleting only their
    equivalent local `fmt`/`fmt-check` recipes. Preserve every workspace, derive,
    frontend and prepared-tool check. Keep the Rust hook and its root-layout
@@ -298,12 +308,12 @@ recipe warnings rather than filtering them from every invocation.
 
 No old public command is removed by this addition. Any later retirement must
 identify callers and actual replacement coverage before selecting a breaking
-Shared Tooling release. Consumer library adoption is normally contributor tooling
+Toko Tooling release. Consumer library adoption is normally contributor tooling
 work, not a reason to bump the library's minor version.
 
 ## Hosted preparation and disposable fixtures
 
-Shared Tooling's producer fixtures own exhaustive Make flag aliases, inherited
+Toko Tooling's producer fixtures own exhaustive Make flag aliases, inherited
 and replaced flags, and common-tool preflight/install/check failure permutations.
 Consumers can use `make_probe_target_admission` from
 `scripts/ci/make-adapter-probes.sh` to exercise each actual target with the four

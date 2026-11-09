@@ -8,7 +8,7 @@ SCRIPT_DIR="${SCRIPT_DIR%/.}"
 DEFAULT_ROOT="$(cd -P "$SCRIPT_DIR/../.." && printf '%s/.' "$PWD")"
 DEFAULT_ROOT="${DEFAULT_ROOT%/.}"
 CONSUMER_ROOT="$DEFAULT_ROOT"
-MANIFEST_PATH=".shared-tooling.snapshot"
+MANIFEST_PATH=".toko-tooling.snapshot"
 read_manifest=''
 verify_options=false
 source_root=''
@@ -17,10 +17,10 @@ require_annotations=false
 
 usage() {
     cat >&2 <<'USAGE'
-usage: verify-shared-tooling-snapshot.sh [--consumer <repository>] [--manifest <relative-path>]
+usage: verify-toko-tooling-snapshot.sh [--consumer <repository>] [--manifest <relative-path>]
        [--require-annotations]
        [--source <trusted-checkout> --revision <reviewed-full-commit>]
-       verify-shared-tooling-snapshot.sh --read-manifest <file>
+       verify-toko-tooling-snapshot.sh --read-manifest <file>
 
 --read-manifest validates manifest syntax and emits its records, preserving order
 and literal field bytes. No output is emitted on malformed input. It does not
@@ -33,7 +33,7 @@ USAGE
 }
 
 fail() {
-    echo "shared-tooling snapshot verification failed: $1" >&2
+    echo "toko-tooling snapshot verification failed: $1" >&2
     exit 1
 }
 
@@ -200,7 +200,7 @@ while IFS= read -r manifest_line || [[ -n "$manifest_line" ]]; do
         declared_digests[file_count]="$first"
         declared_modes[file_count]="$second"
         [[ "$third" != "scripts/ci/verify-file-checksum.sh" ]] || checksum_tool_declared=true
-        [[ "$third" != "scripts/ci/verify-shared-tooling-snapshot.sh" ]] || snapshot_verifier_declared=true
+        [[ "$third" != "scripts/ci/verify-toko-tooling-snapshot.sh" ]] || snapshot_verifier_declared=true
         file_count=$((file_count + 1))
         ;;
     *) fail "unknown manifest record: $record" ;;
@@ -297,7 +297,7 @@ for index in "${!declared_files[@]}"; do
     fi
 done
 
-echo "shared-tooling snapshot verified: $file_count file(s), version $snapshot_version ($snapshot_revision)"
+echo "toko-tooling snapshot verified: $file_count file(s), version $snapshot_version ($snapshot_revision)"
 if [[ -n "$source_root" ]]; then
     echo "Declared payloads match independently selected source commit: $expected_revision"
 fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Read/edit Shared Tooling's canonical literal [package].version without tool setup.
+# Read/edit Toko Tooling's canonical literal [package].version without tool setup.
 use strict;
 use warnings;
 my $set;

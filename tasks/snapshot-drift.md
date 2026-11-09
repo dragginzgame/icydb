@@ -4,14 +4,14 @@
 Apply the [common run contract](README.md) and the
 [snapshot contract](../docs/consuming-snapshots.md).
 
-Inventory every maintained `.shared-tooling*.snapshot`, including nested bundles
+Inventory every maintained `.toko-tooling*.snapshot`, including nested bundles
 and explicit custom manifests. Resolve each manifest's consumer root from its
 documented adoption, not from whichever path produces a passing result. Run the
-trusted Shared Tooling verifier with those explicit inputs:
+trusted Toko Tooling verifier with those explicit inputs:
 
 ```bash
-bash scripts/ci/verify-shared-tooling-snapshot.sh \
-  --consumer /absolute/consumer/root --manifest .shared-tooling.snapshot
+bash scripts/ci/verify-toko-tooling-snapshot.sh \
+  --consumer /absolute/consumer/root --manifest .toko-tooling.snapshot
 ```
 
 Record revision, selected files, hash/mode drift and missing companions. Compare
@@ -58,7 +58,7 @@ changing pins, installing tools or refreshing a snapshot during this check.
 Keep three conclusions distinct: snapshot byte integrity, available upstream
 changes, and consumer behavior/host qualification. An older intact snapshot is
 not corruption; prioritize applicable corrections rather than automatic churn.
-Report absent adoption explicitly; Shared Tooling itself needs no self-snapshot.
+Report absent adoption explicitly; Toko Tooling itself needs no self-snapshot.
 Reconcile delivered adoption through the
 [issue maintenance procedure](../rules/agent-maintenance.md): verify the consumer's
 required checks and close completed owning issues. Keep outstanding adoption in

@@ -121,31 +121,18 @@ fn expected(
 
 fn collect_pages(
     query: &DynamicQuery,
-    mut cursor: Option<String>,
+    cursor: Option<String>,
 ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    for _ in 0..256 {
+    collect_test_pages(cursor, 256, |cursor| {
         let root = RequestExecutionRoot::__new_runtime_root();
         let page = new_request_session(&root)
-            .execute_trusted_live_page(query, cursor.as_deref())
+            .execute_trusted_live_page(query, cursor)
             .unwrap();
         assert_eq!(page.row_count as usize, page.rows.len());
         assert_eq!(page.work.result_rows, page.row_count);
         assert!(root.observed(Resource::KeyIndexEntriesVisited) >= page.work.entries_visited);
-        rows.extend(page.rows);
-        if page.continuation.is_some() {
-            assert_ne!(page.continuation, cursor);
-        }
-        cursor = page.continuation;
-        if let Some(token) = &cursor {
-            tokens.push((token.clone(), rows.len()));
-        } else {
-            break;
-        }
-    }
-    assert!(cursor.is_none(), "all pages must terminate");
-    (rows, tokens)
+        page
+    })
 }
 
 fn assert_planned_access(query: &DynamicQuery, case: u8, children: u8, descending: bool) {

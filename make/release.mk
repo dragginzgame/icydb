@@ -1,9 +1,10 @@
 # Standard entrypoints only; consumer metadata, validation and delivery policy stay local.
 # Shared companions: scripts/ci/run-release.sh scripts/ci/run-release-batch.pl scripts/ci/check-release-delivery.sh make/execution.mk scripts/dev/clean-empty-source-dirs.pl
 _shared_release_default_goal := $(.DEFAULT_GOAL)
-SHARED_TOOLING_ROOT ?= $(CURDIR)
+TOKO_TOOLING_ROOT ?= $(CURDIR)
 _shared_release_delivery_check := $(dir $(lastword $(MAKEFILE_LIST)))../scripts/ci/check-release-delivery.sh
 include $(dir $(lastword $(MAKEFILE_LIST)))execution.mk
+release-patch release-minor release-major release-resume release-preflight clean-empty-source-dirs release-batch-resume release-batch-reconcile release-batch-retire: | toko-execution-check
 # Retired settings must fail visibly, especially a roster that would otherwise
 # be ignored and accidentally reduce a requested multi-group release to one.
 _shared_retired_release_settings := $(strip $(foreach setting,RELEASE_FROZEN_GROUPS RELEASE_FROZEN_PUBLISH_TARGET RELEASE_FROZEN_SETUP_TARGET RELEASE_FROZEN_SETUP_MODE FROZEN_RELEASE_ACTIVE,$(if $(filter undefined,$(origin $(setting))),,$(setting))))
@@ -13,7 +14,7 @@ endif
 # Clean conventional source roots before capture as well as direct preflight.
 .PHONY: clean-empty-source-dirs
 clean-empty-source-dirs:
-	@perl "$(SHARED_TOOLING_ROOT)/scripts/dev/clean-empty-source-dirs.pl"
+	@perl "$(TOKO_TOOLING_ROOT)/scripts/dev/clean-empty-source-dirs.pl"
 release-patch release-minor release-major release-resume release-preflight: clean-empty-source-dirs
 
 RELEASE_REMOTE ?= origin
@@ -54,17 +55,17 @@ endif
 release-patch release-minor release-major:
 ifneq ($(strip $(RELEASE_GROUPS)),)
 ifneq ($(RELEASE_BATCH_ACTIVE),1)
-	+@perl "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --groups "$(RELEASE_GROUPS)" --kind "$(@:release-%=%)" --remote "$(RELEASE_REMOTE)" --branch "$(RELEASE_BRANCH)" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(RELEASE_PUBLISH_TARGET),--publish-target "$(RELEASE_PUBLISH_TARGET)",) $(if $(RELEASE_SETUP_TARGET),--setup-target "$(RELEASE_SETUP_TARGET)",)
+	+@perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --groups "$(RELEASE_GROUPS)" --kind "$(@:release-%=%)" --remote "$(RELEASE_REMOTE)" --branch "$(RELEASE_BRANCH)" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(RELEASE_PUBLISH_TARGET),--publish-target "$(RELEASE_PUBLISH_TARGET)",) $(if $(RELEASE_SETUP_TARGET),--setup-target "$(RELEASE_SETUP_TARGET)",)
 else
-	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+	+@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
 endif
 else
-	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+	+@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
 
 endif
 
 release-resume:
-	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release.sh" resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+	+@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
 	+@$(RELEASE_RESUME_CHECK_COMMAND)
 
 .PHONY: $(_shared_batch_targets)
@@ -72,6 +73,6 @@ $(_shared_batch_targets): export SHARED_RELEASE_BATCH = $(BATCH)
 $(_shared_batch_targets): export SHARED_PUBLICATION_RESULT = $(PUBLICATION_RESULT)
 $(_shared_batch_targets):
 	+@test -n "$$SHARED_RELEASE_BATCH" || { echo 'Select BATCH=batch-XXXXXXXX' >&2; exit 2; }
-	+@perl "$(SHARED_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --$(@:release-batch-%=%) "$$SHARED_RELEASE_BATCH" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(PUBLICATION_RESULT),--publication-result "$$SHARED_PUBLICATION_RESULT",)
+	+@perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --$(@:release-batch-%=%) "$$SHARED_RELEASE_BATCH" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(PUBLICATION_RESULT),--publication-result "$$SHARED_PUBLICATION_RESULT",)
 
 .DEFAULT_GOAL := $(_shared_release_default_goal)

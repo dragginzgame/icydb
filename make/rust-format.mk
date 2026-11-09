@@ -17,8 +17,8 @@ $(error Define both FORMAT_WRITE_COMMAND and FORMAT_CHECK_COMMAND)
 endif
 endif
 _shared_format_custom := $(if $(filter undefined,$(origin FORMAT_WRITE_COMMAND)),,yes)
-FORMAT_WRITE_COMMAND ?= perl "$(SHARED_TOOLING_ROOT)/scripts/ci/run-rust-formatting.pl" --write --cargo "$(FORMAT_CARGO)" $(FORMAT_RUST_ARGS)
-FORMAT_CHECK_COMMAND ?= perl "$(SHARED_TOOLING_ROOT)/scripts/ci/run-rust-formatting.pl" --check --cargo "$(FORMAT_CARGO)" $(FORMAT_RUST_ARGS)
+FORMAT_WRITE_COMMAND ?= perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-rust-formatting.pl" --write --cargo "$(FORMAT_CARGO)" $(FORMAT_RUST_ARGS)
+FORMAT_CHECK_COMMAND ?= perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-rust-formatting.pl" --check --cargo "$(FORMAT_CARGO)" $(FORMAT_RUST_ARGS)
 ifeq ($(strip $(FORMAT_WRITE_COMMAND)),)
 $(error FORMAT_WRITE_COMMAND must not be empty)
 endif
@@ -27,18 +27,19 @@ $(error FORMAT_CHECK_COMMAND must not be empty)
 endif
 
 .PHONY: format-tools-check fmt fmt-check
+format-tools-check fmt fmt-check: | toko-execution-check
 format-tools-check fmt fmt-check: export CARGO_NET_OFFLINE := true
 format-tools-check fmt fmt-check: export RUSTUP_AUTO_INSTALL := 0
 
 format-tools-check:
-	+@record="$$(perl "$(SHARED_TOOLING_ROOT)/scripts/ci/tool-catalog-records.pl" rust "$(RUST_TOOL_VERSIONS)" CARGO_SORT)" || exit $$?; \
+	+@record="$$(perl "$(TOKO_TOOLING_ROOT)/scripts/ci/tool-catalog-records.pl" rust "$(RUST_TOOL_VERSIONS)" CARGO_SORT)" || exit $$?; \
 		version="$$(printf '%s\n' "$$record" | cut -f2)"; \
-		bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$$version" "$(FORMAT_CARGO)"
+		bash "$(TOKO_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$$version" "$(FORMAT_CARGO)"
 
 fmt: format-tools-check
-	+@$(if $(_shared_format_custom),bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write) $(FORMAT_WRITE_COMMAND)
+	+@$(if $(_shared_format_custom),bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write) $(FORMAT_WRITE_COMMAND)
 
 fmt-check: format-tools-check
-	+@$(if $(_shared_format_custom),bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check) $(FORMAT_CHECK_COMMAND)
+	+@$(if $(_shared_format_custom),bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check) $(FORMAT_CHECK_COMMAND)
 
 .DEFAULT_GOAL := $(_shared_format_default_goal)

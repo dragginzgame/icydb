@@ -270,6 +270,15 @@ fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
 
 #[test]
 fn cryptographic_fingerprints_stream_current_canonical_bytes() {
+    // Fixed independently calculated bytes catch provider drift, not just encoding drift.
+    assert_eq!(
+        fingerprint_value(&Value::Text("victim".into())).unwrap(),
+        [
+            0x46, 0x1d, 0x25, 0xbf, 0x3f, 0x58, 0xfa, 0xc9, 0x6b, 0x14, 0x93, 0xdc, 0xfa, 0x2f,
+            0xe4, 0xbf, 0x05, 0x45, 0x3a, 0x11, 0x7f, 0x99, 0x91, 0x7b, 0xed, 0x21, 0xb6, 0xb5,
+            0x2d, 0x2e, 0x09, 0x30
+        ],
+    );
     for (value, bytes) in [
         (
             Value::Text("victim".into()),

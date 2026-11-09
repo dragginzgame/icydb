@@ -5,7 +5,7 @@ deployment_only=false
 adapter_tooling_only=false
 if [[ $# != 0 ]]; then
   [[ $# == 2 && "$1" == --case && ( "$2" == deployment || "$2" == adapter-tooling ) ]] || {
-    echo 'usage: test-shared-tooling-adapters.sh [--case deployment|adapter-tooling]' >&2
+    echo 'usage: test-toko-tooling-adapters.sh [--case deployment|adapter-tooling]' >&2
     exit 2
   }
   deployment_only=true
@@ -67,7 +67,7 @@ depth:
 MAKE
 
 # Shared runner and installer failure permutations are qualified upstream at the
-# revision in .shared-tooling.snapshot. Keep these tests on the consumer boundary:
+# revision in .toko-tooling.snapshot. Keep these tests on the consumer boundary:
 # repository/log selection, argument/status forwarding and pin/asset selection.
 # Inherited metadata reaches the canonical runner through the real adapter;
 # the adapter must still select its own repository rather than the caller's.
@@ -241,10 +241,10 @@ chmod +x "$native/bin/cargo"
 # This fixture substitutes product effects and shared tooling admission; the
 # real root declaration/lock/snapshot is checked separately by the owning gate.
 mkdir -p "$native/scripts/dev"
-cat > "$native/scripts/dev/shared-tooling.sh" <<'TOOLING'
+cat > "$native/scripts/dev/toko-tooling.sh" <<'TOOLING'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$*" == "check --consumer $CI_CARGO_ROOT --manifest .shared-tooling.snapshot" ]]
+[[ "$*" == "check --consumer $CI_CARGO_ROOT --manifest .toko-tooling.snapshot" ]]
 [[ "${CI_TOOLING_CHECK_FAIL:-0}" == 0 ]]
 TOOLING
 cat > "$native/scripts/ci/check-adapter-tooling.sh" <<'ADAPTER'
@@ -747,7 +747,7 @@ for host in Linux:x86_64:linux_amd64 Linux:aarch64:linux_arm64 \
   # fixture-owned cache instead of reusing another platform's valid bytes.
   bin="$(PATH="$FIXTURE/bin:$PATH" TEST_HOST="$os" TEST_ARCH="$arch" \
     TEST_REQUEST="$FIXTURE/request" TEST_ARCHIVE="$FIXTURE/artifact.tar.gz" \
-    SHARED_TOOLING_DOWNLOAD_CACHE="$FIXTURE/download-cache/$platform" \
+    TOKO_TOOLING_DOWNLOAD_CACHE="$FIXTURE/download-cache/$platform" \
     ACTIONLINT_INSTALL_DIR="$FIXTURE/install" \
     bash "$FIXTURE/scripts/ci/install-icydb-actionlint.sh")"
   [[ "$("$bin" -version)" == 1.7.12 ]]
@@ -759,7 +759,7 @@ done
 # Other fixtures/static checks are substitutes; selected Cargo failures stop
 # before any product gate or commit-producing receipt body can execute.
 for script in "$ROOT/scripts/ci/"{check-,test-}*.sh "$ROOT/scripts/release/test-"*.sh \
-  "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh"; do
+  "$ROOT/scripts/ci/verify-toko-tooling-snapshot.sh"; do
   relative="${script#"$ROOT/"}"
   mkdir -p "$native/${relative%/*}"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$native/$relative"
@@ -775,7 +775,7 @@ for script in check-make-execution.sh invariant-common.sh check-dependency-graph
   check-generated-endpoint-invariants.sh check-schema-model-boundary-invariants.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
-cp "$ROOT/"{Cargo.toml,Cargo.lock,.shared-tooling.snapshot} "$native/"
+cp "$ROOT/"{Cargo.toml,Cargo.lock,.toko-tooling.snapshot} "$native/"
 for owner in executor commit journal startup; do
   mkdir -p "$native/crates/icydb-core/src/db/$owner"
   printf 'fn production() {}\n' > "$native/crates/icydb-core/src/db/$owner/probe.rs"
@@ -867,5 +867,5 @@ PATH="$native/bin:$PATH" ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/release-admis
   > "$native/release-admission-failure.log" 2>&1 || status=$?
 [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
 
-echo "shared-tooling adapter regressions passed"
+echo "toko-tooling adapter regressions passed"
 fixture_complete=true

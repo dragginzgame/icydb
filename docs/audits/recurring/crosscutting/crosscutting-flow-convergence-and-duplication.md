@@ -3,7 +3,7 @@
 Apply [the shared method](../../../../audits/flow-convergence-and-duplication.md).
 
 Use the reviewed Shared Tooling revision recorded in
-[the snapshot](../../../../.shared-tooling.snapshot). Apply the shared method
+[the snapshot](../../../../.toko-tooling.snapshot). Apply the shared method
 and [local audit governance](../../README.md) together. Shared-method adoption
 changed method identity; earlier reports remain historical and affected comparisons are
 `N/A (method change)`. No audit supplies implementation or broad-gate authority.

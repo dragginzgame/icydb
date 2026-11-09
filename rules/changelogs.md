@@ -1,7 +1,7 @@
 # Changelog rules
 <!-- Shared companions: rules/change-reporting.md rules/contributions.md rules/rust-workspaces.md -->
 
-These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md)
+These rules are part of the mandatory [engineering baseline](../TOKO-TOOLING.md)
 for repositories with changelogs. Read them before editing release notes.
 Consumer overlays own audience, presentation and package-specific views within
 this contract; the [release contract](../docs/releases.md) owns release execution.
@@ -167,9 +167,9 @@ release/deployment admission, as required by the finalization rules below.
   public contract impact does not require a downstream breaking release.
   A contributor toolchain change is distinct from raising the library's supported
   consumer MSRV or adding a required dependency to its published build.
-- For a tooling product such as Shared Tooling, its supported installation paths
+- For a tooling product such as Toko Tooling, its supported installation paths
   and commands are the delivered interface. A change can therefore require a
-  Shared Tooling minor release while its adoption needs only a consumer library
+  Toko Tooling minor release while its adoption needs only a consumer library
   patch. Product CLI users and deployment operators remain consumers of their
   respective published contracts; this is not a blanket tooling exemption.
 - Select a release group's increment from the combined consumer impact of that
@@ -214,7 +214,7 @@ releases/
 - Maintain at most one pending numbered entry per group that has changes, based
   on its own latest finalized release. Several groups may have pending entries
   in their separate ledgers. A release of one group does not finalize another
-  group's notes. Shared tooling or integration changes belong in the affected
+  group's notes. Toko Tooling or integration changes belong in the affected
   group ledgers only when they change those groups' maintained surfaces.
 - Describe a change once in its owning ledger. When a dependent group requires
   adoption, its notes explain its own compatibility impact and link to the
@@ -278,14 +278,14 @@ selects the group's own ledger; it does not finalize a shared historical file.
   view and detail link aligned, including when a candidate changes minor line.
 - In the handoff, state the selected next version and the compatibility reason,
   including the affected contract and required action for a breaking change.
-- In Shared Tooling only, prepare root `Cargo.toml` package.version with the
+- In Toko Tooling only, prepare root `Cargo.toml` package.version with the
   pending changelog during meaningful implementation.
   No separate version-edit request is needed. Use `## [X.Y.Z] - Unreleased` for
   this workflow so a prepared version is distinguishable from undated historical
   releases. Keep the file and heading equal; reuse that pair for further pending
   work, and promote both together if compatibility requires a larger bump. Do not
   bump on inspection-only tasks or create an empty release for each edit.
-  Shared Tooling uses `make prepare-work [WORK_VERSION_KIND=patch|minor|major]`
+  Toko Tooling uses `make prepare-work [WORK_VERSION_KIND=patch|minor|major]`
   before adding the batch's notes, and `make check-version` rejects drift in CI.
   A version already present on `origin/main` is delivered for this workflow,
   even if its heading still says `Unreleased`; the next batch starts a new entry
@@ -296,15 +296,15 @@ selects the group's own ledger; it does not finalize a shared historical file.
   Its release adapter derives the released base from that delivery evidence or
   the entry below a genuinely pending heading, then finalizes the prepared
   identity without a second bump.
-  This is Shared Tooling's local workflow, not a consumer adoption requirement.
+  This is Toko Tooling's local workflow, not a consumer adoption requirement.
   Do not introduce `VERSION` or pending-file release mode in sibling workspaces.
-- Outside Shared Tooling's own root package, this pending-version authority does
+- Outside Toko Tooling's own root package, this pending-version authority does
   not extend to Cargo/npm package versions, lockfiles or unrelated groups. It
   never authorizes commits, tags, pushes, publication or deployment.
   Do not introduce a root `VERSION` in a workspace with independent release groups
   or treat a file mirroring package metadata as an independent version owner.
   Requests such as "work on 0.4", "prepare 0.4" or "0.4 changelog" select the work,
-  notes and, in Shared Tooling only, root package.version, not release execution.
+  notes and, in Toko Tooling only, root package.version, not release execution.
   Commit and PR authority follows the [contribution rules](contributions.md).
 
 For a latest finalized release of `0.14.7`:
@@ -313,7 +313,7 @@ For a latest finalized release of `0.14.7`:
 | --- | --- |
 | Compatible fix or addition | `## [0.14.8]` |
 | More compatible work before releasing that patch | Keep `## [0.14.8]` |
-| Adopt a breaking Shared Tooling release; library consumer contract unchanged | Keep `## [0.14.8]`; describe contributor setup actions |
+| Adopt a breaking Toko Tooling release; library consumer contract unchanged | Keep `## [0.14.8]`; describe contributor setup actions |
 | Breaking hard cut, including one added to that pending patch | `## [0.15.0]`, carrying the complete pending batch |
 | Compatible work added to that pending minor | Keep `## [0.15.0]` |
 

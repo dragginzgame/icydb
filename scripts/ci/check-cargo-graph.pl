@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Shared companions: docs/cargo-graph-checks.md
+# Shared companions:
 use strict;
 use warnings;
 use Cwd qw(abs_path);

@@ -277,7 +277,11 @@ fn normalized_ordering_preserves_labels_structure_and_canonical_models() {
             digest.update(format!("{canonical:?}\n"));
             digest.update(render_scalar_projection_expr_plan_label(&canonical));
         }
-        let receipt = format!("{:x}", digest.finalize());
+        let mut receipt = String::with_capacity(64);
+        for byte in digest.finalize() {
+            use std::fmt::Write as _;
+            write!(receipt, "{byte:02x}").expect("write digest receipt");
+        }
         assert_eq!(
             receipt,
             "ac4fd65e7c16849940ffd1352c3ca10433696f2b8ae2fc36cf15ec3eceaf95aa"

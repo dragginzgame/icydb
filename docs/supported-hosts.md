@@ -7,7 +7,7 @@ contract. Code and tooling changes retain the required native host coverage belo
 ## Required macOS support
 
 Every `dragginzgame` package must work on macOS under the
-[engineering baseline](../DRAGGINZGAME.md#host-support). This covers dependency setup,
+[engineering baseline](../TOKO-TOOLING.md#host-support). This covers dependency setup,
 native tools and the applicable build, test and deployment workflows. Canister
 and frontend packages retain their product runtime targets while supporting
 their host workflows on macOS.
@@ -25,7 +25,7 @@ explicitly while retaining the macOS support requirement.
 
 Native support does not impose a synchronous wait on every ordinary PR or
 authorized merge. Follow the baseline's
-[asynchronous CI cadence](../DRAGGINZGAME.md#validation-and-evidence): keep the
+[asynchronous CI cadence](../TOKO-TOOLING.md#validation-and-evidence): keep the
 matrix running, complete focused checks and review, and integrate only when
 authorized and enforced checks/reviews permit it. Report pending runs with their
 source identity; do not call them native qualification. Preserve visible failure
@@ -51,7 +51,7 @@ contracts, validation obligations, authorization, recovery and retained artifact
   operator tooling on the declared native macOS hosts. Deployment-tool validation
   does not itself require or authorize a live deployment.
 
-The matrix below describes Shared Tooling's own portable scripts. Consumers own
+The matrix below describes Toko Tooling's own portable scripts. Consumers own
 their package-specific matrices within this required support policy.
 
 ## Portable script baseline
@@ -154,7 +154,7 @@ fixtures qualify control flow and input handling, not hosted cache speedups.
 
 ### CI setup reuse and timings
 
-Shared Tooling's native jobs cache the existing Cargo source cache and physical
+Toko Tooling's native jobs cache the existing Cargo source cache and physical
 Rust tool generations, including build and receipt evidence. Checkout `.tools`
 selections, user Cargo credentials and host/IC bundles are not cached. Host/IC
 setup therefore continues to exercise fresh pinned downloads on every runner.
@@ -187,7 +187,7 @@ The IC-tool fixture also prints cleanup start, elapsed seconds and exit status
 after successful assertions. A start without an end identifies an interrupted
 cleanup; use native evidence before attributing a timeout or claiming a speed-up.
 
-Shared Tooling's portable scripts do not support Windows or non-Bash shells.
+Toko Tooling's portable scripts do not support Windows or non-Bash shells.
 This does not prohibit a consumer from supporting additional hosts or shells
 through its own qualified tooling.
 
@@ -216,7 +216,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | Exact crates.io observation | Bash, jq and curl 8.4.0+; mandatory retained metadata with bounded downloads |
 | `scripts/ci/run-sccache.sh` | An absolute executable file selected through `SCCACHE_BIN` |
 | Snapshot verification | A SHA-256 implementation |
-| Snapshot refresh | Git, a clean Shared Tooling checkout, and a SHA-256 implementation |
+| Snapshot refresh | Git, a clean Toko Tooling checkout, and a SHA-256 implementation |
 | Dependency pin checker | Git, jq, Mike Farah yq v4.47.2+; Cargo when Cargo manifests exist |
 | Workspace-version reader | Prepared Cargo, jq and Mike Farah yq v4.47.2+; explicit Cargo.toml input; no dependency resolution |
 | Release runner | GNU Make, Git, Perl, `date`, explicit consumer metadata/check targets, and Bash 3.2 |
@@ -254,7 +254,7 @@ commits or tags and performs no pushes. Forbidden Git attempts are recorded and
 fail the fixture even when an expected-failure case consumes their exit status.
 Real staged hook, partial-staging, receipt and exported-input isolation checks
 remain part of this same entrypoint. This contract does not cover the separate
-release-history fixtures in Shared Tooling's full suite.
+release-history fixtures in Toko Tooling's full suite.
 
 The hook regression fixture also requires `jq` and the `cargo-sort` version from
 `ci/tool-versions.env` (`2.1.4`). CI installs it before offline tests; local
@@ -368,7 +368,7 @@ identity conflicts, unexpected archive members and checksum failures stop
 immediately. Every attempt remains in the destination, which must be new.
 No separate listing preflight, name fallback, upload replay or extraction of
 arbitrary ZIP paths occurs. This addresses the visibility regression tracked in
-[#158](https://github.com/dragginzgame/shared-tooling/issues/158); hosted
+[#158](https://github.com/dragginzgame/toko-tooling/issues/158); hosted
 qualification is still required on every native host.
 Separate checks cover a newline/colon filename's bytes and mode,
 executable state and a symlink whose target stays outside the selection. Missing logs,
@@ -382,9 +382,9 @@ no matching ARM64 asset. No translation or source build is substituted silently.
 
 ## Snapshot export measurements
 
-Shared Tooling's manual [Snapshot refresh comparison workflow](https://github.com/dragginzgame/shared-tooling/blob/main/.github/workflows/snapshot-performance.yml)
+Toko Tooling's manual [Snapshot refresh comparison workflow](https://github.com/dragginzgame/toko-tooling/blob/main/.github/workflows/snapshot-performance.yml)
 supplies comparable repeated native observations for
-[#219 — Reduce repeated snapshot work](https://github.com/dragginzgame/shared-tooling/issues/219).
+[#219 — Reduce repeated snapshot work](https://github.com/dragginzgame/toko-tooling/issues/219).
 Select full lowercase commit SHAs for the before exporter, after exporter and
 one payload shared by both. Both exporter revisions must support the three fixed
 entrypoints: snapshot refresh, Rust-tool installation and release runner. The
@@ -419,7 +419,7 @@ complete and incomplete measurement attempts.
 A packaging failure remains a job failure and retains any partial archive;
 it does not reconstruct a missing measurement completion receipt.
 
-From a Shared Tooling checkout, the same comparison can run locally through
+From a Toko Tooling checkout, the same comparison can run locally through
 `bash scripts/distribution/measure-snapshot-refresh.sh BEFORE AFTER PAYLOAD NEW-DIRECTORY`.
 The payload supplies both runners' integrity helpers and, when present, their
 shared companion reader; its blob is recorded with the other frozen helpers.

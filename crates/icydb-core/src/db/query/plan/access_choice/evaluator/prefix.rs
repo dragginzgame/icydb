@@ -80,7 +80,7 @@ pub(super) fn evaluate_prefix_compare_candidate_from_contract(
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     }
 
-    eligible_single_lookup_candidate(index_contract.clone())
+    eligible_single_lookup_candidate(index_contract)
 }
 
 fn evaluate_prefix_and_candidate(
@@ -175,7 +175,7 @@ pub(super) fn evaluate_multi_lookup_candidate_from_contract(
         }
     }
 
-    Ok(eligible_single_lookup_candidate(index_contract.clone()))
+    Ok(eligible_single_lookup_candidate(index_contract))
 }
 
 pub(super) fn evaluate_branch_set_candidate_from_contract(
@@ -233,7 +233,7 @@ fn resolve_leading_lookup_key_item<'a>(
 // Emit the canonical single-slot eligible score shared by exact prefix and
 // multi-lookup candidates after the leading key item has matched.
 fn eligible_single_lookup_candidate(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
 ) -> CandidateEvaluation {
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len: 1,

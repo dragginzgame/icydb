@@ -6,7 +6,7 @@ domain separation, budgets and versioned formats. A common import facade is not
 required. Use root workspace dependency declarations and inherit them in members.
 
 This replaces the earlier recommendation to route pure BLAKE3 hashing through
-`ic-platform`. Centralize algorithm decisions and their enforcement in Shared
+`ic-platform`. Centralize algorithm decisions and their enforcement in Toko
 Tooling; keep pure implementation dependencies with their consumers. The purpose
 is to prevent unnoticed algorithm proliferation without coupling unrelated
 consumers to Platform releases. This policy does not require existing consumers

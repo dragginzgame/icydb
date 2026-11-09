@@ -49,7 +49,7 @@ const fn directory_error(error: &DirectoryError) -> Error {
     // Storage owns framing validation. Do not parse its diagnostic strings to
     // distinguish unsupported bytes from corrupt current-format metadata.
     runtime_error(match error {
-        DirectoryError::Invalid(_) | DirectoryError::Wire(_) => RuntimeErrorKind::Corruption,
+        DirectoryError::Invalid(_) => RuntimeErrorKind::Corruption,
         DirectoryError::Budget | DirectoryError::ArithmeticOverflow => {
             RuntimeErrorKind::Unsupported
         }

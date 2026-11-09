@@ -230,7 +230,7 @@ fi
 
 scratch="${TMPDIR:-$(printf '%s\n' "$metadata" | jq -er .target_directory)/tmp}"
 mkdir -p -- "$scratch"
-FILE_LIST_DIR="$(mktemp -d "$scratch/shared-tooling-cloc.XXXXXX")"
+FILE_LIST_DIR="$(mktemp -d "$scratch/toko-tooling-cloc.XXXXXX")"
 trap 'rm -rf "$FILE_LIST_DIR"' EXIT
 printf '%s\n' "$metadata" > "$FILE_LIST_DIR/metadata.json"
 perl "$ROOT/scripts/dev/cloc-classify.pl" "$FILE_LIST_DIR/metadata.json" "$manifest_path" "$FILE_LIST_DIR" > "$FILE_LIST_DIR/report.json"

@@ -149,26 +149,59 @@ impl<'a> SchemaNestedFields<'a> {
 }
 
 ///
-/// SchemaIndexInfo
+/// AcceptedIndexInfo
 ///
-/// Compact field-path index contract exposed by `SchemaInfo`.
+/// Shared accepted index metadata with independently typed key contracts.
 /// Entries source their identity and shape from accepted index snapshots.
 ///
 #[derive(Clone, Debug)]
-pub(in crate::db) struct SchemaIndexInfo {
+pub(in crate::db) struct AcceptedIndexInfo<K> {
     ordinal: u16,
     physical_generation: u64,
     name: String,
     store: String,
     unique: bool,
     unique_constraint: Option<AcceptedConstraintIdentity>,
-    fields: Vec<SchemaIndexFieldPathInfo>,
+    key_items: Vec<K>,
     predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
     predicate_names: Vec<(FieldId, String)>,
     value_catalog: AcceptedValueCatalogHandle,
 }
 
-impl SchemaIndexInfo {
+impl<K> AcceptedIndexInfo<K> {
+    // Copy metadata only from the accepted snapshot, alongside its key contracts.
+    fn from_accepted(
+        index: &PersistedIndexSnapshot,
+        snapshot: &PersistedSchemaSnapshot,
+        value_catalog: &AcceptedValueCatalogHandle,
+        key_items: Vec<K>,
+    ) -> Self {
+        Self {
+            ordinal: index.ordinal(),
+            physical_generation: index.physical_generation(),
+            name: index.name().to_string(),
+            store: index.store().to_string(),
+            unique: index.unique(),
+            unique_constraint: index
+                .unique()
+                .then(|| snapshot.unique_constraint_identity(index.schema_id()))
+                .flatten(),
+            key_items,
+            predicate: index.predicate().cloned(),
+            predicate_names: snapshot
+                .fields()
+                .iter()
+                .filter(|field| {
+                    index
+                        .predicate()
+                        .is_some_and(|p| p.references_field(field.id()))
+                })
+                .map(|field| (field.id(), field.name().to_string()))
+                .collect(),
+            value_catalog: value_catalog.clone(),
+        }
+    }
+
     /// Return the accepted dense physical index ordinal.
     #[must_use]
     pub(in crate::db) const fn ordinal(&self) -> u16 {
@@ -208,12 +241,6 @@ impl SchemaIndexInfo {
         self.unique_constraint.as_ref()
     }
 
-    /// Borrow accepted field-path key item metadata for this index.
-    #[must_use]
-    pub(in crate::db) const fn fields(&self) -> &[SchemaIndexFieldPathInfo] {
-        self.fields.as_slice()
-    }
-
     /// Return whether the accepted index restricts membership.
     pub(in crate::db) const fn has_predicate(&self) -> bool {
         self.predicate.is_some()
@@ -244,6 +271,21 @@ impl SchemaIndexInfo {
             })
             .transpose()
     }
+}
+
+/// Accepted field-path index contract.
+pub(in crate::db) type SchemaIndexInfo = AcceptedIndexInfo<SchemaIndexFieldPathInfo>;
+
+/// Accepted mixed expression/field-path index contract.
+pub(in crate::db) type SchemaExpressionIndexInfo =
+    AcceptedIndexInfo<SchemaExpressionIndexKeyItemInfo>;
+
+impl SchemaIndexInfo {
+    /// Borrow accepted field-path key item metadata for this index.
+    #[must_use]
+    pub(in crate::db) const fn fields(&self) -> &[SchemaIndexFieldPathInfo] {
+        self.key_items.as_slice()
+    }
 
     /// Bind one owned field-path component to this index's catalog authority.
     #[must_use]
@@ -252,7 +294,7 @@ impl SchemaIndexInfo {
         field: &'a SchemaIndexFieldPathInfo,
     ) -> Option<AcceptedValueAdmissionContract<'a>> {
         if !self
-            .fields
+            .key_items
             .iter()
             .any(|candidate| std::ptr::eq(candidate, field))
         {
@@ -262,97 +304,11 @@ impl SchemaIndexInfo {
     }
 }
 
-///
-/// SchemaExpressionIndexInfo
-///
-/// Compact accepted expression-index contract exposed by `SchemaInfo`.
-/// Accepted schema views source this from persisted index snapshots so
-/// expression-index runtime routing does not reopen generated index declarations.
-///
-#[derive(Clone, Debug)]
-pub(in crate::db) struct SchemaExpressionIndexInfo {
-    ordinal: u16,
-    physical_generation: u64,
-    name: String,
-    store: String,
-    unique: bool,
-    unique_constraint: Option<AcceptedConstraintIdentity>,
-    key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
-    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
-    predicate_names: Vec<(FieldId, String)>,
-    value_catalog: AcceptedValueCatalogHandle,
-}
-
 impl SchemaExpressionIndexInfo {
-    /// Return the accepted dense physical index ordinal.
-    #[must_use]
-    pub(in crate::db) const fn ordinal(&self) -> u16 {
-        self.ordinal
-    }
-
-    /// Return the isolated physical key generation.
-    #[must_use]
-    pub(in crate::db) const fn physical_generation(&self) -> u64 {
-        self.physical_generation
-    }
-
-    /// Borrow the accepted stable index name.
-    #[must_use]
-    pub(in crate::db) const fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    /// Borrow the accepted backing index store path.
-    #[must_use]
-    pub(in crate::db) const fn store(&self) -> &str {
-        self.store.as_str()
-    }
-
-    /// Return whether this accepted expression index enforces uniqueness.
-    #[must_use]
-    pub(in crate::db) const fn unique(&self) -> bool {
-        self.unique
-    }
-
-    /// Borrow accepted unique-constraint identity for this index.
-    ///
-    /// A unique index without this identity is corrupt accepted authority and
-    /// must fail closed before reporting a runtime collision.
-    #[must_use]
-    pub(in crate::db) const fn unique_constraint(&self) -> Option<&AcceptedConstraintIdentity> {
-        self.unique_constraint.as_ref()
-    }
-
     /// Borrow accepted key-item contracts in index key order.
     #[must_use]
     pub(in crate::db) const fn key_items(&self) -> &[SchemaExpressionIndexKeyItemInfo] {
         self.key_items.as_slice()
-    }
-
-    /// Borrow optional accepted index-membership predicate SQL metadata.
-    pub(in crate::db) fn predicate_sql(
-        &self,
-    ) -> Result<Option<String>, crate::error::InternalError> {
-        self.predicate
-            .as_ref()
-            .map(|predicate| {
-                predicate.render_sql_with_names(&self.predicate_names, &self.value_catalog)
-            })
-            .transpose()
-    }
-
-    /// Project the accepted bound tree without reparsing SQL or normalizing it.
-    /// Consumers pass the same explicit authority to projection and normalization.
-    pub(in crate::db) fn predicate(
-        &self,
-        work: Option<&dyn crate::db::resource::construction::ConstructionBudget>,
-    ) -> Result<Option<crate::db::predicate::Predicate>, crate::error::InternalError> {
-        self.predicate
-            .as_ref()
-            .map(|predicate| {
-                predicate.to_predicate_with_names(&self.predicate_names, &self.value_catalog, work)
-            })
-            .transpose()
     }
 
     /// Bind one owned field-path component to this index's catalog authority.
@@ -994,34 +950,16 @@ pub(in crate::db) fn schema_index_info_from_accepted_index(
         return None;
     }
 
-    Some(SchemaIndexInfo {
-        ordinal: index.ordinal(),
-        physical_generation: index.physical_generation(),
-        name: index.name().to_string(),
-        store: index.store().to_string(),
-        unique: index.unique(),
-        unique_constraint: index
-            .unique()
-            .then(|| snapshot.unique_constraint_identity(index.schema_id()))
-            .flatten(),
-        fields: index
+    Some(SchemaIndexInfo::from_accepted(
+        index,
+        snapshot,
+        value_catalog,
+        index
             .key()
             .field_paths()
             .map(|path| schema_index_field_path_info_from_accepted(path, snapshot, value_catalog))
             .collect(),
-        predicate: index.predicate().cloned(),
-        predicate_names: snapshot
-            .fields()
-            .iter()
-            .filter(|field| {
-                index
-                    .predicate()
-                    .is_some_and(|p| p.references_field(field.id()))
-            })
-            .map(|field| (field.id(), field.name().to_string()))
-            .collect(),
-        value_catalog: value_catalog.clone(),
-    })
+    ))
 }
 
 pub(in crate::db) fn schema_expression_index_info_from_accepted_index(
@@ -1038,33 +976,15 @@ pub(in crate::db) fn schema_expression_index_info_from_accepted_index(
         return None;
     }
 
-    Some(SchemaExpressionIndexInfo {
-        ordinal: index.ordinal(),
-        physical_generation: index.physical_generation(),
-        name: index.name().to_string(),
-        store: index.store().to_string(),
-        unique: index.unique(),
-        unique_constraint: index
-            .unique()
-            .then(|| snapshot.unique_constraint_identity(index.schema_id()))
-            .flatten(),
-        key_items: items
+    Some(SchemaExpressionIndexInfo::from_accepted(
+        index,
+        snapshot,
+        value_catalog,
+        items
             .iter()
             .map(|item| schema_expression_index_key_item_info(item, snapshot, value_catalog))
             .collect(),
-        predicate: index.predicate().cloned(),
-        predicate_names: snapshot
-            .fields()
-            .iter()
-            .filter(|field| {
-                index
-                    .predicate()
-                    .is_some_and(|p| p.references_field(field.id()))
-            })
-            .map(|field| (field.id(), field.name().to_string()))
-            .collect(),
-        value_catalog: value_catalog.clone(),
-    })
+    ))
 }
 
 fn schema_expression_index_key_item_info(
@@ -1143,7 +1063,7 @@ crate::retained::retained_fields!(SchemaIndexFieldPathInfo {
 Self{field_name,slot,path,persisted_kind,accepted_value_contract,nullable} => [field_name,slot,path,persisted_kind,accepted_value_contract,nullable],
 });
 crate::retained::retained_fields!(SchemaIndexInfo {
-Self{ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate,predicate_names,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate,predicate_names,value_catalog],
+Self{ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate,predicate_names,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate,predicate_names,value_catalog],
 });
 crate::retained::retained_fields!(SchemaInfo {
 Self{fields,indexes,expression_indexes,value_catalog,entity_name,primary_key_names} => [fields,indexes,expression_indexes,value_catalog,entity_name,primary_key_names],

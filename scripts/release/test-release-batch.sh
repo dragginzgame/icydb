@@ -4,7 +4,7 @@
 set -euo pipefail
 [[ $# == 0 ]] || exit 2
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES SHARED_TOOLING_ROOT
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES TOKO_TOOLING_ROOT
 unset RELEASE_GROUP RELEASE_GROUPS RELEASE_PUBLISH_TARGET RELEASE_BATCH_ACTIVE
 unset RELEASE_COMMIT RELEASE_SOURCE RELEASE_RECEIPT_DIR ICYDB_RELEASE_ROOT PACKAGE
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
@@ -26,7 +26,7 @@ export FROZEN_TEST_RECORD="$fixture" FROZEN_TEST_NORMAL="$normal" FROZEN_TEST_CA
 FROZEN_TEST_CARGO="$(command -v cargo)"
 FROZEN_TEST_CURL="$(command -v curl)"
 FROZEN_TEST_SOURCE_CACHE="$(make --no-print-directory -s -C "$root" print-cargo-home)"
-bash "$root/scripts/ci/verify-shared-tooling-snapshot.sh" --consumer "$root"
+bash "$root/scripts/ci/verify-toko-tooling-snapshot.sh" --consumer "$root"
 git -C "$root" ls-files --cached --others --exclude-standard -z > "$fixture/source-paths"
 while IFS= read -r -d '' path; do
     [[ -e "$root/$path" ]] || continue

@@ -31,8 +31,8 @@ alone does not establish that a consumer has stopped needing an older version.
 ## Preview and reclamation
 
 Invoke the helper from the reviewed Shared snapshot. `STORE` below is the physical
-store root, normally `$HOME/.local/share/shared-tooling/tools`; honor an existing
-`SHARED_TOOLING_STORE` or `XDG_DATA_HOME` selection. Resolve ancestor aliases such
+store root, normally `$HOME/.local/share/toko-tooling/tools`; honor an existing
+`TOKO_TOOLING_STORE` or `XDG_DATA_HOME` selection. Resolve ancestor aliases such
 as macOS `/var` to their physical paths before invoking this interface.
 
 ```bash

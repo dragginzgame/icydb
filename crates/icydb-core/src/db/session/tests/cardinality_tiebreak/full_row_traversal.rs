@@ -214,28 +214,18 @@ fn assert_cursor_pages(descending: bool, expected: &[Vec<OutputValue>]) {
             } else {
                 asc("id")
             });
-        let mut continuation = None;
-        let mut actual = Vec::new();
         let mut empty_pages = 0;
         let before = DataStore::current_get_call_count();
-        for _ in 0..132 {
+        let (actual, _) = collect_test_pages(None, 132, |cursor| {
             let root = crate::db::RequestExecutionRoot::__new_runtime_root();
             let page = new_request_session(&root)
-                .execute_trusted_live_page(&query, continuation.as_deref())
+                .execute_trusted_live_page(&query, cursor)
                 .unwrap();
             if page.rows.is_empty() && page.continuation.is_some() {
                 empty_pages += 1;
             }
-            actual.extend(page.rows);
-            if page.continuation.is_some() {
-                assert_ne!(page.continuation, continuation);
-            }
-            continuation = page.continuation;
-            if continuation.is_none() {
-                break;
-            }
-        }
-        assert!(continuation.is_none());
+            page
+        });
         let expected = expected
             .iter()
             .filter(|row| !selective || row[0] == OutputValue::nat64(64))

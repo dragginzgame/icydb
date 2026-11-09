@@ -10,7 +10,7 @@ perl scripts/ci/check-tool-catalogs.pl --consumer /path/to/consumer \
   --bindings ci/tool-catalog-bindings.json --json
 ```
 
-Shared Tooling also exposes `make check-tool-catalogs`, with
+Toko Tooling also exposes `make check-tool-catalogs`, with
 `TOOL_CATALOG_CONSUMER` and `TOOL_CATALOG_BINDINGS` selecting those same inputs.
 Consumers can invoke the exported script from an optional CI target. The binding
 file must exist in the selected consumer root; an absent file is unresolved.

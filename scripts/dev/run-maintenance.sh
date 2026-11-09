@@ -173,7 +173,7 @@ if [[ -n "$prior_report" ]]; then
     printf '%s\n' "$prior_report" > "$run_dir/prior-report-source.txt"
 fi
 {
-    printf 'Shared Tooling checkout: %s\nProjects directory: %s\nRun directory: %s\n' "$ROOT" "$projects_root" "$run_dir"
+    printf 'Toko Tooling checkout: %s\nProjects directory: %s\nRun directory: %s\n' "$ROOT" "$projects_root" "$run_dir"
     if [[ -n "$prior_report" ]]; then printf 'Prior completed report: %s/prior-report.md\n' "$run_dir";
     else printf 'No prior completed report is available.\n'; fi
     cat "$ROOT/tasks/maintenance-prompt.md"

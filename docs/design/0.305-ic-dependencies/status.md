@@ -218,3 +218,91 @@ lock prepares its missing cached registry entry without changing any selection;
 active adoption notes now name that patch accurately. Preserve the failed batch,
 its logs and native certificates. A fresh capture must still complete the full
 product release gate; these fixture/preflight passes grant no stage omission.
+
+## Second authorized simplification pass — 9 November 2026
+
+The maintainer accepts the ten audited candidates after 0.305.0 delivery.
+Continue compatible work in pending 0.305.1, preserving the incoming tooling
+adoption. Each candidate owns its direct propagation and focused checks; retain
+distinct contracts where convergence would require a larger framework:
+
+10. Share paging-test continuation bookkeeping, retaining lane/budget assertions.
+11. Consolidate common accepted index metadata without model reconstruction.
+12. Share accepted-schema introspection facts, preserving output ordering.
+13. Share planner/EXPLAIN candidate facts without adding diagnostic work to queries.
+14. Share constraint scan mechanics, retaining staging and budget semantics.
+15. Share initial/reconciliation constraint binding, retaining identity/activation.
+16. Review literal/template SELECT preparation for safe common preparation.
+17. Reduce constant-folding glue without expanding folded semantics.
+18. Declare broad diagnostic metadata once, preserving codes and formatting.
+19. Reduce List/Set boilerplate while retaining named types and Set validation.
+
+No package versions, delivery, sibling edits or broad validation are authorized.
+
+### Candidate dispositions
+
+| Audit candidate | Outcome |
+| --- | --- |
+| 1. Planner/EXPLAIN candidate analysis | Narrowed to borrowing the existing prefix-score contract. Equality-prefix traversal, range compare admission and key-item support are already common. Preserve separate diagnostics/ranking: ordinary IN planning checks schema literals once before candidate ranking, while EXPLAIN reports per-candidate rejection and charges its own walk. A universal result would add work or change admission. |
+| 2. Paging-test scaffolding | Eleven collectors and four scalar-limit traversals use one bounded continuation drain. Caller lanes, per-page work checks, limits, scenarios and every-resume suffix assertions remain. |
+| 3. Accepted-schema descriptions | No new abstraction. Kind/default payload rendering already shares accepted helpers. Compact output sorts field IDs and nested paths and applies compact-row bounds; full output follows persisted order and renders historical temporal facts. A common facts bundle would compute unused facts and move failure ordering. |
+| 4. Index metadata | One accepted metadata constructor/implementation parameterized by key-item type. Keep specialized field ownership checks and exhaustive retained accounting. |
+| 5. Constraint scan mechanics | Share exclusive resume bounds and stored key/entity/row admission. Keep page admission, maintenance charges, row-local budget diagnostics, unique staging and publication separate. |
+| 6. Constraint binding | No new abstraction. Both paths already call the same source-expression and targeted-rule binders. Initial construction activates immediately; reconciliation matches existing identities/activation records or requests journaled validation. A common dispatcher adds an intermediate enum without removing binding logic. |
+| 7. SELECT preparation | No new orchestration. Both paths share preparation, lowering and structural binders. Templates must admit bound WHERE before projection errors and retain a value-independent body; literal compilation binds the whole statement. A mode-bearing wrapper would obscure those invariants. |
+| 8. Constant folding | Borrow COALESCE literal inputs instead of cloning all of them; the shared evaluator clones the selected result. Preserve numeric kernels, optional fold refusal, arity/NULL behavior and runtime error/budget boundaries. |
+| 9. Diagnostic metadata | Generate broad variants and class/origin/code projections from one local table; detailed registry and compact formatting remain independent. |
+| 10. List/Set boilerplate | Share derive-side definition/schema-kind/schema-part mechanics using the existing collection trait helper. Preserve public model descriptors, parsing, Vec/BTreeSet generation and Set immutable-key validation. Map remains separate. |
+
+These dispositions complete the requested review of all ten candidates; they
+are not a new follow-up queue. Seven receive bounded code changes, three require
+no additional abstraction. The broader evaluator/folding unifications are
+intentionally not built. No supported feature or test scenario is retired.
+
+### Focused closeout of the second pass
+
+Ready for user-owned integration on Rust 1.99.1. All 1,676 selected tests pass:
+832 accepted-schema/constraint cases, 339 planner/expression cases, 297 real
+paging cases, 177 model-macro cases and 31 diagnostic-code cases. Strict
+all-feature library/test-target Clippy and default-feature library Clippy pass
+for Core, Diagnostic Code and Model Macros. Formatting and diff whitespace
+checks pass. Initial inference and lint fallout was corrected before these
+final checks; the missing exact tooling crate was fetched without lock changes.
+
+The shared classifier reports 154 fewer non-test code lines and 54 fewer test
+code lines (208 total) across 15 changed Rust files; all 2,169 Rust files remain
+classified. The comparison uses the incoming 0.36.1 classifier result, excluding
+its earlier category-only changes. Evidence is under
+`target/evidence/simplification-0305-patch/`. Group/minor notes retain the incoming
+tooling outcome and now record the completed simplifications and dispositions.
+
+All incoming tooling diffs are preserved; only the two pending release-note
+files are extended. No package-version, staging, commit, push, deployment,
+sibling or IC network lifecycle action occurred. Full workspace/release gates,
+macOS and installed IC/Canic qualification remain skipped user-owned validation.
+IC cycles/instructions and uncompressed total/code-section Wasm changes remain
+unmeasured. There is no outstanding implementation item in this accepted pass.
+
+### Paging closeout correction
+
+The continuation review found missed propagation within candidate 2: composite
+keys, unordered DISTINCT, index admission and numeric-range collectors, plus
+four scalar-limit drain loops. Reuse the existing helper with no new abstraction;
+preserve same-session index-admission execution and fresh-request execution
+elsewhere, all page ceilings and every expected-row/resume assertion. Qualify
+the affected paging family and strict test-target lint before handoff.
+
+Paging closeout passes all 297 selected cases and strict all-feature Core
+library/test-target Clippy on Rust 1.99.1. All 22 test functions in the four
+edited files remain. Formatting and diff whitespace checks pass. The shared
+classifier measures a further 77 test code lines removed and zero non-test
+change; cumulative cleanup is 154 non-test plus 131 test lines removed (285
+total). Group/minor notes are updated without replacing existing outcomes.
+Evidence: `target/evidence/paging-closeout-0305/`. No broader gate, release,
+network lifecycle or sibling action was taken; IC/Wasm measurements remain
+unmeasured. This completes the bounded paging propagation correction.
+
+The maintainer subsequently authorized the 0.306 Storage backing adoption.
+Unpublished 0.305.1 notes move intact into the pending 0.306.0 batch; published
+0.305.0 notes stay unchanged. Current adoption qualification is recorded in
+[the 0.306 tracker](../0.306-storage-backing/status.md).

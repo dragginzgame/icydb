@@ -1,6 +1,6 @@
 # Cross-runtime RPC budgets
 
-This rule is part of the [engineering baseline](../DRAGGINZGAME.md#ic-application-encoding).
+This rule is part of the [engineering baseline](../TOKO-TOOLING.md#ic-application-encoding).
 It applies when an owned RPC contract generates clients for another runtime,
 including Rust canisters with browser clients. A server-admitted response can
 still fail at a client configured with independently maintained limits.
@@ -30,7 +30,7 @@ still fail at a client configured with independently maintained limits.
   admitted inputs or replies need product review and compatibility assessment
   under the [package-impact rules](changelogs.md#classify-the-released-packages-own-impact).
 
-Shared Tooling owns this rule and recipe, not numeric defaults, codec traversal
+Toko Tooling owns this rule and recipe, not numeric defaults, codec traversal
 or an RPC framework. IC Wire owns its codec, generator and admission semantics.
 Consumers own policy, generator integration, endpoint/transport limits and tests.
 Missing supplier capabilities remain owning issues; policy publication is not
@@ -89,7 +89,7 @@ IcyDB's reported integration illustrates the boundary: `icydb-schema::wire`
 owns native policy, while `testing/build/examples/wire_bindings/main.rs` supplies
 browser generator settings. The reported browser node/depth literals were
 independent of the schema policy even though byte settings were reused. See
-[#307 — Browser RPC budget policy and qualification](https://github.com/dragginzgame/shared-tooling/issues/307)
+[#307 — Browser RPC budget policy and qualification](https://github.com/dragginzgame/toko-tooling/issues/307)
 for the original evidence; these paths describe an example, not required layout
 or a statement of current consumer qualification.
 

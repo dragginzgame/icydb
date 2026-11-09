@@ -76,9 +76,9 @@ fi
 check_wait_seconds="${check_wait_seconds:-0}"
 setup_wait_seconds=0
 if [[ "$check_only:$preflight:$describe" == false:false:false ]]; then
-    setup_wait_seconds="${SHARED_TOOLING_SETUP_WAIT_SECONDS:-60}"
+    setup_wait_seconds="${TOKO_TOOLING_SETUP_WAIT_SECONDS:-60}"
     [[ "$setup_wait_seconds" =~ ^(0|[1-9][0-9]{0,2})$ && "$setup_wait_seconds" -le 300 ]] || {
-        echo 'SHARED_TOOLING_SETUP_WAIT_SECONDS must be a canonical integer from 0 to 300' >&2
+        echo 'TOKO_TOOLING_SETUP_WAIT_SECONDS must be a canonical integer from 0 to 300' >&2
         exit 2
     }
 fi
@@ -88,12 +88,12 @@ consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
 selection_consumer="$consumer"
-if [[ "$consumer" == "${SHARED_TOOLING_FORMAT_WORKTREE:-}" ]]; then
-    [[ "$check_only" == true && -n "${SHARED_TOOLING_FORMAT_TOOLS_FROM:-}" ]] || {
+if [[ "$consumer" == "${TOKO_TOOLING_FORMAT_WORKTREE:-}" ]]; then
+    [[ "$check_only" == true && -n "${TOKO_TOOLING_FORMAT_TOOLS_FROM:-}" ]] || {
         echo 'format exports only admit prepared Rust tools with --check; run explicit setup in the checkout' >&2
         exit 2
     }
-    selection_consumer="$(cd -P "$SHARED_TOOLING_FORMAT_TOOLS_FROM" && printf '%s/.' "$PWD")"
+    selection_consumer="$(cd -P "$TOKO_TOOLING_FORMAT_TOOLS_FROM" && printf '%s/.' "$PWD")"
     selection_consumer="${selection_consumer%/.}"
 fi
 export PATH="$consumer/.tools/host/bin:$PATH"

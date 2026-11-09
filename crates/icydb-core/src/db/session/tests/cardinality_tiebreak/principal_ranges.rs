@@ -218,27 +218,17 @@ fn sql_issue_principal_literals_round_trip_writes_and_indexed_or_scan_reads() {
 fn collect_pages(
     query: &DynamicQuery,
     public: bool,
-    mut cursor: Option<String>,
+    cursor: Option<String>,
 ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    for _ in 0..32 {
+    collect_test_pages(cursor, 32, |cursor| {
         let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-        let page = if public {
-            session.execute_public_live_page(query, cursor.as_deref())
+        if public {
+            session.execute_public_live_page(query, cursor)
         } else {
-            session.execute_trusted_live_page(query, cursor.as_deref())
+            session.execute_trusted_live_page(query, cursor)
         }
-        .unwrap();
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return (rows, tokens);
-        };
-        assert_ne!(Some(&next), cursor.as_ref());
-        tokens.push((next.clone(), rows.len()));
-        cursor = Some(next);
-    }
-    panic!("Principal pages must exhaust within the bounded page count");
+        .unwrap()
+    })
 }
 
 fn assert_index_access(query: &DynamicQuery, range: bool) {

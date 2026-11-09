@@ -1,14 +1,14 @@
 # Git formatting hooks
 <!-- Shared companions: rules/rust-workspaces.md -->
 
-These rules are part of the [engineering baseline](../DRAGGINZGAME.md) for Rust
+These rules are part of the [engineering baseline](../TOKO-TOOLING.md) for Rust
 repositories. The standard pre-commit hook automatically formats the selected
 commit payload. Repository-local Git hooks run before a commit; GitHub CI provides
 the independent, non-mutating formatting gate.
 
 ## One formatting contract
 
-- Vendor the reviewed Shared Tooling `.githooks/pre-commit` and
+- Vendor the reviewed Toko Tooling `.githooks/pre-commit` and
   `scripts/dev/install-git-hooks.sh`, with `scripts/ci/check-make-execution.sh`,
   unchanged in the [recorded snapshot](../docs/consuming-snapshots.md).
   Keep the hook and installer executable.
@@ -29,7 +29,7 @@ the independent, non-mutating formatting gate.
   itself grant a layout exception.
 - Use the `cargo-sort` tool for manifest ordering. Record an exact reviewed
   version in the consumer's developer and CI setup and use the same version in
-  both; Shared Tooling's fixtures use `2.1.4`, matching Canic's reviewed selection.
+  both; Toko Tooling's fixtures use `2.1.4`, matching Canic's reviewed selection.
   Install it during explicit setup, with `--version` and `--locked`, never during
   pre-commit or validation. Keep toolchain and rustfmt/tomlfmt configuration
   locally owned. Sorting preserves dependency identities, features, package
@@ -87,8 +87,8 @@ Its `run-rust-formatting.pl` companion owns standard Rust workspace orchestratio
 input reuse, pass timings and retained logs. `run-formatting.sh` preserves compact
 presentation for custom commands. Include the declared closure in snapshots and
 isolated hook/adoption fixture inputs.
-The adjacent `make/execution.mk` companion uses the existing execution probe to
-reject Make ignore-errors and non-executing modes before recipes run. Select its
+The adjacent `make/execution.mk` companion uses a recipe-scoped execution probe to
+reject Make ignore-errors and non-executing modes before formatting recipes run. Select its
 declared companion when exporting; a failing prerequisite alone cannot enforce
 failure propagation under ignore-errors mode.
 Admission checks both `MAKEFLAGS` and Make's retained `MFLAGS`, including when
@@ -130,7 +130,7 @@ and `cfg_attr`, fixing the `$crate` corruption in 0.13.0 and 0.14.0. Its build
 requires Rust 1.88 or newer; this is the formatter's compiler requirement, not a
 change to a consumer library's MSRV. Consumer pins remain explicit inputs.
 
-Shared Tooling's `test-frontend-formatting.sh` fixture sorts unprotected direct
+Toko Tooling's `test-frontend-formatting.sh` fixture sorts unprotected direct
 and conditional macro derives through the real hook, compares the refreshed
 staged bytes, compiles both exported macros from a separate crate and checks
 ordinary sorting and repeat-run stability. Run that qualification on supported
@@ -148,7 +148,7 @@ printf '%s\n' '#[derive($crate::exports::Debug, $crate::exports::Clone)]' |
 ```
 
 The [upstream fix](https://github.com/lusingander/cargo-sort-derives/pull/28)
-and [shared qualification](https://github.com/dragginzgame/shared-tooling/issues/113)
+and [shared qualification](https://github.com/dragginzgame/toko-tooling/issues/113)
 record the repair and remaining consumer/native acceptance. Do not infer
 consumer adoption from the shared pin alone.
 
@@ -172,7 +172,7 @@ fmt fmt-check: export PRETTIER_VERSION := $(PRETTIER_VERSION)
 ```
 
 Retain the Rust prerequisite checks and all actual workspace roots described
-above. The hook supplies `SHARED_TOOLING_FORMAT_FILES`, a NUL-delimited selection
+above. The hook supplies `TOKO_TOOLING_FORMAT_FILES`, a NUL-delimited selection
 outside the exported worktree. The helper formats matching selected frontend
 paths inside that export; the hook alone refreshes the real index. Outside the
 hook, `--write` and `--check` cover tracked frontend inputs, with `--check` always
@@ -192,7 +192,7 @@ and focused adapter checks. Preserve config, version and lock selections from
 the snapshot; do not make the formatter read unstaged configuration in the real
 checkout. Qualify real Prettier on the declared native hosts before claiming
 adoption; shared command-substitute tests prove wiring and selection only.
-Shared Tooling additionally runs `scripts/ci/test-frontend-formatting.sh` with
+Toko Tooling additionally runs `scripts/ci/test-frontend-formatting.sh` with
 locked real Prettier and Rust formatters in its native CI matrix. It exercises
 selected-file refresh, snapshot configuration and ignore behavior, parse-failure
 isolation, partial staging, and preservation of unrelated files and the npm lock.
@@ -215,7 +215,7 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
   before the inherited PATH; an interactive shell export is not required for
   those common tools. Products requiring IC formatters explicitly publish their
   prepared IC PATH or select it in their Make recipes; index exports expose
-  `SHARED_TOOLING_FORMAT_TOOLS_FROM` for the original checkout's tool root.
+  `TOKO_TOOLING_FORMAT_TOOLS_FROM` for the original checkout's tool root.
   Prerequisite checks still enforce the selected versions, and
   formatting never installs missing tools. It clears inherited Git
   repository/index variables for formatters,
@@ -224,8 +224,8 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
   before dispatch, so a skipped or failed formatter cannot refresh the index.
 - Receipt checks using `install-rust-tools.sh --consumer "$(CURDIR)" --check`
   can inspect the original checkout's prepared Rust selections from the index
-  export. The hook supplies `SHARED_TOOLING_FORMAT_WORKTREE` and
-  `SHARED_TOOLING_FORMAT_TOOLS_FROM` as an internal, exact-worktree context.
+  export. The hook supplies `TOKO_TOOLING_FORMAT_WORKTREE` and
+  `TOKO_TOOLING_FORMAT_TOOLS_FROM` as an internal, exact-worktree context.
   Catalog/lock selection and compiler resolution still use the export and its
   inherited declared environment. Mismatched or corrupt receipts refuse; setup
   in the export refuses. Keep stronger consumer prerequisites intact. An
@@ -272,7 +272,7 @@ effective `git config --get core.hooksPath`, executable mode, snapshot integrity
 formatter prerequisites and the consumer's actual `fmt`/`fmt-check` targets.
 Exercise automatic refresh, partial-stage rejection, failed formatter isolation
 and unrelated working-edit preservation on the declared Linux/macOS hosts.
-Report source/snapshot adoption and local activation separately. Shared Tooling
+Report source/snapshot adoption and local activation separately. Toko Tooling
 distributes and tests the Rust hook; its own shell-only checkout does not activate
 it.
 

@@ -1,6 +1,6 @@
 # Rust workspace layout
 
-These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md).
+These rules are part of the mandatory [engineering baseline](../TOKO-TOOLING.md).
 They standardise maintained Rust package locations while preserving locally
 owned APIs, canister identities, validation gates and deployment configuration.
 
@@ -159,7 +159,7 @@ still governs demonstrated integration blockers.
   adjacent changes, but do not hold urgent fixes for unrelated work or enlarge a
   release with speculative changes. Classify the combined release and downstream
   adoption using the [package-impact rules](changelogs.md#classify-the-released-packages-own-impact).
-- Keep unrelated repositories independently versioned. Shared Tooling snapshot
+- Keep unrelated repositories independently versioned. Toko Tooling snapshot
   adoption, a common dependency or a common owner does not require fleet-wide
   version synchronization. Verify adoption through the consumer's
   [selected dependency graphs](../docs/cargo-graph-checks.md#coordinated-release-adoption).
@@ -378,7 +378,7 @@ on 2026-10-07, following reversal of the crates-only moves. IcyDB may keep:
 - `testing/` for its test harnesses and support packages.
 
 This is an approved physical-layout exception. It requires no relocation into
-`crates/` or `apps/` as part of shared-tooling adoption or routine maintenance.
+`crates/` or `apps/` as part of toko-tooling adoption or routine maintenance.
 Keep the virtual core root, its selected graph and lockfile, root-owned
 versions/dependencies, package identities and complete member coverage. The
 [core boundary rule](#core-and-integration-graph-boundary) permits documented

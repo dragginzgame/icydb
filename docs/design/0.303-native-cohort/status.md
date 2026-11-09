@@ -373,7 +373,7 @@ action (162 payloads). Adopt published Build 0.79.0 and Testkit 0.93.1, and alig
 Host Text's declared floor with its already-locked 0.74.3 patch. Host Tools 0.86
 and Host Artifacts/Fs/Process 0.75 were already current. Registry archive checksums
 and clean source identities are recorded in the existing
-[adoption provenance](../../governance/shared-tooling.md#current-0303-cohort-2026-11-08).
+[adoption provenance](../../governance/toko-tooling.md#current-0303-cohort-2026-11-08).
 The only changed root lock versions are Build and Testkit. Preserve incoming
 Runtime/Storage/Wire selections and the isolated Canic lock; no package version or
 release boundary changes.

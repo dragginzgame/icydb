@@ -43,7 +43,7 @@ architecture on another.
 
 ## CLI applications
 
-Follow the mandatory [Clap CLI rule](../../DRAGGINZGAME.md#cli-applications).
+Follow the mandatory [Clap CLI rule](../../TOKO-TOOLING.md#cli-applications).
 Use the library's existing capabilities before adding custom argument handling.
 
 ## Metrics and logging
@@ -161,10 +161,10 @@ or section banners.
   under `tools/`, `scripts/` or an explicit tooling package. Keep approved package
   placements; do not move whole workspaces merely to make LOC classification work.
   A fixture-only, example-only, benchmark or tooling package must declare its role
-  in `[package.metadata.shared-tooling.loc]`; use `category = "tests"`,
+  in `[package.metadata.toko-tooling.loc]`; use `category = "tests"`,
   `"examples"`, `"benchmarks"` or `"build_tooling"`. Names and `publish = false` are not declarations
   of purpose. Explicit path classifications and generated flags follow the
-  [LOC reporting contract](https://github.com/dragginzgame/shared-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#source-classification).
+  [LOC reporting contract](https://github.com/dragginzgame/toko-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#source-classification).
 - Put cross-module behavior tests at the subsystem boundary they exercise.
 - Add negative coverage for public validation and trust boundaries.
 - Test maintained contracts rather than private implementation layout.
@@ -214,7 +214,7 @@ Use `rustfmt` as the formatting authority and Clippy as a linting baseline.
 Consumers own exact commands, toolchain versions, lint configuration and
 qualification gates within the shared baseline. Focused checks run automatically
 during authorized development under the
-[shared validation policy](../../DRAGGINZGAME.md#validation-and-evidence), which
+[shared validation policy](../../TOKO-TOOLING.md#validation-and-evidence), which
 also requires Clippy before expensive release/deployment stages. Full-suite and
 release execution retain their separate authorization. Wasm and host-specific
 constraints must preserve the baseline's required macOS support and evidence rules.

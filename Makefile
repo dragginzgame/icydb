@@ -25,7 +25,7 @@
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-override SHARED_TOOLING_ROOT := $(ROOT_DIR)
+override TOKO_TOOLING_ROOT := $(ROOT_DIR)
 LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-release-editor
 LOCAL_TOOL_CHECK_TARGETS := ic-tools-check release-editor-check
 # IC executables are an explicit IcyDB selection under the shared baseline.
@@ -40,8 +40,8 @@ export RELEASE_GROUP
 include $(ROOT_DIR)/make/consumer.mk
 
 # These consumer entrypoints bypass Shared's generic `ci` target.
-ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b ci-adapter: shared-tooling-check
-build-canister-local build-canister-production: shared-tooling-check
+ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b ci-adapter: toko-tooling-check
+build-canister-local build-canister-production: toko-tooling-check
 
 # A shared installed snapshot also needs admission from the independent lock.
 fetch-adapter test-adapter clippy-adapter validate-adapter fmt-adapter fmt-adapter-check check-adapter-automation ci-adapter ci-sql-tier-b: check-adapter-tooling
@@ -130,7 +130,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
-	@echo "  shared-tooling-check Verify the reviewed shared snapshot offline"
+	@echo "  toko-tooling-check Verify the reviewed shared snapshot offline"
 	@echo "  check-adapter-tooling Admit the independent Canic tooling selection"
 	@echo "  install-testkit  Prepare the explicit adapter Testkit CLI/server after make fetch-adapter"
 	@echo "  testkit-check    Verify Testkit offline and print its admitted server path"
@@ -543,7 +543,7 @@ check-dependency-pins:
 # actual dispatch, source/receipt custody, rejection and recovery boundaries.
 # Standalone native qualification retains the same fixtures and input checks.
 .PHONY: check-automation check-product-invariants
-check-portable-automation: shared-tooling-check
+check-portable-automation: toko-tooling-check
 	+$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
 	perl scripts/ci/test-documentation.pl
 	+$(MAKE) --no-print-directory check-automation
@@ -551,7 +551,7 @@ check-portable-automation: shared-tooling-check
 	perl scripts/ci/check-documentation.pl
 
 check-automation:
-	bash scripts/ci/test-shared-tooling-adapters.sh
+	bash scripts/ci/test-toko-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
@@ -567,7 +567,7 @@ check-automation:
 	bash scripts/release/test-finalize-notes.sh
 
 .PHONY: check-adapter-tooling
-check-adapter-tooling: shared-tooling-check
+check-adapter-tooling: toko-tooling-check
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-adapter-tooling.sh
 
 check-adapter-automation:
@@ -580,7 +580,7 @@ check-invariants:
 	+$(MAKE) --no-print-directory check-product-invariants
 	+$(MAKE) --no-print-directory check-automation
 
-check-product-invariants: shared-tooling-check
+check-product-invariants: toko-tooling-check
 	+$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
 	perl scripts/ci/test-documentation.pl
 	bash scripts/ci/check-ci-workflow-invariants.sh
@@ -779,7 +779,7 @@ release-verify release-prepare-version release-prepared-check release-commit-che
 .PHONY: release-candidate-setup test-release-batch
 # Shared invokes setup before version discovery and checks saved tools on resume.
 # Recovery never installs a tool from partially prepared working metadata.
-release-candidate-setup: shared-tooling-check
+release-candidate-setup: toko-tooling-check
 	+@case "$(RELEASE_SETUP_MODE)" in \
 		prepare) \
 			{ $(MAKE) --no-print-directory host-tools-check >/dev/null 2>&1 || $(MAKE) --no-print-directory install-host-tools >&2; } && \

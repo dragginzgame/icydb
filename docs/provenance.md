@@ -1,6 +1,6 @@
 # Provenance
 
-Shared Tooling is maintained collaboratively across Dragginz Game repositories.
+Toko Tooling is maintained collaboratively across Dragginz Game repositories.
 
 - Canic supplied the initial portable tooling and CI mechanics.
 - The first cross-consumer review on 2026-09-03 incorporated IcyDB feedback on
@@ -15,7 +15,7 @@ Shared Tooling is maintained collaboratively across Dragginz Game repositories.
   Their reviewed policy files were `docs/governance/changelog.md` at Canic revision
   `481e94d0e93080168fb04546cebb3fc48887a66f` and IcyDB revision
   `8e74b6bac5d054eab9dd9de3435f258d85926040`; those policy files were clean, while
-  IcyDB's current ledger included working-tree edits. Shared Tooling retains its
+  IcyDB's current ledger included working-tree edits. Toko Tooling retains its
   own draft, release and authority contract; consumer-specific presentation and
   scoped exceptions were not promoted into universal rules. This source review
   does not establish adoption in any consumer.
@@ -61,7 +61,7 @@ requirements with IC Timers' verification-before-execution checks and IC Metrics
 retained provisioning evidence. Exact default versions match the inspected
 consumers; Quill is added from the official release. Platform digests and release
 sources are recorded in [IC tools](ic-tools.md). This is setup orchestration.
-The current [capability owners](https://github.com/dragginzgame/shared-tooling/blob/main/README.md#capability-ownership) separate
+The current [capability owners](https://github.com/dragginzgame/toko-tooling/blob/main/README.md#capability-ownership) separate
 executable provisioning here, host primitives/IC interpretation in IC Host
 Tooling, and build/Candid extraction orchestration in IC Build. The inspected
 historical provisioning requirements above retain their original attribution.
@@ -103,7 +103,7 @@ Workspace-version readers were inspected in IC Testkit
 The shared reader uses Cargo's validation and yq/jq projection rather than
 promoting a consumer's text parser. Version mutation remains local.
 
-CI installer consolidation reuses Shared Tooling's three existing entry points
+CI installer consolidation reuses Toko Tooling's three existing entry points
 at `9f8c7c768793f4ce8f25be9e88282c0f63a06e7f`. Asset mappings, versions and
 checksum contracts are unchanged; the shared implementation stages on the
 destination filesystem and retains failed candidates. Consumers must review
@@ -113,7 +113,7 @@ the expanded snapshot dependency set before refreshing the entry points.
 
 The sccache installer extracts Canic's `scripts/ci/install-sccache-ci.sh` at
 `d815abfc661d791ecf72afc5b1e4b6a990f37a91` (source file clean), preserving its
-Linux x86-64 musl archive mapping. Shared Tooling adds it to the existing CI
+Linux x86-64 musl archive mapping. Toko Tooling adds it to the existing CI
 installer owner so failure retention and same-filesystem replacement converge.
 Canic's reviewed 0.17.0 archive digest was checked against official release
 metadata; consumers still own their version and digest selections.
@@ -155,13 +155,13 @@ publication behavior remains with the consumers. See the
 
 The metadata extension to that same registry helper consolidates Auth's exact
 checksum readback and Blob's package/version/checksum/yanked parsing, reviewed in
-[Shared #94](https://github.com/dragginzgame/shared-tooling/issues/94). Transport
+[Shared #94](https://github.com/dragginzgame/toko-tooling/issues/94). Transport
 and JSON observation are shared; archive identity and publication decisions stay
 with those consumers. This does not claim their snapshots or callers are adopted.
 
 Portable digest generation extends the existing checksum verifier, informed by
 IcyDB's `wasm_report_sha256` in `scripts/ci/wasm-report-common.sh` at the same
-revision. Shared Tooling's IC receipt writer and snapshot refresh now use that
+revision. Toko Tooling's IC receipt writer and snapshot refresh now use that
 owner; consumer Wasm schemas and stream/tree hashes remain local.
 
 RustSec preparation extracts the isolation mechanics from Canic's
@@ -199,7 +199,7 @@ that the consumers have adopted their committed snapshots.
 The Perl helper replaces the duplicated mechanics reviewed in Canic's
 `scripts/dev/delete-github-tags-up-to.sh` at `e1a211a00f01568ccc99bedc494c62a7141444dd`
 and IcyDB's matching script at `1f4737a9486fa2d0fb0f72927c92b15b6da4d0d4`, recorded
-in [#11](https://github.com/dragginzgame/shared-tooling/issues/11). Both source
+in [#11](https://github.com/dragginzgame/toko-tooling/issues/11). Both source
 scripts remained locally unchanged when re-inspected. The shared implementation
 requires an explicit cutoff, retains saved object identities for retries, and
 delegates conditional updates to Git. It does not copy either product's cutoff

@@ -3,6 +3,68 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.306.0]
+
+### ⚠️ Breaking
+
+- Adopt Platform 0.28.0 through Testkit 0.96.0. Native testing uses canonical
+  owned Principal identities and Platform-owned Candid codecs, errors and bounds;
+  the root graph now shares one Types 0.19 provider. Canic remains deferred.
+
+- Adopt Platform Types 0.19.0 for canonical Principal and Account identities.
+  Remove the retired external-Principal conversion feature; transport callers
+  continue through checked bytes with unchanged identity and wire semantics.
+
+- Adopt published IC Storage 0.71.1 with bucket-backed allocation. Use fresh
+  backing; reject incompatible whole-store images without automatic migration
+  or reset. Existing 0.71 backing remains reopenable. The public Storage config
+  loses its Wire limit and directory errors no longer include a Wire variant.
+  Canic remains on its deferred independent stack.
+
+### 🔧 Changed
+
+- Adopt Storage's bounded directory reads and allocation lookup/verification
+  improvements while retaining the 0.71 backing format and reopen contract.
+
+- Align direct and Storage-owned raw IC0 dependencies on Platform Runtime 0.21.0,
+  retaining one Runtime provider and rejecting duplicate executor ownership.
+
+- Adopt published IC Entropy 0.1.0 for seeded expansion, preserving native entropy
+  acquisition, legacy u128 ordering and monotonic ULIDs. Retain database boot-seed
+  and cursor-key policy; remove the temporary sibling dependency.
+  [#633 — published generator adoption](https://github.com/dragginzgame/icydb/issues/633).
+
+- Update direct SHA-2 hashing to 0.11.1 with unused default features disabled.
+  Preserve digest bytes and domain separation; retain older transitive versions
+  where their owners still require them.
+
+- Adopt published Toko Tooling 0.37.5 with renamed commands, settings, snapshot
+  receipt and engineering baseline. Align both tooling selections while keeping
+  Canic's runtime graph deferred. Preserve test-closure classification and reject
+  obsolete LOC metadata namespaces before counting source. Retain offline guides
+  explicitly and adopt current direct-dependency guidance for future updates.
+
+### 🧹 Cleanup
+
+- Share live-page test traversal across dynamic and public SQL paths, retaining
+  every scenario, resume assertion and lane-specific budget check.
+- Keep accepted index identity and predicate metadata in one implementation,
+  with distinct field-path and expression key contracts.
+- Share constraint scan bounds and stored-row identity validation while retaining
+  separate budget admission, findings and unique-index publication.
+- Declare broad diagnostic projections once, preserving public codes and formatting.
+- Share List/Set schema-generation metadata while retaining collection semantics
+  and Set-specific validation.
+
+### 📊 Audit
+
+- Review all ten simplification candidates; preserve distinct lifecycle and
+  binding flows where a common wrapper would add complexity.
+  The earlier cleanup removed 285 lines (154 non-test, 131 test); further
+  live-page consolidation removes 39 test lines without removing scenarios.
+
+[Detailed changes](0.306.md).
+
 ## [0.305.0] - 2026-11-09
 
 ### ⚠️ Breaking

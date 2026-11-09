@@ -4,7 +4,7 @@ use super::*;
 
 pub(in crate::types) fn seed_from(seed: [u8; 32]) {
     RNG.with_borrow_mut(|rng| {
-        *rng = Some(ChaCha20Rng::from_seed(seed));
+        *rng = Some(Generator::from_seed(seed, u64::MAX));
     });
 }
 

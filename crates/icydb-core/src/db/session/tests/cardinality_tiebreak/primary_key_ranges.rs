@@ -192,20 +192,11 @@ fn assert_range_pages(kind: AcceptedFieldKind, keys: &[InputValue], outputs: &[O
 }
 
 fn drain_range_pages(query: &DynamicQuery) -> Vec<Vec<OutputValue>> {
-    let mut continuation = None;
-    let mut actual = Vec::new();
-    for _ in 0..16 {
+    collect_test_pages(None, 16, |cursor| {
         let root = crate::db::RequestExecutionRoot::__new_runtime_root();
-        let page = new_request_session(&root)
-            .execute_trusted_live_page(query, continuation.as_deref())
-            .unwrap();
-        assert!(page.continuation.is_none() || page.continuation != continuation);
-        actual.extend(page.rows);
-        continuation = page.continuation;
-        if continuation.is_none() {
-            break;
-        }
-    }
-    assert!(continuation.is_none());
-    actual
+        new_request_session(&root)
+            .execute_trusted_live_page(query, cursor)
+            .unwrap()
+    })
+    .0
 }

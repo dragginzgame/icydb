@@ -1,5 +1,5 @@
 # Local developer setup
-<!-- Shared companions: .github/actions/cache-tool-downloads/action.yml scripts/ci/report-tool-versions.sh docs/tool-store-maintenance.md docs/tool-catalog-bindings.md docs/verification-helpers.md docs/ic-tools.md docs/supported-hosts.md docs/make-interface.md docs/consuming-snapshots.md docs/releases.md DRAGGINZGAME.md rules/cargo-dependencies.md rules/git-hooks.md -->
+<!-- Shared companions: .github/actions/cache-tool-downloads/action.yml scripts/ci/report-tool-versions.sh docs/tool-store-maintenance.md docs/tool-catalog-bindings.md docs/verification-helpers.md docs/ic-tools.md docs/supported-hosts.md docs/make-interface.md docs/consuming-snapshots.md docs/releases.md TOKO-TOOLING.md rules/cargo-dependencies.md rules/git-hooks.md -->
 
 ## Tool selection and diagnostics
 
@@ -98,7 +98,7 @@ native or product prerequisite of a release. The consumer must check those too.
 ## Required tool inventory
 
 This is the common setup list for every repository adopting the
-[engineering baseline](../DRAGGINZGAME.md). The host and Cargo-tool sets are required.
+[engineering baseline](../TOKO-TOOLING.md). The host and Cargo-tool sets are required.
 The IC bundle is selected only by repositories whose workflows use it. Consumers
 add their product prerequisites to local setup documentation; omissions or
 different support scopes require an explicitly approved exception.
@@ -168,26 +168,26 @@ terminal. Follow the [consumer adoption example](consuming-snapshots.md#local-ic
 for the complete installation/check selections, including ripgrep and cloc.
 Those commands are owned by `make/tools.mk`, selected through the
 [consumer Make entrypoint](make-interface.md). Consumers include that reviewed
-snapshot instead of maintaining copied recipes or installer flags. Shared
+snapshot instead of maintaining copied recipes or installer flags. Toko
 Tooling's own Makefile and CI use the same commands. Snapshot adoption brings
 command updates; explicit setup brings newly required executables.
 
 The include also selects `make/execution.mk` and its
 `scripts/ci/check-make-execution.sh` companion. It rejects dry-run, touch,
-question and ignore-errors modes before recipes execute. Cargo recipes retain
+question and ignore-errors modes before protected tool recipes execute. Cargo recipes retain
 Make's jobserver descriptors for parallel execution; this does not grant
 installation authority to an inspection command or change the setup order.
 
 The installed `cloc` executable and local workspace `make cloc` are common setup.
 The consumer include exports workspace LOC. Tooling adoption is reviewed through
-the [agent audit tasks](https://github.com/dragginzgame/shared-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#tooling-adoption-audit); consumers need no
+the [agent audit tasks](https://github.com/dragginzgame/toko-tooling/blob/08cd17240fd60dfd309e35eb131e73323e883e6f/docs/fleet-tools.md#tooling-adoption-audit); consumers need no
 fleet reporter or its regression suites.
 
 ## Catalog selection
 
 Since 0.10.0, the executing reviewed snapshot owns the defaults:
 `ci/tool-versions.env` for host/Cargo tools and `ci/ic-tools.tsv` for IC tools.
-Make resolves both relative to `SHARED_TOOLING_ROOT`; standalone installers and
+Make resolves both relative to `TOKO_TOOLING_ROOT`; standalone installers and
 the Cargo freshness checker resolve them relative to their own snapshot.
 `--consumer` selects the checkout's installations, not its default catalog.
 Missing snapshot catalogs fail; there is no consumer-local fallback.
@@ -218,9 +218,9 @@ adapters remain consumer-owned. Workflow-only
 tools may retain consumer selections; merely adopting a catalog does not install
 tools outside the common inventory or change a workflow's declared support.
 
-## Shared Tooling's integration editor
+## Toko Tooling's integration editor
 
-Shared Tooling's own `make install-tools` also prepares the released IC Build
+Toko Tooling's own `make install-tools` also prepares the released IC Build
 editor used by its integration fixtures; `make tools-check` admits that selection
 offline. The standalone targets are `make install-release-editor` and
 `make release-editor-check`. The latter prints the verified absolute executable
@@ -258,7 +258,7 @@ do not install tools.
 
 ## Shared executable storage
 
-Shared Tooling owns storage for the common executable sets. Host and IC setup
+Toko Tooling owns storage for the common executable sets. Host and IC setup
 reuse verified bundles in a per-user store across checkouts with the same host
 and pins. Each repository retains its reviewed snapshot and command
 selection; changing one repository's selection must not change another's.
@@ -267,8 +267,8 @@ checkout. Consumers must adopt the canonical implementation through reviewed
 snapshots rather than create independent stores or new bespoke `.tools`
 installers. Reviewed script snapshots remain repository-local.
 
-The default store is `${XDG_DATA_HOME:-$HOME/.local/share}/shared-tooling/tools`.
-Set `SHARED_TOOLING_STORE` to an absolute directory to choose another location;
+The default store is `${XDG_DATA_HOME:-$HOME/.local/share}/toko-tooling/tools`.
+Set `TOKO_TOOLING_STORE` to an absolute directory to choose another location;
 use the same setting for setup, checks and evidence collection. Fixtures use
 isolated temporary stores. Store directories must be owned by the current user,
 physical, and not writable by other users. Existing ancestor aliases such as
@@ -306,7 +306,7 @@ retained installation generations; preserve it for offline admission and reuse.
 
 ## Diagnosing a missing command
 
-Installing tools in Shared Tooling does not select them in another checkout.
+Installing tools in Toko Tooling does not select them in another checkout.
 Run setup in each checkout; matching host/IC bundles reuse the shared store.
 From the affected repository's root, compare:
 
@@ -370,7 +370,7 @@ pushes; PR jobs may read. The common-tools action does this when `cache: true`
 is selected; callers installing tools earlier must restore before that earlier
 step. Do not repeat cache setup for each release group.
 
-The action sets `SHARED_TOOLING_DOWNLOAD_CACHE` to a runner-temporary directory.
+The action sets `TOKO_TOOLING_DOWNLOAD_CACHE` to a runner-temporary directory.
 Assets are addressed by their pinned SHA-256 and authenticated before reuse or
 extraction; corrupt entries are downloaded again, and failed/unverified downloads
 are never cached. Installer version/probe checks still run. Cache service failures
@@ -397,8 +397,8 @@ Setup and offline checks admit the literal `.tools/host` link target. Malformed
 managed names, including trailing newlines, are refused before tool execution
 or downloads; the existing link and bundles remain intact.
 
-Host installation and offline checks always include ripgrep. Consumers add `SHARED_TOOLING_RIPGREP_VERSION`
-and the four `SHARED_TOOLING_RIPGREP_SHA256_*` archive digests to their reviewed
+Host installation and offline checks always include ripgrep. Consumers add `TOKO_TOOLING_RIPGREP_VERSION`
+and the four `TOKO_TOOLING_RIPGREP_SHA256_*` archive digests to their reviewed
 versions file.
 Offline checks authenticate the retained archive and compare its executable
 bytes with installed `rg` before running it. They require the exact version
@@ -406,8 +406,8 @@ bytes with installed `rg` before running it. They require the exact version
 No Cargo installation, global PATH change or system-package replacement occurs.
 
 Host installation and offline checks also always include the standalone cloc payload.
-Consumers adopting it add `SHARED_TOOLING_CLOC_VERSION` and the single
-`SHARED_TOOLING_CLOC_SHA256` pin to their reviewed versions file. All four payloads are authenticated
+Consumers adopting it add `TOKO_TOOLING_CLOC_VERSION` and the single
+`TOKO_TOOLING_CLOC_SHA256` pin to their reviewed versions file. All four payloads are authenticated
 before executing any version check; failed candidates retain the previous active
 set. cloc uses the bootstrap Perl interpreter and needs no Cargo build or system
 package installation. LOC reports select the prepared local host path themselves
@@ -439,7 +439,7 @@ the snapshot's `ci/tool-versions.env`, independently of `HOST_TOOL_VERSIONS`.
 Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.
 
-Use [IC Wire for supported controlled application messages](../DRAGGINZGAME.md#ic-application-encoding).
+Use [IC Wire for supported controlled application messages](../TOKO-TOOLING.md#ic-application-encoding).
 Candid extraction serves the Candid interfaces a product still needs; Wire codec
 generation does not require a Candid extractor.
 
@@ -456,7 +456,7 @@ Shared Make commands include `.tools/rust/common/bin` on PATH; interactive shell
 the export at the top of this guide. The standard formatting hook and its
 adoption check preserve the original checkout's common host and Rust tool paths
 while formatting isolated index inputs. IC formatters select their prepared tool
-PATH explicitly; the hook exposes `SHARED_TOOLING_FORMAT_TOOLS_FROM` for product
+PATH explicitly; the hook exposes `TOKO_TOOLING_FORMAT_TOOLS_FROM` for product
 Make recipes that need the original checkout's tool root. The helper never prepares or upgrades a
 toolchain implicitly. Installation may fetch registry dependencies and compile;
 failed candidates and install logs remain in shared `rust-<identity>/set.*`
@@ -502,7 +502,7 @@ product/native qualification. Formatting still requires rustfmt and the
 
 Explicit Cargo setup waits up to 60 seconds per occupied selected-tool slot
 when its physical, user-owned lock has a readable, regular
-owner record. Set `SHARED_TOOLING_SETUP_WAIT_SECONDS` to a canonical integer from
+owner record. Set `TOKO_TOOLING_SETUP_WAIT_SECONDS` to a canonical integer from
 0 to 300 to select another budget; `0` retains immediate refusal. Diagnostics name
 the slot and recorded owner, then report release or timeout. The record identifies
 the claim, not whether its PID is still live. No lock is removed or owner killed.
@@ -669,7 +669,7 @@ targets in `LOCAL_TOOL_INSTALL_TARGETS` / `LOCAL_TOOL_CHECK_TARGETS`. For exampl
 with `AUDIT_VERSION` defined by the consumer's reviewed pins:
 
 ```make
-AUDIT_TOOL = bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --package cargo-audit --version "$(AUDIT_VERSION)" --bin cargo-audit --profile release
+AUDIT_TOOL = bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --package cargo-audit --version "$(AUDIT_VERSION)" --bin cargo-audit --profile release
 LOCAL_TOOL_INSTALL_TARGETS += install-audit-tool
 LOCAL_TOOL_CHECK_TARGETS += audit-tool-check
 
@@ -686,7 +686,7 @@ Use the equivalent package/binary selection for cargo-machete, but its standalon
 invocation differs from Audit. With `MACHETE_VERSION` selected by the consumer:
 
 ```make
-MACHETE_TOOL = bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --package cargo-machete --version "$(MACHETE_VERSION)" --bin cargo-machete --profile release
+MACHETE_TOOL = bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --package cargo-machete --version "$(MACHETE_VERSION)" --bin cargo-machete --profile release
 LOCAL_TOOL_INSTALL_TARGETS += install-machete-tool
 LOCAL_TOOL_CHECK_TARGETS += machete-tool-check
 
@@ -772,7 +772,7 @@ production mode; its earlier Cargo-only results do not qualify this extension.
 
 ## Cargo installation assessment
 
-Run `scripts/ci/qualify-cargo-install.sh` in Shared Tooling to exercise Cargo's
+Run `scripts/ci/qualify-cargo-install.sh` in Toko Tooling to exercise Cargo's
 native installation contract in a new disposable evidence directory:
 
 ```bash
@@ -795,7 +795,7 @@ The frozen published Blob example assessment moves to
 [IC Blob Storage PR #80 — Own frozen published-example installation qualification](https://github.com/dragginzgame/ic-blob-storage/pull/80).
 Integrate that owner before adopting this snapshot. Its Linux and both native
 macOS jobs retain the former example-installation proof
-([#280 — Retire frozen Blob example assessment after native owner qualification](https://github.com/dragginzgame/shared-tooling/issues/280)).
+([#280 — Retire frozen Blob example assessment after native owner qualification](https://github.com/dragginzgame/toko-tooling/issues/280)).
 
 It checks Cargo receipt package/registry/version/target/profile identity, offline
 reuse, missing-target refusal, concurrent offline installation and preservation
@@ -812,7 +812,7 @@ assessment on Linux and both macOS architectures with GitHub Actions' default
 duration limits and failure evidence collection. It does not add registry builds
 to the default portable gate. Native results, consumer-specific versions and an actual shared
 installer's path/receipt/lock refusal still need qualification before extraction
-under [#65](https://github.com/dragginzgame/shared-tooling/issues/65). The current
+under [#65](https://github.com/dragginzgame/toko-tooling/issues/65). The current
 shared Rust installer remains the supported setup contract.
 
 ## Bootstrap prerequisites
@@ -838,7 +838,7 @@ manager updates; they are not claimed to be checksum-pinned shared binaries.
 Shared setup never invokes sudo or installs a package manager implicitly.
 The pinned local host set supplies ripgrep and cloc; neither is a bootstrap dependency.
 
-### Shared Tooling's own compiler
+### Toko Tooling's own compiler
 
 Shared pins its development and Cargo-tool-build compiler in its own root
 `rust-toolchain.toml`. With Rustup and native build prerequisites available,
@@ -863,7 +863,7 @@ current requirements and required evidence remain protected under the
 ### Portable suite prerequisites
 
 Every repository prepares its declared Rust/Cargo toolchain and native build
-prerequisites before the common tool setup. Rust development and Shared Tooling's
+prerequisites before the common tool setup. Rust development and Toko Tooling's
 portable fixtures also need rustfmt. After that bootstrap, use the common setup
 and select its paths before invoking scripts directly:
 
@@ -875,13 +875,13 @@ export PATH="$PWD/.tools/host/bin:$PWD/.tools/rust/common/bin:$PATH"
 
 Before starting portable fixtures, `test-portable-tools.sh` checks the required
 commands on PATH (including cloc, shasum, jq, Mike Farah yq and ripgrep), the editor
-inputs described [above](#shared-toolings-integration-editor), and reuses
+inputs described [above](#toko-toolings-integration-editor), and reuses
 the offline formatter prerequisite check. With those inputs supplied, run this
 admission independently with `bash scripts/ci/check-portable-prerequisites.sh`.
 It reports missing commands together and points back here; it never installs
 tools or replaces the individual
 fixtures' version, feature and behavior checks. Standard Unix utilities from the
-bootstrap environment are still required. This is Shared Tooling's own suite
+bootstrap environment are still required. This is Toko Tooling's own suite
 setup, not a new prerequisite gate for every consumer.
 The download retry fixture starts a temporary IPv4 loopback HTTP listener and
 uses real curl with test-only transport substitution. It needs permission to bind
@@ -900,7 +900,7 @@ installers' read-only `--check` interfaces, then records
 catalog-selected command paths, SHA-256 identities and live version output.
 An optional `VERSIONS` argument selects the host/Rust catalog. Supplying a
 third `IC_PINS` argument explicitly includes IC admission and observations. It never
-installs tools; use the same `SHARED_TOOLING_STORE` setting as setup and checks.
+installs tools; use the same `TOKO_TOOLING_STORE` setting as setup and checks.
 Redirect stdout and stderr together when retaining evidence. Failure keeps prior
 observations and the failing command's status. Compiler and product-specific CLI
 selection/evidence remain consumer-owned.

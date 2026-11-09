@@ -23,7 +23,7 @@ done
 # Independent test checkout: never inherit parent release selections or identity.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
-unset SHARED_TOOLING_ROOT
+unset TOKO_TOOLING_ROOT
 # Preserve only the consumer's explicit group selection. A parent batch's
 # active flag, empty roster or saved identity must not change this fixture.
 while IFS= read -r variable; do
@@ -72,7 +72,7 @@ mkdir -p "$fixture/scripts/dev"
 cat > "$fixture/scripts/dev/clean-empty-source-dirs.pl" <<'STUB'
 print "Cleanup substituted for release dispatch qualification.\n";
 STUB
-cat > "$fixture/scripts/dev/shared-tooling.sh" <<'STUB'
+cat > "$fixture/scripts/dev/toko-tooling.sh" <<'STUB'
 #!/usr/bin/env bash
 [[ "${1:-}" == check ]]
 STUB
@@ -81,7 +81,7 @@ cd "$fixture"
 # This checker supports a root snapshot only. Override reviewed Makefile
 # defaults/assignments as well as the environment, so its include cannot route
 # to the original checkout. Consumer Make code remains reviewed executable input.
-fixture_make=(make --no-print-directory -f Makefile "SHARED_TOOLING_ROOT=$fixture")
+fixture_make=(make --no-print-directory -f Makefile "TOKO_TOOLING_ROOT=$fixture")
 cat > release-command-probe.mk <<'PROBE'
 .PHONY: shared-release-command-selection
 shared-release-command-selection:

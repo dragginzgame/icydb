@@ -10,7 +10,7 @@ description = "Pinned SQLite reference adapter for IcyDB SQL correctness tests"
 [package.metadata.cargo-machete]
 ignored = ["toko-tooling"]
 
-[package.metadata.shared-tooling.loc]
+[package.metadata.toko-tooling.loc]
 category = "tests"
 
 [dependencies]

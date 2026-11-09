@@ -175,29 +175,18 @@ fn branch_distinct_expression_projection_replays_canonical_duplicates() {
 fn collect_live(
     query: &DynamicQuery,
     public: bool,
-    mut cursor: Option<String>,
+    cursor: Option<String>,
 ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    for _ in 0..16 {
+    collect_test_pages(cursor, 16, |cursor| {
         let root = RequestExecutionRoot::__new_runtime_root();
         let session = new_request_session(&root);
-        let page = if public {
-            session.execute_public_live_page(query, cursor.as_deref())
+        if public {
+            session.execute_public_live_page(query, cursor)
         } else {
-            session.execute_trusted_live_page(query, cursor.as_deref())
+            session.execute_trusted_live_page(query, cursor)
         }
-        .unwrap();
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return (rows, tokens);
-        };
-        assert_ne!(cursor.as_ref(), Some(&next));
-        assert!(!tokens.iter().any(|(token, _)| token == &next));
-        tokens.push((next.clone(), rows.len()));
-        cursor = Some(next);
-    }
-    panic!("branch DISTINCT must exhaust within the bounded page count");
+        .unwrap()
+    })
 }
 
 #[test]

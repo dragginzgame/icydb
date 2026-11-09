@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/shared-package-version.pl scripts/ci/shared-companions.sh scripts/distribution/registry-package.pl
+# Shared companions: scripts/ci/shared-package-version.pl scripts/ci/shared-companions.sh scripts/ci/check-tooling-prerequisites.sh scripts/distribution/registry-package.pl
 set -euo pipefail
 
 SCRIPT_ROOT="${BASH_SOURCE[0]}"
@@ -17,7 +17,7 @@ previous_package=""
 registry_source='https://crates.io/crates/toko-tooling'
 EXECUTION_DIR=""
 CONSUMER_ROOT=""
-MANIFEST_PATH=".shared-tooling.snapshot"
+MANIFEST_PATH=".toko-tooling.snapshot"
 STAGING_DIR=""
 replacement=""
 preview=false
@@ -33,7 +33,7 @@ takeover_payload_states=()
 
 usage() {
     cat >&2 <<'USAGE'
-usage: refresh-consumer.sh [--preview | --impact] [--source <shared-tooling-checkout>] [--revision <full-commit>] --consumer <repository> [--manifest <relative-path>] [--entrypoint <relative-path>]... [--add-entrypoint <relative-path>]... [--takeover-snapshot <relative-root|.> <relative-manifest>]...
+usage: refresh-consumer.sh [--preview | --impact] [--source <toko-tooling-checkout>] [--revision <full-commit>] --consumer <repository> [--manifest <relative-path>] [--entrypoint <relative-path>]... [--add-entrypoint <relative-path>]... [--takeover-snapshot <relative-root|.> <relative-manifest>]...
        refresh-consumer.sh --crate ARCHIVE --checksum SHA256 --package-version X.Y.Z [--previous-crate ARCHIVE | --previous-source OLD-GIT-CHECKOUT] --consumer REPOSITORY [--entrypoint PATH]...
 
 Use --entrypoint to select the complete set of roots, initially or on refresh.
@@ -47,11 +47,13 @@ commit history. Without --revision, select the clean source checkout HEAD.
 --revision reads an available full commit from the local object database, ignoring
 source working/index bytes. The executing exporter and helpers must match their
 own checkout HEAD; unrelated edits are allowed. No fetching or checkout occurs.
+--previous-source can prove an explicitly reviewed Git origin change: its origin
+must match the receipt and the recorded commit must be an ancestor of the new source.
 USAGE
 }
 
 fail() {
-    echo "shared-tooling refresh failed: $1" >&2
+    echo "toko-tooling refresh failed: $1" >&2
     exit 1
 }
 
@@ -290,15 +292,16 @@ validate_relative_path "$MANIFEST_PATH"
 SCRIPT_ROOT="$(resolve_directory "$SCRIPT_ROOT")"
 SOURCE_ROOT="$(resolve_directory "$SOURCE_ROOT")"
 CONSUMER_ROOT="$(resolve_directory "$CONSUMER_ROOT")"
+[[ -z "$previous_source" ]] || previous_source="$(resolve_directory "$previous_source")"
 [[ "$CONSUMER_ROOT" != "/" ]] || fail "consumer repository may not be the filesystem root"
 [[ -n "$registry_archive" || "$SOURCE_ROOT" != "$CONSUMER_ROOT" ]] || fail "source and consumer repositories must differ"
 
 if [[ -n "$registry_archive" ]]; then
+    bash "$SCRIPT_ROOT/scripts/ci/check-tooling-prerequisites.sh" archive || exit 1
     [[ -z "$requested_revision" && "$registry_checksum" =~ ^[0-9a-f]{64}$ && ${#takeover_roots[@]} == 0 ]] ||
         fail 'crate export requires its checksum; revision and takeover options belong to Git exports'
     [[ "$registry_archive" == /* ]] || registry_archive="$PWD/$registry_archive"
     [[ -z "$previous_archive" || "$previous_archive" == /* ]] || previous_archive="$PWD/$previous_archive"
-    [[ -z "$previous_source" ]] || previous_source="$(resolve_directory "$previous_source")"
     execution_tmp="$(resolve_directory "${TMPDIR:-/tmp}")"
     if [[ "$preview" == true ]]; then
         case "$execution_tmp/" in "$SOURCE_ROOT/"*|"$CONSUMER_ROOT/"*) fail 'preview temporary directory must be outside source and consumer' ;; esac
@@ -310,7 +313,7 @@ if [[ -n "$registry_archive" ]]; then
         "$registry_version" "$EXECUTION_DIR/package"
     SOURCE_ROOT="$EXECUTION_DIR/package"
 else
-    [[ -z "$registry_checksum$registry_version$previous_archive$previous_source" ]] || fail 'crate options require --crate'
+    [[ -z "$registry_checksum$registry_version$previous_archive" ]] || fail 'crate options require --crate'
     source_top="$(git -C "$SOURCE_ROOT" rev-parse --show-toplevel 2>/dev/null && printf '.')" ||
         fail "source is not a Git checkout"
     source_top="${source_top%.}"
@@ -341,10 +344,10 @@ elif [[ -n "$requested_revision" ]]; then
     case "$execution_tmp/" in
         "$SOURCE_ROOT/"*|"$CONSUMER_ROOT/"*) fail "execution temporary directory must be outside source and consumer" ;;
     esac
-    EXECUTION_DIR="$(mktemp -d "$execution_tmp/shared-tooling-execution.XXXXXX")"
+    EXECUTION_DIR="$(mktemp -d "$execution_tmp/toko-tooling-execution.XXXXXX")"
     for path in scripts/distribution/refresh-consumer.sh scripts/ci/shared-companions.sh \
-        scripts/ci/verify-file-checksum.sh scripts/ci/verify-shared-tooling-snapshot.sh scripts/ci/shared-package-version.pl \
-        scripts/distribution/registry-package.pl; do
+        scripts/ci/verify-file-checksum.sh scripts/ci/verify-toko-tooling-snapshot.sh scripts/ci/shared-package-version.pl \
+        scripts/distribution/registry-package.pl scripts/ci/check-tooling-prerequisites.sh; do
         execution_entry="$(git -C "$SCRIPT_ROOT" --literal-pathspecs ls-tree "$execution_revision" -- "$path")" || fail "cannot inspect execution source: $path"
         execution_mode="${execution_entry%% *}"
         [[ "$execution_mode" == 100644 || "$execution_mode" == 100755 ]] || fail "execution source must be a committed regular file: $path"
@@ -400,9 +403,9 @@ if [[ "$preview" == true ]]; then
     case "$preview_tmp/" in
         "$SOURCE_ROOT/"*|"$CONSUMER_ROOT/"*) fail "preview temporary directory must be outside source and consumer" ;;
     esac
-    STAGING_DIR="$(mktemp -d "$preview_tmp/shared-tooling-preview.XXXXXX")"
+    STAGING_DIR="$(mktemp -d "$preview_tmp/toko-tooling-preview.XXXXXX")"
 else
-    STAGING_DIR="$(mktemp -d "$CONSUMER_ROOT/.shared-tooling-refresh.XXXXXX")"
+    STAGING_DIR="$(mktemp -d "$CONSUMER_ROOT/.toko-tooling-refresh.XXXXXX")"
 fi
 manifest_state="$(consumer_state "$MANIFEST_PATH")" || fail "cannot inspect consumer manifest"
 git -C "$CONSUMER_ROOT" --literal-pathspecs ls-files --stage -z -- "$MANIFEST_PATH" > "$STAGING_DIR/index-manifest" ||
@@ -422,7 +425,7 @@ if [[ -e "$manifest" ]]; then
 
     # Admit syntax once through our trusted reader. Payload ownership remains
     # independently checked against the earlier committed source below.
-    bash "$SCRIPT_ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
+    bash "$SCRIPT_ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
         --read-manifest "$STAGING_DIR/previous-manifest" > "$STAGING_DIR/previous-records" ||
         fail "existing manifest is malformed"
     while IFS=$'\t' read -r record first second third; do
@@ -450,16 +453,22 @@ if [[ -e "$manifest" ]]; then
                 previous_package="$EXECUTION_DIR/previous"
             fi
         else
-            case "${manifest_source%.git}" in
-                https://github.com/dragginzgame/shared-tooling|https://github.com/dragginzgame/toko-tooling|\
-                git@github.com:dragginzgame/shared-tooling|git@github.com:dragginzgame/toko-tooling|\
-                ssh://git@github.com/dragginzgame/shared-tooling|ssh://git@github.com/dragginzgame/toko-tooling)
-                    [[ -n "$previous_source" ]] || fail 'migrating a Git snapshot requires --previous-source for ownership proof' ;;
-                *) fail 'existing snapshot is not from the reviewed tooling registry or Git repository' ;;
-            esac
+            [[ -n "$previous_source" ]] || fail 'migrating a Git snapshot requires --previous-source for ownership proof'
+            [[ "$(git -C "$previous_source" remote get-url origin)" == "$manifest_source" ]] ||
+                fail 'previous source origin differs from the recorded Git provenance'
+            [[ "$(git --no-replace-objects -C "$previous_source" cat-file -t "$manifest_revision")" == commit ]] ||
+                fail 'previous Git revision must be an available commit'
         fi
     else
-        [[ "$manifest_source" == "$source_remote" ]] || fail "source remote differs from the existing manifest"
+        if [[ "$manifest_source" != "$source_remote" ]]; then
+            [[ -n "$previous_source" ]] || fail "source remote differs from the existing manifest; provide --previous-source for an explicitly reviewed origin change"
+            [[ "$(git -C "$previous_source" remote get-url origin)" == "$manifest_source" ]] ||
+                fail 'previous source origin differs from the recorded Git provenance'
+            [[ "$(git --no-replace-objects -C "$previous_source" cat-file -t "$manifest_revision")" == commit ]] ||
+                fail 'previous Git revision must be an available commit'
+            git --no-replace-objects -C "$SOURCE_ROOT" merge-base --is-ancestor "$manifest_revision" "$source_revision" ||
+                fail 'origin change requires the recorded commit in the selected source ancestry'
+        fi
     fi
 else
     [[ ${#added_files[@]} -eq 0 ]] || fail "--add-entrypoint requires an existing snapshot"
@@ -485,7 +494,7 @@ for takeover_index in "${!takeover_roots[@]}"; do
     git -C "$CONSUMER_ROOT" --literal-pathspecs ls-files --stage -z -- "$prior_path" > "$STAGING_DIR/index-takeover-$takeover_index"
     takeover_paths+=("$prior_path")
     takeover_states+=("$prior_state")
-    bash "$SCRIPT_ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
+    bash "$SCRIPT_ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
         --read-manifest "$STAGING_DIR/takeover-$takeover_index" > "$STAGING_DIR/takeover-records" ||
         fail "takeover manifest is malformed"
     prior_revision='' prior_remote=''
@@ -551,7 +560,7 @@ for index in "${!entrypoints[@]}"; do
 done
 files=("${entrypoints[@]}")
 # Integrity verification is required for every selection, independently of roots.
-for path in scripts/ci/verify-file-checksum.sh scripts/ci/verify-shared-tooling-snapshot.sh; do
+for path in scripts/ci/verify-file-checksum.sh scripts/ci/verify-toko-tooling-snapshot.sh; do
     selected=false
     for existing in "${files[@]}"; do [[ "$existing" != "$path" ]] || selected=true; done
     if [[ "$selected" == false ]]; then files+=("$path"); fi
@@ -620,7 +629,7 @@ for index in "${!files[@]}"; do
             fail "cannot inspect consumer index: $path"
     fi
     [[ "$path" != "scripts/ci/verify-file-checksum.sh" ]] || checksum_tool_declared=true
-    [[ "$path" != "scripts/ci/verify-shared-tooling-snapshot.sh" ]] || snapshot_verifier_declared=true
+    [[ "$path" != "scripts/ci/verify-toko-tooling-snapshot.sh" ]] || snapshot_verifier_declared=true
 
     for prior_index in "${!files[@]}"; do
         [[ "$prior_index" -lt "$index" ]] || break
@@ -638,7 +647,7 @@ done
 
 staged_manifest="$STAGING_DIR/manifest"
 {
-    echo "# Shared Tooling snapshot v1"
+    echo "# Toko Tooling snapshot v1"
     printf '# version\t%s\n' "$source_version"
     printf 'format\t1\n'
     printf 'source\t%s\n' "$source_remote"
@@ -654,7 +663,7 @@ staged_manifest="$STAGING_DIR/manifest"
         printf 'file\t%s\t%s\t%s\n' "$digest" "$executable" "$path"
     done
 } >"$staged_manifest"
-bash "$SCRIPT_ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
+bash "$SCRIPT_ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
     --read-manifest "$staged_manifest" --require-annotations >/dev/null
 
 # Check every destination before replacing any file. A retry may already have
@@ -672,6 +681,9 @@ for index in "${!files[@]}"; do
         --porcelain --untracked-files=all --ignored -- "$path")" ||
         fail "cannot inspect consumer changes: $path"
     [[ -n "$destination_status" ]] || continue
+    if [[ "$destination_status" == 'D  '* ]]; then
+        fail "consumer destination has a staged deletion: $path; commit the removal first, then refresh. The installer does not replace staged index changes"
+    fi
     # Only a declared, unchanged previous export can advance without a consumer
     # commit. Its manifest is not authority to overwrite arbitrary local edits:
     # prove the recorded bytes/mode against the previous committed source too.
@@ -781,7 +793,7 @@ if [[ "$preview" == true ]]; then
     if [[ "$impact" == true ]]; then
         for entrypoint in "${entrypoints[@]}"; do
             reachable=("$entrypoint")
-            for required in scripts/ci/verify-file-checksum.sh scripts/ci/verify-shared-tooling-snapshot.sh; do
+            for required in scripts/ci/verify-file-checksum.sh scripts/ci/verify-toko-tooling-snapshot.sh; do
                 [[ "$required" == "$entrypoint" ]] || reachable+=("$required")
             done
             cursor=0
@@ -829,7 +841,7 @@ for index in "${!files[@]}"; do
     [[ -d "$destination_parent" ]] || mkdir -p "$destination_parent"
     # Copy beside the destination so even a mounted subtree gets an atomic
     # rename. A failed/interrupted copy must leave the admitted old bytes intact.
-    replacement="$(mktemp "$destination_parent/.shared-tooling-payload.XXXXXX")"
+    replacement="$(mktemp "$destination_parent/.toko-tooling-payload.XXXXXX")"
     cp -p "$staged_files/$path" "$replacement"
     check_consumer_unchanged "$path" "${consumer_states[$index]}"
     check_index_unchanged "$index" "$path"
@@ -855,7 +867,7 @@ verification_args=()
 if [[ -n "$requested_revision" ]]; then
     verification_args=(--source "$SOURCE_ROOT" --revision "$source_revision")
 fi
-bash "$SCRIPT_ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
+bash "$SCRIPT_ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
     --consumer "$CONSUMER_ROOT" --require-annotations \
     --manifest "$MANIFEST_PATH" ${verification_args[@]+"${verification_args[@]}"}
 
@@ -866,4 +878,4 @@ for index in "${!takeover_paths[@]}"; do
     rm -- "$CONSUMER_ROOT/${takeover_paths[$index]}"
 done
 
-echo "shared-tooling snapshot refreshed: ${#files[@]} file(s) from $source_version ($source_revision)"
+echo "toko-tooling snapshot refreshed: ${#files[@]} file(s) from $source_version ($source_revision)"

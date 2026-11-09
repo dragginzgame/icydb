@@ -88,7 +88,7 @@ an explicit locally reviewed cutoff. IcyDB's old single-number shorthand must be
 spelled as a full minor cutoff, such as `0.210`. Keep product cutoff decisions
 local. Delete the old generic fixtures only after the replacement is qualified;
 retain consumer-specific checks and documentation. Track adoption in
-[#11](https://github.com/dragginzgame/shared-tooling/issues/11) and its linked
+[#11](https://github.com/dragginzgame/toko-tooling/issues/11) and its linked
 consumer issues separately from upstream implementation.
 
 `scripts/ci/test-tag-maintenance.pl` substitutes every Git command to exercise

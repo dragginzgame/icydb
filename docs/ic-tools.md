@@ -1,7 +1,7 @@
 # Common local IC tools
 
 Every repository can provide the same local executable names through a reviewed
-Shared Tooling snapshot. Run from the checkout root:
+Toko Tooling snapshot. Run from the checkout root:
 
 For the complete developer setup including jq and yq, use
 [local setup](local-setup.md) and `make install-tools`. The targets below prepare
@@ -32,7 +32,7 @@ before common host/Cargo preparation, so a missing declaration fails early.
 
 The `didc` executable serves required Candid interfaces and their compatibility
 checks. Its presence in this bundle does not select an application encoding;
-follow the [IC Wire preference](../DRAGGINZGAME.md#ic-application-encoding) for
+follow the [IC Wire preference](../TOKO-TOOLING.md#ic-application-encoding) for
 controlled messages. IC Wire's generated codecs do not replace Candid IDL tools
 where an external interface requires them.
 
@@ -44,7 +44,7 @@ were checked against downloaded bytes for all three host mappings on 2026-10-10.
 ICP CLI 1.7.0 digests were reviewed against official release-asset metadata on
 2026-10-17; all other selections are unchanged. Native installer/check results
 remain source-bound qualification, separate from asset availability
-([#268 — Adopt ICP CLI 1.7.0](https://github.com/dragginzgame/shared-tooling/issues/268)).
+([#268 — Adopt ICP CLI 1.7.0](https://github.com/dragginzgame/toko-tooling/issues/268)).
 
 | Executable | Default version | Official release |
 | --- | --- | --- |
@@ -138,7 +138,7 @@ File current capability/adoption work in IC Tooling. The earlier published 0.25.
 setup/check and managed-launch contract passed all three native hosts in
 [owner CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37901828971).
 The historical [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) and
-[Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76) retain the
+[Shared #76](https://github.com/dragginzgame/toko-tooling/issues/76) retain the
 original handoff evidence. Consumers select a qualified
 Testkit package; they do not duplicate its server catalog or version policy.
 
@@ -222,5 +222,5 @@ as part of baseline adoption.
 
 This script owns executable provisioning. Build and Candid extraction orchestration
 belong to IC Build; host primitives and IC interpretation belong to the Host
-crates. Both now live in IC Tooling. See the [capability boundary](https://github.com/dragginzgame/shared-tooling/blob/main/README.md#capability-ownership).
+crates. Both now live in IC Tooling. See the [capability boundary](https://github.com/dragginzgame/toko-tooling/blob/main/README.md#capability-ownership).
 Consumer orchestration, credentials, destinations and measurement policy remain local.

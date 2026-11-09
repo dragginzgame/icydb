@@ -2092,3 +2092,26 @@ fn field_source(field: &str) -> FieldSourceKey {
     FieldSourceKey::try_new(format!("{ENTITY_SOURCE}::{field}"))
         .expect("cardinality fixture field source should admit")
 }
+
+// Drain real pages while retaining every continuation's cumulative row offset.
+// Callers own request construction and lane-specific work/budget assertions.
+fn collect_test_pages(
+    mut cursor: Option<String>,
+    max_pages: usize,
+    mut execute: impl FnMut(Option<&str>) -> crate::db::LiveQueryPageOutput,
+) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
+    let mut rows = Vec::new();
+    let mut tokens = Vec::new();
+    for _ in 0..max_pages {
+        let page = execute(cursor.as_deref());
+        rows.extend(page.rows);
+        let Some(next) = page.continuation else {
+            return (rows, tokens);
+        };
+        assert_ne!(cursor.as_ref(), Some(&next));
+        assert!(!tokens.iter().any(|(token, _)| token == &next));
+        tokens.push((next.clone(), rows.len()));
+        cursor = Some(next);
+    }
+    panic!("pages must exhaust within the bounded page count");
+}

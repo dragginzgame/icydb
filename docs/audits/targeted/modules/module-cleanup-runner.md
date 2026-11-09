@@ -2,7 +2,7 @@
 
 Apply [the shared procedure](../../../../audits/module-cleanup.md) and
 [IcyDB module obligations](module-surface-hardening.md). Use the reviewed revision
-recorded in [the snapshot](../../../../.shared-tooling.snapshot); local procedure
+recorded in [the snapshot](../../../../.toko-tooling.snapshot); local procedure
 identity is `ICYDB-MSH-CLEANUP-4`. The procedure implements a named finding rather than
 creating another audit. Existing bounded implementation authority carries forward.
 

@@ -18,7 +18,7 @@ runs:
       run: |
         case "$MODE" in restore|save) ;; *) echo 'Expected restore or save' >&2; exit 2 ;; esac
         case "$EXTRA_KEY" in *$'\r'*|*$'\n'*) echo 'Invalid cache extra key' >&2; exit 2 ;; esac
-        echo "SHARED_TOOLING_DOWNLOAD_CACHE=$RUNNER_TEMP/shared-tool-downloads" >> "$GITHUB_ENV"
+        echo "TOKO_TOOLING_DOWNLOAD_CACHE=$RUNNER_TEMP/shared-tool-downloads" >> "$GITHUB_ENV"
     - id: restore
       if: inputs.mode == 'restore'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

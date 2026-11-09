@@ -77,11 +77,11 @@ compiler checks, target policy, Rustup auto-install policy and explicit override
 Both policy forms require exactly one JSON object from the TOML parser. Empty,
 multiple or malformed observations refuse before a floor is published or Rustup
 is invoked, including observations with a valid first or last document
-([#270 — Reject ambiguous Rust bootstrap policy observations](https://github.com/dragginzgame/shared-tooling/issues/270)).
+([#270 — Reject ambiguous Rust bootstrap policy observations](https://github.com/dragginzgame/toko-tooling/issues/270)).
 The setup entrypoint delegates its workspace projection to this reader; snapshot
 selection automatically carries that companion.
 
-Adopt from a reviewed, published Shared Tooling revision using the
+Adopt from a reviewed, published Toko Tooling revision using the
 [snapshot workflow](consuming-snapshots.md), then replace the local action and
 both ordinary/recovery callers together. The offline fixture executes the actual
 YAML body against a substitute rustup, checking argument parity, failure

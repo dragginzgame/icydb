@@ -194,7 +194,7 @@ dependencies = [
  "hex",
  "ic_principal",
  "leb128",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
  "paste",
  "pretty",
@@ -940,6 +940,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-entropy"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5a7386a4f8a63fc339bd18b773c49c078427a0273f66b708466852336045297"
+dependencies = [
+ "rand_chacha",
+]
+
+[[package]]
 name = "ic-host-artifacts"
 version = "0.76.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1011,33 +1020,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-management-canister-types"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3e3162bdfbdbc6ca3b4bfa8145f9ba19cddaf3eb8d1af8dc7be6a39557b76c2"
-dependencies = [
- "candid",
- "serde",
- "serde_bytes",
-]
-
-[[package]]
 name = "ic-metrics"
-version = "0.29.8"
+version = "0.29.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99684e3afc04c523f9276de65ea6fac6006615394827d458b0c540242c79bebf"
+checksum = "772f3578bbf345d171fc64d05679535df30969058d993a9a408bd0c785aaf711"
 
 [[package]]
 name = "ic-platform"
-version = "0.27.1"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64ddcdbd80514c7d7fbfa18cebaff47783031a2dad4876e68c25d3cf4158d4a1"
+checksum = "1913a905d37a1c274a786849458530c600195dcda8b4f340af91b54c9a0e47e5"
 dependencies = [
- "candid",
  "ic-certification",
- "ic-management-canister-types",
  "ic-platform-types",
  "ic-transport-types",
+ "num-bigint 0.5.1",
  "serde",
  "serde_bytes",
  "serde_cbor",
@@ -1046,19 +1043,18 @@ dependencies = [
 
 [[package]]
 name = "ic-platform-runtime"
-version = "0.20.3"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76a317f1b3d57e816a23c9111bc11b4c4f0ad742bd42d562f4d632d911542dc3"
+checksum = "c68b2ccef0e24eaf2e2f860e36ba8f63de422719aea060b872e0013cf99cd1b0"
 
 [[package]]
 name = "ic-platform-types"
-version = "0.18.3"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92af644eb1521b659274d3888e561bacca4abb92fd615403405a7a91baf0ed1e"
+checksum = "105fa02267cbd906dd788f1986fb2e25c60c82e595cee3efeab03aa1c4ea39f2"
 dependencies = [
  "crc32fast",
  "data-encoding",
- "ic_principal",
  "serde",
  "serde_bytes",
  "sha2 0.11.1",
@@ -1067,37 +1063,34 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.70.0"
+version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d229694cd4ea59afce7d203116c1ef38913707c1bc0b26ff0fea33ef103766a8"
+checksum = "7b26d7c81e6398b1bebb235ceed221e64dc151d0c51798ad282a0c9bdb707443"
 dependencies = [
  "ic-platform-runtime",
- "ic-wire",
  "serde",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "ic-testkit"
-version = "0.95.0"
+version = "0.96.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2144992de570a9fae7fa90361b94be946a14b17cf733d66f53fed9cfa538ef6d"
+checksum = "0b919e80e03d7bd2ea5fa984a1a34982955facd7aa146d6430bf3cf083c9f6b3"
 dependencies = [
  "base64",
- "candid",
  "hex",
  "ic-host-artifacts",
  "ic-host-fs",
  "ic-host-http",
  "ic-host-process",
- "ic-management-canister-types",
  "ic-platform",
  "ic-platform-types",
  "libc",
  "reqwest",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -1288,6 +1281,7 @@ dependencies = [
  "base64",
  "blake3",
  "getrandom 0.4.3",
+ "ic-entropy",
  "ic-metrics",
  "ic-platform-runtime",
  "ic-platform-types",
@@ -1298,12 +1292,11 @@ dependencies = [
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
  "proptest",
- "rand_chacha",
  "remain",
  "serde",
  "serde_bytes",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "syn 3.0.10",
  "thiserror 2.0.21",
  "toko-tooling",
@@ -1335,7 +1328,7 @@ dependencies = [
  "remain",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "syn 3.0.10",
  "thiserror 2.0.21",
  "toko-tooling",
@@ -1369,7 +1362,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "time",
  "toko-tooling",
@@ -1769,6 +1762,17 @@ name = "num-bigint"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
+dependencies = [
+ "num-integer",
+ "num-traits",
+ "serde",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -2714,9 +2718,9 @@ dependencies = [
 
 [[package]]
 name = "toko-tooling"
-version = "0.36.0"
+version = "0.37.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0dd05b6437061622a76942baa25d40d2181497e7ba66d9fd809132a3082936"
+checksum = "9fc1a752f4f8203d999c4cd593afb9ea18717b28d407492fc98aab5722526be3"
 
 [[package]]
 name = "toml"

@@ -108,29 +108,18 @@ fn secondary_membership() -> FilterExpr {
 fn collect_secondary_pages(
     query: &DynamicQuery,
     public: bool,
-    mut cursor: Option<String>,
+    cursor: Option<String>,
 ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    for _ in 0..16 {
+    collect_test_pages(cursor, 16, |cursor| {
         let root = RequestExecutionRoot::__new_runtime_root();
         let session = new_request_session(&root);
-        let page = if public {
-            session.execute_public_live_page(query, cursor.as_deref())
+        if public {
+            session.execute_public_live_page(query, cursor)
         } else {
-            session.execute_trusted_live_page(query, cursor.as_deref())
+            session.execute_trusted_live_page(query, cursor)
         }
-        .unwrap_or_else(|error| panic!("public={public}, query={query:?}: {error:?}"));
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return (rows, tokens);
-        };
-        assert_ne!(cursor.as_ref(), Some(&next));
-        assert!(!tokens.iter().any(|(token, _)| token == &next));
-        tokens.push((next.clone(), rows.len()));
-        cursor = Some(next);
-    }
-    panic!("secondary pages must exhaust within the bounded page count");
+        .unwrap_or_else(|error| panic!("public={public}, query={query:?}: {error:?}"))
+    })
 }
 
 #[test]
@@ -274,27 +263,22 @@ fn primary_ordered_index_sets_keep_bounded_resume_reads() {
                 kind
             );
             for public in [false, true] {
-                let mut cursor = None;
-                let mut rows = Vec::new();
-                for _ in 0..16 {
+                let mut emitted = 0;
+                let (rows, _) = collect_test_pages(None, 16, |cursor| {
                     let root = RequestExecutionRoot::__new_runtime_root();
                     let session = new_request_session(&root);
                     let page = if public {
-                        session.execute_public_live_page(&query, cursor.as_deref())
+                        session.execute_public_live_page(&query, cursor)
                     } else {
-                        session.execute_trusted_live_page(&query, cursor.as_deref())
+                        session.execute_trusted_live_page(&query, cursor)
                     }
                     .unwrap_or_else(|error| {
-                        panic!("descending={descending}, kind={kind:?}, public={public}, emitted={}: {error:?}", rows.len())
+                        panic!("descending={descending}, kind={kind:?}, public={public}, emitted={emitted}: {error:?}")
                     });
                     assert!(root.observed(Resource::RowsVisited) <= 3);
-                    rows.extend(page.rows);
-                    cursor = page.continuation;
-                    if cursor.is_none() {
-                        break;
-                    }
-                }
-                assert!(cursor.is_none());
+                    emitted += page.rows.len();
+                    page
+                });
                 let end = if kind == QueryAdmissionAccessKind::IndexMultiLookup {
                     9
                 } else {
@@ -358,29 +342,20 @@ pub(super) fn bounded_secondary_request(rows: u64) -> RequestExecutionRoot {
 pub(super) fn collect_bounded_secondary_pages(
     query: &DynamicQuery,
     public: bool,
-    mut cursor: Option<String>,
+    cursor: Option<String>,
 ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    for _ in 0..16 {
+    collect_test_pages(cursor, 16, |cursor| {
         let root = bounded_secondary_request(3);
         let session = new_request_session(&root);
         let page = if public {
-            session.execute_public_live_page(query, cursor.as_deref())
+            session.execute_public_live_page(query, cursor)
         } else {
-            session.execute_trusted_live_page(query, cursor.as_deref())
+            session.execute_trusted_live_page(query, cursor)
         }
         .unwrap();
         assert!(root.observed(Resource::RowsVisited) <= 3);
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return (rows, tokens);
-        };
-        assert_ne!(cursor.as_ref(), Some(&next));
-        tokens.push((next.clone(), rows.len()));
-        cursor = Some(next);
-    }
-    panic!("bounded secondary pages must exhaust");
+        page
+    })
 }
 
 #[test]

@@ -50,7 +50,7 @@ status="$(curl --disable --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --connect-timeout 10 --max-time 30 \
     "${request_args[@]}" --write-out '%{http_code}' \
-    --user-agent 'dragginzgame-shared-tooling (https://github.com/dragginzgame/shared-tooling)' \
+    --user-agent 'dragginzgame-toko-tooling (https://github.com/dragginzgame/toko-tooling)' \
     "https://crates.io/api/v1/crates/$crate/$version")" || transport=$?
 if [[ -n "$evidence" ]]; then
     printf '%s\n' "$status" > "$evidence/http-status"

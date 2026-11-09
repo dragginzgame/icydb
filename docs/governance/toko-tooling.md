@@ -1,66 +1,120 @@
-# Shared Tooling Adoption
+# Toko Tooling Adoption
 
 This document describes current ownership and qualification boundaries. Dependency
 identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lock)
-and the [reviewed snapshot](../../.shared-tooling.snapshot), not historical notes.
+and the [reviewed snapshot](../../.toko-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
-The pending database 0.305 root selects published Storage 0.70, Wire/Derive 0.18,
-Testkit 0.95 and Build 0.81. Storage retains direct collection results and the
-current image format; the root and Storage share one Wire identity. Build's
+The pending database 0.306 root selects published Storage 0.71.1, Wire/Derive 0.18,
+Testkit 0.96 and Build 0.81. Storage retains direct collection results but changes
+the whole-store backing format: use fresh backing and reject older images without
+automatic reset/migration. Its production graph no longer depends on Wire. Build's
 fallible shared-target maintenance configuration propagates through the existing
 build and dependency-admission boundaries; Host Artifacts owns batch-label
 errors. Host Tools 0.88 and Host Foundation 0.76.1 retain their typed Wasm
-boundary. Testkit introduces Host HTTP 0.76.1 and retains Platform 0.27.1;
-Runtime 0.20.3, Types 0.18.3 and Metrics 0.29.8 remain selected. Preserve incoming
+boundary. Testkit retains Host HTTP 0.76.1 and now selects Platform 0.28.0;
+Runtime 0.21.0, Types 0.19.0 and Metrics 0.29.8 are selected for direct consumers. Preserve incoming
 unrelated lock changes. No consumer bridge or supplier requirement is patched.
+Types 0.19 removes external-Principal aliases/conversions; IcyDB retains checked
+caller-byte admission. Testkit 0.96 and Platform 0.28 use that same canonical
+identity and Platform-owned Candid codecs. The root lock no longer contains
+Types 0.18; graph admission again requires one Types version. Native Testkit
+snapshot limits and codec error variants follow the new supplier contract;
+IcyDB adds no supplier patches or external-identity bridges.
+
+Published IC Entropy 0.1.0 now owns seeded expansion; the temporary sibling-path
+selection and exception are retired. Native OS acquisition and process lifetime
+stay local, and database boot entropy and cursor-key policy are independent.
+Supplier archive SHA-256 is
+`d5a7386a4f8a63fc339bd18b773c49c078427a0273f66b708466852336045297`,
+source `0caf4376a98e6c9f0dbd2231900a0d5fb932a83d`. Consumer evidence for
+[#633](https://github.com/dragginzgame/icydb/issues/633) is under
+`target/evidence/issue-633/`.
+
+Direct database/model/schema SHA-2 now selects 0.11.1 without default allocation
+or OID features. Older transitive providers remain independently owned; the
+existing digest bytes and domain separation are retained.
 Canic's older Testkit and extension imports remain in its deferred independent
 stack. This adoption changes no IcyDB package versions or installed snapshots.
 
 ## Ownership and provenance
 
-IcyDB selects published **Toko Tooling 0.36.0** with an exact
-`[workspace.dependencies]` pin, inherited unconditionally as a dev-dependency by
-every real package. Each package merges `toko-tooling` into its cargo-machete
-ignored list; no artificial Rust import or selection-only package is used.
-Cargo.lock and the snapshot receipt select registry archive SHA-256
-`de0dd05b6437061622a76942baa25d40d2181497e7ba66d9fd809132a3082936`;
-all **170 payloads** come from published source
-`1542683b6d8af295d5366f95f85a292e978ff5ea`.
+IcyDB selects published **Toko Tooling 0.37.5** with one exact workspace pin
+inherited as an unconditional dev-dependency by every real package, alongside
+its cargo-machete exemption. Cargo.lock and `.toko-tooling.snapshot` identify
+archive SHA-256 `9fc1a752f4f8203d999c4cd593afb9ea18717b28d407492fc98aab5722526be3`,
+from source `1ea86ca5ff60cb9748a7e8e4df9bc322f9ee740e`. All 171 payloads are installed
+by the authenticated exporter; no snapshot-owned files or receipt hashes are
+edited locally.
 
-After deliberately editing the exact root pin, refresh Cargo.lock with Cargo,
-then run `make shared-tooling-update`. `make shared-tooling-install` reinstalls
-that locked selection; `make shared-tooling-check` admits every root member,
-Cargo.lock and installed bytes offline. Exact-pin policy exceptions record this
-required source-bundle identity. The superseded metadata selectors and dedicated
-tooling lock are removed, including from qualification inputs. Bootstrap used
-the clean released producer installer; actual payloads came from crates.io.
-No Git/path dependency or supplier checkout is required for subsequent updates.
+The 0.37 hard cut adopts `TOKO-TOOLING.md`, `toko-tooling-*` Make targets,
+`scripts/dev/toko-tooling.sh`, `TOKO_TOOLING_*` settings and
+`package.metadata.toko-tooling.loc`. The installer preview retained all 100
+selected entrypoints, renamed the baseline/verification/schedule roots, and
+retired five unchanged old paths. Refresh used the existing receipt for ownership
+proof before moving it to `.toko-tooling.snapshot`. The installer applied the
+snapshot-only mode; tool preparation/admission is qualified separately.
 
-Both maintained workspaces retain their package ownership: 23 root packages and
-31 independent Canic packages. All 54 have inherited declarations and merged
-exemptions; real tools/tests, memberships and release groups remain intact.
-The root lock adds only the empty tooling package and member edges; other locked
-versions/checksums are preserved. The Canic full lock refresh still fails on the
-existing Storage 0.64 / Platform 0.17 runtime-guard versus Platform 0.8.3 executor
-links conflict under [#373](https://github.com/dragginzgame/icydb/issues/373).
-The maintainer explicitly approved a tooling-only exception: copy the verified
-root Cargo-selected 0.36.0 record and add 31 workspace dev edges while preserving
-all existing versions/checksums. Both workspaces now pass offline tooling
-selection admission against the one installed snapshot. Adapter checks and CI
-admit the nested selection before fetching or product dispatch. This does not
-qualify the retained runtime graph or refresh its stale path-package identities.
-The shared extra-workspace formatter also rejects this approved workspace's
-outside-root member paths before formatting; that qualification remains blocked.
+After changing the exact Cargo pin, refresh Cargo.lock with Cargo and run
+`make toko-tooling-update`. `make toko-tooling-preview` inspects a proposed
+update without consumer mutations; `make toko-tooling-update
+TOKO_TOOLING_INSTALL_TOOLS=0` applies snapshot files only. Prepare tools explicitly
+before their use. `make toko-tooling-check` admits all member declarations,
+Cargo.lock and installed bytes offline. CI/build, release setup, ICP staging and
+direct publication invoke admission before effects. Subsequent updates require
+no sibling checkout or Git/path dependency.
 
-Repository CI/build entrypoints, release setup, the ICP build/staging hook and
-direct publication retain tooling admission before effects. General-purpose
-CLI commands for downstream projects retain their application contracts.
-No package version, retained release batch, sibling repository or deployment
-changes. Rust **1.99.1** remains the declared minimum and pinned compiler.
-Historical full/selected comparisons keep their old inputs; current mapping
-changes retain full-validation fallback. The earlier 0.34 metadata/lock adoption
-is superseded by this published per-package Cargo contract.
+Both maintained workspaces retain their ownership: 23 root packages and 31
+independent Canic packages. All 54 inherit the same exact pin and exemption.
+Root Cargo refresh changes only the tooling record. Canic's existing Storage
+0.64 / Platform 0.17 versus Platform 0.8.3 executor-links conflict remains deferred
+under [#373](https://github.com/dragginzgame/icydb/issues/373). Reuse the explicitly
+approved tooling-only nested-lock repair: copy the verified root Cargo-selected
+record, preserving every other package and dependency. Nested admission must
+precede fetch/product dispatch; it does not qualify Canic's runtime graph or
+outside-root formatter ownership.
+
+The previous 0.36.1 LOC classifier remains in force: it recognizes test-only
+closure scopes, retaining source totals. Its earlier measurements and consumer
+qualification remain in `target/evidence/toko-tooling-0361/`. The naming migration
+evidence is under `target/evidence/toko-tooling-0370/`. The 0.37.1 follow-up
+rejects obsolete LOC namespaces before counting; its focused evidence is under
+`target/evidence/toko-tooling-0371/`. The 0.37.2 adoption updates selection and
+receipt provenance with identical selected payloads; its dependency-report fixes
+are outside IcyDB's export roots. Evidence is under
+`target/evidence/toko-tooling-0372/`.
+
+Rust **1.99.1** remains the minimum and pinned compiler. Historical release
+comparisons keep their original paths and hashes; adopting new tooling does not
+rewrite those records or grant validation omissions. No package-version,
+release-batch, sibling, or deployment effects are authorized by this adoption.
+
+### 0.37.4 policy adoption
+
+The baseline now exports independently of its detailed references. Retain the
+existing offline document set by explicitly selecting engineering details, RPC
+budgets and the Candid boundary, alongside the prior 100 roots. Immutable links
+inside the exported baseline remain producer-owned.
+
+Common authorization, integrity, dependency ownership and prohibition rules
+remain binding. IcyDB architecture, product limits and gate selection are local
+choices; the existing approved layout, Canic isolation and broad-gate exceptions
+remain scoped as recorded in AGENTS.md. This update introduces no new exception.
+During authorized dependency maintenance, prefer current stable direct releases
+independently of older DFINITY transitive selections, preserving necessary type,
+runtime and cryptographic contracts. This policy adoption authorizes no unrelated
+dependency refresh. The explicit tooling-only Canic lock repair still leaves its
+runtime graph deferred. Evidence is under `target/evidence/toko-tooling-0374/`.
+
+Runtime 0.21 is selected directly with only `ic0`; Storage 0.71.1 now selects
+that same Runtime. The old 0.20.3 raw IC0 package and temporary graph allowance
+are gone; graph admission again requires one Runtime provider. Storage's 0.71.1
+directory optimizations preserve the 0.71 backing format. Qualification is under
+`target/evidence/storage-0711/`.
+Toko Tooling 0.37.5 changes only the Candid declaration checker and its policy;
+the new unpublished Wire benchmark oracle exception does not authorize direct
+Candid dependencies in IcyDB. Evidence is under
+`target/evidence/runtime-021-tooling-0375/`.
 
 ### Earlier Git snapshot
 
@@ -1580,8 +1634,8 @@ These are retained adoption results, not a fresh full gate for later changes.
 
 | Consumer obligation | Maintained proof owner |
 | --- | --- |
-| Selected payload integrity | Shared's verifier through `shared-tooling-check` |
-| Setup ordering and Rust tool selection | `scripts/ci/test-workstation-setup.sh`, `scripts/ci/test-shared-tooling-adapters.sh` |
+| Selected payload integrity | Toko's verifier through `toko-tooling-check` |
+| Setup ordering and Rust tool selection | `scripts/ci/test-workstation-setup.sh`, `scripts/ci/test-toko-tooling-adapters.sh` |
 | Dependency declarations and grouped release metadata | `scripts/ci/test-cargo-metadata-adoption.sh` (aggregate); `--case ordering` selects only grouped/selected-source ordering |
 | IcyDB workflow selection and execution policy | `scripts/ci/test-ci-workflow-invariants.sh`, `scripts/ci/check-ci-workflow-invariants.sh` |
 | IcyDB structural scanner integration | `scripts/ci/test-invariant-scanners.sh` |

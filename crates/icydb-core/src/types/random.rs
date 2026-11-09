@@ -1,13 +1,11 @@
 //! Module: types::random
 //! Owns the process-local seeded RNG used by core generated scalar values.
 
-#[cfg(any(test, not(target_arch = "wasm32")))]
-use rand_chacha::rand_core::SeedableRng;
-use rand_chacha::{ChaCha20Rng, rand_core::Rng};
+use ic_entropy::Generator;
 use std::cell::RefCell;
 
 thread_local! {
-    static RNG: RefCell<Option<ChaCha20Rng>> = const { RefCell::new(None) };
+    static RNG: RefCell<Option<Generator>> = const { RefCell::new(None) };
 }
 
 #[derive(Debug)]
@@ -15,12 +13,13 @@ pub(in crate::types) enum RandomError {
     NotInitialized,
 }
 
-fn seed_from_system() -> Result<ChaCha20Rng, RandomError> {
+fn seed_from_system() -> Result<Generator, RandomError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let mut seed = [0u8; 32];
         getrandom::fill(&mut seed).map_err(|_| RandomError::NotInitialized)?;
-        Ok(ChaCha20Rng::from_seed(seed))
+        // Preserve the existing long-lived native stream; no background reseed policy.
+        Ok(Generator::from_seed(seed, u64::MAX))
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -36,9 +35,7 @@ pub(in crate::types) fn next_u128() -> Result<u128, RandomError> {
         }
 
         let rand = rng.as_mut().ok_or(RandomError::NotInitialized)?;
-        let hi = u128::from(rand.next_u64());
-        let lo = u128::from(rand.next_u64());
-        Ok((hi << 64) | lo)
+        rand.next_u128().map_err(|_| RandomError::NotInitialized)
     })
 }
 

@@ -208,19 +208,9 @@ fn scoped_order_choice_preserves_public_top_one_and_resume_without_extra_predica
                         .unwrap();
                     assert_eq!(top.rows, trusted.rows);
                     assert_order_choice(&setup, descending);
-                    let mut actual = Vec::new();
-                    let mut cursor = None;
-                    for _ in 0..8 {
-                        let page = setup
-                            .execute_public_live_page(&query, cursor.as_deref())
-                            .unwrap();
-                        actual.extend(page.rows);
-                        cursor = page.continuation;
-                        if cursor.is_none() {
-                            break;
-                        }
-                    }
-                    assert!(cursor.is_none());
+                    let (actual, _) = collect_test_pages(None, 8, |cursor| {
+                        setup.execute_public_live_page(&query, cursor).unwrap()
+                    });
                     assert_eq!(actual, expected);
                 }
             }

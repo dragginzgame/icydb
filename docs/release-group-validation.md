@@ -5,7 +5,7 @@ Independent versions should not force unrelated release checks. A consumer may
 qualify a complete gate for one release group, including its affected integration
 boundaries, while keeping repository-wide CI. Until that mapping is qualified,
 release adapters retain their existing full gate. This is the opt-in contract for
-[#345](https://github.com/dragginzgame/shared-tooling/issues/345).
+[#345](https://github.com/dragginzgame/toko-tooling/issues/345).
 
 ## Ownership and selection
 
@@ -98,7 +98,7 @@ admission; do not fork the dispatcher or copy its generic regression suite.
 
 The [shared adoption interfaces](group-validation-adoption.md) provide run-evidence
 verification, roster consistency and conservative baseline observation under
-[Shared #349](https://github.com/dragginzgame/shared-tooling/issues/349).
+[Shared #349](https://github.com/dragginzgame/toko-tooling/issues/349).
 Until the shared implementation is qualified and adopted in a consumer, retain its existing admission
 checks and full-gate fallback. Do not delete checks merely to reduce local code,
 or start another general evidence parser to work around the missing capability.

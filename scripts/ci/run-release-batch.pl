@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Shared companions: docs/release-batches.md scripts/ci/validate-release-inputs.pl scripts/ci/check-make-execution.sh scripts/ci/check-retained-state.pl
+# Shared companions: scripts/ci/validate-release-inputs.pl scripts/ci/check-make-execution.sh scripts/ci/check-retained-state.pl
 use strict;
 use warnings;
 use Cwd qw(abs_path);
@@ -215,10 +215,10 @@ output('git','-C',$work,'remote','get-url','--push','--all',$record->{remote}) e
 # Reparse each candidate's own Makefile, without caller command-line overrides
 # pointing back into the normal checkout. Consumer configuration belongs in Git.
 delete @ENV{qw(MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES)};
-if (defined $ENV{SHARED_TOOLING_ROOT}) {
-    my $shared=abs_path($ENV{SHARED_TOOLING_ROOT}) // die "missing shared tooling root\n";
-    $shared eq $root || index($shared,"$root/")==0 or die "shared tooling must be snapshot-owned\n";
-    $ENV{SHARED_TOOLING_ROOT}=$work.substr($shared,length($root));
+if (defined $ENV{TOKO_TOOLING_ROOT}) {
+    my $shared=abs_path($ENV{TOKO_TOOLING_ROOT}) // die "missing toko tooling root\n";
+    $shared eq $root || index($shared,"$root/")==0 or die "toko tooling must be snapshot-owned\n";
+    $ENV{TOKO_TOOLING_ROOT}=$work.substr($shared,length($root));
 }
 # Consumer adoption must qualify the real hooks in this independent checkout.
 # Do not copy live locks, configuration, tools or evidence from the normal tree.

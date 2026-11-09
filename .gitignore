@@ -44,6 +44,6 @@ generated
 # More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 backend/Cargo.lock
 
-# Interrupted shared-tooling snapshot refresh scratch
-/.shared-tooling-refresh.*
-.shared-tooling-payload.*
+# Interrupted toko-tooling snapshot refresh scratch
+/.toko-tooling-refresh.*
+.toko-tooling-payload.*

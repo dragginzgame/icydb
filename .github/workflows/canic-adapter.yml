@@ -87,8 +87,8 @@ jobs:
           source ci/tool-versions.env
           tool_dir="$RUNNER_TEMP/icydb-ci-tools"
           bash scripts/ci/install-ci-tool.sh shellcheck \
-            --version "$SHARED_TOOLING_SHELLCHECK_VERSION" \
-            --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
+            --version "$TOKO_TOOLING_SHELLCHECK_VERSION" \
+            --sha256 "$TOKO_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
             --install-dir "$tool_dir"
           echo "$tool_dir" >> "$GITHUB_PATH"
       - name: Install pinned local tools

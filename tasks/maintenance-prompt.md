@@ -1,13 +1,13 @@
 # Scheduled maintenance pass
 
-Read the selected Shared Tooling checkout's AGENTS.md, DRAGGINZGAME.md and
+Read the selected Toko Tooling checkout's AGENTS.md, TOKO-TOOLING.md and
 tasks/README.md first. Run the maintenance pass defined by that catalog for the
 explicit projects directory supplied with this prompt. Inventory the eligible
 repositories and read their local instructions. Record the catalog/source
 identities, dirty inputs and observation time.
 
 This unattended pass is report-only inspection. Keep repository
-source, manifests, locks, pins and Git state unchanged, including Shared Tooling.
+source, manifests, locks, pins and Git state unchanged, including Toko Tooling.
 Use source scans, prepared read-only checks and matching CI evidence. Do not run
 write-producing sibling checks, install tools, fetch crate dependencies, change
 compiler versions, run broad gates, commit, push, deploy or clean artifacts.

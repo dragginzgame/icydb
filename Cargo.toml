@@ -119,30 +119,29 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
+ic-entropy = "0.1.0"
 ic-host-artifacts = { version = "0.76.0", default-features = false }
 ic-host-fs = { version = "0.76.0", default-features = false }
 ic-host-process = "0.76.0"
 ic-host-text = "0.74.3"
 ic-host-tools = "0.88.0"
 ic-metrics = { version = "0.29.6", default-features = false }
-ic-platform-runtime = { version = "0.20.0", default-features = false }
-ic-platform-types = { version = "0.18.2", default-features = false }
-ic-storage = "0.70.0"
-ic-testkit = { version = "0.95.0", default-features = false }
+ic-platform-runtime = { version = "0.21.0", default-features = false }
+ic-platform-types = { version = "0.19.0", default-features = false }
+ic-storage = "0.71.1"
+ic-testkit = { version = "0.96.0", default-features = false }
 ic-wire = "0.18.0"
 libc = "0.2"
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0"
 quote = "1.0"
-rand_chacha = "0.10"
 remain = "0.2"
 rustyline = { version = "19.0", default-features = false, features = ["with-file-history"] }
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"
 serde_json = "1.0"
-# Keep database hashing on its qualified provider. Platform Types independently
-# owns the SHA-2 0.11 provider used by its canonical values.
-sha2 = "0.10.9"
+# Fixed-size database hashing needs neither allocation nor OID metadata.
+sha2 = { version = "0.11.1", default-features = false }
 syn = "3.0"
 thiserror = "2.0"
 time = { version = "0.3.55", default-features = false }
@@ -162,7 +161,7 @@ rusqlite = { version = "=0.41.1", default-features = false, features = [
 ] }
 serde-reflection = "0.6.0"
 tokio = { version = "1.54.1", default-features = false }
-toko-tooling = "=0.36.0"
+toko-tooling = "=0.37.5"
 trybuild = "1.0"
 
 # ---------------------

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/cargo-publication-selection.pl scripts/ci/cargo-publication-paths.sh scripts/ci/run-cargo-publication.sh docs/cargo-publication.md
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/cargo-publication-selection.pl scripts/ci/cargo-publication-paths.sh scripts/ci/run-cargo-publication.sh
 set -euo pipefail
 [[ $# == 1 && ( "$1" == check || "$1" == publish ) ]] || { echo 'select check or publish' >&2; exit 2; }
 mode="$1"

@@ -163,6 +163,19 @@ my $metadata=$json->decode(read_file($metadata_file));
 my %members=map {$_=>1} @{$metadata->{workspace_members}};
 my @packages=sort {$a->{name} cmp $b->{name}} grep {$members{$_->{id}}} @{$metadata->{packages}};
 @packages or die "Cargo workspace contains no packages\n";
+# Admit declared LOC policies before discovering or counting any source. A stale
+# or misspelled namespace must not silently turn fixture code into production.
+my @policy_errors;
+for my $package (@packages) {
+    my $policies=$package->{metadata} // {};
+    for my $namespace (sort keys %$policies) {
+        next if $namespace eq 'toko-tooling';
+        my $entry=$policies->{$namespace};
+        next unless ref($entry) eq 'HASH' && exists $entry->{loc};
+        push @policy_errors, "$package->{manifest_path}: unsupported LOC metadata package.metadata.$namespace.loc; move its classification settings to package.metadata.toko-tooling.loc (resolve both tables explicitly if both exist)";
+    }
+}
+die join("\n",@policy_errors)."\nNo LOC report produced; classification metadata requires migration.\n" if @policy_errors;
 my @roots=map {dirname($_->{manifest_path})} @packages;
 my @excluded=($metadata->{target_directory}); push @excluded, abs_path($metadata->{target_directory}) if -d $metadata->{target_directory};
 for my $root ($metadata->{workspace_root},@roots) {
@@ -292,7 +305,7 @@ sub load_source {
 sub unload_source {delete @{$_[0]}{qw(text tokens pair)};}
 for my $p (@packages) {
     my $root=dirname($p->{manifest_path});
-    my $policy=$p->{metadata}{'shared-tooling'}{loc} // {};
+    my $policy=$p->{metadata}{'toko-tooling'}{loc} // {};
     ref($policy) eq 'HASH' or die "LOC metadata must be an object\n";
     for (keys %$policy) { /\A(?:category|paths|generated)\z/ or die "unknown LOC metadata field: $_\n"; }
     if (exists $policy->{category}) { $valid{$policy->{category}} or die "invalid LOC category\n"; }
@@ -380,16 +393,22 @@ sub scan_scope {
             $i=$end+1;
         }
         last if $i >= $hi;
-        my $j=$i;
+        my $j=$i; my @nested;
         while ($j<$hi && $t->[$j][0] ne '{' && $t->[$j][0] ne ';') {
-            if (exists $pairs->{$j}) {$j=$pairs->{$j}+1;} else {$j++;}
+            if (exists $pairs->{$j}) {
+                # Calls, arrays and grouped expressions can contain closures or
+                # blocks with their own cfg gates. Macro token trees stay opaque.
+                push @nested,[$j+1,$pairs->{$j}] unless $j>$i && $t->[$j-1][0] eq '!';
+                $j=$pairs->{$j}+1;
+            } else {$j++;}
         }
+        my $kind=$test ? 'tests' : $category;
+        push @$scopes,map {[$f,$_->[0],$_->[1],$dir,$kind,$follow]} @nested;
         last if $j >= $hi;
         my $end=$t->[$j][0] eq '{' ? $pairs->{$j} : $j;
         defined($end) or die "missing Rust delimiter\n";
         my $body_end=$end;
         $end++ if $t->[$j][0] eq '{' && $end+1<$hi && $t->[$end+1][0] eq ';';
-        my $kind=$test ? 'tests' : $category;
         push @{$v->{test_ranges}},[$t->[$start][1],$t->[$end][2]] if $test;
         my $head=join ' ',map {$_->[0]} @$t[$i..$j-1];
         if ($head =~ /(?:\A| )mod (?:r\#)?([A-Za-z_][A-Za-z_0-9]*)\z/) {

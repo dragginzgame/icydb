@@ -61,7 +61,7 @@ keep the symbol inventory in the maintainer handoff rather than repository files
 Finish the coherent edit batch, then run the narrowest checks that match the
 changed risk once. Run checks during development to answer a specific question,
 following the
-[canonical validation policy](../../DRAGGINZGAME.md#validation-and-evidence).
+[canonical validation policy](../../TOKO-TOOLING.md#validation-and-evidence).
 Full local gates need release or explicit-check authority. Ordinary PR delivery
 and authorized merges use asynchronous hosted integration/native CI unless
 explicitly requested otherwise; enforced checks and reviews still apply.

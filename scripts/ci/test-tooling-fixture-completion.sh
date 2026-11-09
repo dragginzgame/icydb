@@ -33,7 +33,7 @@ for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooli
     scripts/ci/test-ci-workflow-invariants.sh scripts/release/test-standard-release.sh \
     scripts/release/test-release-groups.sh scripts/ci/test-pre-commit.sh \
     scripts/ci/test-pocketic-server-wrapper.sh \
-    scripts/ci/test-shared-tooling-adapters.sh scripts/ci/test-cargo-metadata-adoption.sh \
+    scripts/ci/test-toko-tooling-adapters.sh scripts/ci/test-cargo-metadata-adoption.sh \
     scripts/ci/test-publish-workspace.sh scripts/ci/test-invariant-scanners.sh \
     scripts/release/test-finalize-notes.sh scripts/ci/test-wasm-audit-report.sh \
     scripts/ci/test-read-admission-invariants.sh \
@@ -52,7 +52,7 @@ for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooli
       FIXTURE_PROBE_ROOT_VARIABLE=root ;;
   esac
   case "$source" in
-    scripts/ci/test-workstation-setup.sh|scripts/ci/test-shared-tooling-adapters.sh)
+    scripts/ci/test-workstation-setup.sh|scripts/ci/test-toko-tooling-adapters.sh)
       FIXTURE_PROBE_DIRECTORY_VARIABLE=FIXTURE ;;
     scripts/ci/test-invariant-scanners.sh|scripts/ci/test-read-admission-invariants.sh)
       FIXTURE_PROBE_DIRECTORY_VARIABLE=scratch ;;

@@ -47,8 +47,8 @@ jobs:
           source ci/tool-versions.env
           tool_dir="$RUNNER_TEMP/icydb-ci-tools"
           bash scripts/ci/install-ci-tool.sh shellcheck \
-            --version "$SHARED_TOOLING_SHELLCHECK_VERSION" \
-            --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
+            --version "$TOKO_TOOLING_SHELLCHECK_VERSION" \
+            --sha256 "$TOKO_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
             --install-dir "$tool_dir"
           echo "$tool_dir" >> "$GITHUB_PATH"
       - name: Install pinned secret scanner
@@ -253,6 +253,9 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --bin write_wasm_size_report
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features types::random::
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features types::ulid::
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::database_format::entropy::
           make fmt-check
           icp --version
           ic-wasm --version

@@ -10,7 +10,7 @@ description = "Frozen scalar record-path grouping comparison schema"
 [package.metadata.cargo-machete]
 ignored = ["toko-tooling"]
 
-[package.metadata.shared-tooling.loc]
+[package.metadata.toko-tooling.loc]
 category = "tests"
 
 [features]

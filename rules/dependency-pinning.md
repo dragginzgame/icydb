@@ -1,12 +1,18 @@
 # Dependency and repository pinning
 <!-- Shared companions: docs/node-tools.md -->
 
-These rules are part of the [engineering baseline](../DRAGGINZGAME.md).
+These rules are part of the [engineering baseline](../TOKO-TOOLING.md).
 Use one consistent selection method across repositories; consumers still own
 their reviewed versions. Different qualified versions are not automatically drift.
 The [Cargo ownership rules](cargo-dependencies.md) define where declarations live.
 
 ## Selection and reproducibility
+
+The baseline's
+[current dependency selection rule](../TOKO-TOOLING.md#current-dependencies-and-upstream-independence)
+owns freshness, acceptable duplicates and exceptions for older direct selections.
+Reproducibility freezes a reviewed selection; it does not justify choosing an
+older dependency merely to match an upstream integration stack.
 
 | Input | Required selection |
 | --- | --- |
@@ -16,7 +22,7 @@ The [Cargo ownership rules](cargo-dependencies.md) define where declarations liv
 | Additional repository checkouts | Full commit ID in `ref`, unless an approved moving-input exception applies. The workflow's own checkout may follow the selected event/branch/PR. |
 | CI container images and Docker actions | `@sha256:` image digest. A repository-owned Dockerfile belongs to the source; review its base-image pins too. |
 | Downloaded executables | Exact version and platform checksum, verified before extraction/execution, followed by a version check. |
-| Shared Tooling snapshots | Reviewed source commit plus file digests under the [snapshot contract](../docs/consuming-snapshots.md). |
+| Toko Tooling snapshots | Reviewed source commit plus file digests under the [snapshot contract](../docs/consuming-snapshots.md). |
 
 - A Cargo declaration such as `version = "0.49.2"` is a compatibility range,
   not an exact pin. Prefer Cargo's ordinary compatible requirements for registry
@@ -42,7 +48,7 @@ The [Cargo ownership rules](cargo-dependencies.md) define where declarations liv
 ## Maintaining upstream code
 
 - For DFINITY dependencies, follow the baseline's
-  [own-the-solution rule](../DRAGGINZGAME.md#dfinity-dependencies-own-the-solution).
+  [own-the-solution rule](../TOKO-TOOLING.md#dfinity-dependencies-own-the-solution).
   Continued use of an available dependency does not imply future upstream fixes.
   A required change needs a Dragginzgame maintenance owner or a consumer change
   that removes the need. Record retained source, licenses, deviations and focused
@@ -171,7 +177,7 @@ and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 
 - Paths inside the repository use that checkout's source identity. An explicit
   dependency path outside it needs a documented development purpose and release
-  qualification boundary. Follow the [self-contained file policy](../DRAGGINZGAME.md#repository-files-no-symlinks);
+  qualification boundary. Follow the [self-contained file policy](../TOKO-TOOLING.md#repository-files-no-symlinks);
   a sibling-path exception does not authorize a repository symlink into that
   checkout. A `version` beside `path` does not freeze the sibling's bytes.
 - Release qualification must select and verify the external repository's exact
@@ -273,7 +279,7 @@ The checker validates structure and matching scope; human review establishes app
 Consumers vendor the checker and `scripts/ci/dependency-pins.jq` together. Prepare
 a reviewed `yq` version (4.47.2 or later in v4) before running checks through
 `make install-host-tools`, then use the offline `make host-tools-check`.
-The selected host catalog owns its version and platform digests; Shared Tooling's
+The selected host catalog owns its version and platform digests; Toko Tooling's
 own selections live in `ci/tool-versions.env`.
 Qualify adoption on each declared native host. Do not silently change dependency
 versions, toolchains or release inputs while adopting this policy.

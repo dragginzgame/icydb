@@ -102,9 +102,9 @@ esac
 
 # The copied gate independently verifies the shared scanner source. Copy its
 # authoritative manifest closure instead of maintaining another payload roster.
-cp "$ROOT/.shared-tooling.snapshot" "$scratch/.shared-tooling.snapshot"
-shared_records="$(bash "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
-  --read-manifest "$ROOT/.shared-tooling.snapshot")"
+cp "$ROOT/.toko-tooling.snapshot" "$scratch/.toko-tooling.snapshot"
+shared_records="$(bash "$ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
+  --read-manifest "$ROOT/.toko-tooling.snapshot")"
 while IFS=$'\t' read -r kind _digest _mode shared_path; do
   [[ "$kind" == file ]] || continue
   mkdir -p "$(dirname "$scratch/$shared_path")"

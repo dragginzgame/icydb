@@ -26,12 +26,6 @@ pub struct List {
     pub(crate) traits: TraitBuilder,
 }
 
-impl HasDef for List {
-    fn def(&self) -> &Def {
-        &self.def
-    }
-}
-
 impl ValidateNode for List {
     fn validate(&self) -> Result<(), DarlingError> {
         self.validate_traits()?;
@@ -41,28 +35,7 @@ impl ValidateNode for List {
     }
 }
 
-impl HasSchema for List {
-    fn schema_node_kind() -> SchemaNodeKind {
-        SchemaNodeKind::List
-    }
-}
-
-impl HasSchemaPart for List {
-    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
-        let model = &paths.model;
-        let def = self.def.schema_part(paths);
-        let name = self.current_name_literal(self.name.as_ref());
-        let item = self.item.schema_part(paths);
-        let ty = self.ty.schema_part(paths);
-
-        // quote
-        quote! {
-            #model::node::List::new(#def, #name, #item, #ty)
-        }
-    }
-}
-
-impl_collection_has_traits!(List, List);
+impl_sequence_node!(List, List);
 
 impl HasType for List {
     fn type_part(&self, paths: &CratePaths) -> TokenStream {

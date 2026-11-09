@@ -26,12 +26,6 @@ pub struct Set {
     pub(crate) traits: TraitBuilder,
 }
 
-impl HasDef for Set {
-    fn def(&self) -> &Def {
-        &self.def
-    }
-}
-
 impl ValidateNode for Set {
     fn validate(&self) -> Result<(), DarlingError> {
         self.validate_traits()?;
@@ -42,28 +36,7 @@ impl ValidateNode for Set {
     }
 }
 
-impl HasSchema for Set {
-    fn schema_node_kind() -> SchemaNodeKind {
-        SchemaNodeKind::Set
-    }
-}
-
-impl HasSchemaPart for Set {
-    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
-        let model = &paths.model;
-        let def = self.def.schema_part(paths);
-        let name = self.current_name_literal(self.name.as_ref());
-        let item = self.item.schema_part(paths);
-        let ty = self.ty.schema_part(paths);
-
-        // quote
-        quote! {
-            #model::node::Set::new(#def, #name, #item, #ty)
-        }
-    }
-}
-
-impl_collection_has_traits!(Set, Set);
+impl_sequence_node!(Set, Set);
 
 impl HasType for Set {
     fn type_part(&self, paths: &CratePaths) -> TokenStream {

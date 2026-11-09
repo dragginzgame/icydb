@@ -2,9 +2,9 @@
 
 Apply the [common run contract](README.md). Run the canonical
 `scripts/dev/check-cargo-tool-versions.pl --consumer /path/to/repository`
-from Shared Tooling, using `--versions FILE` for an alternative reviewed catalog.
+from Toko Tooling, using `--versions FILE` for an alternative reviewed catalog.
 Use `--cargo-home DIR` for another explicit Cargo installation root and `--json`
-for machine-readable output. `make check-cargo-tool-versions` checks Shared
+for machine-readable output. `make check-cargo-tool-versions` checks Toko
 Tooling itself. This is an online inspection, separate from offline admission.
 
 The checker reads literal Cargo pins in the owning tool-version catalog,
@@ -32,7 +32,7 @@ Run once per selected checkout; repeat the user-level installation inventory onl
 as needed. For scheduled evidence, set `TMPDIR` to the authorized run directory.
 Record version differences and the reported minimum Rust version from `--json`;
 an undeclared floor is not proof of compatibility. Keep shared catalog changes
-with Shared Tooling and consumer-specific selections with their owners. Do not
+with Toko Tooling and consumer-specific selections with their owners. Do not
 add every user-installed package to the common toolset merely because it exists.
 
 An authorized update uses explicit exact versions and locked Cargo builds,

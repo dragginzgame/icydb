@@ -36,7 +36,7 @@ The exported lifecycle companion anchors semantic-fixture evidence to its
 physical directory, preserving cleanup and diagnostics if temporary-root aliases
 change during execution.
 
-Shared Tooling's native CI compiles the scanner on Linux and both macOS hosts
+Toko Tooling's native CI compiles the scanner on Linux and both macOS hosts
 using the producer-only templates and locked graph under `ci/runtime-panics/`.
 This representative graph does not select consumer dependencies. CI explicitly
 reuses the Rust 1.99.1 compiler already prepared from `rust-toolchain.toml`, then

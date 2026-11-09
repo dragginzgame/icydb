@@ -83,26 +83,18 @@ fn catalogue_query(descending: bool) -> DynamicQuery {
 fn collect_catalogue(query: &DynamicQuery, trusted: bool) -> Vec<Vec<OutputValue>> {
     let root = RequestExecutionRoot::__new_runtime_root();
     let session = new_request_session(&root);
-    let mut rows = Vec::new();
-    let mut continuation = None;
-    // The harness deliberately reduces physical pages to two rows. A logical
-    // LIMIT must not stand in for that page bound or for complete-set exhaustion.
-    for _ in 0..100 {
+    // The harness reduces physical pages to two rows, independently of LIMIT.
+    collect_test_pages(None, 100, |cursor| {
         let page = if trusted {
-            session.execute_trusted_live_page(query, continuation.as_deref())
+            session.execute_trusted_live_page(query, cursor)
         } else {
-            session.execute_public_live_page(query, continuation.as_deref())
+            session.execute_public_live_page(query, cursor)
         }
         .unwrap();
         assert!(page.rows.len() <= 2);
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return rows;
-        };
-        assert_ne!(Some(&next), continuation.as_ref());
-        continuation = Some(next);
-    }
-    panic!("bounded catalogue fixture must exhaust");
+        page
+    })
+    .0
 }
 
 #[test]

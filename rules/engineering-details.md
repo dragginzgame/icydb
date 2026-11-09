@@ -1,7 +1,7 @@
 # Engineering contracts by task
 <!-- Shared companions: .github/actions/cache-tool-downloads/action.yml docs/candid-boundary.md docs/release-batches.md docs/principles/rust-code-hygiene.md docs/tool-store-maintenance.md rules/agent-maintenance.md rules/change-reporting.md rules/contributions.md rules/rust-workspaces.md tasks/README.md tasks/cargo-tool-versions.md -->
 
-These contracts supplement the [engineering baseline](../DRAGGINZGAME.md).
+These contracts supplement the [engineering baseline](../TOKO-TOOLING.md).
 Read the applicable sections when the task touches their subject. This file is
 not a second mandatory startup read. The core owns validation cadence; detailed
 product, release and recovery obligations remain binding when applicable.
@@ -19,15 +19,15 @@ product, release and recovery obligations remain binding when applicable.
   overlays list local choices and commands. Update the owning text when policy
   changes instead of appending repeated exceptions. Keep detailed reference
   procedures task-specific rather than adding them to every startup read.
-- Shared Tooling owns consistency across the repository fleet: repository/sibling
+- Toko Tooling owns consistency across the repository fleet: repository/sibling
   counts, shared-snapshot and pin drift, CI/issue overviews, cross-repository LOC
   and tooling inventories, and common maintenance/audit procedures. Run central
   fleet reports here; their existence does not require every consumer to vendor
   them or add sibling scans/dashboard tests to its CI. Consumers still adopt
-  shared tooling needed for their own development and validation.
+  toko tooling needed for their own development and validation.
 - Keep repository-fleet inventory and governance out of IC Observability's product
   scope. Its `ic-metrics` and `ic-logging` crates own reusable measurement and log
-  engines; a repository count is a Shared Tooling report, not a new Observability
+  engines; a repository count is a Toko Tooling report, not a new Observability
   API, dependency or application.
   Product libraries do not become fleet-management owners because a report
   contains counts or is called a metric.
@@ -134,7 +134,7 @@ to include siblings; cross-repository delivery requires an explicit request.
   stricter all-regular inventory for repositories that choose it; it cannot
   assess justified internal links. Such repositories should select appropriate
   boundary checks rather than add a parallel exception framework merely to keep
-  that gate. Shared Tooling itself retains this stricter inventory check.
+  that gate. Toko Tooling itself retains this stricter inventory check.
 - Preserve existing installations, evidence and link targets. Replacing an
   obsolete repository link must not modify its target. Exceptions to the
   self-contained dependency or shipped-file requirements still need scoped
@@ -315,7 +315,7 @@ to include siblings; cross-repository delivery requires an explicit request.
 
 ## Wasm optimization
 
-- Shared Tooling owns the common decision process and evidence requirements.
+- Toko Tooling owns the common decision process and evidence requirements.
   IC Tooling's `ic-build` owns reusable Cargo/Wasm optimization mechanics and
   the canonical recommendations, recipe definitions and qualification evidence.
   Improve that owner when shared support is missing; do not establish competing
@@ -450,7 +450,7 @@ to include siblings; cross-repository delivery requires an explicit request.
   upstream minor/hard cut does not automatically require downstream minor bumps.
   Contributor-only CI, hooks, formatting, tool installation and local PATH changes
   are compatible for a library whose published API, behavior and supported build
-  requirements remain unchanged. Shared Tooling's commands are its product
+  requirements remain unchanged. Toko Tooling's commands are its product
   interface; adopting their changes does not turn them into a library API break.
   Apply the [package-impact rules](changelogs.md#classify-the-released-packages-own-impact),
   including exposed dependency types and coordinated workspace versions.
@@ -468,7 +468,7 @@ to include siblings; cross-repository delivery requires an explicit request.
 
 ## Validation and evidence
 
-The [core validation policy](../DRAGGINZGAME.md#validation-and-evidence) owns
+The [core validation policy](../TOKO-TOOLING.md#validation-and-evidence) owns
 selection, execution cadence, evidence reuse and asynchronous CI. Read this
 section when changing release validation, dependency preparation or evidence
 contracts; ordinary development does not require rereading these mechanics.
@@ -578,7 +578,7 @@ blind retries.
   [batch setup, recovery and custody interfaces](../docs/release-batches.md),
   rather than adding local orchestration wrappers. Qualify the consumer's real
   hooks before activation; an imported helper alone does not complete adoption.
-- Every `dragginzgame` repository, including Shared Tooling, must expose
+- Every `dragginzgame` repository, including Toko Tooling, must expose
   `make release-patch`, `make release-minor` and `make release-major`.
   All three use the same [release contract and Makefile pattern](../docs/releases.md):
   preflight, validate, bump and finalize the changelog, stage and commit, then
@@ -838,7 +838,7 @@ blind retries.
   declarative Rust formatter inputs for extra workspaces, derive sorting and
   manifest order. Use paired custom commands for other policies/frontends
   instead of replacing shared recipes; preserve all checks during adoption.
-- Shared Tooling owns common executable storage as well as installation commands.
+- Toko Tooling owns common executable storage as well as installation commands.
   Its reviewed snapshot also owns the default common tool versions and digests.
   Adopt those catalogs with the installers; do not maintain independent default
   copies. A consumer exception requires an explicitly selected catalog and a
@@ -865,7 +865,7 @@ blind retries.
   scoped pin exceptions; ordinary validation never downloads tools implicitly.
   PocketIC-specific selection, provisioning, offline admission and lifecycle
   belong to IC Testkit. Consumers use its selected setup/check contract rather
-  than a separate server pin catalog or Shared Tooling's IC executable bundle.
+  than a separate server pin catalog or Toko Tooling's IC executable bundle.
 - Apply the [dependency pinning rules](dependency-pinning.md): immutable
   Git/action identities, compatible registry requirements with locked builds,
   verified tool downloads, and explicitly qualified sibling or moving inputs.
@@ -980,7 +980,7 @@ blind retries.
 ## Feedback and handoff
 
 - Use the [repeatable task catalog](../tasks/README.md) for named maintenance checks
-  and bounded recurring audits. Shared Tooling owns the procedures; consumers
+  and bounded recurring audits. Toko Tooling owns the procedures; consumers
   own local inputs and validation contracts. Scheduled execution requires explicit
   activation and retains the task's inspection/repair boundaries.
 - Follow the [user-triggered agent maintenance rules](agent-maintenance.md)

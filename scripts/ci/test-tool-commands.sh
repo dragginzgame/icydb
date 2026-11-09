@@ -18,7 +18,7 @@ fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Failed tool command fixture retained"' EXIT
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 consumer="$fixture/consumer with spaces"
-snapshot="$consumer/vendor/shared-tooling"
+snapshot="$consumer/vendor/toko-tooling"
 mkdir -p "$snapshot/make" "$snapshot/scripts/dev" "$consumer/.tools/host/bin" "$consumer/.tools/ic/bin"
 cp "$ROOT/make/tools.mk" "$ROOT/make/execution.mk" "$snapshot/make/"
 mkdir -p "$snapshot/scripts/ci"
@@ -47,8 +47,8 @@ for tool in install-host-tools.sh install-ic-tools.sh install-rust-tools.sh cloc
     cp "$fixture/tool-stub" "$snapshot/scripts/dev/$tool"
 done
 cat > "$consumer/Makefile" <<'MAKE'
-SHARED_TOOLING_ROOT := $(CURDIR)/vendor/shared-tooling
-include vendor/shared-tooling/make/tools.mk
+TOKO_TOOLING_ROOT := $(CURDIR)/vendor/toko-tooling
+include vendor/toko-tooling/make/tools.mk
 .PHONY: help
 help:
 	@echo consumer help

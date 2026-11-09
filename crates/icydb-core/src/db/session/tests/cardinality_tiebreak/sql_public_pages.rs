@@ -89,21 +89,14 @@ fn scalar(sql: &str, continuation: Option<&str>) -> crate::db::LiveQueryPageOutp
 }
 
 fn collect(sql: &str) -> Vec<Vec<OutputValue>> {
-    let mut rows = Vec::new();
-    let mut cursor = None;
-    for _ in 0..32 {
-        let page = scalar(sql, cursor.as_deref());
+    collect_test_pages(None, 32, |cursor| {
+        let page = scalar(sql, cursor);
         assert!(page.row_count <= 2);
         assert_ne!(page.work.envelope_identity, 0);
         assert_eq!(page.work.result_rows, page.row_count);
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return rows;
-        };
-        assert_ne!(cursor.as_ref(), Some(&next));
-        cursor = Some(next);
-    }
-    panic!("bounded fixture traversal must exhaust");
+        page
+    })
+    .0
 }
 
 #[test]

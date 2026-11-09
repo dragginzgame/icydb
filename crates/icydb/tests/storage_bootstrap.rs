@@ -58,7 +58,13 @@ fn cold_bootstrap_and_warm_adoption_preserve_one_runtime() {
 
 #[test]
 fn existing_foreign_and_previous_format_images_are_rejected_unchanged() {
-    for header in [b"MGR".as_slice(), b"BTR\x02", b"ICMEMORY", b"unknown"] {
+    for header in [
+        b"MGR".as_slice(),
+        b"BTR\x02",
+        b"ICMEMORY",
+        b"ICROOTR1",
+        b"unknown",
+    ] {
         let backing = VectorMemory::default();
         assert_eq!(backing.grow(1), 0);
         backing.write(0, header);
@@ -95,6 +101,47 @@ fn allocation_identity_preserves_values_above_the_previous_slot_width() {
         let identity = StoreAllocationIdentity::from_committed_key(KEY).unwrap();
         assert_eq!(identity.memory_id(), id);
         drop(open_memory(KEY).unwrap());
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn current_backing_cold_reopen_preserves_bound_allocation_and_bytes() {
+    std::thread::spawn(|| {
+        let backing = VectorMemory::default();
+        let key = StableKey::parse(KEY).unwrap();
+        let allocation_id = {
+            let mut runtime = MemoryRuntime::new(backing.clone()).unwrap();
+            runtime
+                .bootstrap(
+                    &requirements(),
+                    &grants().unwrap(),
+                    &GenericAllocationPolicy,
+                )
+                .unwrap();
+            let memory = runtime.open_memory(&key).unwrap();
+            memory.grow(1).unwrap();
+            memory.write(0, b"retained");
+            runtime.allocation_id(&key).unwrap()
+        };
+        // Reopen the same-format backing after dropping every runtime and lease.
+        let before = backing.borrow().clone();
+        let mut reopened = MemoryRuntime::new(backing.clone()).unwrap();
+        reopened
+            .bootstrap(
+                &requirements(),
+                &grants().unwrap(),
+                &GenericAllocationPolicy,
+            )
+            .unwrap();
+        assert_eq!(reopened.allocation_id(&key).unwrap(), allocation_id);
+        bind_memory_runtime(Rc::new(reopened)).unwrap();
+        let memory = open_memory(KEY).unwrap();
+        let mut bytes = [0; 8];
+        memory.read(0, &mut bytes);
+        assert_eq!(&bytes, b"retained");
+        assert_eq!(*backing.borrow(), before);
     })
     .join()
     .unwrap();

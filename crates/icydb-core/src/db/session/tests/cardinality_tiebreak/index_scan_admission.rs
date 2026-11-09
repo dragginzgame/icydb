@@ -165,22 +165,15 @@ fn collect_pages(
     query: &DynamicQuery,
     public: bool,
 ) -> Vec<Vec<OutputValue>> {
-    let mut cursor = None;
-    let mut rows = Vec::new();
-    for _ in 0..16 {
-        let page = if public {
-            session.execute_public_live_page(query, cursor.as_deref())
+    collect_test_pages(None, 16, |cursor| {
+        if public {
+            session.execute_public_live_page(query, cursor)
         } else {
-            session.execute_trusted_live_page(query, cursor.as_deref())
+            session.execute_trusted_live_page(query, cursor)
         }
-        .unwrap();
-        rows.extend(page.rows);
-        cursor = page.continuation;
-        if cursor.is_none() {
-            return rows;
-        }
-    }
-    panic!("fixture traversal must exhaust");
+        .unwrap()
+    })
+    .0
 }
 
 #[test]

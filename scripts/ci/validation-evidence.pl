@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Shared companions: scripts/ci/ValidationPlan.pm scripts/ci/validation-input-checkpoint.pl docs/group-validation-adoption.md
+# Shared companions: scripts/ci/ValidationPlan.pm scripts/ci/validation-input-checkpoint.pl
 use strict;
 use warnings;
 use FindBin qw($RealBin);

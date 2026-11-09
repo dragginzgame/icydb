@@ -296,9 +296,9 @@ done
 # execution and log retention instead of freezing the runner's diagnostic prose.
 if [[ ! -x scripts/ci/run-icydb-validation-targets.sh ]] ||
    ! rg -q 'VALIDATION_RUNNER := .*run-icydb-validation-targets.sh' Makefile ||
-   ! rg -q '^check-portable-automation: shared-tooling-check$' Makefile ||
+   ! rg -q '^check-portable-automation: toko-tooling-check$' Makefile ||
    ! make_target_recipe check-automation | rg -q --fixed-strings \
-     'bash scripts/ci/test-shared-tooling-adapters.sh' ||
+     'bash scripts/ci/test-toko-tooling-adapters.sh' ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||
    ! rg -q '^test-durability:$' Makefile; then

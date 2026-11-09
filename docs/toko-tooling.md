@@ -25,11 +25,11 @@ Merge existing exemptions. A standalone package declares the exact version
 in its own dev-dependencies instead. No helper packages or Rust imports are needed.
 `cargo update -v` reports newer available releases; the exact pin keeps adoption
 intentional. After changing the root pin, run `cargo update -p toko-tooling`, then
-`make shared-tooling-update`. Cargo.lock supplies the selected version and checksum;
+`make toko-tooling-update`. Cargo.lock supplies the selected version and checksum;
 installation downloads and authenticates the actual crates.io source payload.
 
-`make shared-tooling-install` installs the existing Cargo.lock selection.
-Offline `make shared-tooling-check` validates every member's declaration, the root
+`make toko-tooling-install` installs the existing Cargo.lock selection.
+Offline `make toko-tooling-check` validates every member's declaration, the root
 pin, Cargo.lock and installed files. Common CI/release entrypoints require it;
 Cargo builds never install tools. The producer qualifies its source archive
 instead of depending on itself.

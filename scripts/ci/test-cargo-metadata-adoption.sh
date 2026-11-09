@@ -73,7 +73,7 @@ if [[ "$ordering_only" == false ]]; then
   done
   for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
     scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
-    ci/cargo-dependency-boundaries.json; do
+    ci/cargo-dependency-boundaries.json docs/governance/toko-tooling.md; do
     cp "$ROOT/$path" "$fixture/repo/$path"
   done
   cp -R "$ROOT/releases" "$fixture/repo/"
@@ -95,7 +95,7 @@ if [[ "$ordering_only" == false ]]; then
   cp Cargo.lock "$fixture/qualified.lock"
   # Coexisting hash families do not admit another line or duplicate versions
   # within a family, and do not relax other sensitive dependency checks.
-  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0'; do
+  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0' 'ic-platform-types 0.20.0' 'ic-platform-types 0.18.0' 'ic-platform-types 0.19.1' 'ic-platform-runtime 0.20.4' 'ic-platform-runtime 0.21.1'; do
     cp "$fixture/qualified.lock" Cargo.lock
     read -r package unexpected_version <<< "$addition"
     printf '\n[[package]]\nname = "%s"\nversion = "%s"\n' "$package" "$unexpected_version" >> Cargo.lock
@@ -104,6 +104,12 @@ if [[ "$ordering_only" == false ]]; then
       exit 1
     fi
   done
+  cp "$fixture/qualified.lock" Cargo.lock
+  printf '\n[[package]]\nname = "ic-platform-runtime"\nversion = "0.20.3"\ndependencies = ["ic-platform-runtime-guard"]\n' >> Cargo.lock
+  if bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/runtime-negative.log" 2>&1; then
+    echo 'old Storage runtime executor closure admitted' >&2
+    exit 1
+  fi
   cp "$fixture/qualified.lock" Cargo.lock
   version="$(RELEASE_GROUP=database make --no-print-directory -s release-version "YQ=$YQ" \
     "CARGO_WORK_HOME=$ROOT/.cache/cargo/icydb")"

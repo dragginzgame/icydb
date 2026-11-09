@@ -5,7 +5,7 @@
     "subject": "icydb",
     "value": "=0.305.0",
     "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
@@ -13,7 +13,7 @@
     "subject": "icydb-core",
     "value": "=0.305.0",
     "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
@@ -21,7 +21,7 @@
     "subject": "icydb-diagnostic-code",
     "value": "=0.305.0",
     "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
@@ -29,7 +29,7 @@
     "subject": "icydb-model",
     "value": "=0.305.0",
     "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
@@ -37,7 +37,7 @@
     "subject": "icydb-model-macros",
     "value": "=0.305.0",
     "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
@@ -45,7 +45,7 @@
     "subject": "icydb-schema",
     "value": "=0.305.0",
     "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
@@ -53,22 +53,22 @@
     "subject": "rusqlite",
     "value": "=0.41.1",
     "reason": "Fix the bundled SQLite reference backend used as the SQL correctness oracle.",
-    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
   {
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.36.0",
+    "value": "=0.37.5",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
-    "evidence": "docs/governance/shared-tooling.md#ownership-and-provenance"
+    "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   },
   {
     "rule": "cargo-exact",
     "file": "testing/canic-adapter/Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.36.0",
+    "value": "=0.37.5",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
-    "evidence": "docs/governance/shared-tooling.md#ownership-and-provenance"
+    "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   }
 ]

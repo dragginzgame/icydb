@@ -1,7 +1,7 @@
 # Repeatable maintenance tasks
 <!-- Shared companions: tasks/cargo-machete.md tasks/code-audit.md tasks/dependency-security.md tasks/maintenance-prompt.md tasks/msrv.md tasks/readme-freshness.md tasks/rust-toolchain.md tasks/tooling-duplication.md -->
 
-Shared Tooling owns this catalog and its reusable instructions. Open this file
+Toko Tooling owns this catalog and its reusable instructions. Open this file
 from the repository README or run `make tasks`. Task IDs are their filenames
 without `.md`; people and agents use the same definitions.
 
@@ -31,17 +31,17 @@ online-capable procedures unchanged. Installing a snapshot enables no timer.
 
 Tell an agent, for example:
 
-> Run task cargo-machete for ic-metrics using shared-tooling/tasks/README.md.
+> Run task cargo-machete for ic-metrics using toko-tooling/tasks/README.md.
 
 > Run task msrv for canic and icydb; inspect existing CI evidence first.
 
 > Run the maintenance pass for local dragginzgame repositories under
-> /home/adam/projects, using Shared Tooling's task catalog. Report findings and
+> /home/adam/projects, using Toko Tooling's task catalog. Report findings and
 > update the owning issues. Keep repository source unchanged.
 
 Select an explicit repository list or projects directory. For a directory scope,
 inventory immediate Git checkouts whose verified GitHub remote owner is
-`dragginzgame`, including Shared Tooling; report exclusions and missing roots.
+`dragginzgame`, including Toko Tooling; report exclusions and missing roots.
 An isolated worktree's parent is not necessarily the projects directory.
 Read each repository's `AGENTS.md`, adopted baseline and local command rules.
 Use Cargo workspace membership, including independent roots and approved layouts,

@@ -4,7 +4,7 @@ These documents contain repository-neutral decision guidance. They are
 maintained from experience across consuming repositories, initially Canic and
 IcyDB.
 
-The [engineering baseline](../../DRAGGINZGAME.md) is mandatory for all `dragginzgame`
+The [engineering baseline](../../TOKO-TOOLING.md) is mandatory for all `dragginzgame`
 repositories; every consumer must adopt a reviewed revision and identify its
 local overlay. These principles explain the baseline's decision tests. Product
 architecture, validation gates, release metadata and deployment identities remain

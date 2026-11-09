@@ -26,7 +26,7 @@ icydb-testing-wasm-helpers = { workspace = true }
 [lints]
 workspace = true
 
-[package.metadata.shared-tooling.loc]
+[package.metadata.toko-tooling.loc]
 category = "tests"
 
 [dev-dependencies]

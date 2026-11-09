@@ -72,24 +72,13 @@ fn seed_timestamps(unique: bool) -> Vec<(i64, u64)> {
 
 fn collect_pages(
     query: &DynamicQuery,
-    mut cursor: Option<String>,
+    cursor: Option<String>,
 ) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    for _ in 0..32 {
-        let page = new_request_session(&RequestExecutionRoot::__new_runtime_root())
-            .execute_trusted_live_page(query, cursor.as_deref())
-            .unwrap();
-        rows.extend(page.rows);
-        let Some(next) = page.continuation else {
-            return (rows, tokens);
-        };
-        assert_ne!(Some(&next), cursor.as_ref());
-        assert!(!tokens.iter().any(|(token, _)| token == &next));
-        tokens.push((next.clone(), rows.len()));
-        cursor = Some(next);
-    }
-    panic!("timestamp range must exhaust within the bounded page count");
+    collect_test_pages(cursor, 32, |cursor| {
+        new_request_session(&RequestExecutionRoot::__new_runtime_root())
+            .execute_trusted_live_page(query, cursor)
+            .unwrap()
+    })
 }
 
 fn assert_index_range(query: &DynamicQuery, descending: bool) {

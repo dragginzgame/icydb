@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Shared companions: scripts/ci/RustSource.pm docs/candid-boundary.md ci/cbor-dependencies.json
+# Shared companions: scripts/ci/RustSource.pm ci/cbor-dependencies.json
 use strict;
 use warnings;
 use Cwd qw(abs_path);
