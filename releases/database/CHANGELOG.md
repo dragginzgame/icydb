@@ -15,7 +15,7 @@ begin with 0.295.0 below.
 
 - Adopt Build 0.81 with fallible maintenance configuration and the common Host
   batch-label error. Retain Host Foundation 0.76.1, Platform 0.27.1 and Metrics
-  0.29.7 while preserving unrelated lock selections.
+  0.29.8 while preserving unrelated lock selections.
 
 ### 🧹 Cleanup
 

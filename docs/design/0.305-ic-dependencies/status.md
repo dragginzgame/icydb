@@ -8,7 +8,7 @@ implementation; this adoption does not authorize deployment or sibling changes.
 
 1. Adopt the coherent published root cohort: Storage 0.70, Wire/Derive 0.18,
    Testkit 0.95 and Build 0.81. Preserve the incoming Host Foundation 0.76.1,
-   Platform 0.27.1 / Runtime 0.20.3 / Types 0.18.3, Metrics 0.29.7 and unrelated
+   Platform 0.27.1 / Runtime 0.20.3 / Types 0.18.3, Metrics 0.29.8 and unrelated
    Syn/itoa lock selections. Migrate affected build and native testing callers
    directly, qualify the selected dependency graph and affected consumer
    boundaries, and update active docs and group notes. Carry the pending #632
@@ -196,3 +196,25 @@ unchanged. The canonical contract check and all 53 existing selector/refusal,
 drift and recovery fixture cases pass with substitute stage bodies. Native
 comparison certificates remain unchanged, so fresh release execution retains
 full validation. These controls do not qualify product-suite omissions.
+
+
+## Artifact guard and automation closeout — 9 November 2026
+
+The second frozen batch, `batch-5hdz7Nrt`, passes full-gate compiler and Clippy
+admission, then refuses the retired infallible planner spelling in the artifact
+source guard. No release version, Git delivery or registry effect occurs.
+
+The guard now scopes fallible planning, error propagation, checked batching and
+final consumption to the actual two-profile function. An unrelated checked
+caller cannot mask a bypass. New positive/negative cases run after the scanner's
+existing Cargo admission boundary, preserving transport-failure fixtures.
+Selected Shellcheck, all 66 scanner cases, 33 Wasm provenance controls, the full
+product-invariant gate and the full automation preflight pass. The latter retains
+153 workflow cases, 53 selector/refusal cases, 69 database dispatch cases, grouped
+transactions/rollback/publication, fixture retention and pre-commit/note controls.
+
+The captured Cargo.lock already selects Metrics 0.29.8. Fetching the exact normal
+lock prepares its missing cached registry entry without changing any selection;
+active adoption notes now name that patch accurately. Preserve the failed batch,
+its logs and native certificates. A fresh capture must still complete the full
+product release gate; these fixture/preflight passes grant no stage omission.

@@ -34,10 +34,17 @@ require_text \
     testing/build/src/lib.rs \
     'entry.failure().map(|(error, details)| {' \
     'whole-fleet Cargo failures must retain the paired error and partial phase details.'
-require_text \
-    testing/build/src/lib.rs \
-    'let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(root));' \
-    'the two-profile artifact contract must use the checked Cargo batch owner.'
+# Scope this handoff to its real owner: a checked call elsewhere in the file
+# must not mask a bypass in the concurrent two-profile path. Build 0.81 makes
+# planning fallible; require propagation before checked batch consumption.
+if ! perl -0777 -ne '
+    my ($body) = /^pub fn build_maintained_canister_contract_profiles\b(.*?)^}/ms;
+    exit 1 unless defined $body;
+    exit($body =~ /let specs = plan\.cargo_specs\(root\)\.map_err\(.*?\}\)\?;\s*let cargo_report = build_cached_cargo_wasm_batch\(&specs\);\s*finish_maintained_canister_builds\(root, plan, cargo_report\)/s ? 0 : 1);
+' "$ROOT/testing/build/src/lib.rs"; then
+    echo '[ERROR] the two-profile contract must propagate planning errors and use the checked Cargo batch owner.' >&2
+    failures=1
+fi
 require_text \
     testing/build/src/canister_build_cache.rs \
     'let report = build_wasm_canisters_cached_batch(' \

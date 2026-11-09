@@ -12,7 +12,7 @@ fallible shared-target maintenance configuration propagates through the existing
 build and dependency-admission boundaries; Host Artifacts owns batch-label
 errors. Host Tools 0.88 and Host Foundation 0.76.1 retain their typed Wasm
 boundary. Testkit introduces Host HTTP 0.76.1 and retains Platform 0.27.1;
-Runtime 0.20.3, Types 0.18.3 and Metrics 0.29.7 remain selected. Preserve incoming
+Runtime 0.20.3, Types 0.18.3 and Metrics 0.29.8 remain selected. Preserve incoming
 unrelated lock changes. No consumer bridge or supplier requirement is patched.
 Canic's older Testkit and extension imports remain in its deferred independent
 stack. This adoption changes no IcyDB package versions or installed snapshots.
