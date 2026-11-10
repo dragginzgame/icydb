@@ -7,7 +7,8 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
-- Adopt Host Foundation 0.76.3 and Host Text 0.74.4 for CLI host operations.
+- Adopt Host Tools 0.89.1, Host Foundation 0.76.3 and Host Text 0.74.4 for
+  CLI host operations, with the current rustls-pki-types 1.16 selection.
 
 - Adopt Toko Tooling 0.39.7 and retain the explicit shared release interface.
   Retire managed reference docs through the exporter in favor of pinned upstream
