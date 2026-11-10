@@ -2,7 +2,7 @@
 name = "icydb-testing-audit-default-empty-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.306.0"
+version = "0.307.0"
 publish = false
 license-file = { workspace = true }
 description = "Default-empty schema fixture crate for lightweight wasm canister builds"
