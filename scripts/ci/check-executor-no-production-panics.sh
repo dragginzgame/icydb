@@ -26,7 +26,7 @@ for root in "${roots[@]}"; do
   done <<< "$discovered"
 done
 
-# Development dependencies are already selected in the root lockfile. Prepare
+# Development dependencies are selected in the qualification lockfile. Prepare
 # them explicitly with make fetch; validation never downloads or changes them.
-cargo run --locked --offline --quiet --manifest-path "$ROOT/Cargo.toml" \
-  --manifest-path qualification/Cargo.toml -p icydb-testing-source-checks --bin check_runtime_panics -- "${files[@]}"
+cargo run --locked --offline --quiet --manifest-path "$ROOT/qualification/Cargo.toml" \
+  -p icydb-testing-source-checks --bin check_runtime_panics -- "${files[@]}"
