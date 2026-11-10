@@ -53,8 +53,14 @@ local overlays must not duplicate it or add routine permission gates.
   Use branches there when needed; coordinate or wait when another session owns
   the inputs. Separate checkouts are explicit exceptions, not the default for
   isolation, PRs or deployment.
-  Ordinary fixes include focused checks and pending notes, not staging, commits
-  or delivery. Toko Tooling alone also prepares its pending `VERSION`.
+  Ordinary fixes include focused checks and pending notes, not staging file
+  contents, commits or delivery. They do authorize `git add -N -- <explicit-paths>`
+  for newly created, task-owned files when an applicable validation check requires
+  Git to know those paths (for example, a new qualification lockfile). This is
+  intent-to-add bookkeeping, not content staging: inspect the index, preserve
+  existing staged work, explain the reason and proceed without asking again.
+  This narrow permission supersedes older linked wording that reserves every
+  index change. Toko Tooling alone also prepares its pending `VERSION`.
 - A PR request includes its topic branch, scoped commits, branch push and PR.
   Release/ship/deploy requests include their necessary delivery steps and direct
   integration-branch pushes. An unqualified “deploy”, “ship” or “release” applies
@@ -349,13 +355,62 @@ suppressions. Repositories must review every `allow` for conversion and retain
 one only with a concrete reason why an expectation cannot work. Follow the
 [lint suppression rule](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/docs/principles/rust-code-hygiene.md#lint-suppressions).
 
-Keep related crates in one development workspace, with coordinated versions
-within explicit release groups where unrelated contracts need independent
-releases. Independent groups all use explicit package versions and
+### Product and qualification workspaces
+
+Use one repository-root product workspace, with product packages under `crates/`
+and Canic fleet components in `apps/<fleet-name>/`. Meaningful grouping such as
+`crates/<domain>/<package-name>/` is supported, including Toko's grouped packages;
+packages need not be immediate children. Grouping does not create another
+workspace, dependency catalog or release group. Declare actual member paths
+explicitly and discover packages through Cargo metadata, not a `crates/*` scan.
+Ordinary unit tests, package integration tests and examples stay beside their
+owning product code. Separate packages used only for qualification, benchmarks,
+fuzzing, test fixtures or test support live under `qualification/`, with
+`qualification/Cargo.toml` and its own `Cargo.lock`. Meaningful grouping such as
+`qualification/<domain>/<package-name>/` is supported too. Do not add a redundant
+`qualification/crates/` level or create an empty qualification
+workspace. This is the standard whenever separate qualification packages exist;
+it does not require first demonstrating a dependency conflict.
+
+Classify canisters by purpose: standalone product canisters belong under
+`crates/`, product fleet components under `apps/`, and separate test, audit or
+benchmark canisters under `qualification/`. Do not introduce a parallel top-level
+`canisters/` tree. A test fleet's configuration may reference qualification
+packages without moving them into the product workspace. Small non-package
+fixtures remain beside their owning tests.
+
+Each workspace owns its catalog, lockfile, profiles and member metadata. The
+product root excludes `qualification`; qualification consumes product packages,
+never the reverse. Reusable shipped testing tools are products, not automatically
+qualification packages. Classify by actual responsibility, not publication flags
+or names. Keep core tests independent of downstream frameworks.
+
+Release groups contain only product-workspace packages. Qualification packages
+are unpublished, belong to no product release group and do not inherit its
+version. A group's validation plan explicitly selects the qualification checks
+it needs. Required checks remain required even though their packages are outside
+the group; no duplicate group or release ledger is created for a test harness.
+Changes to product references and qualification locks must be admitted and
+updated atomically with affected release metadata, preserving unrelated supplier
+selections and private versions. Toko Tooling owns reusable multi-lock mechanics;
+consumers own the validation mapping and semantic acceptance.
+
+Apply this standard across repositories through scoped adoption work, preserving
+package identities, coverage and release history. Previous general permission to
+keep qualification packages in product groups or a nested `crates/` tree does not
+exempt a migration. Policy adoption does not itself move sibling files or publish
+packages. This section supersedes conflicting layout/group wording in the older
+revision-bound detailed references below; it specifies policy, not a claim that
+every required multi-lock helper is already implemented.
+
+Keep related product crates in that development workspace, with coordinated
+versions within explicit release groups where contracts need independent
+releases. Independent product groups all use explicit package versions and
 `releases/<group>/CHANGELOG.md`; the root has no shared version and its changelog
 is an index. Require explicit group selection for releases and publication.
-Show every member's path and every publishable member's version in root
-`Cargo.toml` dependency declarations. Private dev helpers may use path-only entries.
+Show every product member's path and every publishable member's version in root
+`Cargo.toml` dependency declarations. Private product members may use path-only
+catalog entries; qualification members have their own workspace catalog.
 Group them once at the top of `[workspace.dependencies]`, before all external
 dependencies, with short titles and separate changelog comments, under the
 [workspace versioning rules](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/rust-workspaces.md#coordinated-versions-and-workspace-boundaries).

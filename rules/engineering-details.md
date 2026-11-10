@@ -876,15 +876,21 @@ blind retries.
   review applicable fixes, and distinguish source availability from demonstrated
   recovery. Product-specific pins, fixtures and recovery procedures stay local.
 - Use the [standard Rust workspace layout](rust-workspaces.md): a virtual
-  repository-root workspace, including single-package repositories. Maintained
-  packages use `crates/<package-name>/` or application-owned `apps/<app-name>/`
-  trees, including component packages grouped beneath an App. Both inherit from
-  the same root. Approved independent workspaces use those shapes relative to
-  their own roots; other layouts need explicit exceptions.
-  The rule explicitly approves IcyDB's existing `crates/`, `canisters/`, `schema/`
-  and `testing/` layout; adoption does not require relocating those packages.
+  repository-root product workspace, including single-package repositories.
+  Product packages use `crates/` or Canic fleet `apps/<fleet-name>/` trees.
+  Separate qualification-only packages use `qualification/`, with their own
+  virtual workspace and lockfile. Meaningful nested grouping is supported under
+  `crates/` and `qualification/`, including Toko's grouped product packages;
+  never add a redundant `qualification/crates/` level. Explicit member paths and
+  Cargo metadata own discovery, not fixed-depth scans. Standalone test/audit
+  canisters belong in qualification, standalone product canisters in crates and
+  product fleet components in apps; no parallel top-level canisters tree.
+  Ordinary tests stay with their product. Qualification consumes
+  products, never the reverse. No empty qualification workspace is required.
+  Prior general layout exemptions migrate to this standard through scoped work;
+  changing the common policy does not move sibling files automatically.
   Repositories without Rust packages do not need a Cargo workspace.
-- Keep related crates in one development workspace; release groups own their
+- Keep related product crates in one development workspace; release groups own their
   coordinated versions under the
   [workspace versioning guidance](rust-workspaces.md#coordinated-versions-and-workspace-boundaries).
   Independent groups all use literal package versions; omit the root
@@ -892,12 +898,16 @@ blind retries.
   resume and publication. Document the group map in root `Cargo.toml` comments and use
   [group changelogs and retained history](changelogs.md#release-group-changelogs-and-shared-history).
   Do not move packages or synchronize unrelated releases merely for versioning.
+  Qualification packages belong to no product group and retain independent
+  private versions. Validation plans select their required checks; shared lock
+  updates do not create group membership. Reusable multi-lock release mechanics
+  belong to Toko Tooling, with consumer-owned semantic checks and validation maps.
   Apply the [core and integration graph boundary](rust-workspaces.md#core-and-integration-graph-boundary)
-  when adapter or qualification dependencies block an otherwise valid core upgrade;
+  before qualification dependencies constrain an otherwise valid core upgrade;
   independent release versions do not isolate Cargo resolution or override that boundary.
   Apply the
   [Cargo dependency rules](cargo-dependencies.md): every direct dependency
-  is declared in root `[workspace.dependencies]`, and every child manifest uses
+  is declared in its owning workspace's root `[workspace.dependencies]`, and every child manifest uses
   `workspace = true`, including development, build and target-specific tables.
   Keep version/source selections in the root; children select target conditions,
   features and publication policy. Keep the

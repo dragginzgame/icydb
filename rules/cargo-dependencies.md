@@ -115,12 +115,13 @@ compile does not prove installed IC or macOS behavior.
   for the supported Cargo versions when centralizing declarations; inheritance
   must not silently enable features or raise MSRV.
 - Excluded packages, examples, integration harnesses and nested workspaces are
-  not implicit exemptions. An independently scoped child workspace requires a
-  documented boundary under the
-  [core and integration graph rule](rust-workspaces.md#core-and-integration-graph-boundary)
-  or a maintainer-approved exception. Name its authoritative root, scope and
-  reason in the local overlay so dependency ownership remains visible; each
-  independent workspace still owns its catalog and lockfile.
+  not exemptions from catalog inheritance. Separate qualification packages use
+  the standard independent `qualification/` workspace under the
+  [workspace rule](rust-workspaces.md#standard-layout), with their own catalog
+  and lockfile. Name each authoritative root and scope in the local overlay.
+  Additional nonstandard workspaces need a scoped maintainer exception. Product
+  packages must not declare normal, build or dev dependencies on qualification
+  packages; qualification consumes the products it checks.
 - Add or update the root catalog and affected inherited uses in the same batch.
   During manifest review, inspect every child dependency table, including target,
   development and build tables, for standalone version/source declarations.

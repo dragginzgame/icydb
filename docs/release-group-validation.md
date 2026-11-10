@@ -9,6 +9,18 @@ release adapters retain their existing full gate. This is the opt-in contract fo
 
 ## Ownership and selection
 
+Release groups contain product-workspace packages only. Separate qualification
+packages live in the independent `qualification/` workspace, with meaningful
+nested grouping permitted, and belong
+to no product release group. A validation plan may select one qualification
+package for several groups without aligning its version or creating another
+release ledger. See the
+[workspace relationship rule](../rules/rust-workspaces.md#qualification-and-release-group-relationships).
+Required qualification is still required; workspace separation is not a gate
+omission. Select its actual workspace manifest, package, targets and features at
+the leaf command, and bind both product and qualification lock/source identities
+to the evidence. An unqualified selection retains the existing complete gate.
+
 The consumer owns the exhaustive stage roster and a reviewed product selector. Shared
 admits the resulting plan and runs its targets through the existing
 [validation runner](validation-runner.md). This is not a dependency resolver or

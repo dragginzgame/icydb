@@ -42,9 +42,21 @@ protections. Optional hosted CI is not a reason to add a PR or approval round.
 The [authorization table](#agent-authorization) defines Git and release effects.
 Inspect wrappers and Make targets for those effects before running them.
 Beyond the pending notes and Toko Tooling `VERSION` preparation above,
-implementation and validation alone do not authorize staging, commits, package
+implementation and validation alone do not authorize staging file contents, commits, package
 version changes, tags, pushes or publication. Disposable validation fixtures may
 exercise those operations only in their documented test repositories.
+
+An implementation or fix request does authorize **intent-to-add** bookkeeping:
+use `git add -N -- <explicit-paths>` for newly created, task-owned files when an
+applicable validation check requires them to be known to Git. For example, the
+dependency-pin checker requires a newly created `qualification/Cargo.lock` to
+have an index entry. This command does not stage the file contents or authorize
+a commit, push or release. Inspect Git status and the index first, select only
+the required new files, preserve existing staged work, and explain the reason
+before proceeding. Do not request separate permission for this validation step,
+use a broad directory selection, or stage content merely to satisfy a checker.
+Report remaining intent-to-add entries at handoff; do not silently alter other
+index entries to clean up after validation.
 
 Carry established authority forward without repeated permission. During ordinary
 implementation, “keep going”, “finish this”, “prepare the release”, a release
@@ -146,6 +158,7 @@ permission for already-authorized steps.
 | Request | Authorized work |
 | --- | --- |
 | Fix or implement a change | Make scoped local edits and run relevant checks. |
+| Validate newly created task-owned files | When a check requires Git-known paths, use scoped `git add -N` without another approval; no file-content staging, commit or push. |
 | Stage the selected change | Stage only its reviewed paths; no commit or release. |
 | Commit the change | Stage the selected work and create its local commit; no implicit push. |
 | Open or submit a PR for the change | Create/use a topic branch, make scoped commits, push that branch to the intended repository or fork, and open the PR. Use a draft when readiness is incomplete or requested. |

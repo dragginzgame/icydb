@@ -1,7 +1,7 @@
 # IcyDB Agent Rules
 
 For scope, delegated delivery, validation, compiler support and reporting, use
-[Toko Tooling 0.37.5 policy](https://github.com/dragginzgame/toko-tooling/blob/1ea86ca5ff60cb9748a7e8e4df9bc322f9ee740e/TOKO-TOOLING.md)
+[Toko Tooling 0.38.2 policy](https://github.com/dragginzgame/toko-tooling/blob/9446ca1d18fe027f5fb89d989e0609f137184198/TOKO-TOOLING.md)
 and its revision-bound references over older snapshot or local-guide wording.
 This includes Rust 1.99.1 as minimum and pinned development/release compiler;
 check local declarations and qualification before claiming adoption is complete.
@@ -16,9 +16,10 @@ do not create selection-only packages, Rust imports or a separate tooling lock.
 
 Apply the local [shared engineering baseline](TOKO-TOOLING.md), recorded in
 [the snapshot manifest](.toko-tooling.snapshot). This file is IcyDB's local overlay.
-The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
-retains existing package directories under `crates/`, `canisters/`, `schema/`
-and `testing/`. The maintainer approved one exception on 2026-10-31: Canic
+The shared [layout migration](rules/rust-workspaces.md#adoption-and-verification)
+now requires an independent qualification tree. Its separately scoped migration
+is outstanding; this tooling refresh preserves current package locations and
+does not claim full layout-policy adoption. The maintainer approved one exception on 2026-10-31: Canic
 qualification uses `testing/canic-adapter/Cargo.toml` and its own lockfile, with
 no package-directory relocation ([#596](https://github.com/dragginzgame/icydb/issues/596)).
 Product packages and product gates remain in the root workspace; explicit Canic

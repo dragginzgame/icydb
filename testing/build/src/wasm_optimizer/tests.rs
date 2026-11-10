@@ -65,7 +65,7 @@ fn admitted_optimizer_preserves_outputs_on_failure_and_handles_spaced_paths() {
 #[test]
 fn producer_requires_successful_exit_and_wasm_header_before_publication() {
     use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
-    use std::{ffi::OsString, os::unix::fs::PermissionsExt};
+    use std::ffi::OsString;
 
     let root = ic_host_fs::testing::create_fixture_directory(
         &std::env::temp_dir(),
@@ -88,10 +88,9 @@ fn producer_requires_successful_exit_and_wasm_header_before_publication() {
     {
         // Keep each executed inode immutable across producer cases.
         let executable = root.join(format!("producer-{case}"));
-        std::fs::write(&executable, format!(
+        ic_host_process::testing::write_executable_script(&executable, format!(
             "#!/bin/sh\nif [ \"$1\" = --version ]; then echo fixture; exit 0; fi\nwhile [ \"$1\" != -o ]; do shift; done\noutput=$2\n[ -f \"$output\" ] && [ ! -s \"$output\" ] || exit 9\n{producer}\n"
         )).unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         let executable = std::fs::canonicalize(executable).unwrap();
         let current_dir = std::env::current_dir().unwrap();
         let optimizer = AdmittedTool::admit_version(

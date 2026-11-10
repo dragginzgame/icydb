@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/cargo-release-groups.jq scripts/ci/release-metadata-transaction.sh scripts/ci/finalize-release-changelog.awk scripts/ci/compare-stable-versions.pl
+# Shared companions: scripts/ci/cargo-release-groups.jq scripts/ci/release-metadata-transaction.sh scripts/ci/finalize-release-changelog.awk scripts/ci/compare-stable-versions.pl scripts/ci/cargo-qualification-release.sh
 set -euo pipefail
 script_dir="${BASH_SOURCE[0]%/*}"
 script_dir="$(cd -P "$script_dir" && pwd -P)"
@@ -13,6 +13,8 @@ case "$operation" in version|files|plan|prepare|check|check-graph) ;; *) exit 2 
 policy=ci/cargo-release-groups.json
 # shellcheck source=scripts/ci/release-metadata-transaction.sh
 source "$script_dir/release-metadata-transaction.sh"
+# shellcheck source=scripts/ci/cargo-qualification-release.sh
+source "$script_dir/cargo-qualification-release.sh"
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/cargo-release-group.XXXXXX")"
 complete=false
 finish() {
@@ -96,6 +98,7 @@ admit() {
     done < "$evidence/dependencies"
     jq -r '(.shared_metadata_files // [])[], (.groups[] | .changelog, (.metadata_files // [])[])' "$root/$policy" > "$evidence/ledgers" || return
     while IFS= read -r path; do release_metadata_regular "$root" "$path" || return 1; done < "$evidence/ledgers"
+    qualification_admit "$root" "$evidence" || return
     jq -r '.files[]' "$evidence/plan.json" > "$evidence/files" || return
     while IFS= read -r path; do release_metadata_regular "$root" "$path" || return 1; done < "$evidence/files"
 }
@@ -126,6 +129,7 @@ render_group() {
     while IFS= read -r path; do
         cp -p -- "$original/$path" "$candidate/$path" || return
     done < "$temporary/metadata-files"
+    qualification_render_lock "$original" "$candidate"
 }
 
 # shellcheck disable=SC2329 # Transaction callback.
@@ -137,7 +141,8 @@ check_group_candidate() {
     jq -n -e --slurpfile before "$temporary/admitted/metadata.json" --slurpfile after "$temporary/prepared/metadata.json" \
         --slurpfile plan "$temporary/admitted/plan.json" '
         def unrelated($m): [$m.packages[] | select(.name as $n | $plan[0].members | index($n) | not) | {id,version}] | sort_by(.id);
-        unrelated($before[0]) == unrelated($after[0])' > /dev/null
+        unrelated($before[0]) == unrelated($after[0])' > /dev/null || return
+    qualification_check_preserved
 }
 
 if [[ -n "$ordering" ]]; then

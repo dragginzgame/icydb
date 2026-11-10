@@ -8,7 +8,7 @@ def stable: type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[
 # Source-only shape admission is shared by resolved plans and bootstrap observation.
 # It grants neither a coherent Cargo graph nor release authority.
 def release_policy:
-  if type != "object" or (keys - ["shared_metadata_files"]) != ["groups", "schema"] or .schema != 1 or
+  if type != "object" or (keys - ["shared_metadata_files", "qualification_workspace"]) != ["groups", "schema"] or .schema != 1 or
      (.groups | type) != "array" or (.groups | length) == 0
   then error("invalid release-group workspace/configuration") else . end |
   if any(.groups[]; (keys - ["metadata_files"]) != ["changelog","dependencies","members","name","primary","version"] or
@@ -31,7 +31,11 @@ def release_policy:
   if has("shared_metadata_files") and
       ((.shared_metadata_files | type) != "array" or (.shared_metadata_files | all(.[]; relative) | not))
   then error("invalid shared release metadata files") else . end |
+  if has("qualification_workspace") and .qualification_workspace != "qualification"
+  then error("qualification_workspace must select qualification") else . end |
   ([.groups[] | (.metadata_files // [])[]] + (.shared_metadata_files // [])) as $extra |
+  if has("qualification_workspace") and any($extra[]; . == "qualification/Cargo.toml" or . == "qualification/Cargo.lock")
+  then error("qualification metadata is owned by qualification_workspace") else . end |
   if ($extra | unique | length) != ($extra | length) or
      any($extra[]; . == "Cargo.toml" or . == "Cargo.lock" or . == "ci/cargo-release-groups.json" or
          . == ".git" or startswith(".git/")) or

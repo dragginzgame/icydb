@@ -5,18 +5,18 @@ identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lo
 and the [reviewed snapshot](../../.toko-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
-The pending database 0.306 root selects published Storage 0.71.1, Wire/Derive 0.18,
-Testkit 0.96 and Build 0.81. Storage retains direct collection results but changes
+The pending database 0.307 root selects published Storage 0.71.1, Wire/Derive 0.19,
+Testkit 0.97 and Build 0.81. Storage retains direct collection results but changes
 the whole-store backing format: use fresh backing and reject older images without
 automatic reset/migration. Its production graph no longer depends on Wire. Build's
 fallible shared-target maintenance configuration propagates through the existing
 build and dependency-admission boundaries; Host Artifacts owns batch-label
-errors. Host Tools 0.88 and Host Foundation 0.76.1 retain their typed Wasm
-boundary. Testkit retains Host HTTP 0.76.1 and now selects Platform 0.28.0;
-Runtime 0.21.0, Types 0.19.0 and Metrics 0.29.8 are selected for direct consumers. Preserve incoming
+errors. Host Tools 0.89 and Host Foundation 0.76.2 retain their typed Wasm
+boundary. Testkit retains Host HTTP 0.76.2 and now selects Platform 0.29.2;
+Runtime 0.21.0, Types 0.19.0 and Metrics 0.29.10 are selected for direct consumers. Preserve incoming
 unrelated lock changes. No consumer bridge or supplier requirement is patched.
 Types 0.19 removes external-Principal aliases/conversions; IcyDB retains checked
-caller-byte admission. Testkit 0.96 and Platform 0.28 use that same canonical
+caller-byte admission. Testkit 0.97 and Platform 0.29 use that same canonical
 identity and Platform-owned Candid codecs. The root lock no longer contains
 Types 0.18; graph admission again requires one Types version. Native Testkit
 snapshot limits and codec error variants follow the new supplier contract;
@@ -37,13 +37,23 @@ existing digest bytes and domain separation are retained.
 Canic's older Testkit and extension imports remain in its deferred independent
 stack. This adoption changes no IcyDB package versions or installed snapshots.
 
+## Current tooling migration boundary
+
+Toko Tooling 0.38.2 is installed and selected in both workspaces. The new
+product/qualification layout supersedes the older general layout exemption,
+but requires a separately scoped migration under
+[#310](https://github.com/dragginzgame/icydb/issues/310). This refresh does not
+move packages or opt into `qualification_workspace`; current release metadata
+continues to use the existing two groups. Full layout-policy adoption remains
+outstanding. Canic resolution remains independently deferred under #373.
+
 ## Ownership and provenance
 
-IcyDB selects published **Toko Tooling 0.37.5** with one exact workspace pin
+IcyDB selects published **Toko Tooling 0.38.2** with one exact workspace pin
 inherited as an unconditional dev-dependency by every real package, alongside
 its cargo-machete exemption. Cargo.lock and `.toko-tooling.snapshot` identify
-archive SHA-256 `9fc1a752f4f8203d999c4cd593afb9ea18717b28d407492fc98aab5722526be3`,
-from source `1ea86ca5ff60cb9748a7e8e4df9bc322f9ee740e`. All 171 payloads are installed
+archive SHA-256 `45c12cc2aa598d14e137dd7db50f12e943470b4ce351dfcaffeccde6821c1876`,
+from source `9446ca1d18fe027f5fb89d989e0609f137184198`. All 173 payloads are installed
 by the authenticated exporter; no snapshot-owned files or receipt hashes are
 edited locally.
 

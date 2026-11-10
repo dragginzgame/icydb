@@ -157,6 +157,13 @@ cost in the actual consumer artifact, rather than rejecting duplicates by count.
 
 ## Dependency adoption planning
 
+The [product/qualification layout](../rules/rust-workspaces.md#standard-layout)
+gives separate qualification packages an independent workspace and lock by
+default. Inspect both selected graphs; a product release group does not own the
+qualification packages or their versions. Qualification references the actual
+product source under test, and required composed checks remain explicit. Product
+normal/build/dev edges must not pull qualification packages back into its graph.
+
 Before planning downstream version bumps or publication order, identify the
 destination application's selected roots, targets/features and independent
 manifests/locks. In the existing issue or change notes, distinguish the requested

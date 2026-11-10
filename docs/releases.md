@@ -79,10 +79,11 @@ version selection; pending-file mode cannot be used with a Cargo release group.
 ## Decide whether publication is needed
 
 Group membership, qualification scope and publication impact are different
-decisions. A private test, benchmark or tooling member belongs to its declared
-group, but editing it does not automatically require bumping or publishing that
-group's public packages. Keep member versions aligned at their current value
-until an actual group release. Do not create a new group merely to avoid a bump.
+decisions. Product packages belong to product release groups. Separate private
+tests, benchmarks and qualification tools belong to the independent qualification
+workspace and no product group. A group's validation plan may require their
+checks without versioning or publishing them. Keep private qualification versions
+independent; do not create a release group merely to classify a test harness.
 
 Before selecting release commands, compare the proposed source with the last
 published source for each affected public group. Use existing Cargo metadata,
@@ -102,8 +103,11 @@ This is release planning, not a new gate on every development edit.
 
 Record the decision and comparison basis in the ordinary handoff or owning issue.
 If impact cannot be established, resolve that uncertainty before declaring the
-public packages unchanged. Retain meaningful private maintenance notes in the
-owning group's pending numbered changelog entry for its next actual release;
+public packages unchanged. Retain meaningful qualification maintenance notes in
+the affected product group's pending numbered entry when they explain its
+qualification, or in the existing owning issue for shared qualification work.
+That association does not create package membership or a qualification release.
+For product-group notes,
 do not date that entry or imply that its version has been published. A pending
 note is not an instruction to release. Routine notes may be omitted under the
 normal changelog rules.
@@ -1014,7 +1018,7 @@ An approved consumer declares `ci/cargo-release-groups.json`, for example:
       "name": "codec",
       "primary": "ic-wire",
       "version": "package",
-      "members": ["ic-wire", "ic-wire-derive", "ic-wire-benchmarks"],
+      "members": ["ic-wire", "ic-wire-derive"],
       "changelog": "releases/codec/CHANGELOG.md",
       "dependencies": ["ic-wire", "ic-wire-derive"]
     },
@@ -1031,8 +1035,9 @@ An approved consumer declares `ci/cargo-release-groups.json`, for example:
 ```
 
 This is an illustrative approved layout, not an instruction to create these
-packages or select their versions. Every actual workspace member, including
-private qualification packages, belongs to exactly one group. Names and ledgers
+packages or select their versions. Every actual product-workspace member belongs
+to exactly one group. Qualification-only packages are in the separate
+`qualification/` workspace and belong to none of these groups. Names and ledgers
 are unique. Every independent group uses `version: "package"`: literal
 `package.version` values in every member, all matching its primary member. The
 primary owns only that group's version; no group is the workspace master. No
@@ -1071,6 +1076,15 @@ its transaction on failure. The consumer owns their rendering, semantic checks
 and any recovery spanning its additional preparation steps; listing a file does
 not supply those checks or make the whole consumer adapter transactional.
 An unselected group's additional metadata remains outside the staging roster.
+
+The [product/qualification standard](../rules/rust-workspaces.md#qualification-and-release-group-relationships)
+requires affected product references and qualification locks to be prepared,
+validated and installed atomically with release metadata, without advancing
+qualification-package versions or unrelated suppliers. Shared qualification
+metadata is not a group-membership declaration. Use the shared
+[qualification release preparation](#qualification-release-preparation) below;
+consumers retain product-specific semantic checks and the mapping of groups to
+qualification commands. Additional-file declarations alone do not render locks.
 
 `dependencies` explicitly lists root `workspace.dependencies` aliases with both
 path and version that refer to members of that group, including renamed aliases
@@ -1174,6 +1188,62 @@ with the existing publication adapter; it admits each package's own version and
 leaves Cargo's dependency ordering intact. Group release does not publish another
 group or waive any package's publication checks. No group is inferred and no
 second release runner is introduced.
+
+### Qualification release preparation
+
+From 0.38.1, declare `"qualification_workspace": "qualification"` at the top
+level of `ci/cargo-release-groups.json`. This selects the standard independent
+virtual workspace; it is not a second release group. Remove its manifest and
+lock from `shared_metadata_files` or group-local `metadata_files`: the shared
+helper now owns both paths and rejects duplicate ownership.
+
+Use `cargo-release-group.sh prepare GROUP` (or the existing
+`cargo-release-metadata.sh` dispatch with `RELEASE_GROUP`) and its `files`,
+`check` and `check-graph` operations. The admitted file plan automatically
+includes `qualification/Cargo.toml` and `qualification/Cargo.lock`. Keep the
+prepared IC Build editor and byte allowance described above. Delete consumer
+copies of group-manifest/lock rendering after qualifying this shared caller.
+No new editor installation belongs in ordinary setup or metadata checks.
+
+A coordinated product workspace can use one group with `version: "workspace"`,
+all product members and its existing `CHANGELOG.md`. This selects the same
+multi-lock implementation without creating independent product versions or
+changing private versions. Pass that group explicitly through the release
+adapter and consume its exact file plan; the unconfigured coordinated helper
+continues to handle one workspace only.
+
+Qualification members must be unpublished and consume product packages through
+their own `workspace.dependencies` catalog. Product aliases use local paths,
+optionally with the full current version and a bare, `^`, `~` or `=` requirement.
+Path-only aliases are supported. Members inherit those aliases; direct member
+requirements and stale bounds refuse. Every product alias is checked against
+its actual product member path, including unused aliases. A group need not be
+used by qualification: in that case its qualification lock stays unchanged.
+
+Preparation admits both locked/offline graphs, renders every candidate before
+installation, and validates both resulting graphs in one
+`release_metadata_prepare` transaction. Only selected product versions and their
+requirements change; private versions and unrelated package identities remain
+fixed. Editor lock projection preserves unrelated supplier selections and
+checksums. Product edges into qualification refuse. Commit-bound checks export
+and check both workspaces; optional manifest ordering checks both too.
+
+Here, atomic preparation means all-or-rollback for caught failures, not a
+filesystem-wide atomic rename or crash durability. Originals and candidates are
+retained on failure; an uncatchable interruption still requires the existing
+release reconciliation workflow. Do not adopt a changed file plan during an
+unfinished release attempt. Exclusive source custody remains the adapter's job.
+
+The shared qualification fixture covers versioned/renamed and path-only aliases,
+an unused group, private-version preservation, malformed inputs, committed-source
+checks, renderer failure and rollback after qualification graph failure.
+Consumers qualify only their actual wiring, required feature/target checks,
+file/receipt inventories and recovery integration. Resolver isolation should
+also be demonstrated locally: an incompatible qualification-only supplier must
+fail qualification without preventing product resolution. Do not copy the
+generic fixture suite into consumers or equate metadata admission with tests of
+the product. This completes the shared mechanics identified in
+[#369](https://github.com/dragginzgame/toko-tooling/issues/369).
 
 ### Pure release input admission
 

@@ -512,14 +512,9 @@ pub fn inspect_wasm_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, Str
         },
     )
     .map_err(|error| format!("failed to inspect canister Wasm: {error}"))?;
-    interface::exported_methods(&facts)
-        .map(|method| {
-            Ok(CanisterMethod::new(
-                method.name,
-                admitted_method_mode(method.mode)?,
-            ))
-        })
-        .collect()
+    Ok(interface::exported_methods(&facts)
+        .map(|method| CanisterMethod::new(method.name, method.mode))
+        .collect())
 }
 
 /// Render the current migration endpoints' Wire identities and resource limits.
@@ -538,13 +533,6 @@ pub fn render_schema_migration_endpoint_contracts() -> String {
         "{}\n",
         serde_json::to_string_pretty(&contracts).unwrap_or_default()
     )
-}
-
-fn admitted_method_mode(mode: MethodMode) -> Result<MethodMode, String> {
-    match mode {
-        MethodMode::Update | MethodMode::Query | MethodMode::CompositeQuery => Ok(mode),
-        MethodMode::Oneway => Err("oneway methods are unsupported by actor policy".to_string()),
-    }
 }
 
 fn application_wasm_methods(methods: &BTreeSet<CanisterMethod>) -> BTreeSet<CanisterMethod> {
