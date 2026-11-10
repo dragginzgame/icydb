@@ -185,14 +185,14 @@ printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-too
   "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt" \
-  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli" > "$FIXTURE/expected"
+  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/qualification/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -j4 -C "$FIXTURE" tools-check > "$FIXTURE/offline"
 printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --check" \
-  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli --check" > "$FIXTURE/expected"
+  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/qualification/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 printf '%s\n' verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
 cmp "$FIXTURE/policy-expected" "$TEST_POLICY_TRACE"

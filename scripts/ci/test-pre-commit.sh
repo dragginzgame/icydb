@@ -50,6 +50,9 @@ bash scripts/ci/check-formatting-hooks.sh "$ROOT" crates/icydb-diagnostic-code/s
 mkdir -p "$fixture/product/src" "$fixture/product/scripts/ci" "$fixture/product/.githooks" "$fixture/templates"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
 cp "$ROOT/Makefile" "$ROOT/rust-toolchain.toml" "$fixture/product/"
+# This dependency-free case owns one workspace; the real consumer inventory
+# above and the tooling-adapter fixture cover native multi-workspace dispatch.
+printf '\nFORMAT_RUST_ARGS := --sort-derives\n' >> "$fixture/product/Makefile"
 mkdir -p "$fixture/product/make"
 cp "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/product/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
