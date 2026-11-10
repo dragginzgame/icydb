@@ -15,7 +15,7 @@ function run(command, args) {
 // Shared Tooling owns declaration/import policy; this harness owns wire qualification.
 run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', here]);
 assert.equal(process.version, 'v24.21.0', 'select the declared Node runtime');
-run('cargo', ['run', '--locked', '--offline', '-p', 'icydb-testing-build', '--example', 'wire_bindings', '--', out]);
+run('cargo', ['run', '--manifest-path', resolve(root, 'qualification/Cargo.toml'), '--locked', '--offline', '-p', 'icydb-testing-build', '--example', 'wire_bindings', '--', out]);
 run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', out]);
 mkdirSync(resolve(out, 'compiled'), { recursive: true });
 writeFileSync(resolve(out, 'compiled/package.json'), '{"type":"module"}\n');

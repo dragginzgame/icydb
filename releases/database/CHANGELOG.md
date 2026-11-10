@@ -3,6 +3,15 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.308.1]
+
+### 🩹 Fixed
+
+- Restore browser codec qualification after the native workspace split by
+  selecting the qualification workspace for its contract generator.
+
+[Detailed changes](0.308.md).
+
 ## [0.308.0] - 2026-11-10
 
 ### 🔧 Changed
