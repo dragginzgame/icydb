@@ -1146,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "ic-platform-runtime",
  "ic-platform-types",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "base64",
  "blake3",
@@ -1216,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "remain",
  "toko-tooling",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "convert_case",
  "ctor",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "convert_case",
  "darling",
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "ethnum",
  "ic-platform-types",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "blake3",
  "serde",
@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.307.0"
+version = "0.308.0"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",

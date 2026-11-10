@@ -58,16 +58,16 @@ repository = "https://github.com/dragginzgame/icydb"
 [workspace.dependencies]
 # Database release group
 # Changelog : releases/database/CHANGELOG.md
-icydb = { path = "crates/icydb", version = "=0.307.0", default-features = false }
-icydb-core = { path = "crates/icydb-core", version = "=0.307.0" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.307.0" }
-icydb-model = { path = "crates/icydb-model", version = "=0.307.0" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.307.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "=0.307.0" }
+icydb = { path = "crates/icydb", version = "=0.308.0", default-features = false }
+icydb-core = { path = "crates/icydb-core", version = "=0.308.0" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.308.0" }
+icydb-model = { path = "crates/icydb-model", version = "=0.308.0" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.308.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.308.0" }
 icydb-testing-sql-generator = { path = "crates/test-support/sql-generator" }
 icydb-testing-sqlite-reference = { path = "crates/test-support/sqlite-reference" }
-model_api = { version = "0.307.0", package = "icydb-model", path = "crates/icydb-model" }
-runtime_api = { version = "0.307.0", package = "icydb", path = "crates/icydb", default-features = false }
+model_api = { version = "0.308.0", package = "icydb-model", path = "crates/icydb-model" }
+runtime_api = { version = "0.308.0", package = "icydb", path = "crates/icydb", default-features = false }
 
 # CLI release group
 # Changelog : releases/cli/CHANGELOG.md
