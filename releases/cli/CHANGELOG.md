@@ -3,7 +3,7 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
-## [0.296.9]
+## [0.296.9] - 2026-11-10
 
 ### 🔧 Changed
 
