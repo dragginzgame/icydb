@@ -853,18 +853,18 @@ dependencies = [
 
 [[package]]
 name = "ic-entropy"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f849f31a670d2f3f53a31c92b46be55d5cfdc1433f9a4724cec7a269f1e9f3d2"
+checksum = "cb1c89d41086b7ef6474678b2c9425d16f13a21245bcc3dacac403ae5d98636d"
 dependencies = [
  "rand_chacha",
 ]
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.76.2"
+version = "0.76.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4544002fcd6e23cf7f35255f0827af87f3c90a41752771c9a9d6ab03156a41ef"
+checksum = "41b3ffc0bf4f5433792aa12dc85e75e44abd65ae16885366494ff7e55d04ac2e"
 dependencies = [
  "flate2",
  "sha2 0.11.1",
@@ -872,9 +872,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.76.2"
+version = "0.76.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b82378ff6478848ac4de8c6daaf8fc86b5bf913348b087f34a86905b1c219e2e"
+checksum = "4b3e6458ab557194dfd4bd1c84b84bd5ec9dc0725f7846a3412d2fed9810fd45"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -884,9 +884,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-http"
-version = "0.76.2"
+version = "0.76.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffffd37379e55541f90f14e6f1744b500b282e0fe209d90b32bc8093866e4f68"
+checksum = "1e88b8325fdc5f071194ef17c22a292b049eff6f4ae2bb1a2af5e7d0f17e2065"
 dependencies = [
  "ic-host-artifacts",
  "reqwest",
@@ -894,9 +894,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.76.2"
+version = "0.76.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ed5b17cfd1f92bce89e34999942cadb062e9c0f96efb167270c37c126313015"
+checksum = "84ef33a1da6bebde71e847519140b3fa1a31a82b721d1ecf44394780fdc4dcbf"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -907,9 +907,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-text"
-version = "0.74.3"
+version = "0.74.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0ccc1af70b449c0845961ca502549d6c16cc9d91eec1f25150647a1d2c01a6"
+checksum = "2fb73e13719dcd8accc2ba34d1576da27c0df7db3d64680ee10ba524ae701548"
 dependencies = [
  "serde",
  "unicode-width",

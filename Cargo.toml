@@ -90,11 +90,11 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-entropy = "0.1.2"
-ic-host-artifacts = { version = "0.76.2", default-features = false }
-ic-host-fs = { version = "0.76.2", default-features = false }
-ic-host-process = "0.76.2"
-ic-host-text = "0.74.3"
+ic-entropy = "0.1.6"
+ic-host-artifacts = { version = "0.76.3", default-features = false }
+ic-host-fs = { version = "0.76.3", default-features = false }
+ic-host-process = "0.76.3"
+ic-host-text = "0.74.4"
 ic-host-tools = "0.89.0"
 ic-metrics = { version = "0.29.10", default-features = false }
 ic-platform-runtime = { version = "0.21.0", default-features = false }

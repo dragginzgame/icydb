@@ -7,6 +7,8 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Adopt Host Foundation 0.76.3 and Host Text 0.74.4 for CLI host operations.
+
 - Adopt Toko Tooling 0.39.7 and retain the explicit shared release interface.
   Retire managed reference docs through the exporter in favor of pinned upstream
   links; organize native architecture, roadmap and release guidance by topic.

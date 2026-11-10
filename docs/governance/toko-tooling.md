@@ -10,8 +10,8 @@ Testkit 0.97 and Build 0.81. Storage 0.72 retains the 0.71 backing format; openi
 while explicit allocation diagnostics retain integrity verification. Its production graph no longer depends on Wire. Build's
 fallible shared-target maintenance configuration propagates through the existing
 build and dependency-admission boundaries; Host Artifacts owns batch-label
-errors. Host Tools 0.89 and Host Foundation 0.76.2 retain their typed Wasm
-boundary. Testkit retains Host HTTP 0.76.2 and now selects Platform 0.29.2;
+errors. Host Tools 0.89 and Host Foundation 0.76.3 retain their typed Wasm
+boundary. Testkit selects Host HTTP 0.76.3 and Platform 0.29.2;
 Runtime 0.21.0, Types 0.19.0 and Metrics 0.29.10 are selected for direct consumers. Preserve incoming
 unrelated lock changes. No consumer bridge or supplier requirement is patched.
 Types 0.19 removes external-Principal aliases/conversions; IcyDB retains checked
@@ -21,10 +21,10 @@ Types 0.18; graph admission again requires one Types version. Native Testkit
 snapshot limits and codec error variants follow the new supplier contract;
 IcyDB adds no supplier patches or external-identity bridges.
 
-Published IC Entropy 0.1.0 now owns seeded expansion; the temporary sibling-path
-selection and exception are retired. Native OS acquisition and process lifetime
+Published IC Entropy owns seeded expansion; both native graphs now select 0.1.6.
+The original 0.1.0 adoption retired the temporary sibling-path selection and exception. Native OS acquisition and process lifetime
 stay local, and database boot entropy and cursor-key policy are independent.
-Supplier archive SHA-256 is
+That initial 0.1.0 supplier archive SHA-256 is
 `d5a7386a4f8a63fc339bd18b773c49c078427a0273f66b708466852336045297`,
 source `0caf4376a98e6c9f0dbd2231900a0d5fb932a83d`. Consumer evidence for
 [#633](https://github.com/dragginzgame/icydb/issues/633) is under

@@ -7,6 +7,9 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Adopt Entropy 0.1.6, Host Foundation 0.76.3 and Host Text 0.74.4 across
+  the product and native qualification selections.
+
 - Separate native qualification from product dependency resolution while retaining
   CI coverage and Core’s approved dev-only SQL oracle support.
 
