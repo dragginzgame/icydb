@@ -119,7 +119,7 @@ ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", 
 darling = "0.24"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-entropy = "0.1.0"
+ic-entropy = "0.1.2"
 ic-host-artifacts = { version = "0.76.2", default-features = false }
 ic-host-fs = { version = "0.76.2", default-features = false }
 ic-host-process = "0.76.2"

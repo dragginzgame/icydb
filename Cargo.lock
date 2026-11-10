@@ -940,9 +940,9 @@ dependencies = [
 
 [[package]]
 name = "ic-entropy"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b191c1988cb7f62338ed48da768ad922fcf38880a77faedfcec4f78aa7c69ae2"
+checksum = "85d80145e3f22fd676ea48f319ad8087f5da37a41b2ad38eaecad64b96697256"
 dependencies = [
  "rand_chacha",
 ]

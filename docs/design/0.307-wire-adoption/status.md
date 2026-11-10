@@ -79,3 +79,14 @@ dependency pins, documentation, formatting and diff checks passed. Evidence:
 `target/evidence/host-089-testkit-097/`, including the initial compiler failure.
 No broad workspace/release validation, new macOS qualification, version changes,
 commits or deployment occurred. Performance deltas are unmeasured.
+
+## Entropy 0.1.2 release-input reconciliation
+
+The maintainer paused the dependency updater after Entropy 0.1.2 arrived between
+commit and frozen capture. Verified the non-yanked registry release and archive
+checksum `85d80145e3f22fd676ea48f319ad8087f5da37a41b2ad38eaecad64b96697256`
+(source `c288ba8e6773aa6ea8a59772849b601e659f3f3d`). Compared the archived
+source to 0.1.0: production code is unchanged; the only source delta is an
+upstream pooled-consumer test. No IcyDB source adaptation is needed. Aligned the
+root requirement with the existing 0.1.2 lock selection; all 18 generator, ULID
+and boot-entropy controls passed. Evidence: `target/evidence/entropy-012/`.

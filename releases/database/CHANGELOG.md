@@ -7,6 +7,9 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Align Entropy on published 0.1.2; generator production code and IcyDB boot
+  entropy policy remain unchanged.
+
 - Include the shared qualification-release helpers in validation fingerprints
   and the actual release-plan fixture closure.
 
