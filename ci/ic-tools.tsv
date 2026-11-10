@@ -1,5 +1,5 @@
 # tool	version	host	archive_sha256
-# Official GitHub release asset digests, reviewed 2026-10-06. See docs/ic-tools.md.
+# Official GitHub release asset digests, reviewed 2026-10-06. See docs/tools/ic-tools.md.
 # Binaryen 133 archives verified on all three host mappings, 2026-10-10.
 # ICP CLI 1.7.0 release-asset digests reviewed 2026-10-17.
 quill	0.5.4	linux-x86_64	73105578372086e349a45e9dfd67cfe05f005ff8024449d35969aaa9cff4a357

@@ -127,6 +127,13 @@ while IFS= read -r -d '' path; do
                     group="$(jq -er '.groups[0].name' "$workspace_root/ci/cargo-release-groups.json")" || fail 'invalid release groups'
                     (cd "$workspace_root" && RELEASE_COMMIT='' bash "$SCRIPT_DIR/cargo-release-group.sh" plan "$group") > "$temporary/groups.json" || fail 'release-group graph admission failed'
                     group_versions="$(jq -c .versions "$temporary/groups.json")" || fail 'invalid group versions'
+                elif [[ "$workspace_root" == "$ROOT/qualification" && -f "$ROOT/ci/cargo-release-groups.json" ]] &&
+                    jq -e '.qualification_workspace == "qualification"' "$ROOT/ci/cargo-release-groups.json" >/dev/null; then
+                    # The product owner admits both graphs, privacy and edge direction.
+                    # Do not infer qualification ownership from directory names alone.
+                    group="$(jq -er '.groups[0].name' "$ROOT/ci/cargo-release-groups.json")" || fail 'invalid release groups'
+                    (cd "$ROOT" && RELEASE_COMMIT='' bash "$SCRIPT_DIR/cargo-release-group.sh" plan "$group") > "$temporary/groups.json" || fail 'qualification graph admission failed'
+                    group_versions="$(jq -ce '.qualification.versions | select(type == "object")' "$temporary/groups.json")" || fail 'invalid qualification versions'
                 fi
             fi
             jq -c -L "$SCRIPT_DIR" --argjson group_versions "$group_versions" --slurpfile root "$temporary/root.json" \

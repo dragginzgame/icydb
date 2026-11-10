@@ -2,7 +2,7 @@
 
 This document defines release-engineering rules that protect feature velocity.
 
-The [shared reviewable-change principle](../principles/reviewable-changes.md)
+The [shared reviewable-change principle](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/principles/reviewable-changes.md)
 owns common scope, cleanup reporting and evidence requirements. This document
 supplies IcyDB's release-line planning and landing discipline.
 

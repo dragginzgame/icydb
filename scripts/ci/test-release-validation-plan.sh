@@ -323,7 +323,7 @@ for database_change in added deleted dependency tooling fixture; do
       deleted) rm crates/icydb-core/src/lib.rs ;;
       dependency) printf '\n[features]\nnew_contract=[]\n' >> crates/icydb-core/Cargo.toml ;;
       tooling) printf '// tooling\n' > scripts/new-tool.rs ;;
-      fixture) mkdir -p testing/build; printf '// artifact owner\n' > testing/build/new.rs ;;
+      fixture) mkdir -p qualification/build; printf '// artifact owner\n' > qualification/build/new.rs ;;
     esac
     printf '// product change\n' >> crates/icydb/src/lib.rs
     git add .; git commit -qm "database $database_change scope uncertainty"

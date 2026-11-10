@@ -80,30 +80,54 @@ impl SqlReturningFieldProjection {
     }
 }
 
-/// Derive canonical SQL `RETURNING *` labels from the accepted row descriptor.
-///
-/// The accepted descriptor is the statement-result shape authority for SQL
-/// write paths and chooses the outward all-column contract.
-pub(in crate::db::session::sql::execute) fn projection_labels_from_accepted_write_descriptor(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-) -> Vec<String> {
-    descriptor
-        .fields()
-        .iter()
-        .map(|field| field.name().to_string())
-        .collect()
+// One prepared projection is admitted before mutation, borrowed by response
+// bounds, and reused for final shaping. No later phase resolves field names.
+pub(in crate::db::session::sql) struct SqlReturningProjectionPlan {
+    columns: Vec<String>,
+    fields: Option<SqlReturningFieldProjection>,
 }
 
-/// Validate one SQL write RETURNING projection before mutation execution.
-pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fields(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    returning: Option<&SqlReturningProjection>,
-) -> Result<(), QueryError> {
-    let Some(SqlReturningProjection::Fields(fields)) = returning else {
-        return Ok(());
-    };
-    let columns = projection_labels_from_accepted_write_descriptor(descriptor);
-    SqlReturningFieldProjection::from_fields(columns.as_slice(), fields).map(|_| ())
+impl SqlReturningProjectionPlan {
+    pub(in crate::db::session::sql) fn from_descriptor(
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        returning: &SqlReturningProjection,
+    ) -> Result<Self, QueryError> {
+        Self::new(
+            descriptor
+                .fields()
+                .iter()
+                .map(|field| field.name().to_string())
+                .collect(),
+            returning,
+        )
+    }
+
+    pub(in crate::db::session::sql) fn new(
+        columns: Vec<String>,
+        returning: &SqlReturningProjection,
+    ) -> Result<Self, QueryError> {
+        let fields = match returning {
+            SqlReturningProjection::All => None,
+            SqlReturningProjection::Fields(fields) => {
+                Some(SqlReturningFieldProjection::from_fields(&columns, fields)?)
+            }
+        };
+        Ok(Self { columns, fields })
+    }
+
+    pub(super) fn output_columns(&self) -> Vec<String> {
+        self.fields.as_ref().map_or_else(
+            || self.columns.clone(),
+            SqlReturningFieldProjection::output_columns,
+        )
+    }
+
+    pub(super) fn project_borrowed_row(&self, row: &[Value]) -> Result<Vec<Value>, QueryError> {
+        self.fields.as_ref().map_or_else(
+            || Ok(row.to_vec()),
+            |fields| fields.project_borrowed_row(row),
+        )
+    }
 }
 
 pub(super) fn query_error_to_internal_invariant(_err: QueryError) -> InternalError {
@@ -142,21 +166,19 @@ fn sql_returning_field_indices(
 /// result shape used by session SQL responses.
 pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
     enum_catalog: &AcceptedEnumCatalog,
-    columns: Vec<String>,
     rows: Vec<Vec<Value>>,
     row_count: u32,
-    returning: &SqlReturningProjection,
+    returning: &SqlReturningProjectionPlan,
 ) -> Result<SqlStatementResult, QueryError> {
-    match returning {
-        SqlReturningProjection::All => sql_projection_statement_result_from_value_rows(
+    match &returning.fields {
+        None => sql_projection_statement_result_from_value_rows(
             enum_catalog,
-            columns,
+            returning.output_columns(),
             vec![None; rows.first().map_or(0, Vec::len)],
             rows,
             row_count,
         ),
-        SqlReturningProjection::Fields(fields) => {
-            let projection = SqlReturningFieldProjection::from_fields(&columns, fields)?;
+        Some(projection) => {
             let output_columns = projection.output_columns();
             let fixed_scales = projection.output_fixed_scales();
 

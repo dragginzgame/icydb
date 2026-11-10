@@ -31,43 +31,23 @@ PUBLISH_ORDER=(
     icydb-cli
 )
 
-# Returns the package name for a manifest, ignoring unpublished helper crates.
-publishable_manifest_name() {
-    local manifest="$1"
-
-    if grep -Eq '^[[:space:]]*publish[[:space:]]*=[[:space:]]*false' "$manifest"; then
-        return 0
-    fi
-
-    awk '
-        /^\[package\]/ { in_package = 1; next }
-        /^\[/ && in_package { exit }
-        in_package && $1 == "name" {
-            gsub(/"/, "", $3);
-            print $3;
-            exit;
-        }
-    ' "$manifest"
-}
-
-# Fails before any publish attempt if the explicit order omits a publishable
-# crate under crates/.  The order stays checked in so cargo errors identify the
-# exact crate that failed instead of hiding behind runtime topological sorting.
+# Check the explicit publication order against Cargo's product membership,
+# including nested packages. Qualification packages never join this inventory.
 validate_publish_order() {
     local expected
     local actual
 
     expected="$(printf '%s\n' "${PUBLISH_ORDER[@]}" | sort)"
     actual="$(
-        find crates -mindepth 2 -maxdepth 2 -name Cargo.toml -print0 |
-            while IFS= read -r -d '' manifest; do
-                publishable_manifest_name "$manifest"
-            done |
-            sort
-    )"
+        CARGO_HOME="$metadata_cargo_home" cargo metadata --format-version 1 --no-deps --locked --offline |
+            jq -er '. as $m | [.packages[] |
+                select(.id as $id | $m.workspace_members | index($id)) |
+                select(.publish == null or (.publish | length) > 0) | .name] |
+                sort | .[]'
+    )" || return
 
     if [ "$actual" != "$expected" ]; then
-        echo "Publish order does not match publishable crates under crates/." >&2
+        echo "Publish order does not match publishable product workspace packages." >&2
         echo "" >&2
         echo "Expected from PUBLISH_ORDER:" >&2
         printf '%s\n' "$expected" >&2

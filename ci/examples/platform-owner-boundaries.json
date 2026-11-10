@@ -1,5 +1,0 @@
-[
-  {"dependency": "ic-platform-types", "allowed_packages": ["identity-model", "crypto-adapter"]},
-  {"dependency": "ic-platform-runtime", "allowed_packages": ["ic0-adapter"]},
-  {"dependency": "ic-platform", "allowed_packages": ["crypto-adapter"]}
-]

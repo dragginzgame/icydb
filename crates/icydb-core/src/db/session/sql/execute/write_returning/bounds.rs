@@ -8,7 +8,6 @@ use crate::{
         RowProjectionOutput,
         schema::AcceptedEnumCatalog,
         session::{response::output_row_from_runtime, sql::write_policy::SqlWriteReturningBounds},
-        sql::parser::SqlReturningProjection,
     },
     error::InternalError,
     value::{OutputValue, Value},
@@ -16,7 +15,7 @@ use crate::{
 
 use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
-use super::projection::{SqlReturningFieldProjection, query_error_to_internal_invariant};
+use super::projection::{SqlReturningProjectionPlan, query_error_to_internal_invariant};
 
 // Account for each row payload once; the facade supplies the current endpoint
 // envelope framing. Postcard owns both payload and count-prefix representation.
@@ -34,9 +33,8 @@ fn encoded_payload_vec_prefix_len(count: usize) -> Result<usize, InternalError> 
 pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_bounds(
     response_len: fn(RowProjectionOutput) -> Result<usize, icydb_schema::wire::Error>,
     entity_name: &str,
-    columns: &[String],
     rows: &[Vec<Value>],
-    returning: &SqlReturningProjection,
+    returning: &SqlReturningProjectionPlan,
     enum_catalog: &AcceptedEnumCatalog,
     bounds: Option<SqlWriteReturningBounds>,
 ) -> Result<(), InternalError> {
@@ -52,7 +50,6 @@ pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_
             encoded_sql_materialized_returning_projection_response_len_check(
                 response_len,
                 entity_name,
-                columns,
                 rows,
                 returning,
                 enum_catalog,
@@ -114,23 +111,12 @@ enum SqlReturningLengthCheck {
 fn encoded_sql_materialized_returning_projection_response_len_check(
     response_len: fn(RowProjectionOutput) -> Result<usize, icydb_schema::wire::Error>,
     entity_name: &str,
-    columns: &[String],
     rows: &[Vec<Value>],
-    returning: &SqlReturningProjection,
+    returning: &SqlReturningProjectionPlan,
     enum_catalog: &AcceptedEnumCatalog,
     max_response_bytes: usize,
 ) -> Result<SqlReturningLengthCheck, InternalError> {
-    let projection = match returning {
-        SqlReturningProjection::All => None,
-        SqlReturningProjection::Fields(fields) => Some(
-            SqlReturningFieldProjection::from_fields(columns, fields)
-                .map_err(query_error_to_internal_invariant)?,
-        ),
-    };
-    let columns = projection.as_ref().map_or_else(
-        || columns.to_vec(),
-        SqlReturningFieldProjection::output_columns,
-    );
+    let columns = returning.output_columns();
     let mut output = RowProjectionOutput {
         entity: entity_name.to_string(),
         columns,
@@ -147,13 +133,11 @@ fn encoded_sql_materialized_returning_projection_response_len_check(
     else {
         return Ok(SqlReturningLengthCheck::Exceeded(None));
     };
-    let project_row = |row: &[Value]| match &projection {
-        None => output_row_from_runtime(enum_catalog, row.to_vec())
-            .map_err(query_error_to_internal_invariant),
-        Some(projection) => projection
+    let project_row = |row: &[Value]| {
+        returning
             .project_borrowed_row(row)
             .and_then(|row| output_row_from_runtime(enum_catalog, row))
-            .map_err(query_error_to_internal_invariant),
+            .map_err(query_error_to_internal_invariant)
     };
     let length_check = encoded_sql_returning_rows_len_exceeds_max(
         base_len,

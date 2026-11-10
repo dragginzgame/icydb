@@ -191,3 +191,27 @@ fn scalar_parse_work_rejects_before_conversion_and_accumulates_retries() {
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     }
 }
+
+#[test]
+fn numeric_text_is_filter_only_and_retains_narrow_bounds() {
+    for (kind, text, expected) in [
+        (AcceptedFieldKind::Int8, "127", Some(Value::Int64(127))),
+        (AcceptedFieldKind::Int8, "128", None),
+        (AcceptedFieldKind::Int8, "-129", None),
+        (AcceptedFieldKind::Nat8, "255", Some(Value::Nat64(255))),
+        (AcceptedFieldKind::Nat8, "256", None),
+        (AcceptedFieldKind::Nat8, "-1", None),
+        (AcceptedFieldKind::Int64, "9223372036854775808", None),
+        (AcceptedFieldKind::Nat64, "18446744073709551616", None),
+        (AcceptedFieldKind::Int8, "invalid", None),
+    ] {
+        let input = Value::Text(text.into());
+        assert_eq!(
+            super::canonicalize_filter_numeric_literal(&kind, &input),
+            expected
+        );
+        assert!(
+            super::input_value_from_strict_sql_literal_for_persisted_kind(&kind, &input).is_none()
+        );
+    }
+}

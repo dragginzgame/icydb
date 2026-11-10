@@ -1,8 +1,8 @@
 use super::{
     SqlWriteCandidateBounds, SqlWriteMutationBatch, SqlWriteMutationExecution,
     accepted_write_field_slot, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_write_candidate_bounds,
-    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
+    reject_explicit_sql_write_to_managed_field, resolve_sql_write_field,
+    sql_write_candidate_bounds, sql_write_input_for_accepted_field,
     sql_write_patch_set_insert_default,
 };
 use crate::{
@@ -68,35 +68,28 @@ fn ensure_sql_insert_required_fields(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     columns: &[String],
 ) -> Result<(), QueryError> {
-    let mut missing_required_fields = Vec::new();
+    let mut missing_primary_key = false;
     for field in descriptor.fields() {
-        if columns.iter().any(|column| column == field.name()) {
+        if columns.iter().any(|column| column == field.name())
+            || sql_insert_accepted_field_is_omittable(field)
+        {
             continue;
         }
-        if sql_insert_accepted_field_is_omittable(field) {
-            continue;
+        // Any missing non-key requirement determines the public error, even
+        // when an earlier missing field was a primary key.
+        if !descriptor.is_primary_key_field_name(field.name()) {
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::MissingRequiredFields,
+            ));
         }
-
-        missing_required_fields.push(field.name());
+        missing_primary_key = true;
     }
-
-    if missing_required_fields.is_empty() {
-        return Ok(());
-    }
-
-    let primary_key_names = descriptor.primary_key_names();
-    let missing_only_primary_key_fields = missing_required_fields
-        .iter()
-        .all(|field| primary_key_names.contains(field));
-    if missing_only_primary_key_fields {
+    if missing_primary_key {
         return Err(QueryError::sql_write_boundary(
             SqlWriteBoundaryCode::MissingPrimaryKey,
         ));
     }
-
-    Err(QueryError::sql_write_boundary(
-        SqlWriteBoundaryCode::MissingRequiredFields,
-    ))
+    Ok(())
 }
 
 fn sql_insert_columns(
@@ -132,16 +125,17 @@ fn sql_insert_literal_field(
     field: &str,
     value: &Value,
 ) -> Result<AcceptedMutationIntentPatch, QueryError> {
-    reject_explicit_sql_write_to_generated_field(descriptor, field)?;
-    reject_explicit_sql_write_to_managed_field(descriptor, field)?;
-    let input = sql_write_input_for_accepted_field(descriptor, field, value).map_err(|error| {
+    let accepted = resolve_sql_write_field(descriptor, field)?;
+    reject_explicit_sql_write_to_generated_field(accepted)?;
+    reject_explicit_sql_write_to_managed_field(accepted)?;
+    let input = sql_write_input_for_accepted_field(accepted, value).map_err(|error| {
         if descriptor.is_primary_key_field_name(field) {
             QueryError::sql_write_boundary(SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible)
         } else {
             error
         }
     })?;
-    sql_write_patch_set_accepted_field(descriptor, patch, field, input)
+    Ok(patch.set_authored(accepted_write_field_slot(accepted), input))
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -292,12 +286,12 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             Some(statement.entity.as_str()),
             statement.returning.as_ref(),
-            |catalog, descriptor| {
+            |catalog, descriptor, projection| {
                 let columns = sql_insert_columns(&descriptor, statement);
                 // Check the whole authored column list before omission policy or
                 // source execution, including SELECT sources returning no rows.
                 for column in &statement.columns {
-                    accepted_write_field_slot(&descriptor, column)?;
+                    resolve_sql_write_field(&descriptor, column)?;
                 }
                 if !matches!(statement.source, SqlInsertSource::DefaultValues) {
                     ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
@@ -361,7 +355,6 @@ impl<C: CanisterKind> DbSession<C> {
                 }
                 self.execute_sql_write_mutation_batch(
                     catalog,
-                    &descriptor,
                     SqlWriteMutationExecution::from_bounded_batch(
                         rows,
                         candidate_bounds,
@@ -369,7 +362,7 @@ impl<C: CanisterKind> DbSession<C> {
                         write_context,
                         execution_bounds.map(|bounds| bounds.returning),
                     )?,
-                    statement.returning.as_ref(),
+                    projection.as_ref(),
                 )
             },
         )

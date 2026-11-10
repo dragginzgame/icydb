@@ -25,7 +25,7 @@ and artifacts; they do not create another current feature backlog.
 - The resource model owns the documented numeric read/input ceilings. Its marked
   table is compared with compiled policy accessors and input constants, not
   source spellings or required sentences. Runtime owners remain authoritative.
-- `docs/1.0-TODO.md` owns remaining readiness work. Each item distinguishes
+- `docs/roadmap/1.0-TODO.md` owns remaining readiness work. Each item distinguishes
   implementation, qualification, or a product decision. Reconcile affected
   entries when implementation changes rather than appending another backlog.
 

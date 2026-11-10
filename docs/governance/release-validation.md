@@ -98,6 +98,14 @@ omits only unchanged automation regression execution.
 
 ## Mapping and selection
 
+The 0.308 layout separates native qualification resolution. The existing full
+product lint/check/feature/test leaves also select the qualification workspace,
+so moving packages does not omit their CI coverage. Product dispatch checkpoints
+both native manifests and locks; Canic adds only its own independent inputs.
+The mapping contract includes the native lock and tooling-admission adapter.
+A reviewed digest refresh admits these recipes, without renewing any stored
+selected-stage qualification evidence or enabling release omissions.
+
 The 0.301 pending-note move changes the database group's `metadata_files` from
 `releases/database/0.300.md` to `releases/database/0.301.md`. Review confirms
 that this is the only group-policy difference: package ownership, dependency
@@ -305,7 +313,7 @@ qualification; the current result is recorded above.
 
 ### Frozen hook qualification
 
-The [frozen release batch](../../docs/release-batches.md) interface preserves
+The [frozen release batch](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/release-batches.md) interface preserves
 captured committed delivery source while later normal-checkout dependency edits
 remain deferred. IcyDB defaults ordinary release entrypoints to the explicitly
 selected group; complete multi-group rosters remain explicit and supplier-first.

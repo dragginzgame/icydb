@@ -1,3 +1,0 @@
-tasks/systemd/toko-tooling-maintenance.service
-tasks/systemd/toko-tooling-maintenance.timer
-scripts/dev/run-maintenance.sh

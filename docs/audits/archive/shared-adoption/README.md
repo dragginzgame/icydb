@@ -10,7 +10,7 @@ historical evidence, not current authority.
 - [Module surface hardening](module-surface-hardening.md)
 - [Module cleanup](module-cleanup-runner.md)
 
-Current methods use the [shared contract](../../../../audits/README.md) and
+Current methods use the [shared contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md) and
 [IcyDB overlays](../../README.md). Earlier reports and artifacts remain unchanged.
 Method comparisons are `N/A (method change)` unless an equivalent owner or
 measurement anchor is explicitly demonstrated.

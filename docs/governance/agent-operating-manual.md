@@ -20,10 +20,11 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `canisters/demo/rpg`: RPG demo canister with character and grid entities.
 - `canisters/tests/sql`: lightweight SQL smoke-test harness.
 - `canisters/tests/sql_bounded`: generated bounded SQL update harness.
-- `schema/demo/rpg`: demo schema fixtures and seed data.
-- `schema/audit/*`: audit schema fixtures.
-- `schema/tests/*`: shared macro/e2e and SQL fixtures.
-- `testing/model-*`: packaged model, macro, and typed-adapter contract tests.
+- `qualification/schema/demo/rpg`: demo schema fixtures and seed data.
+- `qualification/schema/audit/*`: native audit schema fixtures.
+- `schema/audit/nested_relation`: deferred Canic audit fixtures.
+- `qualification/schema/tests/*`: shared macro/e2e and SQL fixtures.
+- `qualification/model-*` and deferred `testing/model-facade-only`: packaged model, macro, and typed-adapter contract tests.
 - `testing/integration`: canister integration tests.
 - `assets/`: images and docs assets.
 - `scripts/`: release/version helpers.
@@ -190,7 +191,7 @@ struct TypeName;
 - Use Rust test harness.
 - Unit tests live near code when they stay within the owning module boundary.
 - Cross-module behavior suites belong under the owning subsystem `tests/` directory.
-- Macro/model expansion tests belong with the model crates and `testing/model-*` adapters; generated behavior fixtures live in `schema/tests/fixtures`. Canister E2E tests belong in `testing/integration`. Follow [TESTING.md](../../TESTING.md); do not add ad-hoc generated `DummyEntity` types to accepted-schema planner tests.
+- Macro/model expansion tests belong with the model crates and `qualification/model-*` and deferred `testing/model-facade-only` adapters; generated behavior fixtures live in `qualification/schema/tests/fixtures`. Canister E2E tests belong in `testing/integration`. Follow [TESTING.md](../../TESTING.md); do not add ad-hoc generated `DummyEntity` types to accepted-schema planner tests.
 - Every inline unit test module must be preceded by:
 
 ```rust
@@ -215,7 +216,7 @@ coordinated under `database`; root `CHANGELOG.md` indexes both ledgers.
 - Follow `docs/governance/changelog.md`.
 - Keep meaningful completed behavior/tooling in the selected group ledger and minor-line
   pending entry. Automatically select its numbered, undated heading under
-  `rules/changelogs.md`; do not create an `Unreleased` section or a version per
+  [changelogs.md](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/changelogs.md); do not create an `Unreleased` section or a version per
   landing slice. Missing
   notes and draft presentation must not become deployment gates.
 - Governance-only edits do not need release notes unless explicitly requested.

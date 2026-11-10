@@ -1,6 +1,6 @@
 # IcyDB authorized module cleanup overlay
 
-Apply [the shared procedure](../../../../audits/module-cleanup.md) and
+Apply [the shared procedure](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/module-cleanup.md) and
 [IcyDB module obligations](module-surface-hardening.md). Use the reviewed revision
 recorded in [the snapshot](../../../../.toko-tooling.snapshot); local procedure
 identity is `ICYDB-MSH-CLEANUP-4`. The procedure implements a named finding rather than

@@ -28,7 +28,7 @@ Top 5 cleanup PRs to do immediately:
    aggregate classification.
 4. Add 0.197 cache/proof tripwire tests before implementing primary-key
    canonicalization.
-5. Refresh `docs/1.0-TODO.md` so closed items, intentional non-goals, and real
+5. Refresh `docs/roadmap/1.0-TODO.md` so closed items, intentional non-goals, and real
    blockers are not mixed.
 
 ## Scope

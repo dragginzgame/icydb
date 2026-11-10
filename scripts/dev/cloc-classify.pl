@@ -29,6 +29,47 @@ sub zero { return {map {$_ => 0} (@categories, 'total')}; }
 sub add { my ($to,$from)=@_; $to->{$_} += $from->{$_} for (@categories,'total'); }
 sub safe_label { my $s=shift; $s =~ s/([\x00-\x1f\x7f])/sprintf('\\x%02x',ord($1))/ge; return $s; }
 
+if (($ARGV[0] // '') eq '--merge-repository') {
+    shift;
+    @ARGV == 2 or die "usage: --merge-repository PRODUCT_REPORT QUALIFICATION_REPORT\n";
+    my ($product,$qualification)=map {$json->decode(read_file($_))} @ARGV;
+    my (@crates,@records,@diagnostics,%files,%owners,%diagnostics);
+    for my $report ($product,$qualification) {
+        my $prefix=$report == $product ? '' : 'qualification/';
+        for my $crate (@{$report->{crates}}) {
+            $crate->{crate}=$prefix.$crate->{crate};
+            $crate->{counts}=zero();
+            $owners{$crate->{crate}}=$crate;
+            push @crates,$crate;
+        }
+        for my $file (@{$report->{files}}) {
+            if (my $prior=$files{$file->{path}}) {
+                $prior->{source_sha256} eq $file->{source_sha256}
+                    or die "LOC shared source changed between workspace scans: $file->{path}; rerun with stable inputs. No repository report produced.\n";
+                # Root workspace attribution wins; combine usage evidence without
+                # summing the same physical source or changing its partitions.
+                $prior->{shared}=JSON::PP::true;
+                my %contexts=map {$_=>1} (@{$prior->{target_categories}},@{$file->{target_categories}});
+                $prior->{target_categories}=[sort keys %contexts];
+                push @diagnostics,{path=>$file->{path},reason=>'source shared across workspaces; counted once with product-workspace attribution'};
+                next;
+            }
+            $file->{crate}=$prefix.$file->{crate};
+            $file->{workspace_manifest}=$report->{manifest};
+            $files{$file->{path}}=$file;
+            add($owners{$file->{crate}}{counts},$file->{counts});
+            push @records,$file;
+        }
+        push @diagnostics,@{$report->{diagnostics}};
+    }
+    my $totals=zero(); add($totals,$_->{counts}) for @records;
+    @diagnostics=grep {!$diagnostics{"$_->{path}\0$_->{reason}"}++} @diagnostics;
+    print $json->encode({schema=>2,scope=>'repository',manifest=>$product->{manifest},
+        manifests=>[$product->{manifest},$qualification->{manifest}],crates=>\@crates,
+        files=>[sort {$a->{path} cmp $b->{path}} @records],totals=>$totals,diagnostics=>\@diagnostics}),"\n";
+    exit;
+}
+
 # Reuse the classified file counts: presentation must never recount source or
 # change category attribution. Merge foo.rs with foo/ and foo/mod.rs naturally.
 sub module_parts {
@@ -177,6 +218,9 @@ for my $package (@packages) {
 }
 die join("\n",@policy_errors)."\nNo LOC report produced; classification metadata requires migration.\n" if @policy_errors;
 my @roots=map {dirname($_->{manifest_path})} @packages;
+my $qualification_root="$metadata->{workspace_root}/qualification";
+my $separate_qualification=-f "$qualification_root/Cargo.toml" &&
+    !grep {$_ eq $qualification_root || index($_,"$qualification_root/")==0} @roots;
 my @excluded=($metadata->{target_directory}); push @excluded, abs_path($metadata->{target_directory}) if -d $metadata->{target_directory};
 for my $root ($metadata->{workspace_root},@roots) {
     push @excluded, map {"$root/$_"} qw(target build dist coverage vendor recovery-evidence);
@@ -340,6 +384,7 @@ for my $p (@packages) {
         my $f=$File::Find::name;
         if (-d $f) {
             if ($f ne $root && (excluded_path($f,1)
+                || ($separate_qualification && $f eq $qualification_root)
                 || (basename($f) eq 'target' && -f dirname($f).'/Cargo.toml')
                 || grep {$f eq $_} (@excluded,@roots))) {$File::Find::prune=1;}
         } else {$admit_file->($f);}

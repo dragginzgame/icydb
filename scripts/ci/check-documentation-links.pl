@@ -3,12 +3,24 @@ use strict;
 use warnings;
 use File::Basename qw(dirname);
 use File::Spec;
+use File::Find qw(find);
 
 # A local-path check, not a Markdown renderer or an anchor/network checker.
 @ARGV >= 3 && shift(@ARGV) eq '--root'
-    or die "usage: check-documentation-links.pl --root ROOT DOCUMENT [...]\n";
+    or die "usage: check-documentation-links.pl --root ROOT DOCUMENT_OR_DIRECTORY [...]\n";
 my $root = shift @ARGV;
 chdir $root or die "cannot enter $root: $!\n";
+my %documents;
+for my $input (@ARGV) {
+    if (-d $input && !-l $input) {
+        find({ no_chdir => 1, wanted => sub {
+            $documents{$File::Find::name} = 1 if -f $_ && !-l $_ && /\.md\z/;
+        } }, $input);
+    } else {
+        $documents{$input} = 1;
+    }
+}
+@ARGV = sort keys %documents;
 my ($failures, $references) = (0, 0);
 
 sub check_target {

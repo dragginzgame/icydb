@@ -241,7 +241,7 @@ for target in ci-core ci-workspace ci-sql-tier-a test test-unit _test-workspace 
     fail "$target routes product acceptance into adapter qualification"
   fi
 done
-if ! rg -q '^VALIDATION_RUNNER := .*--input Cargo.toml --input Cargo.lock --input rust-toolchain.toml$' Makefile ||
+if ! rg -q '^VALIDATION_RUNNER := .*--input Cargo.toml --input Cargo.lock --input qualification/Cargo.toml --input qualification/Cargo.lock --input rust-toolchain.toml$' Makefile ||
    ! rg -q '^ADAPTER_VALIDATION_RUNNER := .*--input testing/canic-adapter/Cargo.toml --input testing/canic-adapter/Cargo.lock$' Makefile; then
   fail "validation input custody must follow product and adapter ownership"
 fi

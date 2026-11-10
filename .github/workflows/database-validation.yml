@@ -66,6 +66,8 @@ jobs:
           mode: save
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Run selected scope and cross-subsystem acceptance
         run: |
           target="$(jq -er .target target/database-validation/selection.json)"

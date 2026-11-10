@@ -12,7 +12,7 @@ updating the pin and Cargo.lock, run `make toko-tooling-update`; use
 No metadata selector, separate tooling lock, helper package or Rust import is used.
 The independent Canic workspace has matching declarations, but its existing
 resolver conflict still blocks its lock refresh and qualification under #373. See the
-[tooling migration guide](docs/consuming-snapshots.md#migration-from-cargo-dependencies)
+[tooling migration guide](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/adoption/consuming-snapshots.md#migration-from-cargo-dependencies)
 and [IcyDB adoption record](docs/governance/toko-tooling.md).
 
 ## Downstream Canisters
@@ -47,7 +47,7 @@ extra packages ordinary canisters need to add. Re-exports preserve the original
 types, so a model consumer does not need a second direct schema dependency.
 `icydb` with `default-features = false` still includes the database runtime.
 The maintained [facade-only example](testing/model-facade-only/) and
-[model-only example](testing/model-schema-only/) exercise the two authoring
+[model-only example](qualification/model-schema-only) exercise the two authoring
 routes, including renamed Cargo dependencies and generated macro resolution.
 Use the same release tag for every IcyDB package.
 
@@ -341,7 +341,7 @@ installations. Canic qualification additionally uses `make fetch-adapter
 install-testkit testkit-check`. Previous local
 installations and failed build evidence remain retained. Tool builds use
 Shared's standard environment rather than application flags or wrappers; see
-[the build contract](docs/local-setup.md#standard-cargo-tool-build-environment).
+[the build contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/adoption/local-setup.md#standard-cargo-tool-build-environment).
 Shared's selected Cargo installer prepares the locked Testkit CLI; Testkit
 provisions PocketIC under
 `.tools/ic-testkit-server` when `make install-testkit` is explicitly selected.
@@ -349,7 +349,7 @@ provisions PocketIC under
 `make testkit-check` separately admits the qualification server. Tool verification never
 installs missing tools. Testkit owns server selection, authentication and
 client/server admission. See
-[shared setup](docs/local-setup.md) and [IC executable setup](docs/ic-tools.md)
+[shared setup](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/adoption/local-setup.md) and [IC executable setup](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/tools/ic-tools.md)
 for archive pins, bootstrap packages and supported hosts. IcyDB retains the
 qualified Binaryen 133 optimization policy and its raw executable digests in
 [the admission table](scripts/ci/wasm-optimizer-checksums.tsv).
@@ -432,7 +432,7 @@ feature contract. Pre-0.63 editors retain their original featureless preparation
 preserve those tools when newer working metadata selects a different release.
 Setup does not change release metadata or perform Git/release effects. Missing
 preparation refuses before the consumer runs. See the
-[shared release contract](docs/releases.md#cargo-release-candidate-rendering).
+[shared release contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/releases.md#cargo-release-candidate-rendering).
 
 ### Release and Deployment Lint Admission
 
@@ -702,7 +702,7 @@ of that remote's configured push destination.
 
 Deletion is a separate maintainer decision requiring `--delete-local` and/or
 `--delete-remote` plus `--yes`. Review the
-[shared maintenance guide](docs/tag-maintenance.md) before selecting those effects;
+[shared maintenance guide](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/tag-maintenance.md) before selecting those effects;
 it explains exact-identity checks, per-batch remote atomicity and interruption
 recovery. Release, publication and cleanup commands do not invoke tag maintenance.
 

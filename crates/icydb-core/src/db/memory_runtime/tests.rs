@@ -51,7 +51,6 @@ fn descriptor_admission_preserves_runtime_authority_and_exclusive_leases() {
         ));
         bind_memory_runtime(Rc::clone(&runtime)).unwrap();
         let before = runtime.memory_allocations().unwrap();
-        let committed = runtime.memory_allocations().unwrap();
         for descriptor in ["INVALID", "icydb.core_tests.unknown.v1"] {
             assert!(matches!(
                 open_memory(descriptor),
@@ -63,7 +62,6 @@ fn descriptor_admission_preserves_runtime_authority_and_exclusive_leases() {
             ));
         }
         assert_eq!(runtime.memory_allocations().unwrap(), before);
-        assert_eq!(runtime.memory_allocations().unwrap(), committed);
         let descriptor = "icydb.core_tests.slot_177.v1";
         let allocation = StoreAllocationIdentity::from_committed_key(descriptor).unwrap();
         let memory = open_memory(descriptor).unwrap();

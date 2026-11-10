@@ -31,8 +31,8 @@ within these categories, rather than a separate execution lane.
 | Unit | Local module/type invariants | Owning crate's test modules | Native |
 | Native integration | Cross-module or public crate behavior | `crates/*/tests` and owning subsystem harnesses | Native |
 | Schema / planner | Accepted-schema, lowering and planning semantics | `crates/icydb-core` | Native |
-| Generated surface | Macro/model expansion, generated containers and adapter boundaries | `schema/tests/fixtures`, `testing/model-*`, `testing/endpoint-installation`, model crate tests | Native or compile-only |
-| Canister E2E | Generated endpoints, authorization, persistence, message boundaries and lifecycle | `testing/integration/tests`, using actors under `canisters/test` and `canisters/audit` | PocketIC via IC Testkit |
+| Generated surface | Macro/model expansion, generated containers and adapter boundaries | `qualification/schema/tests/fixtures`, `qualification/model-*` and the deferred `testing/model-facade-only`, `testing/endpoint-installation`, model crate tests | Native or compile-only |
+| Canister E2E | Generated endpoints, authorization, persistence, message boundaries and lifecycle | `testing/integration/tests`, using actors under `canisters/tests` and `canisters/audit` | PocketIC via IC Testkit |
 | Regression | A minimal reproduction of a repaired behavior | The category owning that behavior | Depends on the boundary |
 
 The [root workspace](Cargo.toml) owns package membership;
@@ -45,10 +45,10 @@ its test binaries. Do not infer test execution from fixture presence alone.
 
 Use fixture modules according to ownership, not convenience.
 
-> `schema/test` = generated-model and canister schema fixtures
+> `qualification/schema/tests` = generated-model and canister schema fixtures
 > `crates/*/testing` = engine-internal fixtures
 
-### `schema/test`
+### `qualification/schema/tests`
 
 Use for shared fixtures that represent runtime-facing behavior:
 
@@ -66,11 +66,15 @@ Use for crate-local engine scaffolding and internal invariants:
 
 ### Rule
 
-Reusable generated schemas belong in `schema/test`; canister tests consume the
+Reusable generated schemas belong in `qualification/schema/tests`; canister tests consume the
 schemas appropriate to their actors. Crate-internal fixtures stay with the owning
 crate. The standalone `icydb-testing-test-fixtures` package also owns native tests
 of generated collection and newtype behavior; it remains exercised as a workspace
-member even when another package does not depend on it.
+member of the independent qualification workspace even when another package does not depend on it.
+
+Core's Tier C unit tests retain the approved dev-only SQL generator and SQLite
+oracle under `crates/test-support/`. They stay private database-group members;
+published product normal/build dependencies must not consume them.
 
 ---
 
@@ -247,9 +251,9 @@ many SQL/test helper surfaces intentionally unused.
 
 ### Native generated-surface coverage
 
-Use model crate tests, the `testing/model-*` adapter packages,
+Use model crate tests, the `qualification/model-*` and the deferred `testing/model-facade-only` adapter packages,
 [endpoint-installation fixtures](testing/endpoint-installation), and
-[generated-schema fixtures](schema/tests/fixtures) to check expansion, public
+[generated-schema fixtures](qualification/schema/tests/fixtures) to check expansion, public
 container behavior and model/runtime dependency boundaries. These native or
 compile-only checks do not establish message, stable-memory or upgrade behavior.
 

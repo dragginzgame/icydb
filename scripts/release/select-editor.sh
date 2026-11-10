@@ -16,7 +16,10 @@ finish() {
     exit "$status"
 }
 trap finish EXIT
-git -C "$root" show "$1:Cargo.lock" > "$selection" || exit 1
+# Follow the saved source's workspace owner, including pre-split recovery.
+policy="$(git -C "$root" show "$1:ci/cargo-release-groups.json")" || exit 1
+lock="$(jq -er 'if .qualification_workspace == "qualification" then "qualification/Cargo.lock" else "Cargo.lock" end' <<< "$policy")" || exit 1
+git -C "$root" show "$1:$lock" > "$selection" || exit 1
 # The saved Build version owns its binary feature contract. Earlier releases
 # supplied the editor without `cli`; recovery must preserve their exact recipe.
 version="$("${YQ:-yq}" -p toml -o json '.' "$selection" |

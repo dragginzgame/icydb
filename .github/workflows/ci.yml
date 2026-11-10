@@ -63,6 +63,8 @@ jobs:
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Prepare locked Cargo release editor for fixtures
         run: |
           make install-release-editor
@@ -137,6 +139,8 @@ jobs:
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Qualify isolated public compiler graphs
         if: matrix.lane == 'workspace'
         run: bash scripts/ci/check-public-compiler.sh
@@ -202,6 +206,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Install native workstation prerequisites and tools
         run: make install-dev
       - name: Save pinned tool downloads
@@ -233,7 +239,7 @@ jobs:
           shellcheck -x --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
       - name: Qualify native library and CLI builds
         run: |
-          cargo clippy --locked -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
+          cargo clippy --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb icp::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
@@ -247,11 +253,11 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status external_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status mutation_capture_
           bash scripts/ci/check-native-codegen-features.sh
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --features build --lib renamed_schema_only_dependency_emits_fragment
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib wasm_optimizer::tests
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --bin write_wasm_size_report
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-model-schema-only --features build --lib renamed_schema_only_dependency_emits_fragment
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib canister_artifact::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib wasm_optimizer::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin write_wasm_size_report
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features types::random::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features types::ulid::
@@ -309,9 +315,11 @@ jobs:
           mode: save
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Lint native browser contract owner
         run: |
-          cargo clippy --locked -p icydb-testing-build --example wire_bindings -- -D warnings
+          cargo clippy --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --example wire_bindings -- -D warnings
       - name: Check native and browser codec contracts
         run: make check-wire-browser
       - name: Retain browser qualification evidence

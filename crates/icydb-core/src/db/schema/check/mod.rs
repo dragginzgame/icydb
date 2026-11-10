@@ -39,6 +39,7 @@ pub(in crate::db::schema) use compile::{
     validate_accepted_check_literals, validate_accepted_rule_operation_literals,
 };
 pub(in crate::db) use render::render_accepted_check_expr_sql;
+pub(in crate::db::schema) use render::render_catalog_sql_value;
 #[cfg(test)]
 pub(in crate::db) use targeted::TargetedEvaluationLimits;
 pub(in crate::db) use targeted::{

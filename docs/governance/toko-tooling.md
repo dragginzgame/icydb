@@ -5,10 +5,9 @@ identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lo
 and the [reviewed snapshot](../../.toko-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
-The pending database 0.307 root selects published Storage 0.71.1, Wire/Derive 0.19,
-Testkit 0.97 and Build 0.81. Storage retains direct collection results but changes
-the whole-store backing format: use fresh backing and reject older images without
-automatic reset/migration. Its production graph no longer depends on Wire. Build's
+The pending database 0.308 root selects published Storage 0.72.0, Wire/Derive 0.19,
+Testkit 0.97 and Build 0.81. Storage 0.72 retains the 0.71 backing format; opening trusts admitted metadata,
+while explicit allocation diagnostics retain integrity verification. Its production graph no longer depends on Wire. Build's
 fallible shared-target maintenance configuration propagates through the existing
 build and dependency-admission boundaries; Host Artifacts owns batch-label
 errors. Host Tools 0.89 and Host Foundation 0.76.2 retain their typed Wasm
@@ -39,21 +38,40 @@ stack. This adoption changes no IcyDB package versions or installed snapshots.
 
 ## Current tooling migration boundary
 
-Toko Tooling 0.38.2 is installed and selected in both workspaces. The new
-product/qualification layout supersedes the older general layout exemption,
-but requires a separately scoped migration under
-[#310](https://github.com/dragginzgame/icydb/issues/310). This refresh does not
-move packages or opt into `qualification_workspace`; current release metadata
-continues to use the existing two groups. Full layout-policy adoption remains
-outstanding. Canic resolution remains independently deferred under #373.
+Toko Tooling 0.39.7 is installed and selected in all three workspaces. The
+[approved native migration](../design/0.308-package-layout/status.md) separates
+fourteen native qualification packages into `qualification/`, with its own lock.
+The product workspace retains seven published crates and two unpublished Core
+SQL dev-support packages under `crates/test-support/`. The maintainer approved
+this narrow exception on 2026-11-10 to preserve private executor test access
+without expanding the public API. Product consumers use dev-dependencies only.
+
+Release metadata opts into the shared `qualification_workspace` contract: the
+product groups own version transitions and qualification catalog/lock alignment;
+private qualification versions remain unchanged. All product-to-qualification
+edges are forbidden. CI retains native qualification lint, feature and test
+coverage, and common entrypoints admit its tooling selection before dispatch.
+The 31-package Canic workspace stays at its approved paths under #596 and its
+runtime graph remains independently deferred under #373. That remaining boundary
+prevents claiming full repository layout-policy adoption.
+
+## Documentation ownership
+
+[The documentation index](../README.md) maps native IcyDB topic documents and
+commit-pinned upstream references. Shared reference documents remain upstream;
+only the root baseline, required executables and operational inputs are installed.
+Follow the [0.39.5 migration](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/adoption/migrations.md#online-reference-documentation-in-0395).
+The exporter retires unchanged receipt-owned reference copies after local links
+are updated. Native product docs retain their topic layout; there is no shared-doc
+namespace or consumer-specific path remapping.
 
 ## Ownership and provenance
 
-IcyDB selects published **Toko Tooling 0.38.2** with one exact workspace pin
+IcyDB selects published **Toko Tooling 0.39.7** with one exact workspace pin
 inherited as an unconditional dev-dependency by every real package, alongside
 its cargo-machete exemption. Cargo.lock and `.toko-tooling.snapshot` identify
-archive SHA-256 `45c12cc2aa598d14e137dd7db50f12e943470b4ce351dfcaffeccde6821c1876`,
-from source `9446ca1d18fe027f5fb89d989e0609f137184198`. All 173 payloads are installed
+archive SHA-256 `fd795f6ef878496ac27a990a9208b87fa786a9148c18580338ef8ac79df501d7`,
+from source `fcbbcd147678fdfe5ab22c36710e017fb2c018e4`. All 107 payloads are installed
 by the authenticated exporter; no snapshot-owned files or receipt hashes are
 edited locally.
 
@@ -74,8 +92,8 @@ Cargo.lock and installed bytes offline. CI/build, release setup, ICP staging and
 direct publication invoke admission before effects. Subsequent updates require
 no sibling checkout or Git/path dependency.
 
-Both maintained workspaces retain their ownership: 23 root packages and 31
-independent Canic packages. All 54 inherit the same exact pin and exemption.
+The product, native qualification and legacy Canic workspaces own 9, 14 and 31
+packages respectively. All 54 inherit the same exact tooling pin and exemption.
 Root Cargo refresh changes only the tooling record. Canic's existing Storage
 0.64 / Platform 0.17 versus Platform 0.8.3 executor-links conflict remains deferred
 under [#373](https://github.com/dragginzgame/icydb/issues/373). Reuse the explicitly
@@ -251,7 +269,7 @@ underscore-safe recovery identifiers. A qualified batch captures clean committed
 source once; later normal-checkout lock edits stay deferred while every selected
 group releases and publishes from that captured graph. Durable recovery state
 lives under `.git/release-state/frozen/`; the normal checkout is never reset or
-silently reconciled. See [frozen release batches](../../docs/release-batches.md).
+silently reconciled. See [frozen release batches](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/release-batches.md).
 
 Grouped release entrypoints capture automatically through Shared. `RELEASE_GROUPS`
 defaults to the explicitly selected `RELEASE_GROUP`; select a complete supplier-first
@@ -652,7 +670,7 @@ unchanged by this documentation/presentation refresh.
 
 This audit applies the revision-bound Shared baseline, engineering details,
 Rust hygiene, workspace/dependency, contribution, changelog, host and snapshot
-adoption rules, using the [Shared code-hygiene method](../../audits/code-hygiene.md).
+adoption rules, using the [Shared code-hygiene method](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/code-hygiene.md).
 It compares the working tree at task entry, not HEAD: the checkout already
 contained substantial issue and release-qualification work.
 
@@ -1037,7 +1055,7 @@ on 2026-10-31: 31 packages use
 [the adapter workspace](../../testing/canic-adapter/README.md) and its lockfile.
 All existing package directories remain under `crates/`, `canisters/`, `schema/`
 and `testing/`; no package directory was relocated. This is a specific exception
-to [the approved layout](../../rules/rust-workspaces.md#approved-icydb-layout).
+to [the approved layout](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/rust-workspaces.md#approved-icydb-layout).
 [IcyDB #310](https://github.com/dragginzgame/icydb/issues/310) retains future
 placement decisions.
 
@@ -1560,7 +1578,7 @@ include the actors' Wasm builds; they do not qualify native macOS, the declared
 MSRV, a live IC deployment or the full repository/release gates. No matched
 Wasm-size, cycle or instruction delta was measured.
 
-The new [RPC-budget rule](../../rules/rpc-budgets.md) applies to browser contracts.
+The new [RPC-budget rule](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/rpc-budgets.md) applies to browser contracts.
 IcyDB already projects schema-owned policy through Wire generation and checks
 configuration mutations. This is not full runtime-boundary qualification:
 below/exact/above cases for every request/reply resource and an exercised
@@ -1680,7 +1698,7 @@ that retained release proofs run and their failures stop the real Make caller.
 ## Structural Rust scanner source
 
 The root snapshot owns the Syn-based panic scanner and its semantic fixtures.
-[The private source-check package](../../testing/source-checks/Cargo.toml)
+[The private source-check package](../../qualification/source-checks/Cargo.toml)
 compiles that source under the root workspace/lockfile, with no database or
 simulator dependency. IcyDB owns required source roots and nonempty inventories;
 Shared owns Rust parsing, cfg/macro handling and scanner regressions.
@@ -1709,13 +1727,13 @@ wall-clock/native timing is not a supported performance metric.
 
 ## Audit and verification ownership
 
-[Shared methods](../../audits/README.md) own audit procedure;
+[Shared methods](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md) own audit procedure;
 [IcyDB's catalog](../audits/README.md) selects product scopes and evidence.
 [Archived local methods](../audits/archive/shared-adoption/README.md) and old
 reports retain their original identities; adoption does not rescore them or
 create an automatic broad gate. GitHub issues own follow-up tracking.
 
-[Shared verification helpers](../verification-helpers.md) own Markdown navigation,
+[Shared verification helpers](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/validation/verification-helpers.md) own Markdown navigation,
 release-command smoke mechanics, registry observation and portable digests.
 IcyDB retains document selection, product facts, release receipts/publication
 policy and artifact subjects. An absent registry version and an unavailable
@@ -1741,7 +1759,7 @@ deltas remain unmeasured.
 
 ## Standard releases and extraction
 
-[The common release contract](../releases.md) owns execution and recovery.
+[The common release contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/releases.md) owns execution and recovery.
 IcyDB callbacks own exact metadata, dependency selections and source/tag-bound
 receipts. Release preparation fetches locked dependencies before offline gates.
 The shared runner owns version/staging/commit/tag/push effects; ordinary coding

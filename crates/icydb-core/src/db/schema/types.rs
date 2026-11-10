@@ -535,25 +535,19 @@ fn canonicalize_filter_string_backed_atom(
 
 fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
     match kind {
-        AcceptedFieldKind::Int8 => {
-            canonicalize_filter_int(value, i64::from(i8::MIN), i64::from(i8::MAX))
-        }
-        AcceptedFieldKind::Int16 => {
-            canonicalize_filter_int(value, i64::from(i16::MIN), i64::from(i16::MAX))
-        }
-        AcceptedFieldKind::Int32 => {
-            canonicalize_filter_int(value, i64::from(i32::MIN), i64::from(i32::MAX))
-        }
-        AcceptedFieldKind::Int64 => canonicalize_filter_int(value, i64::MIN, i64::MAX),
+        AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64 => canonicalize_filter_int(kind, value),
         AcceptedFieldKind::Int128 => match value {
             Value::Int128(inner) => Some(Value::Int128(*inner)),
             Value::Text(inner) => inner.parse::<i128>().ok().map(Value::Int128),
             _ => None,
         },
-        AcceptedFieldKind::Nat8 => canonicalize_filter_nat(value, u64::from(u8::MAX)),
-        AcceptedFieldKind::Nat16 => canonicalize_filter_nat(value, u64::from(u16::MAX)),
-        AcceptedFieldKind::Nat32 => canonicalize_filter_nat(value, u64::from(u32::MAX)),
-        AcceptedFieldKind::Nat64 => canonicalize_filter_nat(value, u64::MAX),
+        AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64 => canonicalize_filter_nat(kind, value),
         AcceptedFieldKind::Nat128 => match value {
             Value::Nat128(inner) => Some(Value::Nat128(*inner)),
             Value::Text(inner) => inner.parse::<u128>().ok().map(Value::Nat128),
@@ -608,26 +602,20 @@ fn canonicalize_text_or_exact<T, E>(
     }
 }
 
-fn canonicalize_filter_int(value: &Value, min: i64, max: i64) -> Option<Value> {
-    let value = match value {
-        Value::Int64(inner) => *inner,
-        Value::Nat64(inner) => i64::try_from(*inner).ok()?,
-        Value::Text(inner) => inner.parse::<i64>().ok()?,
-        _ => return None,
-    };
-
-    (min..=max).contains(&value).then_some(Value::Int64(value))
+fn canonicalize_filter_int(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
+    // Text parsing belongs to filter admission; typed range checks are shared
+    // with strict persisted literals, which must continue to reject text.
+    if let Value::Text(inner) = value {
+        return canonicalize_signed64_persisted_literal(kind, &Value::Int64(inner.parse().ok()?));
+    }
+    canonicalize_signed64_persisted_literal(kind, value)
 }
 
-fn canonicalize_filter_nat(value: &Value, max: u64) -> Option<Value> {
-    let value = match value {
-        Value::Int64(inner) => u64::try_from(*inner).ok()?,
-        Value::Nat64(inner) => *inner,
-        Value::Text(inner) => inner.parse::<u64>().ok()?,
-        _ => return None,
-    };
-
-    (value <= max).then_some(Value::Nat64(value))
+fn canonicalize_filter_nat(kind: &AcceptedFieldKind, value: &Value) -> Option<Value> {
+    if let Value::Text(inner) = value {
+        return canonicalize_unsigned64_persisted_literal(kind, &Value::Nat64(inner.parse().ok()?));
+    }
+    canonicalize_unsigned64_persisted_literal(kind, value)
 }
 
 /// Target-type an evaluated SQL assignment without widening literal admission.
@@ -688,7 +676,6 @@ pub(in crate::db) fn input_value_from_strict_sql_literal_for_persisted_kind(
         .flatten()
 }
 
-#[cfg(any(test, feature = "sql"))]
 fn canonicalize_signed64_persisted_literal(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -708,7 +695,6 @@ fn canonicalize_signed64_persisted_literal(
     }
 }
 
-#[cfg(any(test, feature = "sql"))]
 fn canonicalize_unsigned64_persisted_literal(
     kind: &AcceptedFieldKind,
     value: &Value,
@@ -775,7 +761,6 @@ fn scalar_field_type_from_persisted_kind(kind: &AcceptedFieldKind) -> FieldType 
     FieldType::Scalar(kind)
 }
 
-#[cfg(any(test, feature = "sql"))]
 fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => *inner,
@@ -786,7 +771,6 @@ fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Opti
     (min..=max).contains(&value).then_some(Value::Int64(value))
 }
 
-#[cfg(any(test, feature = "sql"))]
 fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u64::try_from(*inner).ok()?,

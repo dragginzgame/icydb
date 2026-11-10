@@ -3,6 +3,37 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.308.0]
+
+### 🔧 Changed
+
+- Separate native qualification from product dependency resolution while retaining
+  CI coverage and Core’s approved dev-only SQL oracle support.
+
+- Adopt Toko Tooling 0.39.7 and retain the explicit shared release interface.
+  Retire managed reference docs through the exporter in favor of pinned upstream
+  links; organize native architecture, roadmap and release guidance by topic.
+
+- Share SQL cache resident admission across literal commands and parameterized
+  templates; classify INSERT omissions directly while preserving error priority.
+
+- Reuse resolved SQL write fields across admission checks and patch construction.
+  Prepare RETURNING projection once for validation, precommit bounds and response
+  shaping while preserving diagnostic precedence and requested column order.
+
+- Validate accepted predicate canonical form once per tree and render partial-index
+  SQL directly from accepted metadata. Share catalog literal formatting and integer
+  width selection while preserving SQL spelling and admission rules.
+
+- Share numeric CHECK fixtures and integer range checks; remove redundant
+  allocation-snapshot assertions while retaining input-admission coverage.
+
+- Adopt Storage 0.72.0: handle opening trusts the admitted directory; explicit
+  diagnostics retain integrity checks. The stored format is unchanged.
+
+
+[Detailed changes](0.308.md).
+
 ## [0.307.0] - 2026-11-10
 
 ### 🔧 Changed

@@ -6,14 +6,13 @@ use crate::{
         data::{AcceptedMutationIntentPatch, DecodedDataStoreKey},
         executor::AcceptedSchemaCatalogContext,
         query::intent::StructuralQuery,
-        schema::SchemaInfo,
+        schema::{AcceptedRowLayoutRuntimeContract, SchemaInfo},
         session::sql::{
             SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
             SqlPublicPrimaryKeyDeletePlan, SqlStatementDispatch, SqlStatementResult,
             SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
             execute::write_returning::{
-                projection_labels_from_accepted_write_descriptor,
-                validate_sql_materialized_returning_bounds,
+                SqlReturningProjectionPlan, validate_sql_materialized_returning_bounds,
             },
             write_policy::SqlWriteExecutionBounds,
         },
@@ -55,56 +54,65 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             Some(entity_name.as_str()),
             returning,
-            |catalog, descriptor| {
-                let authority = catalog.accepted_entity_authority();
-                let primary_names = descriptor.primary_key_names();
-                let selector = query
-                    .clone()
-                    .into_load_selection()
-                    .select_fields(primary_names.iter().copied());
-                let bounds = sql_write_candidate_bounds(execution_bounds);
-                let entity_tag = catalog.identity().entity_tag();
-                let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
-                    catalog.snapshot(),
-                    authority,
-                    &selector,
-                    bounds,
-                    execution_bounds
-                        .map(|_| super::sql_write_scan_budget())
-                        .transpose()?,
-                    |row| {
-                        let key =
-                            DecodedDataStoreKey::try_from_structural_key_values(entity_tag, row)
-                                .map_err(QueryError::execute)?;
-                        Ok((key, AcceptedMutationIntentPatch::new()))
-                    },
-                )?;
-                let keys = rows.into_rows().into_iter().map(|(key, _)| key).collect();
-                let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
-                let rows = self
-                    .execute_accepted_structural_delete_batch(
-                        catalog,
-                        returning.is_some(),
-                        keys,
-                        |rows| {
-                            let Some(returning) = returning else {
-                                return Ok(());
-                            };
-                            validate_sql_materialized_returning_bounds(
-                                self.sql_returning_response_len,
-                                entity_name.as_str(),
-                                columns.as_slice(),
-                                rows,
-                                returning,
-                                catalog.enum_catalog(),
-                                execution_bounds.map(|bounds| bounds.returning),
-                            )
-                        },
-                    )
-                    .map_err(QueryError::execute)?;
-                sql_write_mutation_statement_result(rows, returning, columns, catalog)
+            |catalog, descriptor, projection| {
+                self.execute_sql_delete_with_descriptor(
+                    query,
+                    projection.as_ref(),
+                    catalog,
+                    &descriptor,
+                    execution_bounds,
+                )
             },
         )
+    }
+
+    fn execute_sql_delete_with_descriptor(
+        &self,
+        query: &StructuralQuery,
+        returning: Option<&SqlReturningProjectionPlan>,
+        catalog: &AcceptedSchemaCatalogContext,
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        execution_bounds: Option<SqlWriteExecutionBounds>,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let authority = catalog.accepted_entity_authority();
+        let primary_names = descriptor.primary_key_names();
+        let selector = query
+            .clone()
+            .into_load_selection()
+            .select_fields(primary_names.iter().copied());
+        let bounds = sql_write_candidate_bounds(execution_bounds);
+        let entity_tag = catalog.identity().entity_tag();
+        let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
+            catalog.snapshot(),
+            authority,
+            &selector,
+            bounds,
+            execution_bounds
+                .map(|_| super::sql_write_scan_budget())
+                .transpose()?,
+            |row| {
+                let key = DecodedDataStoreKey::try_from_structural_key_values(entity_tag, row)
+                    .map_err(QueryError::execute)?;
+                Ok((key, AcceptedMutationIntentPatch::new()))
+            },
+        )?;
+        let keys = rows.into_rows().into_iter().map(|(key, _)| key).collect();
+        let rows = self
+            .execute_accepted_structural_delete_batch(catalog, returning.is_some(), keys, |rows| {
+                let Some(returning) = returning else {
+                    return Ok(());
+                };
+                validate_sql_materialized_returning_bounds(
+                    self.sql_returning_response_len,
+                    catalog.snapshot().persisted_snapshot().entity_name(),
+                    rows,
+                    returning,
+                    catalog.enum_catalog(),
+                    execution_bounds.map(|bounds| bounds.returning),
+                )
+            })
+            .map_err(QueryError::execute)?;
+        sql_write_mutation_statement_result(rows, returning, catalog)
     }
 
     fn sql_delete_query_from_statement(
@@ -137,7 +145,7 @@ impl<C: CanisterKind> DbSession<C> {
             None,
             entity_name,
             None,
-            |catalog, descriptor| {
+            |catalog, descriptor, _projection| {
                 let context =
                     SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
                 PreparationWork::run(
@@ -169,14 +177,15 @@ impl<C: CanisterKind> DbSession<C> {
             None,
             Some(statement.entity.as_str()),
             statement.returning.as_ref(),
-            |catalog, _descriptor| {
+            |catalog, descriptor, projection| {
                 let query = self
                     .sql_delete_query_from_statement(catalog.accepted_schema_info(), statement)?;
 
-                self.execute_sql_delete_statement_with_execution_bounds(
+                self.execute_sql_delete_with_descriptor(
                     &query,
-                    statement.returning.as_ref(),
-                    Some(catalog),
+                    projection.as_ref(),
+                    catalog,
+                    &descriptor,
                     Some(execution_bounds),
                 )
             },

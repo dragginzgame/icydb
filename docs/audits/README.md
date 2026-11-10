@@ -1,13 +1,13 @@
 # IcyDB audit overlay
 
-Apply [the shared audit contract](../../audits/README.md) at the reviewed revision
+Apply [the shared audit contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md) at the reviewed revision
 recorded in [the snapshot](../../.toko-tooling.snapshot). This overlay owns
 IcyDB's product obligations, audit selection and report destinations. Shared methods own generic
 inspection, evidence, findings and authorized cleanup; they add no schedule or
 automatic full gate. Compact topic summaries stay in `docs/reports/`; raw output
 belongs under `target/evidence/`.
 
-[Code hygiene](../../audits/code-hygiene.md) uses
+[Code hygiene](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/code-hygiene.md) uses
 [the local style/architecture rules](../governance/code-hygiene/README.md) and
 [architecture contracts](architecture-contracts.md). Existing domain audits
 retain their distinct correctness and measurement questions. The four structural
@@ -69,7 +69,7 @@ Use the [boundary handoff review](targeted/integrity/boundary-handoff-review.md)
 when a concrete producer/consumer change leaves invariant coverage unclear.
 It is not an additional baseline sweep or a prerequisite for every domain run.
 Its `HANDOFF-3` overlay uses the reviewed
-[shared focused-handoff method](../../audits/flow-convergence-and-duplication.md#focused-boundary-handoff)
+[shared focused-handoff method](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/flow-convergence-and-duplication.md#focused-boundary-handoff)
 for generic trace/proof mechanics and retains IcyDB's carried authority,
 executed-test evidence and report destination.
 
@@ -148,7 +148,7 @@ explicitly equivalent obligations and evidence can remain comparable.
 
 ### Finding Ownership And Shared Evidence
 
-The [common ownership/evidence contract](../../audits/README.md#ownership-and-history)
+The [common ownership/evidence contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md#ownership-and-history)
 owns one finding per cause and source-bound evidence reuse. IcyDB routes domain
 findings by their violated contract:
 
@@ -169,7 +169,7 @@ identity and are never counted as new executions.
 
 ### Authorization And Read-Only Work
 
-Apply [the shared authority contract](../../audits/README.md#authority-and-execution)
+Apply [the shared authority contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md#authority-and-execution)
 and [AGENTS.md](../../AGENTS.md). Audit/report instructions do not supply repair,
 service mutation, dependency update, broad gate or publication authority. Existing
 bounded implementation authority remains valid. Inspection-only work cannot
@@ -178,7 +178,7 @@ lifecycle permission only when necessary; report any lifecycle action.
 
 ### Findings And Verdicts
 
-Apply [shared severity, verdict and evidence rules](../../audits/README.md#evidence-and-report-contract).
+Apply [shared severity, verdict and evidence rules](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md#evidence-and-report-contract).
 Do not convert historic scores into severities or use counts as cleanup targets.
 Keep product/domain scopes explicit and name missing proof without treating it
 as evidence of a runtime defect. GitHub issues are the only follow-up tracker.
@@ -216,7 +216,7 @@ record only the combined verdict and cross-report dependencies.
 
 ## Required Report Preamble
 
-Use [the shared identity contract](../../audits/README.md#evidence-and-report-contract)
+Use [the shared identity contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md#evidence-and-report-contract)
 with the selected local overlay/method identity, baseline and comparability.
 Record source and relevant dirty work, trigger, affected owners and excluded
 families. A method/scope change makes affected comparisons `N/A (method change)`;
@@ -286,7 +286,7 @@ ineligible for new runs and keep their original source identity.
 
 ## Sources of Truth
 
-- [Shared methods](../../audits/README.md): common procedure and evidence contract.
+- [Shared methods](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md): common procedure and evidence contract.
 - [Architecture contracts](architecture-contracts.md): IcyDB invariants.
 - `docs/audits/recurring/` and `docs/audits/targeted/`: local overlays/domain methods.
 - [Reports](../reports/README.md): compact conclusions and raw-output retention.

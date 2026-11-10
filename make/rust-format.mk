@@ -32,14 +32,14 @@ format-tools-check fmt fmt-check: export CARGO_NET_OFFLINE := true
 format-tools-check fmt fmt-check: export RUSTUP_AUTO_INSTALL := 0
 
 format-tools-check:
-	+@record="$$(perl "$(TOKO_TOOLING_ROOT)/scripts/ci/tool-catalog-records.pl" rust "$(RUST_TOOL_VERSIONS)" CARGO_SORT)" || exit $$?; \
+	$(_toko_recursive_prefix)@record="$$(perl "$(TOKO_TOOLING_ROOT)/scripts/ci/tool-catalog-records.pl" rust "$(RUST_TOOL_VERSIONS)" CARGO_SORT)" || exit $$?; \
 		version="$$(printf '%s\n' "$$record" | cut -f2)"; \
 		bash "$(TOKO_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$$version" "$(FORMAT_CARGO)"
 
 fmt: format-tools-check
-	+@$(if $(_shared_format_custom),bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write) $(FORMAT_WRITE_COMMAND)
+	$(_toko_recursive_prefix)@$(if $(_shared_format_custom),bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write) $(FORMAT_WRITE_COMMAND)
 
 fmt-check: format-tools-check
-	+@$(if $(_shared_format_custom),bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check) $(FORMAT_CHECK_COMMAND)
+	$(_toko_recursive_prefix)@$(if $(_shared_format_custom),bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check) $(FORMAT_CHECK_COMMAND)
 
 .DEFAULT_GOAL := $(_shared_format_default_goal)

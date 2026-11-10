@@ -146,8 +146,8 @@ cp "$ROOT/make/"*.mk "$native/make/"
 # companion closure so fixture setup follows the selected shared Make contract.
 bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" make/consumer.mk
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
-mkdir -p "$native/testing/build/src" "$native/testing/canic-adapter"
-cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$native/testing/build/src/"
+mkdir -p "$native/qualification/build/src" "$native/testing/canic-adapter"
+cp "$ROOT/qualification/build/src/wasm_measurement_subjects.tsv" "$native/qualification/build/src/"
 cp "$ROOT/rust-toolchain.toml" "$native/"
 printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
@@ -207,6 +207,7 @@ case "$1 ${2:-}" in
     case "$PWD" in
       "$CI_CARGO_ROOT") member=fixture-product ;;
       "$CI_CARGO_ROOT/testing/canic-adapter") member=fixture-adapter ;;
+      "$CI_CARGO_ROOT/qualification") member=fixture-qualification ;;
       *) exit 2 ;;
     esac
     jq -nc --arg root "$PWD" --arg member "$member" '{
@@ -247,6 +248,9 @@ set -euo pipefail
 [[ "$*" == "check --consumer $CI_CARGO_ROOT --manifest .toko-tooling.snapshot" ]]
 [[ "${CI_TOOLING_CHECK_FAIL:-0}" == 0 ]]
 TOOLING
+printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/check-qualification-tooling.sh"
+printf '[workspace]\n' > "$native/qualification/Cargo.toml"
+printf 'version = 4\n' > "$native/qualification/Cargo.lock"
 cat > "$native/scripts/ci/check-adapter-tooling.sh" <<'ADAPTER'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -268,7 +272,7 @@ MAKE
     make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
     > "$native/deployment-build.log" 2>&1
   printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
-    'clippy default' 'clippy default' 'clippy default' 'run default' \
+    'clippy default' 'clippy default' 'clippy default' 'clippy default' 'run default' \
     > "$native/expected-trace"
   cmp "$native/expected-trace" "$CI_CARGO_TRACE"
   cmp "$native/.icp/local/canisters/default_empty/default_empty.wasm" "$native/staged.wasm"
@@ -332,8 +336,8 @@ for lane in ci-core ci-workspace ci-sql-tier-a ci-adapter; do
     make --no-print-directory -C "$native" -j2 "$lane" \
     "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/$lane.log" 2>&1
 done
-printf '%s\n' 'check default' 'check default' 'check default' 'clippy default' 'test 8' \
-  'clippy default' 'clippy default' 'clippy default' 'test 2' 'test default' 'test default' \
+printf '%s\n' 'check default' 'check default' 'check default' 'check default' 'clippy default' 'test 8' \
+  'clippy default' 'clippy default' 'clippy default' 'clippy default' 'test 2' 'test 2' 'test default' 'test default' \
   'clippy default' 'clippy default' 'clippy default' 'test 2' 'test 2' 'test default' \
   'test 2' 'test 2' 'test 2' 'test default' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
@@ -391,7 +395,7 @@ PATH="$native/bin:$PATH" CI_CARGO_MUTATE_LOCK=1 \
   make --no-print-directory -C "$native" -j2 ci-core \
   > "$native/changed-input.log" 2>&1 || status=$?
 [[ "$status" == 2 ]]
-printf '%s\n' 'check default' 'check default' > "$native/expected-trace"
+printf '%s\n' 'check default' 'check default' 'check default' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cp "$native/lock-before" "$native/Cargo.lock"
 # Qualification input drift must not invalidate independent product checks.
@@ -404,7 +408,7 @@ PATH="$native/bin:$PATH" CI_CARGO_MUTATE_LOCK=1 \
   make --no-print-directory -C "$native" -j2 ci-core \
   > "$native/changed-adapter-input.log" 2>&1 || status=$?
 [[ "$status" == 0 ]]
-printf '%s\n' 'check default' 'check default' 'check default' 'clippy default' 'test 8' > "$native/expected-trace"
+printf '%s\n' 'check default' 'check default' 'check default' 'check default' 'clippy default' 'test 8' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cp "$native/adapter-lock-before" "$native/testing/canic-adapter/Cargo.lock"
 : > "$CI_CARGO_TRACE"
@@ -428,7 +432,7 @@ cp "$native/lock-before" "$native/Cargo.lock"
 : > "$CI_CARGO_TRACE"
 PATH="$native/bin:$PATH" RUST_TEST_THREADS=3 \
   make --no-print-directory -C "$native" -j2 ci-core > "$native/inherited-threads.log" 2>&1
-printf '%s\n' 'check 3' 'check 3' 'check 3' 'clippy 3' 'test 8' \
+printf '%s\n' 'check 3' 'check 3' 'check 3' 'check 3' 'clippy 3' 'test 8' \
   > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 
@@ -444,7 +448,7 @@ for lane in test test-adapter test-no-default-smoke test-durability test-integra
 done
 # The local gate and CI execute the same maintained roster, not parallel copies.
 [[ "$(grep -Fxc -- "$durability_selection" "$CI_CARGO_ARGUMENT_TRACE")" == 2 ]]
-printf '%s\n' 'test default' 'test 8' 'test 2' \
+printf '%s\n' 'test default' 'test 8' 'test 2' 'test 2' \
   'test 2' 'test 2' 'test 2' 'test 2' 'test 2' 'test default' \
   'test default' 'test 8' 'test default' 'test default' 'test 2' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
@@ -476,8 +480,8 @@ for lane in build-canister-local build-canister-production; do
     CANISTER=default_empty > "$native/$lane.log" 2>&1
 done
 printf '%s\n' \
-  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile local --profile debug' \
-  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release' \
+  'run --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile local --profile debug' \
+  'run --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release' \
   > "$native/expected-arguments"
 cmp "$native/expected-arguments" "$CI_CARGO_ARGUMENT_TRACE"
 
@@ -488,11 +492,11 @@ for lane in fetch build check clippy test-documentation check-feature-matrix cle
   PATH="$native/doc-bin:$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
     > "$native/$lane.log" 2>&1
 done
-printf '%s\n' 'run default' 'run default' 'fetch default' 'build default' \
-  'check default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
+printf '%s\n' 'run default' 'run default' 'fetch default' 'fetch default' 'build default' \
+  'check default' 'check default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' 'clippy default' \
   'test default' 'test default' 'test default' \
   'test default' 'test default' 'test default' 'test default' \
-  'check default' 'check default' 'check default' 'check default' 'check default' 'check default' \
+  'check default' 'check default' 'check default' 'check default' 'check default' 'check default' 'check default' \
   'clean default' 'watch default' \
   > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
@@ -629,10 +633,10 @@ PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 fmt-adapter-
   > "$native/fmt-adapter-check.log" 2>&1
 # Metadata/version observations belong to Shared's shortcut policy. Qualify the
 # consumer's actual workspace selection without fixing their incidental order.
-for member in fixture-product fixture-adapter; do
+for member in fixture-product fixture-qualification fixture-adapter; do
   [[ "$(grep -Fxc -- "fmt --package $member -- --check" "$CI_CARGO_ARGUMENT_TRACE")" == 1 ]]
 done
-[[ "$(grep -Fxc -- 'sort --workspace --grouped --check' "$CI_CARGO_ARGUMENT_TRACE")" == 2 ]]
+[[ "$(grep -Fxc -- 'sort --workspace --grouped --check' "$CI_CARGO_ARGUMENT_TRACE")" == 3 ]]
 [[ "$(grep -Fxc -- 'sort-derives --check' "$CI_CARGO_ARGUMENT_TRACE")" == 1 ]]
 if grep -F -- 'fmt --all' "$CI_CARGO_ARGUMENT_TRACE"; then exit 1; fi
 

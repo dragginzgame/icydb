@@ -24,7 +24,7 @@
 
 ![Rust](https://img.shields.io/badge/Rust-1.99.1-blue.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
-[![License: Toko Studios 1.1](https://img.shields.io/badge/license-Toko%20Studios%201.1-blue)](LICENSE)
+[![Licence: TSNL-1.0](https://img.shields.io/badge/licence-TSNL--1.0-blue)](LICENSE.md)
 
 IcyDB is a database toolkit for applications running on the Internet Computer.
 It helps developers describe the information their application stores, save
@@ -270,10 +270,13 @@ The public facade is in `crates/icydb`; runtime internals are in
 `crates/icydb-core`. Model authoring lives in `icydb-model` and
 `icydb-model-macros`, proposal/scalar contracts in `icydb-schema`, diagnostics
 in `icydb-diagnostic-code`, and the CLI in `icydb-cli`.
-`schema/`, `canisters/`, and `testing/` hold compiled examples and qualification
-fixtures. The [Canic qualification workspace](testing/canic-adapter/README.md)
-has its own lockfile, so its aligned host dependencies do not constrain the root
-IcyDB packages or CLI. Package directories are unchanged.
+Native schemas, compiler fixtures and build tools live in the independent
+[`qualification/`](qualification/Cargo.toml) workspace. Core's SQL generator and
+SQLite oracle remain unpublished dev-support under `crates/test-support/`, as an
+approved exception that preserves access to private Core internals.
+The older [Canic qualification workspace](testing/canic-adapter/README.md)
+retains its existing canister and integration directories and its own lockfile.
+Neither qualification graph constrains product or CLI dependency resolution.
 
 IC Wire owns application and schema-artifact serialization. IC Memory and
 IC Storage own allocation and stable collection infrastructure; IcyDB owns
@@ -282,6 +285,8 @@ lifecycle composition. External IC protocol boundaries go through IC Platform;
 IcyDB-owned payloads do not use Candid.
 
 ## Documentation
+
+The [documentation index](docs/README.md) maps product topics and pinned upstream tooling references.
 
 Guides explain usage; contracts define maintained behavior. Design reports and
 release notes retain historical evidence and do not replace current contracts.
@@ -296,22 +301,12 @@ release notes retain historical evidence and do not replace current contracts.
 | Read and write safety | [Read admission](docs/contracts/READ_ADMISSION.md) and [write admission](docs/contracts/WRITE_ADMISSION.md) |
 | Relations, identity and nested data | [Relations](docs/contracts/REF_INTEGRITY.md), [identity](docs/contracts/IDENTITY_CONTRACT.md) and [nested storage](docs/contracts/NESTED_STORAGE.md) |
 | Stored-format compatibility | [Persisted-format policy](docs/contracts/PERSISTED_FORMAT_POLICY.md) and [durable-surface inventory](docs/contracts/PERSISTED_FORMAT_INVENTORY.md) |
-| Architecture and multi-canister use | [Foundations](docs/FOUNDATIONS.md) and [multi-canister workflows](docs/guides/multi-canister-workflows.md) |
-| Path to 1.0 | [Feature contract](docs/1.0-FEATURES.md) and [readiness tracker](docs/1.0-TODO.md) |
+| Architecture and multi-canister use | [Foundations](docs/architecture/FOUNDATIONS.md) and [multi-canister workflows](docs/guides/multi-canister-workflows.md) |
+| Path to 1.0 | [Feature contract](docs/roadmap/1.0-FEATURES.md) and [readiness tracker](docs/roadmap/1.0-TODO.md) |
 
-## License
+## Licence and contributions
 
-Licensed under the [Toko Studios Source Available License — Verifiable ICP Burn,
-Version 1.1](LICENSE). This is a source-available license, not an OSI-approved
-open-source license.
-
-Material previously offered under Apache License 2.0 or
-[MIT](LICENSE-MIT) retains its applicable prior grants. The license includes the
-original MIT notice. Third-party material retains its own license terms.
-
-Contributors must have authority to grant the relevant rights and expressly
-offer covered contributions under these terms, including the permanent Toko
-Studios organization exception and patent grants in sections 7 and 11.
+See [LICENSE.md](LICENSE.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Release groups
 

@@ -173,15 +173,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "camino"
-version = "1.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbbad30e4b4c14a39e3cc8aed085a12a327257c316619c93581e017bc52be591"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "candid"
 version = "0.10.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -214,30 +205,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "cargo-platform"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd0061da739915fae12ea00e16397555ed4371a6bb285431aab930f61b0aa4ba"
-dependencies = [
- "serde",
- "serde_core",
-]
-
-[[package]]
-name = "cargo_metadata"
-version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef987d17b0a113becdd19d3d0022d04d7ef41f9efe4f3fb63ac44ba61df3ade9"
-dependencies = [
- "camino",
- "cargo-platform",
- "semver",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -330,12 +297,6 @@ checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
 dependencies = [
  "cc",
 ]
-
-[[package]]
-name = "cmov"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "cobs"
@@ -459,15 +420,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctutils"
-version = "0.4.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "261af4dc7a06ea8a527a8717d8cbba3417530d6ea14e1edb3de6b67806be474f"
-dependencies = [
- "cmov",
-]
-
-[[package]]
 name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -531,7 +483,6 @@ checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
  "crypto-common 0.2.2",
- "ctutils",
 ]
 
 [[package]]
@@ -574,15 +525,6 @@ name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
-
-[[package]]
-name = "erased-discriminant"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1a6df962265a53221f29081896c412ef325c17fa7d638cd9578febe53d3c82c"
-dependencies = [
- "typeid",
-]
 
 [[package]]
 name = "errno"
@@ -790,15 +732,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hmac"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
-dependencies = [
- "digest 0.11.3",
-]
-
-[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -907,26 +840,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-build"
-version = "0.81.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76b8894b853eb051137543d4a3a67b58d06f1f6ffc69a307749cbe51a32ca315"
-dependencies = [
- "cargo_metadata",
- "hmac",
- "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-process",
- "rustix",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "thiserror 2.0.21",
- "toml",
- "toml_edit",
-]
-
-[[package]]
 name = "ic-certification"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -940,9 +853,9 @@ dependencies = [
 
 [[package]]
 name = "ic-entropy"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85d80145e3f22fd676ea48f319ad8087f5da37a41b2ad38eaecad64b96697256"
+checksum = "f849f31a670d2f3f53a31c92b46be55d5cfdc1433f9a4724cec7a269f1e9f3d2"
 dependencies = [
  "rand_chacha",
 ]
@@ -954,9 +867,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4544002fcd6e23cf7f35255f0827af87f3c90a41752771c9a9d6ab03156a41ef"
 dependencies = [
  "flate2",
- "leb128",
  "sha2 0.11.1",
- "wasmparser",
 ]
 
 [[package]]
@@ -1011,7 +922,6 @@ version = "0.89.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c219f40d2421d739aac56985559b23adab4ff33a0aa6fe647cf883463a862df"
 dependencies = [
- "ic-host-artifacts",
  "ic-host-text",
  "serde",
  "serde_json",
@@ -1020,9 +930,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.29.10"
+version = "0.29.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d371f7202cdd23ffcae9013ce0c51998a04ae8e0b64b8fb4845d7e46715f9aa"
+checksum = "45009e4547025d669c579899d17332fdcd00c34429d43bc1795297978b8eb21d"
 
 [[package]]
 name = "ic-platform"
@@ -1062,9 +972,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.71.2"
+version = "0.72.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b162518ceb8d0846496115c94483da6dffc03d1e54c507bebcc895b6ee2ef87"
+checksum = "c868b5e1ae7d5056333140ce86ddfa6de65666b71f1eb7a659f21868041ce6ad"
 dependencies = [
  "ic-platform-runtime",
  "serde",
@@ -1369,118 +1279,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-testing-wasm-helpers",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-audit-group-path-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-testing-wasm-helpers",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-testing-wasm-helpers",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-testing-wasm-helpers",
- "serde",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-testing-wasm-helpers",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-build"
-version = "0.307.0"
-dependencies = [
- "clap",
- "ic-build",
- "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-process",
- "ic-host-tools",
- "ic-wire",
- "icydb",
- "icydb-core",
- "icydb-schema",
- "icydb-testing-wasm-helpers",
- "serde",
- "serde-reflection",
- "serde_json",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-codec-query"
-version = "0.307.0"
-dependencies = [
- "ic-platform-runtime",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-demo-rpg-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-model",
- "icydb-testing-wasm-helpers",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-model-schema-only"
-version = "0.307.0"
-dependencies = [
- "icydb-model",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-model-typed-adapter"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-model",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-source-checks"
-version = "0.307.0"
-dependencies = [
- "clap",
- "proc-macro2",
- "syn 3.0.10",
- "toko-tooling",
-]
-
-[[package]]
 name = "icydb-testing-sql-generator"
 version = "0.307.0"
 dependencies = [
@@ -1500,36 +1298,6 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 3.0.10",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-test-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-model",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-test-sql-fixtures"
-version = "0.307.0"
-dependencies = [
- "icydb",
- "icydb-testing-wasm-helpers",
- "toko-tooling",
-]
-
-[[package]]
-name = "icydb-testing-wasm-helpers"
-version = "0.307.0"
-dependencies = [
- "ic-wire",
- "icydb",
- "icydb-model",
- "icydb-schema",
- "serde",
  "toko-tooling",
 ]
 
@@ -2316,10 +2084,6 @@ name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
-dependencies = [
- "serde",
- "serde_core",
-]
 
 [[package]]
 name = "serde"
@@ -2329,20 +2093,6 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
-]
-
-[[package]]
-name = "serde-reflection"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af0fdf9c543af37502581e3d6cf4e6cd1628d6616d6a1f8f4ca88aae3a405f5c"
-dependencies = [
- "erased-discriminant",
- "once_cell",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "typeid",
 ]
 
 [[package]]
@@ -2717,9 +2467,9 @@ dependencies = [
 
 [[package]]
 name = "toko-tooling"
-version = "0.38.2"
+version = "0.39.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45c12cc2aa598d14e137dd7db50f12e943470b4ce351dfcaffeccde6821c1876"
+checksum = "fd795f6ef878496ac27a990a9208b87fa786a9148c18580338ef8ac79df501d7"
 
 [[package]]
 name = "toml"
@@ -2754,7 +2504,6 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
- "toml_writer",
  "winnow",
 ]
 
@@ -2875,12 +2624,6 @@ name = "typed-arena"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
-
-[[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
@@ -3050,16 +2793,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b1f9c3798725016c6ee5f2f57869ec0831e8bbc0ab0310a86e787e97f41389e"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "wasmparser"
-version = "0.263.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f5fa0a054ae153606df820eb0a84213e28cda41bbe04ba2628e71b6ba100fcb"
-dependencies = [
- "bitflags",
- "indexmap",
 ]
 
 [[package]]

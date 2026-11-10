@@ -44,6 +44,8 @@ jobs:
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Execute exact native Tier C shard
         run: make test-sql-tier-c-shard TIER_C_SHARD=${{ matrix.shard }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -83,6 +85,8 @@ jobs:
           merge-multiple: true
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Merge all eight native receipts
         run: make test-sql-tier-c-merge
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

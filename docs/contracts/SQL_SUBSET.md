@@ -11,7 +11,7 @@ All state-changing SQL remains subject to
 never disable accepted-schema row validation.
 
 Machine-readable coverage obligations live in the
-[SQL coverage manifest](../../testing/sqlite-reference/tests/sql_coverage/mod.rs).
+[SQL coverage manifest](../../crates/test-support/sqlite-reference/tests/sql_coverage/mod.rs).
 The manifest is the code-owned testing authority; this contract remains the
 human-readable definition of supported behavior.
 

@@ -1,5 +1,5 @@
 # Toko Tooling Engineering Baseline
-<!-- Detailed references are pinned; select governance entrypoints explicitly for offline use. -->
+<!-- Detailed references are pinned online; do not vendor the reference documentation. -->
 
 Toko Tooling owns the common engineering rules for `dragginzgame` repositories.
 Read this core, the local `AGENTS.md` and the current handoff when present. Read
@@ -10,10 +10,11 @@ same approach: mandatory local constraints first, task-specific references after
 
 Detailed links below identify an immutable reviewed policy revision. Selecting
 this file does not install their documents, audit procedures or task runners.
-For offline work, explicitly select the needed guides or the complete governance
-entrypoint list from the same tooling release; do not assume linked content is
-available locally. The full crate also contains those documents. If a required
-reference is unavailable, obtain the pinned reference before the affected task.
+Read those references online at their explicit reviewed revision, never moving
+`main` or a sibling checkout. Do not copy their documents into consumers. The
+full upstream crate retains them for producer use. If a required reference is
+unavailable, report that specific blocker before the affected action; do not
+silently substitute a different revision or skip the rule.
 
 ## Adoption and local authority
 
@@ -43,6 +44,36 @@ crate or vendoring this file grants no exception and does not activate audits.
   local choices and documented exceptions. Do not turn a general prohibition
   into a new permission prompt when the common rule already authorizes the task.
   See [adoption details](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/engineering-details.md#adoption-and-local-authority).
+
+## Documentation ownership boundary
+
+Every repository must organise its documentation by topic and make ownership
+clear. Keep product-owned documentation under `docs/`; use meaningful directories
+as the collection grows rather than accumulating unrelated files at its root.
+Use topics such as architecture, design and operations as needed; do not create
+empty directories or require a `docs/<product-name>/` wrapper.
+
+- Keep root `TOKO-TOOLING.md` as the small installed baseline and `AGENTS.md`
+  as the local overlay. Read shared guides, detailed rules, audit procedures and
+  task catalogs through immutable upstream links. Do not vendor, paraphrase into
+  parallel policies, or create `docs/toko-tooling/` for those references.
+- Install only the required executable entrypoints and their declared runtime
+  inputs. A Markdown prompt actually consumed by a selected executable is a
+  runtime input, not a reason to install the reference library. Root licence
+  and contribution files retain their separate canonical-file contract below.
+- The snapshot receipt identifies existing managed copies. During a scoped
+  refresh, replace consumer-owned links to them with reviewed commit-pinned URLs
+  and supply the complete retained entrypoint list: baseline, needed executables
+  and operational inputs. Preview the exporter removing unchanged doc copies
+  that are no longer required. Preserve native files and resolve modified
+  managed files explicitly; do not hand-edit receipts or bulk-delete directories.
+- Organisation of native docs can proceed independently. Retiring existing
+  shared copies uses the current exporter, without a new directory migration or
+  relocation feature. The upstream repository owns the reference documentation.
+
+This supersedes the 0.39.3–0.39.4 managed-document namespace plan and older linked
+instructions to vendor governance guides. It does not trigger unsolicited sibling
+refreshes or change the offline verification of installed executable bytes.
 
 ## Scope and authorization
 
@@ -106,7 +137,10 @@ fixtures, docs and cleanup. Split independent outcomes, not compiler fallout or
 each proof of the same change. Stop at new independent scope or a release boundary.
 Maintain meaningful [changelog notes](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/changelogs.md) once per completed batch;
 governance-only edits need no note unless they change a maintained surface or one
-is requested. Report outcome, relevant evidence and actionable blockers.
+is requested. Exclude all legal and licensing content from changelogs, including
+adoption notices and notes about this policy or its cleanup. This exclusion overrides
+general changelog coverage and fixed-issue-link requirements.
+Report outcome, relevant evidence and actionable blockers.
 Detailed line metrics and symbol inventories are optional under the
 [reporting rules](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/change-reporting.md), not a routine completion step.
 See [contract-change details](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/engineering-details.md#complete-reviewable-changes)
@@ -185,6 +219,79 @@ when changing interfaces, persistence or installation/recovery behavior.
 
 Do not submit DFINITY PRs or depend on future DFINITY work. Use available qualified
 dependencies or own the solution under the [maintenance contract](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/engineering-details.md#dfinity-dependencies-own-the-solution).
+
+## Independently owned implementations
+
+- Code brought in-house must be independently authored, with documented rights
+  to distribute it under our selected licence. Do not copy, adapt, translate or
+  vendor third-party implementations into owned source. This applies throughout
+  our first-party package graph, including tests, tools, generated source and
+  embedded assets; moving code to another owned crate does not evade the rule.
+- In particular, do not import or fork unmaintained DFINITY code as a way to
+  remove a dependency. Taking over maintenance does not transfer copyright or
+  remove upstream licence conditions. Implement the required behavior independently
+  or retain a qualified external dependency.
+- For a clean-room replacement, derive a behavior specification from published
+  interfaces, protocol facts and lawful black-box observations. Keep upstream
+  implementation text, patches and expressive tests out of the implementation
+  context, including agent prompts. Record specification sources, author/context
+  separation and independently written qualification tests. Keep ownership
+  agreements and legal assessments in company records outside the repository.
+  An agent that has read the upstream implementation must not label its rewrite
+  clean-room; use a separate unexposed implementer and reviewed specification.
+- Separately licensed external dependencies, including transitive dependencies,
+  remain allowed under the dependency rules. Their distribution obligations still
+  apply; this is not a claim that the complete binary has only our licence.
+  Do not rewrite cryptography merely to remove third-party code or notices.
+- Existing imports require an explicit, scoped migration plan or maintainer
+  exception before claiming compliance. Preserve applicable licences, notices and
+  provenance while that material remains. Do not strip credits, rebrand a fork,
+  or claim that a rewrite automatically clears ownership or patent questions.
+  This policy does not authorize sibling edits or immediate fleet rewrites.
+
+This section supersedes older linked guidance permitting new maintained imports.
+
+## Canonical licence and contribution policy
+
+- Use only the Toko Studios Network Licence when granting a public licence for
+  first-party code. Repositories granting that licence keep one root `LICENSE.md`
+  and one root `CONTRIBUTING.md`, byte-identical to
+  the canonical files in its reviewed Toko Tooling release. Adopt updates from
+  that master deliberately; do not customise the copies or fetch moving `main`
+  during builds. Local engineering instructions belong in `AGENTS.md`.
+- Confidential proprietary repositories do not adopt a public licence merely
+  to use this tooling. Omit first-party licence files and Cargo licence metadata;
+  set every private Cargo package to `publish = false` and npm packages to
+  `private: true`. Retain the canonical contribution policy. An unpublished
+  helper in a licensed repository still inherits that repository's licence;
+  publication flags alone do not determine licence coverage or confidentiality.
+- Do not retain nested licence files, alternate licences, `licenses/` trees or
+  duplicate contribution policies in tracked source, including vendored tooling
+  snapshots. Package metadata points to the root licence; a standalone package
+  archive may include the canonical licence where its packaging requires it,
+  without creating a second maintained source copy.
+- Rust workspaces covered by the repository's Toko licence declare `license-file`
+  in `[workspace.package]`; every covered member, including unpublished helpers
+  and qualification packages, uses
+  `[package] license-file.workspace = true`. The product workspace selects
+  `"LICENSE.md"`; an independent `qualification/Cargo.toml` selects
+  `"../LICENSE.md"`, pointing to the same repository-root file. Resolve the path
+  from the owning workspace, never by repeating member-relative paths or adding
+  nested licence copies. Use `license-file`, not a separate `license` expression.
+- Apart from these canonical files, required notices and factual metadata or
+  links to them, do not retain legal material in repository files. This includes
+  legal audits, opinions, exposure assessments, drafting history, superseded
+  drafts, signed agreements and legal commentary in docs, source comments,
+  handoffs or changelogs. Keep necessary company legal records outside the
+  repository. Technical audits and factual source-origin records remain allowed.
+- Separately licensed external dependencies remain allowed. Preserve their
+  required notices and earlier grants; this policy does not relicense them or
+  authorise deleting required records or rewriting Git history. If adoption
+  would discard an obligation or required notice, stop that migration for review
+  rather than silently stripping it or declaring compliance.
+
+This section owns the repository policy and supersedes conflicting older linked
+guidance, including permission for new licence-adoption changelog notices.
 
 ## Current dependencies and upstream independence
 
@@ -313,7 +420,8 @@ for exceptions, historical cleanup and protected release/recovery records.
 
 Use IcyDB-style emoji category sections in the owning release changelog; read the
 [changelog rules](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/changelogs.md) when updating them. Every issue fixed must
-have a direct link in that changelog before handoff: root `CHANGELOG.md` for a
+have a direct link in that changelog before handoff, except legal and licensing
+changes, which must not be recorded there: root `CHANGELOG.md` for a
 workspace without independent release groups, or `releases/<group>/CHANGELOG.md`
 for the owning group. A grouped workspace's root remains a navigation index;
 it does not need duplicate issue links. Preserve selected

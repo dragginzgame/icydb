@@ -10,11 +10,11 @@ use crate::{
         data::{AcceptedMutationIntentPatch, FieldSlot},
         executor::AcceptedSchemaCatalogContext,
         schema::{
-            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
+            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             ValidateError, input_value_from_sql_assignment_result_for_persisted_kind,
             input_value_from_strict_sql_literal_for_persisted_kind,
         },
-        session::sql::execute::write_returning::validate_sql_returning_projection_fields,
+        session::sql::execute::write_returning::SqlReturningProjectionPlan,
         sql::parser::SqlReturningProjection,
     },
     traits::CanisterKind,
@@ -32,11 +32,18 @@ fn checked_accepted_write_descriptor(
 fn checked_accepted_write_descriptor_for_returning<'a>(
     catalog: &'a AcceptedSchemaCatalogContext,
     returning: Option<&SqlReturningProjection>,
-) -> Result<AcceptedRowLayoutRuntimeContract<'a>, QueryError> {
+) -> Result<
+    (
+        AcceptedRowLayoutRuntimeContract<'a>,
+        Option<SqlReturningProjectionPlan>,
+    ),
+    QueryError,
+> {
     let descriptor = checked_accepted_write_descriptor(catalog)?;
-    validate_sql_returning_projection_fields(&descriptor, returning)?;
-
-    Ok(descriptor)
+    let projection = returning
+        .map(|returning| SqlReturningProjectionPlan::from_descriptor(&descriptor, returning))
+        .transpose()?;
+    Ok((descriptor, projection))
 }
 
 // Unknown authored names are caller validation failures on every write route,
@@ -47,26 +54,19 @@ fn unknown_sql_write_field(field_name: &str) -> QueryError {
     })
 }
 
-pub(super) fn accepted_write_field_slot(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+// Resolve once, then retain the accepted field through policy, conversion and
+// patch construction. The borrowed field cannot drift to another descriptor.
+pub(super) fn resolve_sql_write_field<'a, 'schema>(
+    descriptor: &'a AcceptedRowLayoutRuntimeContract<'schema>,
     field_name: &str,
-) -> Result<FieldSlot, QueryError> {
-    let accepted_slot = descriptor
-        .field_slot_index_by_name(field_name)
-        .ok_or_else(|| unknown_sql_write_field(field_name))?;
-
-    Ok(FieldSlot::from_validated_index(accepted_slot))
+) -> Result<&'a AcceptedRowLayoutRuntimeField<'schema>, QueryError> {
+    descriptor
+        .field_by_name(field_name)
+        .ok_or_else(|| unknown_sql_write_field(field_name))
 }
 
-pub(super) fn sql_write_patch_set_accepted_field(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: AcceptedMutationIntentPatch,
-    field_name: &str,
-    value: InputValue,
-) -> Result<AcceptedMutationIntentPatch, QueryError> {
-    let slot = accepted_write_field_slot(descriptor, field_name)?;
-
-    Ok(patch.set_authored(slot, value))
+pub(super) fn accepted_write_field_slot(field: &AcceptedRowLayoutRuntimeField<'_>) -> FieldSlot {
+    FieldSlot::from_validated_index(usize::from(field.slot().get()))
 }
 
 pub(super) fn sql_write_patch_set_insert_default(
@@ -74,40 +74,15 @@ pub(super) fn sql_write_patch_set_insert_default(
     patch: AcceptedMutationIntentPatch,
     field_name: &str,
 ) -> Result<AcceptedMutationIntentPatch, QueryError> {
-    let slot = accepted_write_field_slot(descriptor, field_name)?;
+    let slot = accepted_write_field_slot(resolve_sql_write_field(descriptor, field_name)?);
 
     Ok(patch.set_explicit_insert_default(slot))
 }
 
-pub(super) fn sql_write_patch_set_update_default(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    patch: AcceptedMutationIntentPatch,
-    field_name: &str,
-) -> Result<AcceptedMutationIntentPatch, QueryError> {
-    let slot = accepted_write_field_slot(descriptor, field_name)?;
-
-    Ok(patch.set_explicit_update_default(slot))
-}
-
-fn write_policy_for_accepted_name(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    field_name: &str,
-) -> Result<SchemaFieldWritePolicy, QueryError> {
-    let Some(field) = descriptor.field_by_name(field_name) else {
-        return Err(unknown_sql_write_field(field_name));
-    };
-
-    Ok(field.write_policy())
-}
-
 pub(super) fn sql_write_input_for_accepted_field(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    field_name: &str,
+    accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
     value: &Value,
 ) -> Result<InputValue, QueryError> {
-    let accepted_field = descriptor
-        .field_by_name(field_name)
-        .ok_or_else(|| unknown_sql_write_field(field_name))?;
     if matches!(value, Value::Null) {
         return accepted_field
             .decode_contract()
@@ -124,17 +99,13 @@ fn invalid_sql_write_field_literal() -> QueryError {
 }
 
 pub(super) fn sql_write_input_for_assignment_result(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    field_name: &str,
+    accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
     value: &Value,
 ) -> Result<InputValue, QueryError> {
     if matches!(value, Value::Null) {
-        return sql_write_input_for_accepted_field(descriptor, field_name, value);
+        return sql_write_input_for_accepted_field(accepted_field, value);
     }
-    let field = descriptor
-        .field_by_name(field_name)
-        .ok_or_else(|| unknown_sql_write_field(field_name))?;
-    input_value_from_sql_assignment_result_for_persisted_kind(field.kind(), value)
+    input_value_from_sql_assignment_result_for_persisted_kind(accepted_field.kind(), value)
         .ok_or_else(invalid_sql_write_field_literal)
 }
 
@@ -147,10 +118,9 @@ fn sql_write_input_for_accepted_kind(
 }
 
 pub(super) fn reject_explicit_sql_write_to_managed_field(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    field_name: &str,
+    field: &AcceptedRowLayoutRuntimeField<'_>,
 ) -> Result<(), QueryError> {
-    let policy = write_policy_for_accepted_name(descriptor, field_name)?;
+    let policy = field.write_policy();
 
     if policy.write_management().is_some() {
         return Err(QueryError::sql_write_boundary(
@@ -162,10 +132,9 @@ pub(super) fn reject_explicit_sql_write_to_managed_field(
 }
 
 pub(super) fn reject_explicit_sql_write_to_generated_field(
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-    field_name: &str,
+    field: &AcceptedRowLayoutRuntimeField<'_>,
 ) -> Result<(), QueryError> {
-    let policy = write_policy_for_accepted_name(descriptor, field_name)?;
+    let policy = field.write_policy();
 
     if policy.insert_generation().is_some() {
         return Err(QueryError::sql_write_boundary(
@@ -185,19 +154,22 @@ impl<C: CanisterKind> DbSession<C> {
         run: impl for<'a> FnOnce(
             &'a AcceptedSchemaCatalogContext,
             AcceptedRowLayoutRuntimeContract<'a>,
+            Option<SqlReturningProjectionPlan>,
         ) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
         if let Some(catalog) = catalog {
-            let descriptor = checked_accepted_write_descriptor_for_returning(catalog, returning)?;
-            return run(catalog, descriptor);
+            let (descriptor, projection) =
+                checked_accepted_write_descriptor_for_returning(catalog, returning)?;
+            return run(catalog, descriptor, projection);
         }
 
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(entity_name)
             .map_err(QueryError::execute)?;
-        let descriptor = checked_accepted_write_descriptor_for_returning(&catalog, returning)?;
+        let (descriptor, projection) =
+            checked_accepted_write_descriptor_for_returning(&catalog, returning)?;
 
-        run(&catalog, descriptor)
+        run(&catalog, descriptor, projection)
     }
 }
 

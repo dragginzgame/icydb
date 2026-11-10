@@ -3,6 +3,17 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.9]
+
+### 🔧 Changed
+
+- Adopt Toko Tooling 0.39.7 and retain the explicit shared release interface.
+  Retire managed reference docs through the exporter in favor of pinned upstream
+  links; organize native architecture, roadmap and release guidance by topic.
+
+
+[Detailed changes](0.296.md).
+
 ## [0.296.8] - 2026-11-10
 
 ### 🔧 Changed

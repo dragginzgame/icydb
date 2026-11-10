@@ -41,7 +41,7 @@ For example: [docs/changelog/0.33.md](../changelog/0.33.md)
   - High-level summary sections
   - Links to detailed notes
 - Keep each patch under its existing version heading. Follow the shared
-  [readable release layout](../../rules/changelogs.md#readable-release-layout):
+  [readable release layout](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/changelogs.md#readable-release-layout):
   separate independent outcomes and retain descriptive issue links beside fixes.
 
 ## 2.2 Detailed Minor Notes
@@ -69,7 +69,7 @@ The latest release or numbered pending entry stays at the top. The repository ha
 behavior and tooling in the current group entry and matching minor-line notes;
 governance-only edits need no note unless requested.
 
-Apply [the shared automatic next-version rules](../../rules/changelogs.md).
+Apply [the shared automatic next-version rules](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/changelogs.md).
 Use one undated `## [X.Y.Z]` at the top of the group ledger and matching minor-line notes.
 Derive the version from the latest finalized release and the complete pending
 batch: compatible pre-1.0 work selects the next patch; breaking public API,
@@ -324,7 +324,7 @@ For each release:
    build outputs, validation evidence and recovery plans after successful push;
    cleanup is separately scoped and explicitly invoked.
 
-The [shared release contract](../releases.md) owns execution and recovery.
+The [shared release contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/releases.md) owns execution and recovery.
 Pending notes are batch boundaries, not a new version per landing slice. A failed
 validation leaves package versions, release commits and tags untouched. Agent
 sessions maintain notes and focused evidence; the maintainer owns release execution.
@@ -342,7 +342,7 @@ It is part of IcyDB's correctness discipline.
 ## Independent group ownership
 
 Use `RELEASE_GROUP=cli` for developer CLI releases and `RELEASE_GROUP=database`
-for the coordinated engine, schema, model, macros and root qualification packages.
+for the coordinated engine, schema, model, macros and approved Core dev-support packages.
 Each group derives its pending version from its own last release. Moving an
 unpublished draft to a new minor also updates that group’s `metadata_files` entry
 in `ci/cargo-release-groups.json`. Preserve all finalized details in place.

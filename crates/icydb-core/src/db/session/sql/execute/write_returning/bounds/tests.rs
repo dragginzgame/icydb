@@ -1,4 +1,5 @@
 use super::{sql_returning_response_too_large_error, validate_sql_returning_row_count};
+use crate::db::sql::parser::SqlReturningProjection;
 use icydb_diagnostic_code::DiagnosticFactTag;
 
 #[test]
@@ -56,9 +57,12 @@ fn returning_bounds_match_complete_wire_frames_at_length_edges() {
                 let result = encoded_sql_materialized_returning_projection_response_len_check(
                     encoder,
                     "Row",
-                    &columns,
                     &rows,
-                    &SqlReturningProjection::All,
+                    &SqlReturningProjectionPlan::new(
+                        columns.to_vec(),
+                        &SqlReturningProjection::All,
+                    )
+                    .unwrap(),
                     &catalog,
                     limit,
                 )
@@ -93,9 +97,8 @@ fn returning_wire_admission_checks_aggregate_resources_before_commit() {
         validate_sql_materialized_returning_bounds(
             crate::db::session::sql::encoded_returning_response_len,
             "Row",
-            &columns,
             &rows,
-            &SqlReturningProjection::All,
+            &SqlReturningProjectionPlan::new(columns, &SqlReturningProjection::All).unwrap(),
             &catalog,
             Some(SqlWriteReturningBounds {
                 max_rows: None,
@@ -198,22 +201,47 @@ fn selected_returning_bounds_ignore_unreturned_payloads() {
         max_rows: Some(1),
         max_response_bytes: Some(4096),
     });
+    let projection = SqlReturningProjectionPlan::new(columns.to_vec(), &returning).unwrap();
     validate_sql_materialized_returning_bounds(
         crate::db::session::sql::encoded_returning_response_len,
         "Row",
-        &columns,
         &rows,
-        &returning,
+        &projection,
         &catalog,
         bounds,
     )
     .unwrap();
+    let shaped =
+        crate::db::session::sql::execute::write_returning::sql_returning_statement_projection(
+            &catalog,
+            rows.clone(),
+            1,
+            &projection,
+        )
+        .unwrap();
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        columns: selected,
+        rows: output,
+        row_count,
+        ..
+    } = shaped
+    else {
+        panic!("RETURNING must produce a projection");
+    };
+    assert_eq!(selected, ["label", "id"]);
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        output,
+        vec![
+            output_row_from_runtime(&catalog, vec![rows[0][2].clone(), rows[0][0].clone()])
+                .unwrap()
+        ]
+    );
     let error = validate_sql_materialized_returning_bounds(
         crate::db::session::sql::encoded_returning_response_len,
         "Row",
-        &columns,
         &rows,
-        &SqlReturningProjection::All,
+        &SqlReturningProjectionPlan::new(columns.to_vec(), &SqlReturningProjection::All).unwrap(),
         &catalog,
         bounds,
     )

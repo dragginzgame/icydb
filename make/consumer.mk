@@ -36,8 +36,16 @@ toko-tooling-preview:
 	  $(if $(strip $(TOKO_TOOLING_SOURCE)),--source "$(TOKO_TOOLING_SOURCE)")
 
 include $(_shared_consumer_make_dir)tools.mk
+TOKO_TOOLING_RELEASE ?= 0
+ifneq ($(TOKO_TOOLING_RELEASE),0)
+ifneq ($(TOKO_TOOLING_RELEASE),1)
+$(error TOKO_TOOLING_RELEASE must be 0 or 1)
+endif
+endif
+ifeq ($(TOKO_TOOLING_RELEASE),1)
 include $(_shared_consumer_make_dir)release.mk
-toko-tooling-install toko-tooling-update install-hooks: | toko-execution-check
+endif
+toko-tooling-install toko-tooling-update: | toko-execution-check
 
 .PHONY: toko-tooling-check
 toko-tooling-check:
@@ -47,13 +55,18 @@ toko-tooling-check:
 ifeq ($(TOKO_TOOLING_RUST),1)
 include $(_shared_consumer_make_dir)rust-format.mk
 .PHONY: install-hooks
+install-hooks: | toko-execution-check
 install-hooks:
 	@bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-git-hooks.sh" --consumer "$(CURDIR)"
 endif
 
 # Root tooling selection is admitted automatically before CI or release effects.
+.PHONY: ci
 ifneq ($(TOKO_TOOLING_PRODUCER),1)
-ci release-patch release-minor release-major release-resume release-preflight: toko-tooling-check
+ci: toko-tooling-check
+ifeq ($(TOKO_TOOLING_RELEASE),1)
+release-patch release-minor release-major release-resume release-preflight: toko-tooling-check
+endif
 endif
 
 .DEFAULT_GOAL := $(_shared_consumer_default_goal)

@@ -1,14 +1,18 @@
 //! Module: predicate::render
-//! Responsibility: render reduced predicate SQL after structural AST rewrites.
+//! Responsibility: share SQL comparison spelling for accepted metadata and parser tests.
 //! Does not own: SQL statement formatting, query planning, or schema mutation.
-//! Boundary: DDL metadata relabeling consumes this to avoid text replacement.
+//! Boundary: accepted metadata renders directly; tests retain runtime-tree round-trips.
 
+use crate::db::predicate::{CoercionId, CompareOp};
+
+#[cfg(test)]
 use crate::{
-    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+    db::predicate::{ComparePredicate, Predicate},
     db::sql_shared::render_scalar_sql_value,
     value::Value,
 };
 
+#[cfg(test)]
 pub(in crate::db) fn render_sql_predicate(predicate: &Predicate) -> Option<String> {
     match predicate {
         Predicate::True => Some("TRUE".to_string()),
@@ -17,12 +21,12 @@ pub(in crate::db) fn render_sql_predicate(predicate: &Predicate) -> Option<Strin
         Predicate::Or(children) => render_sql_predicate_children(children, "OR"),
         Predicate::Not(inner) => Some(format!("NOT ({})", render_sql_predicate(inner)?)),
         Predicate::Compare(compare) => render_compare_predicate(compare),
-        Predicate::CompareFields(compare) => Some(format!(
-            "{} {} {}",
-            render_field_operand(compare.left_field(), compare.coercion().id),
-            compare_op_sql(compare.op())?,
-            render_field_operand(compare.right_field(), compare.coercion().id)
-        )),
+        Predicate::CompareFields(compare) => render_sql_field_comparison(
+            compare.left_field(),
+            compare.op(),
+            compare.right_field(),
+            compare.coercion().id,
+        ),
         Predicate::IsNull { field } => Some(format!("{field} IS NULL")),
         Predicate::IsNotNull { field } => Some(format!("{field} IS NOT NULL")),
         Predicate::IsMissing { .. }
@@ -33,6 +37,7 @@ pub(in crate::db) fn render_sql_predicate(predicate: &Predicate) -> Option<Strin
     }
 }
 
+#[cfg(test)]
 fn render_sql_predicate_children(children: &[Predicate], op: &str) -> Option<String> {
     let rendered = children
         .iter()
@@ -48,27 +53,52 @@ fn render_sql_predicate_children(children: &[Predicate], op: &str) -> Option<Str
     )
 }
 
+#[cfg(test)]
 fn render_compare_predicate(compare: &ComparePredicate) -> Option<String> {
-    match compare.op() {
-        CompareOp::In | CompareOp::NotIn => Some(format!(
-            "{} {} ({})",
-            compare.field(),
-            compare_op_sql(compare.op())?,
-            render_value_list(compare.value())?
-        )),
+    let rhs = if matches!(compare.op(), CompareOp::In | CompareOp::NotIn) {
+        render_value_list(compare.value())?
+    } else {
+        render_scalar_sql_value(compare.value())?
+    };
+    render_sql_comparison(compare.field(), compare.op(), compare.coercion().id, &rhs)
+}
+
+// Both accepted metadata and parser round-trips use the same SQL spelling.
+pub(in crate::db) fn render_sql_comparison(
+    field: &str,
+    op: CompareOp,
+    coercion: CoercionId,
+    rhs: &str,
+) -> Option<String> {
+    match op {
+        CompareOp::In | CompareOp::NotIn => {
+            Some(format!("{field} {} ({rhs})", compare_op_sql(op)?))
+        }
         CompareOp::StartsWith => Some(format!(
-            "STARTS_WITH({}, {})",
-            render_field_operand(compare.field(), compare.coercion().id),
-            render_scalar_sql_value(compare.value())?
+            "STARTS_WITH({}, {rhs})",
+            render_field_operand(field, coercion)
         )),
         CompareOp::Contains | CompareOp::EndsWith => None,
         _ => Some(format!(
-            "{} {} {}",
-            render_field_operand(compare.field(), compare.coercion().id),
-            compare_op_sql(compare.op())?,
-            render_scalar_sql_value(compare.value())?
+            "{} {} {rhs}",
+            render_field_operand(field, coercion),
+            compare_op_sql(op)?
         )),
     }
+}
+
+pub(in crate::db) fn render_sql_field_comparison(
+    left: &str,
+    op: CompareOp,
+    right: &str,
+    coercion: CoercionId,
+) -> Option<String> {
+    Some(format!(
+        "{} {} {}",
+        render_field_operand(left, coercion),
+        compare_op_sql(op)?,
+        render_field_operand(right, coercion)
+    ))
 }
 
 fn render_field_operand(field: &str, coercion: CoercionId) -> String {
@@ -94,6 +124,7 @@ const fn compare_op_sql(op: CompareOp) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
 fn render_value_list(value: &Value) -> Option<String> {
     let Value::List(items) = value else {
         return None;

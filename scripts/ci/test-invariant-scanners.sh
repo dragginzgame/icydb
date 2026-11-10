@@ -39,8 +39,8 @@ check() {
 post_link_call_cases() {
   local fixture="$scratch/post-link-call" path
   mkdir -p "$fixture/scripts/ci"
-  for path in scripts/ci/check-wasm-post-link-invariants.sh testing/build/src/lib.rs \
-    testing/build/src/canister_build_cache.rs testing/build/src/wasm_optimizer.rs \
+  for path in scripts/ci/check-wasm-post-link-invariants.sh qualification/build/src/lib.rs \
+    qualification/build/src/canister_build_cache.rs qualification/build/src/wasm_optimizer.rs \
     scripts/app/build.sh .github/workflows/canic-adapter.yml Makefile ci/ic-tools.tsv \
     scripts/dev/workstation-setup.sh; do
     mkdir -p "$fixture/$(dirname "$path")"
@@ -50,7 +50,7 @@ post_link_call_cases() {
   # the source guard without duplicating that execution.
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/ci/test-wasm-audit-report.sh"
   local checker="$fixture/scripts/ci/check-wasm-post-link-invariants.sh"
-  local source="$fixture/testing/build/src/lib.rs" mutation
+  local source="$fixture/qualification/build/src/lib.rs" mutation
   check post-link-fallible-current 0 bash "$checker"
   for mutation in \
     's/build_cached_cargo_wasm_batch/unchecked_cargo_wasm_batch/' \
@@ -58,7 +58,7 @@ post_link_call_cases() {
     's/})?;/});/' \
     's/finish_maintained_canister_builds/unchecked_maintained_canister_builds/'; do
     sed "/^pub fn build_maintained_canister_contract_profiles/,/^}/$mutation" \
-      "$ROOT/testing/build/src/lib.rs" > "$source"
+      "$ROOT/qualification/build/src/lib.rs" > "$source"
     check "post-link-bypass-$cases" 1 bash "$checker"
   done
 }
@@ -115,7 +115,7 @@ done <<< "$shared_records"
 # Cargo adapter forwards source arguments only; it never resolves dependencies.
 export CARGO_HOME="${CARGO_HOME:-$ROOT/.cache/cargo/icydb}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target/icydb}"
-cargo build --locked --offline --quiet --manifest-path "$ROOT/Cargo.toml" \
+cargo build --locked --offline --quiet --manifest-path "$ROOT/qualification/Cargo.toml" \
   -p icydb-testing-source-checks --bin check_runtime_panics
 post_link_call_cases
 mkdir -p "$scratch/bin"

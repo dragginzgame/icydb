@@ -10,11 +10,12 @@ use StableVersion qw(stable version_cmp);
 chdir "$FindBin::Bin/../.." or die "cannot enter repository: $!\n";
 my @documents = @ARGV ? @ARGV : (
     'CHANGELOG.md', 'releases/history.md', glob('releases/*/*.md'),
-    'README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
+    'README.md', 'TESTING.md', 'qualification/README.md', 'qualification/build/README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
     glob('docs/*.md'), glob('docs/contracts/*.md'),
+    glob('docs/architecture/*.md'), glob('docs/roadmap/*.md'),
     glob('docs/guides/*.md'), glob('docs/operations/*.md'),
     glob('crates/*/README.md'),
-    'docs/governance/toko-tooling.md', 'docs/audits/README.md',
+    glob('docs/governance/*.md'), 'docs/audits/README.md',
     'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
     'docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md',
     'docs/audits/targeted/modules/module-surface-hardening.md',

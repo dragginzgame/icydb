@@ -72,7 +72,8 @@ my @changed = @{$observation->{changes}};
 my ($current_metadata,$baseline_metadata);
 my $metadata_equal=sub {
     my ($path)=@_;
-    return 0 unless $path eq 'Cargo.lock' || $path eq 'ci/dependency-pinning-exceptions.json'
+    return 0 unless $path eq 'Cargo.lock' || $path eq 'qualification/Cargo.lock'
+        || $path eq 'ci/dependency-pinning-exceptions.json'
         || $path =~ m{(?:\A|/)Cargo\.toml\z};
     # Failed Cargo admission cannot establish a metadata-only change. Expand to
     # the full gate, which will diagnose the malformed/dependency input itself.

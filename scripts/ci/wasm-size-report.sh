@@ -123,7 +123,7 @@ build_variant() {
 
     (
         cd "$ROOT"
-        cargo run -p icydb-testing-build --bin write_wasm_size_report --locked -- \
+        cargo run --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin write_wasm_size_report --locked -- \
             --canister "$canister_name" \
             "${build_options[@]}" \
             --compiler-wasm "$COMPILER_COPY" \
@@ -166,7 +166,7 @@ if has_selected_canister one_entity_typed_query \
         candidate_wasm="$out_dir/ten_entity_typed_query.${profile}${artifact_suffix}.final-deployable.wasm"
         (
             cd "$ROOT"
-            cargo run -p icydb-testing-build --bin check_wasm_entity_scale --locked -- \
+            cargo run --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin check_wasm_entity_scale --locked -- \
                 "$baseline_wasm" "$candidate_wasm"
         )
     done
@@ -180,7 +180,7 @@ if has_selected_canister one_entity_reachable_operations \
         candidate_wasm="$out_dir/ten_entity_reachable_operations.${profile}${artifact_suffix}.final-deployable.wasm"
         (
             cd "$ROOT"
-            cargo run -p icydb-testing-build --bin check_wasm_entity_scale --locked -- \
+            cargo run --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin check_wasm_entity_scale --locked -- \
                 "$baseline_wasm" "$candidate_wasm" --reachable
         )
     done

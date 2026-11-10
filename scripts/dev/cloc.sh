@@ -14,13 +14,14 @@ usage() {
     cat <<'EOF'
 Usage: cloc.sh [options] [directory | crate[::module]]
 
-Count Rust LOC by category. Defaults to the current workspace;
+Count Rust LOC by category. Defaults to the current repository's product and
+qualification workspaces, counting shared source paths once;
 a parent directory reports its sibling repositories.
 
 Options:
   -d N            Show crates and N module levels (0 = crates only)
-  --json          Full file counts and diagnostics for one workspace
-  --manifest PATH Select an independent Cargo workspace
+  --json          Full file counts and diagnostics for one repository/selection
+  --manifest PATH Count only the selected Cargo workspace
   --check-tools   Check prerequisites
   -h, --help      Show this help
 
@@ -29,7 +30,7 @@ Examples:
   cloc.sh -d 2 .. Sibling crates with two module levels
   cloc.sh -d 1 my-crate::parser  Drill into one module
 
-??? = unclassified LOC. Counting details: docs/fleet-tools.md
+??? = unclassified LOC. Counting details: docs/fleet/fleet-tools.md
 EOF
 }
 
@@ -182,7 +183,7 @@ for child in "$requested_root"/* "$requested_root"/.[!.]*; do
 done
 if [[ -z "$selected_manifest" && ! -f "$requested_root/Cargo.toml" && ! -e "$requested_root/.git" ]] &&
    { [[ "$has_checkouts" == true ]] || ! git -C "$requested_root" rev-parse --show-toplevel >/dev/null 2>&1; }; then
-    [[ "$json" == false ]] || { echo 'error: --json requires one workspace' >&2; exit 2; }
+    [[ "$json" == false ]] || { echo 'error: --json requires one repository or selected workspace' >&2; exit 2; }
     report_repositories "$requested_root"
     exit $?
 fi
@@ -234,6 +235,18 @@ FILE_LIST_DIR="$(mktemp -d "$scratch/toko-tooling-cloc.XXXXXX")"
 trap 'rm -rf "$FILE_LIST_DIR"' EXIT
 printf '%s\n' "$metadata" > "$FILE_LIST_DIR/metadata.json"
 perl "$ROOT/scripts/dev/cloc-classify.pl" "$FILE_LIST_DIR/metadata.json" "$manifest_path" "$FILE_LIST_DIR" > "$FILE_LIST_DIR/report.json"
+qualification_manifest="$repo_root/qualification/Cargo.toml"
+if [[ -z "$selected_manifest" && -z "$selection" && ( -e "$qualification_manifest" || -L "$qualification_manifest" || -L "$repo_root/qualification" ) ]]; then
+    [[ ! -L "$repo_root/qualification" && ! -L "$qualification_manifest" && -f "$qualification_manifest" ]] || {
+        echo 'error: qualification workspace must be a regular manifest without a symlinked root' >&2
+        exit 1
+    }
+    TMPDIR="$FILE_LIST_DIR" bash "$ROOT/scripts/dev/cloc.sh" --json \
+        --manifest "$qualification_manifest" "$repo_root" > "$FILE_LIST_DIR/qualification.json"
+    perl "$ROOT/scripts/dev/cloc-classify.pl" --merge-repository \
+        "$FILE_LIST_DIR/report.json" "$FILE_LIST_DIR/qualification.json" > "$FILE_LIST_DIR/combined.json"
+    mv "$FILE_LIST_DIR/combined.json" "$FILE_LIST_DIR/report.json"
+fi
 if [[ -n "$selection" ]]; then
     perl "$ROOT/scripts/dev/cloc-classify.pl" --select "$FILE_LIST_DIR/report.json" "$selection" > "$FILE_LIST_DIR/selected.json"
     mv "$FILE_LIST_DIR/selected.json" "$FILE_LIST_DIR/report.json"

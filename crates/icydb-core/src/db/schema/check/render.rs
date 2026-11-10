@@ -105,21 +105,35 @@ fn render_literal(
 ) -> Result<String, InternalError> {
     let value = decode_literal(literal, value_catalog)
         .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
-    let sql_value = match value {
+    render_catalog_sql_value(&value, value_catalog)
+        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())
+}
+
+// Resolve nominal display literals once for CHECK and partial-index metadata.
+pub(in crate::db::schema) fn render_catalog_sql_value(
+    value: &Value,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<String, InternalError> {
+    let display;
+    let value = match value {
         Value::Enum(value) if value.payload().is_none() => {
-            let variant = value_catalog
-                .enum_catalog()
-                .resolve_value(value.canonical())
-                .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?
-                .variant_name()
-                .to_string();
-            Value::Text(variant)
+            display = Value::Text(
+                value_catalog
+                    .enum_catalog()
+                    .resolve_value(value.canonical())
+                    .map_err(|_| InternalError::store_corruption())?
+                    .variant_name()
+                    .to_string(),
+            );
+            &display
         }
-        Value::Ulid(value) => Value::Text(value.to_string()),
+        Value::Ulid(value) => {
+            display = Value::Text(value.to_string());
+            &display
+        }
         value => value,
     };
-    render_scalar_sql_value(&sql_value)
-        .ok_or_else(InternalError::accepted_row_constraint_program_corrupt)
+    render_scalar_sql_value(value).ok_or_else(InternalError::store_corruption)
 }
 
 fn accepted_field_name(

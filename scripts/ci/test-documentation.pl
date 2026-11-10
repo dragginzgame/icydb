@@ -45,7 +45,7 @@ isnt($status, 0, 'shared failure stops the consumer adapter');
 
 for my $document (
     'CHANGELOG.md', 'releases/history.md',
-    'README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
+    'README.md', 'TESTING.md', 'qualification/README.md', 'qualification/build/README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
     'docs/governance/toko-tooling.md', 'docs/audits/README.md',
     'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
     'docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md',
@@ -61,6 +61,15 @@ fixture('shared-guide.md', '[Owner](crates/owner.rs)');
 fixture('.toko-tooling.snapshot', "file\tunused\t-\tshared-guide.md\n");
 ($status) = check_document();
 is($status, 0, 'default roster admits current version and persisted source owner');
+for my $document ('docs/architecture/FOUNDATIONS.md', 'docs/roadmap/1.0-TODO.md',
+    'docs/governance/release-metadata.md') {
+    fixture($document, '[Missing](missing.md)');
+    ($status) = check_document();
+    isnt($status, 0, "default roster checks relocated topic document $document");
+    fixture($document, "# Topic\n");
+    ($status) = check_document();
+    is($status, 0, "valid topic document $document is admitted");
+}
 fixture('shared-guide.md', '[Owner](missing.md)');
 ($status) = check_document();
 isnt($status, 0, 'snapshot Markdown is part of the default roster');

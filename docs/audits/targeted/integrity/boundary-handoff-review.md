@@ -1,8 +1,8 @@
 # Targeted Review — Boundary Handoffs
 
 Method: `HANDOFF-3`. Apply the reviewed
-[Shared focused-handoff method](../../../../audits/flow-convergence-and-duplication.md#focused-boundary-handoff),
-[common audit contract](../../../../audits/README.md) and
+[Shared focused-handoff method](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/flow-convergence-and-duplication.md#focused-boundary-handoff),
+[common audit contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/README.md) and
 [IcyDB audit governance](../../README.md). Record the snapshot revision alongside
 this overlay identity. Shared owns the handoff table, producer/consumer proof
 and report mechanics. Use IcyDB's

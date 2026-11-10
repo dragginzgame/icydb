@@ -2,7 +2,7 @@
 
 Git retains compact topic conclusions and selected absolute results. Routine
 checks belong in the owning changelog or GitHub issue and need no new report.
-Apply the [Shared retention contract](../../rules/engineering-details.md#changelogs-and-artifact-preservation).
+Apply the [Shared retention contract](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/engineering-details.md#changelogs-and-artifact-preservation).
 
 - Keep one current summary per topic, normally at most 150 lines, with source/tool
   identities, reproduction commands, limitations and selected results.

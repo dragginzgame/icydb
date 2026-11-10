@@ -3,59 +3,6 @@
 use super::*;
 use crate::types::{Float32, Float64};
 
-fn float_schema(
-    kind: &AcceptedFieldKind,
-    wrapped: bool,
-) -> (PersistedSchemaSnapshot, AcceptedValueCatalogHandle) {
-    let enums = empty_accepted_enum_catalog_for_tests();
-    let type_id = CompositeTypeId::new(1).unwrap();
-    let composites = if wrapped {
-        AcceptedCompositeCatalog::from_initial_definitions(
-            BTreeMap::from([(
-                type_id,
-                (
-                    "tests::Float".into(),
-                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                        kind.clone(),
-                        false,
-                    )),
-                ),
-            )]),
-            &enums,
-        )
-        .unwrap()
-    } else {
-        AcceptedCompositeCatalog::empty()
-    };
-    let mut fields = snapshot().fields().to_vec();
-    fields[1] = field(
-        2,
-        1,
-        "score",
-        if wrapped {
-            AcceptedFieldKind::Composite { type_id }
-        } else {
-            kind.clone()
-        },
-        false,
-        LeafCodec::Structural,
-    );
-    let schema = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "tests::Compass".into(),
-        "Compass".into(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
-        fields,
-    );
-    let catalog = AcceptedValueCatalogHandle::new_for_tests(
-        enums,
-        composites,
-        AcceptedSchemaRevision::INITIAL,
-    );
-    (schema, catalog)
-}
-
 #[test]
 fn accepted_float_checks_preserve_literals_through_direct_and_named_fields() {
     for (kind, literal) in [
@@ -81,7 +28,7 @@ fn accepted_float_checks_preserve_literals_through_direct_and_named_fields() {
         ),
     ] {
         for wrapped in [false, true] {
-            let (schema, catalog) = float_schema(&kind, wrapped);
+            let (schema, catalog) = numeric_check_schema(&kind, wrapped, "tests::Float");
             for op in [
                 AcceptedCheckCompareOpV1::Eq,
                 AcceptedCheckCompareOpV1::Ne,

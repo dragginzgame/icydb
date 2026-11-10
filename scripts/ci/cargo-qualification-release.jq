@@ -38,4 +38,5 @@ def qualification_plan($product; $manifest; $plan; $directory; $next):
     if .manifest_path != $p.manifest_path or .version != $p.version
     then error("qualification lock contains a foreign product identity") else .name end] as $members |
   {catalog:$catalog, members:$members,
+   versions:($private | map({key:.name,value:.version}) | from_entries),
    manifest:{path:"qualification/Cargo.toml",version:"unchanged",dependencies:$edits}};

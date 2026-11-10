@@ -704,3 +704,81 @@ fn accepted_predicate_validation_retains_literal_admission_bounds() {
 }
 
 mod literal_admission;
+
+#[test]
+fn accepted_sql_display_preserves_predicate_spelling_and_renamed_bindings() {
+    use crate::db::predicate::render_sql_predicate;
+
+    let base = snapshot(K::Text { max_len: None });
+    let catalog = catalog();
+    let names = base
+        .fields()
+        .iter()
+        .map(|field| (field.id(), format!("renamed_{}", field.name())))
+        .collect::<Vec<_>>();
+    for (predicate, expected) in [(P::True, "TRUE"), (P::False, "FALSE")] {
+        assert_eq!(
+            predicate.render_sql(base.fields(), &catalog).unwrap(),
+            expected
+        );
+        assert_eq!(
+            predicate.render_sql_with_names(&names, &catalog).unwrap(),
+            expected
+        );
+    }
+    for sql in [
+        "left = 'O''Brien'",
+        "left != 'a'",
+        "left < right",
+        "LOWER(left) >= 'a'",
+        "STARTS_WITH(left, 'a')",
+        "left IN ('a', 'b', NULL)",
+        "left NOT IN ('a', 'b')",
+        "left IS NULL",
+        "left IS NOT NULL",
+        "NOT (left = 'a')",
+        "left = 'a' OR right = 'b'",
+        "left = 'a' AND right = 'b'",
+    ] {
+        let bound = P::bind(
+            &parse_sql_predicate(sql).unwrap_or_else(|error| panic!("{sql}: {error:?}")),
+            &base,
+            &catalog,
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
+        )
+        .unwrap();
+        let executable = bound.to_predicate(base.fields(), &catalog, None).unwrap();
+        assert_eq!(
+            bound.render_sql(base.fields(), &catalog).unwrap(),
+            render_sql_predicate(&executable).unwrap(),
+            "{sql}"
+        );
+        let renamed = bound
+            .to_predicate_with_names(&names, &catalog, None)
+            .unwrap();
+        assert_eq!(
+            bound.render_sql_with_names(&names, &catalog).unwrap(),
+            render_sql_predicate(&renamed).unwrap(),
+            "{sql}"
+        );
+    }
+    assert!(
+        P::test_non_null(2)
+            .render_sql_with_names(&[], &catalog)
+            .is_err()
+    );
+}
+
+#[test]
+fn canonical_predicate_validation_still_checks_nested_fields_and_children() {
+    let base = snapshot(K::Text { max_len: None });
+    let missing = P::Not(Box::new(P::test_non_null(99)));
+    assert!(missing.validate_fields(base.fields()).is_err());
+    let duplicate = P::Not(Box::new(P::And(vec![
+        P::test_non_null(2),
+        P::test_non_null(2),
+    ])));
+    assert!(duplicate.validate_fields(base.fields()).is_err());
+    let valid = P::Not(Box::new(P::test_non_null(2)));
+    valid.validate_fields(base.fields()).unwrap();
+}

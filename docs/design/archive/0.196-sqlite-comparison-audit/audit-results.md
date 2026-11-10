@@ -240,7 +240,7 @@ Key flags found by Cargo metadata and feature grep:
 
 - [CHANGELOG.md](/home/adam/projects/icydb/CHANGELOG.md:1)
 - [docs/governance/changelog.md](/home/adam/projects/icydb/docs/governance/changelog.md:1)
-- [docs/1.0-TODO.md](/home/adam/projects/icydb/docs/1.0-TODO.md:1)
+- [docs/roadmap/1.0-TODO.md](/home/adam/projects/icydb/docs/roadmap/1.0-TODO.md:1)
 - [docs/ROADMAP.md](/home/adam/projects/icydb/docs/ROADMAP.md:1)
 
 No changelog was edited because this is a docs/audit artifact and not a production behavior change.
@@ -252,7 +252,7 @@ The most relevant production TODOs found are in recursive structural value decod
 - [value.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs:484)
 - [value.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs:504)
 
-Open roadmap/TODO themes also include cursor hardening, storage pushdown, streaming grouping, cardinality/row-count diagnostics, and CLI check/export/import work. See [docs/1.0-TODO.md](/home/adam/projects/icydb/docs/1.0-TODO.md:1) and [docs/ROADMAP.md](/home/adam/projects/icydb/docs/ROADMAP.md:153).
+Open roadmap/TODO themes also include cursor hardening, storage pushdown, streaming grouping, cardinality/row-count diagnostics, and CLI check/export/import work. See [docs/roadmap/1.0-TODO.md](/home/adam/projects/icydb/docs/roadmap/1.0-TODO.md:1) and [docs/ROADMAP.md](/home/adam/projects/icydb/docs/ROADMAP.md:153).
 
 ## SQLite comparison matrix
 
@@ -532,7 +532,7 @@ IcyDB evidence:
 - [index/cardinality.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/index/cardinality.rs:1) maintains exact prefix cardinality when synchronized with the row-store generation.
 - [index_prefix_cardinality.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/index_prefix_cardinality.rs:226) exposes conservative/unknown liveness paths.
 - [ranking.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan/planner/ranking.rs:117) ranks by deterministic structural properties, not estimated row count.
-- [docs/1.0-TODO.md](/home/adam/projects/icydb/docs/1.0-TODO.md:1) includes index cardinality, row count, median record size, and storage footprint as open items.
+- [docs/roadmap/1.0-TODO.md](/home/adam/projects/icydb/docs/roadmap/1.0-TODO.md:1) includes index cardinality, row count, median record size, and storage footprint as open items.
 
 Current behaviour:
 - Cardinality metadata exists for execution support, but plan explain/admission/operator reporting do not yet treat exact counts as a central signal.
@@ -1503,7 +1503,7 @@ All shell commands were run from `/home/adam/projects/icydb` unless noted. Web f
 | `sed -n '1,280p' docs/contracts/SQL_SUBSET.md` | Pass | SQL contract |
 | `sed -n '1,260p' docs/contracts/PERSISTED_FORMAT_POLICY.md` | Pass | Persisted policy |
 | `sed -n '1,260p' docs/contracts/PERSISTED_FORMAT_INVENTORY.md` | Pass | Format inventory |
-| `sed -n '1,260p' docs/1.0-TODO.md` | Pass | Roadmap/TODO |
+| `sed -n '1,260p' docs/roadmap/1.0-TODO.md` | Pass | Roadmap/TODO |
 | `sed -n '1,260p' docs/ROADMAP.md` | Pass | Roadmap |
 | `sed -n '1,280p' docs/contracts/READ_ADMISSION.md` | Pass | Read admission |
 | `sed -n '1,260p' docs/contracts/RESOURCE_MODEL.md` | Pass | Resource model |
@@ -1549,7 +1549,7 @@ All shell commands were run from `/home/adam/projects/icydb` unless noted. Web f
 | `nl -ba crates/icydb-core/src/db/diagnostics/mod.rs \| sed -n '1,240p'` | Pass | Diagnostics surface |
 | `nl -ba crates/icydb-core/src/metrics/state.rs \| sed -n '1,300p'` | Pass | Metrics evidence |
 | `nl -ba crates/icydb-core/src/db/diagnostics/model.rs \| sed -n '1,320p'` | Pass | Diagnostic model |
-| `nl -ba docs/1.0-TODO.md \| sed -n '1,260p'` | Pass | TODO evidence |
+| `nl -ba docs/roadmap/1.0-TODO.md \| sed -n '1,260p'` | Pass | TODO evidence |
 | `nl -ba docs/ROADMAP.md \| sed -n '1,260p'` | Pass | Roadmap evidence |
 | `nl -ba docs/design/ideas/sql-fuzzer.md \| sed -n '1,260p'` | Pass | Differential/fuzzer idea |
 | `nl -ba docs/audits/reports/2026-04/2026-04-30/sql-perf-audit.md \| sed -n '1,240p'` | Pass | Prior perf report |

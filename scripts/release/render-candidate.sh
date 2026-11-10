@@ -16,11 +16,19 @@ case "$path" in
         jq -e --arg path "$path" '.manifests[] | select(.path == $path) | {version,dependencies}' "$plan" > "$scratch/edit.json"
         "$editor" --max-input-bytes "$limit" group-manifest "$source_file" "$previous" "$next" "$scratch/edit.json"
         ;;
-    Cargo.lock)
+    Cargo.lock|qualification/Cargo.lock)
         packages=()
-        jq -er '.members[]' "$plan" > "$scratch/members"
+        if [[ "$path" == qualification/Cargo.lock ]]; then
+            jq -r '.qualification.members[]' "$plan" > "$scratch/members"
+        else
+            jq -er '.members[]' "$plan" > "$scratch/members"
+        fi
         while IFS= read -r package; do packages+=("$package"); done < "$scratch/members"
-        "$editor" --max-input-bytes "$limit" lock "$source_file" "$previous" "$next" "${packages[@]}"
+        if [[ "${#packages[@]}" == 0 ]]; then
+            cat "$source_file"
+        else
+            "$editor" --max-input-bytes "$limit" lock "$source_file" "$previous" "$next" "${packages[@]}"
+        fi
         ;;
     ci/dependency-pinning-exceptions.json)
         packages_json="$(jq -ce '[.dependencies[].alias]' "$plan")"

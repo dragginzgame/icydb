@@ -7,14 +7,14 @@ wasm_report_sha256() {
 
 # One product-owned roster serves Rust admission and portable shell selection.
 wasm_report_default_canisters() {
-    awk -F '\t' '$2 == "default" { print $1 }' "$ROOT/testing/build/src/wasm_measurement_subjects.tsv"
+    awk -F '\t' '$2 == "default" { print $1 }' "$ROOT/qualification/build/src/wasm_measurement_subjects.tsv"
 }
 
 wasm_report_canister_is_maintained_subject() {
     local subject _selection
     while IFS=$'\t' read -r subject _selection; do
         [[ "$subject" != "$1" ]] || return 0
-    done < "$ROOT/testing/build/src/wasm_measurement_subjects.tsv"
+    done < "$ROOT/qualification/build/src/wasm_measurement_subjects.tsv"
     return 1
 }
 

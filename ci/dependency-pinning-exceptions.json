@@ -59,7 +59,7 @@
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.38.2",
+    "value": "=0.39.7",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   },
@@ -67,7 +67,71 @@
     "rule": "cargo-exact",
     "file": "testing/canic-adapter/Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.38.2",
+    "value": "=0.39.7",
+    "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
+    "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "icydb",
+    "value": "=0.307.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "icydb-core",
+    "value": "=0.307.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "icydb-diagnostic-code",
+    "value": "=0.307.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "icydb-model",
+    "value": "=0.307.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "icydb-model-macros",
+    "value": "=0.307.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "icydb-schema",
+    "value": "=0.307.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "rusqlite",
+    "value": "=0.41.1",
+    "reason": "Fix the bundled SQLite reference backend used as the SQL correctness oracle.",
+    "evidence": "docs/governance/toko-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "qualification/Cargo.toml",
+    "subject": "toko-tooling",
+    "value": "=0.39.7",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   }

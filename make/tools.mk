@@ -28,23 +28,23 @@ install-tools:
 ifneq ($(filter install-ic-tools,$(LOCAL_TOOL_INSTALL_TARGETS)),)
 	bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" $(foreach tool,$(IC_TOOLS),--tool "$(tool)") --preflight
 endif
-	+bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --preflight
-	+$(MAKE) --no-print-directory install-host-tools
-	+$(MAKE) --no-print-directory install-rust-tools
-	+@for target in $(LOCAL_TOOL_INSTALL_TARGETS); do \
-		$(MAKE) --no-print-directory "$$target" || exit "$$?"; done
+	$(_toko_recursive_prefix)bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --preflight
+	$(_toko_recursive_prefix)$(_toko_recursive_make) --no-print-directory install-host-tools
+	$(_toko_recursive_prefix)$(_toko_recursive_make) --no-print-directory install-rust-tools
+	$(_toko_recursive_prefix)@for target in $(LOCAL_TOOL_INSTALL_TARGETS); do \
+		$(_toko_recursive_make) --no-print-directory "$$target" || exit "$$?"; done
 
 tools-check:
-	+$(MAKE) --no-print-directory host-tools-check
-	+$(MAKE) --no-print-directory rust-tools-check
-	+@for target in $(LOCAL_TOOL_CHECK_TARGETS); do \
-		$(MAKE) --no-print-directory "$$target" || exit "$$?"; done
+	$(_toko_recursive_prefix)$(_toko_recursive_make) --no-print-directory host-tools-check
+	$(_toko_recursive_prefix)$(_toko_recursive_make) --no-print-directory rust-tools-check
+	$(_toko_recursive_prefix)@for target in $(LOCAL_TOOL_CHECK_TARGETS); do \
+		$(_toko_recursive_make) --no-print-directory "$$target" || exit "$$?"; done
 
 # Diagnostic only: run every existing offline checker and retain all failures.
 # Release/setup admission continues to use the fail-fast tools-check above.
 .PHONY: tools-report
 tools-report:
-	+@VALIDATION_REPOSITORY_ROOT="$(CURDIR)" bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-validation-targets.sh" \
+	$(_toko_recursive_prefix)@VALIDATION_REPOSITORY_ROOT="$(CURDIR)" bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-validation-targets.sh" \
 		host-tools-check rust-tools-check $(LOCAL_TOOL_CHECK_TARGETS)
 
 install-host-tools:
@@ -60,13 +60,13 @@ ic-tools-check:
 	bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" $(foreach tool,$(IC_TOOLS),--tool "$(tool)") --check
 
 install-rust-tools:
-	+bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)"
+	$(_toko_recursive_prefix)bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)"
 
 rust-tools-check:
-	+bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --check
+	$(_toko_recursive_prefix)bash "$(TOKO_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --check
 
 cloc:
-	+@if [ -n "$(CLOC_MANIFEST)" ]; then \
+	$(_toko_recursive_prefix)@if [ -n "$(CLOC_MANIFEST)" ]; then \
 		bash "$(TOKO_TOOLING_ROOT)/scripts/dev/cloc.sh" $(if $(strip $(CLOC_DEPTH)),-d "$(CLOC_DEPTH)") --manifest "$(CLOC_MANIFEST)" "$(CLOC_ROOT)"; \
 	else bash "$(CLOC_REPORT)" $(if $(strip $(CLOC_DEPTH)),-d "$(CLOC_DEPTH)") "$(CLOC_ROOT)"; fi
 

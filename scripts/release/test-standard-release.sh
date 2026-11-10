@@ -32,13 +32,21 @@ export TMPDIR="${fixture%/*}"
 # Own that root here so dispatch controls cannot resolve the parent checkout.
 git -C "$fixture" init --quiet
 release_inputs=(scripts/release/group.sh scripts/release/verify.sh scripts/ci/release-receipts.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
-bash "$root/scripts/ci/check-release-commands.sh" "$root" "${release_inputs[@]}"
+# Dispatch qualification substitutes both native admission owners; their real
+# metadata/snapshot admission is qualified separately against this checkout.
+routing_source="$fixture/routing-source"
+mkdir -p "$routing_source"
+bash "$root/scripts/ci/prepare-script-fixture.sh" "$root" "$routing_source" Makefile "${release_inputs[@]}"
+mkdir -p "$routing_source/scripts/ci"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$routing_source/scripts/ci/check-qualification-tooling.sh"
+release_inputs+=(scripts/ci/check-qualification-tooling.sh)
+bash "$root/scripts/ci/check-release-commands.sh" "$routing_source" "${release_inputs[@]}"
 # Exercise this consumer's actual Make adapters after the checker changes cwd.
 mkdir "$fixture/relative-temp"
 ln -s "$fixture/relative-temp" "$fixture/temp-alias"
 for selected_tmp in relative-temp temp-alias; do
     (cd "$fixture"; TMPDIR="$selected_tmp" bash "$root/scripts/ci/check-release-commands.sh" \
-        "$root" "${release_inputs[@]}") > "$fixture/$selected_tmp.log" 2>&1
+        "$routing_source" "${release_inputs[@]}") > "$fixture/$selected_tmp.log" 2>&1
     [[ -z "$(ls -A "$fixture/relative-temp")" ]] || exit 1
 done
 mkdir -p "$fixture/bin"
@@ -49,6 +57,9 @@ cat >> "$fixture/bin/bash" <<'STUB'
 set -euo pipefail
 if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh || "$1" == scripts/release/verify.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
+fi
+if [[ "$1" == */scripts/ci/check-qualification-tooling.sh || "$1" == scripts/ci/check-qualification-tooling.sh ]]; then
+    exit 0
 fi
 if [[ "$1" == */scripts/dev/toko-tooling.sh ]]; then
     [[ "$#" == 6 && "$2 $3" == 'check --consumer' && "$4" == "$RELEASE_FIXTURE_ROOT" && "$5 $6" == '--manifest .toko-tooling.snapshot' ]]
@@ -188,7 +199,8 @@ for failure in none scripts/release/test-release-groups.sh; do
     PATH="$fixture/roster-bin:$PATH" ROSTER_ROOT="$root" ROSTER_FAILURE="$failure" \
         "$real_make" --no-print-directory -C "$root" -f "$root/Makefile" check-portable-automation \
         RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
-    [[ "$(head -n 1 "$EVENTS")" == scripts/dev/toko-tooling.sh ]]
+    [[ "$(head -n 1 "$EVENTS")" == scripts/ci/check-qualification-tooling.sh ]]
+    [[ "$(sed -n '2p' "$EVENTS")" == scripts/dev/toko-tooling.sh ]]
     for proof in scripts/ci/test-toko-tooling-adapters.sh scripts/release/test-standard-release.sh \
         scripts/release/test-release-groups.sh; do
         [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
@@ -263,6 +275,7 @@ export CACHE_READY="$fixture/cache-ready"
 export FETCH_EVENTS="$fixture/fetch-events"
 export SELECTED_READY="$fixture/selected-ready"
 export EXPECTED_CARGO_HOME="$root/.cache/cargo/icydb"
+export EXPECTED_QUALIFICATION_MANIFEST="$root/qualification/Cargo.toml"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/cargo"
 cat >> "$fixture/bin/cargo" <<'CARGO'
 set -euo pipefail
@@ -272,7 +285,7 @@ reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 : >&"$writer"
 [[ "$CARGO_HOME" == "$EXPECTED_CARGO_HOME" ]]
 case "$*" in
-    'fetch --locked')
+    'fetch --locked'|"fetch --manifest-path $EXPECTED_QUALIFICATION_MANIFEST --locked")
         printf '%s\n' "$*" >> "$FETCH_EVENTS"
         if [[ "${CARGO_NET_OFFLINE:-false}" == true ]]; then
             [[ -f "$CACHE_READY" ]]
@@ -335,10 +348,10 @@ if FAIL_EDITOR=1 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f 
     echo "release consumer admitted a failed editor observation" >&2; exit 1
 fi
 [[ ! -s "$EVENTS" ]]
-# Product preparation must select only its own locked graph. The substitute
-# rejects every other Cargo transport, including an adapter fetch.
+# Product preparation selects both native locks. The substitute rejects the
+# independent Canic graph and every other Cargo transport.
 assert_fetches() {
-    printf '%s\n' 'fetch --locked' \
+    printf '%s\n' 'fetch --locked' "fetch --manifest-path $EXPECTED_QUALIFICATION_MANIFEST --locked" \
         | LC_ALL=C sort > "$fixture/expected-fetches"
     LC_ALL=C sort "$FETCH_EVENTS" > "$fixture/actual-fetches"
     cmp "$fixture/expected-fetches" "$fixture/actual-fetches"
@@ -413,7 +426,16 @@ printf '[[package]]\nname = "ic-build"\nversion = "0.21.0"\n' > "$fixture/select
 printf '#!%s\n' "$real_bash" > "$fixture/selection/bin/git"
 cat >> "$fixture/selection/bin/git" <<'GIT'
 set -euo pipefail
-[[ "$1" == -C && "$3" == show && "$4" == 1111111111111111111111111111111111111111:Cargo.lock ]]
+[[ "$1" == -C && "$3" == show ]]
+case "$4" in
+    1111111111111111111111111111111111111111:ci/cargo-release-groups.json)
+        if [[ "${SAVED_QUALIFICATION:-0}" == 1 ]]; then printf '{"qualification_workspace":"qualification"}\n'
+        else printf '{}\n'; fi
+        exit 0 ;;
+    1111111111111111111111111111111111111111:qualification/Cargo.lock) [[ "${SAVED_QUALIFICATION:-0}" == 1 ]] ;;
+    1111111111111111111111111111111111111111:Cargo.lock) [[ "${SAVED_QUALIFICATION:-0}" == 0 ]] ;;
+    *) exit 99 ;;
+esac
 cat "$SAVED_LOCK"
 [[ "${FAIL_SOURCE:-0}" == 0 ]]
 GIT
@@ -433,12 +455,14 @@ printf '%s\n' "$EDITOR_PATH"
 INSTALL
 chmod +x "$fixture/selection/bin/git"
 export SAVED_LOCK="$fixture/saved-lock"
-for saved_version in 0.19.0 0.63.0; do
+for saved_version in 0.19.0 0.63.0 0.81.1; do
+    export SAVED_QUALIFICATION=0
+    if [[ "$saved_version" == 0.81.1 ]]; then export SAVED_QUALIFICATION=1; fi
     attempts="$fixture/selection-tmp/$saved_version"
     mkdir "$attempts"
     printf '[[package]]\nname = "ic-build"\nversion = "%s"\n' "$saved_version" > "$SAVED_LOCK"
     export EXPECT_EDITOR_CLI=0
-    if [[ "$saved_version" == 0.63.0 ]]; then export EXPECT_EDITOR_CLI=1; fi
+    if [[ "$saved_version" != 0.19.0 ]]; then export EXPECT_EDITOR_CLI=1; fi
     for producer in success source editor; do
         : > "$EVENTS"
         status=0

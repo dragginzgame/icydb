@@ -8,7 +8,7 @@ _shared_publication_quote = '$(subst ','"'"',$(1))'
 .PHONY: publish publish-check
 publish publish-check: | toko-execution-check
 publish publish-check:
-	+@CARGO_PUBLISH_PACKAGES=$(call _shared_publication_quote,$(CARGO_PUBLISH_PACKAGES)) \
+	$(_toko_recursive_prefix)@CARGO_PUBLISH_PACKAGES=$(call _shared_publication_quote,$(CARGO_PUBLISH_PACKAGES)) \
 		CARGO_PUBLISH_SELECTION=$(call _shared_publication_quote,$(if $(filter command line,$(origin PACKAGE)),$(PACKAGE),$(CARGO_PUBLISH_PACKAGES))) \
 		CARGO_PUBLISH_REGISTRY=$(call _shared_publication_quote,$(CARGO_PUBLISH_REGISTRY)) \
 		CARGO_PUBLISH_VERIFY_TARGETS=$(call _shared_publication_quote,$(CARGO_PUBLISH_VERIFY_TARGETS)) \

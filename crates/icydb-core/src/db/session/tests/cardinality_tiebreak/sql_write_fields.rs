@@ -603,3 +603,38 @@ fn reserved_constraint_rejection_preserves_later_not_null_publication() {
         vec![vec![OutputValue::nat64(7)]; before.len()]
     );
 }
+
+#[test]
+fn sql_insert_omission_keeps_primary_key_and_required_field_priority() {
+    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+
+    let session = sql_not_null::initialize_nullable_rows();
+    let read = "SELECT id FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    for (sql, boundary) in [
+        (
+            "INSERT INTO PlannerRow (marked) VALUES (FALSE)",
+            SqlWriteBoundaryCode::MissingPrimaryKey,
+        ),
+        (
+            "INSERT INTO PlannerRow (id) VALUES (7)",
+            SqlWriteBoundaryCode::MissingRequiredFields,
+        ),
+        (
+            "INSERT INTO PlannerRow (status) VALUES ('new')",
+            SqlWriteBoundaryCode::MissingRequiredFields,
+        ),
+    ] {
+        let error = session.execute_trusted_sql_mutation(sql).unwrap_err();
+        assert_eq!(
+            error.diagnostic().detail(),
+            Some(&DiagnosticDetail::SqlWriteBoundary { boundary }),
+            "{sql}"
+        );
+        assert_eq!(projection_rows(&session, read), before);
+    }
+    session
+        .execute_trusted_sql_mutation("INSERT INTO PlannerRow (id, marked) VALUES (7, FALSE)")
+        .unwrap();
+    assert_eq!(projection_rows(&session, read).len(), before.len() + 1);
+}

@@ -78,11 +78,63 @@ fn bind_sql_check_for_tests(
 }
 
 #[cfg(feature = "sql")]
+// Build the same direct or named numeric field for each CHECK round-trip family.
+fn numeric_check_schema(
+    kind: &AcceptedFieldKind,
+    wrapped: bool,
+    type_name: &str,
+) -> (PersistedSchemaSnapshot, AcceptedValueCatalogHandle) {
+    let enums = empty_accepted_enum_catalog_for_tests();
+    let type_id = CompositeTypeId::new(1).unwrap();
+    let composites = if wrapped {
+        AcceptedCompositeCatalog::from_initial_definitions(
+            BTreeMap::from([(
+                type_id,
+                (
+                    type_name.into(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                        kind.clone(),
+                        false,
+                    )),
+                ),
+            )]),
+            &enums,
+        )
+        .unwrap()
+    } else {
+        AcceptedCompositeCatalog::empty()
+    };
+    let mut fields = snapshot().fields().to_vec();
+    fields[1] = field(
+        2,
+        1,
+        "score",
+        if wrapped {
+            AcceptedFieldKind::Composite { type_id }
+        } else {
+            kind.clone()
+        },
+        false,
+        LeafCodec::Structural,
+    );
+    let schema = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "tests::Compass".into(),
+        "Compass".into(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
+        fields,
+    );
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
+        enums,
+        composites,
+        AcceptedSchemaRevision::INITIAL,
+    );
+    (schema, catalog)
+}
+
+#[cfg(feature = "sql")]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "bounded integer-family, nominal-kind and comparison round-trip matrix"
-)]
 fn sql_wide_integer_checks_bind_exact_atoms_and_nominal_kinds() {
     for (kind, literal, integer) in [
         (
@@ -107,52 +159,7 @@ fn sql_wide_integer_checks_bind_exact_atoms_and_nominal_kinds() {
         ),
     ] {
         for wrapped in [false, true] {
-            let enums = empty_accepted_enum_catalog_for_tests();
-            let type_id = CompositeTypeId::new(1).unwrap();
-            let composites = if wrapped {
-                AcceptedCompositeCatalog::from_initial_definitions(
-                    BTreeMap::from([(
-                        type_id,
-                        (
-                            "tests::WideInteger".into(),
-                            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                                kind.clone(),
-                                false,
-                            )),
-                        ),
-                    )]),
-                    &enums,
-                )
-                .unwrap()
-            } else {
-                AcceptedCompositeCatalog::empty()
-            };
-            let mut fields = snapshot().fields().to_vec();
-            fields[1] = field(
-                2,
-                1,
-                "score",
-                if wrapped {
-                    AcceptedFieldKind::Composite { type_id }
-                } else {
-                    kind.clone()
-                },
-                false,
-                LeafCodec::Structural,
-            );
-            let schema = PersistedSchemaSnapshot::new(
-                SchemaVersion::initial(),
-                "tests::Compass".into(),
-                "Compass".into(),
-                FieldId::new(1),
-                SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
-                fields,
-            );
-            let catalog = AcceptedValueCatalogHandle::new_for_tests(
-                enums,
-                composites,
-                AcceptedSchemaRevision::INITIAL,
-            );
+            let (schema, catalog) = numeric_check_schema(&kind, wrapped, "tests::WideInteger");
             for (op, operator) in [
                 (AcceptedCheckCompareOpV1::Eq, "="),
                 (AcceptedCheckCompareOpV1::Ne, "!="),

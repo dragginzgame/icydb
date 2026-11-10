@@ -44,7 +44,8 @@ for my $group (qw(database cli)) {
         'bash','scripts/ci/cargo-release-group.sh','plan',$group));
     write_file("$scratch/plan.json",$json->encode($projection));
     for my $path ((map {$_->{path}} @{$projection->{manifests}}),
-        'Cargo.lock','ci/dependency-pinning-exceptions.json') {
+        'Cargo.lock', (exists($projection->{qualification}) ? 'qualification/Cargo.lock' : ()),
+        'ci/dependency-pinning-exceptions.json') {
         write_file("$scratch/input",exists($normalized{$path})?$normalized{$path}:blob($path));
         $normalized{$path}=capture('env',"CARGO_RELEASE_METADATA_EDITOR=$editor",
             'CARGO_RELEASE_METADATA_MAX_BYTES=8388608','bash','scripts/release/render-candidate.sh',

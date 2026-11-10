@@ -41,7 +41,9 @@ pub(in crate::db) use normalize::normalize_with_authority;
 pub(in crate::db) use normalize::normalize_with_budget;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use parser::parse_sql_predicate;
+#[cfg(test)]
 pub(in crate::db) use render::render_sql_predicate;
+pub(in crate::db) use render::{render_sql_comparison, render_sql_field_comparison};
 
 pub(in crate::db) use fingerprint::hash_predicate;
 pub(in crate::db) use fingerprint::predicate_fingerprint_normalized;

@@ -9,7 +9,7 @@ release-patch release-minor release-major release-resume release-preflight clean
 # be ignored and accidentally reduce a requested multi-group release to one.
 _shared_retired_release_settings := $(strip $(foreach setting,RELEASE_FROZEN_GROUPS RELEASE_FROZEN_PUBLISH_TARGET RELEASE_FROZEN_SETUP_TARGET RELEASE_FROZEN_SETUP_MODE FROZEN_RELEASE_ACTIVE,$(if $(filter undefined,$(origin $(setting))),,$(setting))))
 ifneq ($(_shared_retired_release_settings),)
-$(error Retired release settings: $(_shared_retired_release_settings); adopt docs/release-batches.md)
+$(error Retired release settings: $(_shared_retired_release_settings); adopt https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/releases/release-batches.md)
 endif
 # Clean conventional source roots before capture as well as direct preflight.
 .PHONY: clean-empty-source-dirs
@@ -55,24 +55,24 @@ endif
 release-patch release-minor release-major:
 ifneq ($(strip $(RELEASE_GROUPS)),)
 ifneq ($(RELEASE_BATCH_ACTIVE),1)
-	+@perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --groups "$(RELEASE_GROUPS)" --kind "$(@:release-%=%)" --remote "$(RELEASE_REMOTE)" --branch "$(RELEASE_BRANCH)" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(RELEASE_PUBLISH_TARGET),--publish-target "$(RELEASE_PUBLISH_TARGET)",) $(if $(RELEASE_SETUP_TARGET),--setup-target "$(RELEASE_SETUP_TARGET)",)
+	$(_toko_recursive_prefix)@perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --groups "$(RELEASE_GROUPS)" --kind "$(@:release-%=%)" --remote "$(RELEASE_REMOTE)" --branch "$(RELEASE_BRANCH)" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(RELEASE_PUBLISH_TARGET),--publish-target "$(RELEASE_PUBLISH_TARGET)",) $(if $(RELEASE_SETUP_TARGET),--setup-target "$(RELEASE_SETUP_TARGET)",)
 else
-	+@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+	$(_toko_recursive_prefix)@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
 endif
 else
-	+@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+	$(_toko_recursive_prefix)@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
 
 endif
 
 release-resume:
-	+@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
-	+@$(RELEASE_RESUME_CHECK_COMMAND)
+	$(_toko_recursive_prefix)@bash "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release.sh" resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+	$(_toko_recursive_prefix)@$(RELEASE_RESUME_CHECK_COMMAND)
 
 .PHONY: $(_shared_batch_targets)
 $(_shared_batch_targets): export SHARED_RELEASE_BATCH = $(BATCH)
 $(_shared_batch_targets): export SHARED_PUBLICATION_RESULT = $(PUBLICATION_RESULT)
 $(_shared_batch_targets):
-	+@test -n "$$SHARED_RELEASE_BATCH" || { echo 'Select BATCH=batch-XXXXXXXX' >&2; exit 2; }
-	+@perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --$(@:release-batch-%=%) "$$SHARED_RELEASE_BATCH" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(PUBLICATION_RESULT),--publication-result "$$SHARED_PUBLICATION_RESULT",)
+	$(_toko_recursive_prefix)@test -n "$$SHARED_RELEASE_BATCH" || { echo 'Select BATCH=batch-XXXXXXXX' >&2; exit 2; }
+	$(_toko_recursive_prefix)@perl "$(TOKO_TOOLING_ROOT)/scripts/ci/run-release-batch.pl" --root "$(CURDIR)" --$(@:release-batch-%=%) "$$SHARED_RELEASE_BATCH" --delivery "$(if $(filter undefined,$(origin RELEASE_DELIVERY)),direct,$(RELEASE_DELIVERY))" $(if $(PUBLICATION_RESULT),--publication-result "$$SHARED_PUBLICATION_RESULT",)
 
 .DEFAULT_GOAL := $(_shared_release_default_goal)

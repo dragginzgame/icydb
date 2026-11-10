@@ -554,14 +554,12 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
         let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
         memory.grow(1).unwrap();
         memory.write(0, b"retained");
-        let commitment = runtime.memory_allocations().unwrap();
         let before = runtime.memory_allocations().unwrap();
         assert!(crate::db::registry::open_committed_memory(KEY, id + 1).is_err());
         assert!(
             crate::db::registry::open_committed_memory("icydb.core_identity.absent.v1", id)
                 .is_err()
         );
-        assert_eq!(runtime.memory_allocations().unwrap(), commitment);
         assert_eq!(runtime.memory_allocations().unwrap(), before);
         // Reopening the committed key requires releasing its exclusive handle.
         drop(memory);

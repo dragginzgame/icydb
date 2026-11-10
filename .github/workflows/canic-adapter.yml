@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "qualification/**"
       - "testing/canic-adapter/**"
       - "canisters/**"
       - "schema/audit/nested_relation/**"
@@ -25,6 +26,7 @@ on:
       - "rust-toolchain.toml"
   pull_request:
     paths:
+      - "qualification/**"
       - "testing/canic-adapter/**"
       - "canisters/**"
       - "schema/audit/nested_relation/**"
@@ -99,6 +101,8 @@ jobs:
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Admit independent Canic tooling
         run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
@@ -185,6 +189,8 @@ jobs:
             icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Admit independent Canic tooling
         run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
@@ -258,6 +264,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Admit independent Canic tooling
         run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
@@ -296,7 +304,7 @@ jobs:
           shellcheck -x --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
       - name: Qualify native library and CLI builds
         run: |
-          cargo clippy --locked -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
+          cargo clippy --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --manifest-path testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --lib -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb icp::
@@ -310,15 +318,15 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status external_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status mutation_capture_
           bash scripts/ci/check-native-codegen-features.sh
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --features build --lib renamed_schema_only_dependency_emits_fragment
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib wasm_optimizer::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-model-schema-only --features build --lib renamed_schema_only_dependency_emits_fragment
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib canister_artifact::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib wasm_optimizer::tests
           POCKET_IC_BIN="$(make --silent testkit-check)"
           export POCKET_IC_BIN
           bash scripts/ci/run-nonempty-cargo-test.sh --manifest-path testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
           bash scripts/ci/run-with-pocketic-server.sh bash scripts/ci/run-nonempty-cargo-test.sh --manifest-path testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --bin write_wasm_size_report
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --bin write_wasm_size_report
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
           make build-canister-production CANISTER=default_empty
           make fmt-adapter-check
@@ -360,6 +368,8 @@ jobs:
           testing/wire-browser/node_modules/.bin/playwright install --with-deps chromium
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Admit independent Canic tooling
         run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies
@@ -377,7 +387,7 @@ jobs:
           mode: save
       - name: Lint native browser contract owners
         run: |
-          cargo clippy --locked -p icydb-testing-build --example wire_bindings -- -D warnings
+          cargo clippy --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --example wire_bindings -- -D warnings
           cargo clippy --manifest-path testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --test query_canister -- -D warnings
       - name: Qualify installed browser endpoints
         run: make test-wire-browser
@@ -436,6 +446,8 @@ jobs:
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
         run: cargo fetch --locked
+      - name: Fetch locked native qualification dependencies
+        run: cargo fetch --locked --manifest-path qualification/Cargo.toml
       - name: Admit independent Canic tooling
         run: make check-adapter-tooling
       - name: Fetch locked Canic qualification dependencies

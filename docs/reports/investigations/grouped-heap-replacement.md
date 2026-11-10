@@ -24,7 +24,7 @@ Shared SHA-256 inputs:
 
 - Cargo.lock: `a4ba8bd930774bc7e00531bc361c668e1af4e784d68f68d17a1c597ab5f107c3`
 - Actor `canisters/audit/sql_perf/src/lib.rs`: `1b56f404e581a9311f4f130c20dbf47877e706b0c985c88faf87f1e899698e13`
-- Schema `schema/audit/sql_perf/src/sql_perf.rs`: `07459fd471c7626a14bbc3b76f27fb9c21263cee1d1f192a871c0d64e0463e56`
+- Schema `qualification/schema/audit/sql_perf/src/sql_perf.rs`: `07459fd471c7626a14bbc3b76f27fb9c21263cee1d1f192a871c0d64e0463e56`
 
 Changed owner SHA-256, before → after:
 

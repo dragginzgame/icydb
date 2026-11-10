@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The [shared Rust baseline](../../principles/rust-code-hygiene.md) owns common
+The [shared Rust baseline](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/principles/rust-code-hygiene.md) owns common
 hygiene requirements. This document adds IcyDB's module, import and comment style.
 
 This document defines source consistency and readability standards used across `icydb-core`.
@@ -380,7 +380,7 @@ surfaces together, call that out explicitly in the PR summary.
 
 ## 13. Test Placement
 
-Follow the [shared test layout](../../principles/rust-code-hygiene.md#tests).
+Follow the [shared test layout](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/principles/rust-code-hygiene.md#tests).
 Declare `mod tests;` alongside other module declarations and keep test bodies and
 helpers in `tests.rs`, `*_tests.rs` or `tests/`. Fixture-only packages declare their
 LOC category in Cargo metadata. Singular `test/` and `test.rs` owners are retired;

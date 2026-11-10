@@ -52,7 +52,7 @@ version = "0.291.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
-license-file = "../../LICENSE"
+license-file = "../../LICENSE.md"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
@@ -74,22 +74,22 @@ syn = "3.0"
 canic-icydb = "0.113.0"
 ic-testkit = "0.75.0"
 ic-timers = "0.32.4"
-icydb-testing-audit-default-empty-fixtures = { path = "../../schema/audit/default_empty" }
-icydb-testing-audit-group-path-fixtures = { path = "../../schema/audit/group_path" }
+icydb-testing-audit-default-empty-fixtures = { path = "../../qualification/schema/audit/default_empty" }
+icydb-testing-audit-group-path-fixtures = { path = "../../qualification/schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "../../schema/audit/nested_relation" }
-icydb-testing-audit-one-simple-fixtures = { path = "../../schema/audit/one_simple" }
-icydb-testing-audit-sql-perf-fixtures = { path = "../../schema/audit/sql_perf" }
-icydb-testing-audit-ten-simple-fixtures = { path = "../../schema/audit/ten_simple" }
-icydb-testing-build = { path = "../../testing/build" }
-icydb-testing-codec-query = { path = "../../testing/codec-query" }
-icydb-testing-demo-rpg-fixtures = { path = "../../schema/demo/rpg" }
-icydb-testing-sql-generator = { path = "../../testing/sql-generator" }
-icydb-testing-sqlite-reference = { path = "../../testing/sqlite-reference" }
-icydb-testing-test-sql-fixtures = { path = "../../schema/tests/sql" }
-icydb-testing-wasm-helpers = { path = "../../testing/wasm-helpers" }
+icydb-testing-audit-one-simple-fixtures = { path = "../../qualification/schema/audit/one_simple" }
+icydb-testing-audit-sql-perf-fixtures = { path = "../../qualification/schema/audit/sql_perf" }
+icydb-testing-audit-ten-simple-fixtures = { path = "../../qualification/schema/audit/ten_simple" }
+icydb-testing-build = { path = "../../qualification/build" }
+icydb-testing-codec-query = { path = "../../qualification/codec-query" }
+icydb-testing-demo-rpg-fixtures = { path = "../../qualification/schema/demo/rpg" }
+icydb-testing-sql-generator = { path = "../../crates/test-support/sql-generator" }
+icydb-testing-sqlite-reference = { path = "../../crates/test-support/sqlite-reference" }
+icydb-testing-test-sql-fixtures = { path = "../../qualification/schema/tests/sql" }
+icydb-testing-wasm-helpers = { path = "../../qualification/wasm-helpers" }
 # Renamed-dependency fixtures exercise generated imports under caller-selected names.
 runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
-toko-tooling = "=0.38.2"
+toko-tooling = "=0.39.7"
 trybuild = "1.0"
 
 # ---------------------

@@ -32,11 +32,12 @@ LOCAL_TOOL_CHECK_TARGETS := ic-tools-check release-editor-check
 IC_TOOLS ?= icp ic-wasm wasm-opt
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # Include derive sorting in the shared manifest/derive/Rustfmt flow.
-FORMAT_RUST_ARGS := --sort-derives
+FORMAT_RUST_ARGS := --sort-derives --extra-workspace "$(ROOT_DIR)/qualification"
 # Shared owns batch defaults and retired-setting refusal; IcyDB admits package
 # ownership and supplier order before any target recipe can run.
 RELEASE_SETUP_TARGET := release-candidate-setup
 export RELEASE_GROUP
+TOKO_TOOLING_RELEASE := 1
 include $(ROOT_DIR)/make/consumer.mk
 
 # Consumer-owned entrypoints need the same execution-mode admission as shared
@@ -77,12 +78,15 @@ CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 # Recovery inputs and failed fixture evidence must survive Cargo output cleanup;
 # successful fixture owners remove their trees, while failures stay for collection.
 RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
+QUALIFICATION_MANIFEST_DIR := $(ROOT_DIR)/qualification
+QUALIFICATION_MANIFEST := $(QUALIFICATION_MANIFEST_DIR)/Cargo.toml
+QUALIFICATION_MANIFEST_FLAG := --manifest-path "$(QUALIFICATION_MANIFEST)"
 ADAPTER_MANIFEST := $(ROOT_DIR)/testing/canic-adapter/Cargo.toml
 ADAPTER_MANIFEST_FLAG := --manifest-path "$(ADAPTER_MANIFEST)"
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)" RELEASE_METADATA_CARGO_HOME="$(CARGO_WORK_HOME)"
 TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
-RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(ROOT_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug --features cli
+RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(QUALIFICATION_MANIFEST_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug --features cli
 RELEASE_EDITOR_CHECK = $(RELEASE_EDITOR_TOOL) --check
 # Admit the locked editor before invoking a release consumer. A failed producer
 # cannot supply its path; recovery/verification only check prepared tools.
@@ -95,7 +99,7 @@ IC_TESTKIT_ENV = server="$(POCKET_IC_BIN)"; if [ -z "$$server" ]; then server="$
 # PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
 WORKSPACE_TEST_ENV := RUST_TEST_THREADS=2
-VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-icydb-validation-targets.sh" --input Cargo.toml --input Cargo.lock --input rust-toolchain.toml
+VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-icydb-validation-targets.sh" --input Cargo.toml --input Cargo.lock --input qualification/Cargo.toml --input qualification/Cargo.lock --input rust-toolchain.toml
 ADAPTER_VALIDATION_RUNNER := $(VALIDATION_RUNNER) --input testing/canic-adapter/Cargo.toml --input testing/canic-adapter/Cargo.lock
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION := $(shell awk '$$1 == "version" {print $$2}' "$(ROOT_DIR)/scripts/ci/actionlint-checksums.tsv")
@@ -297,6 +301,7 @@ _test-core-no-default:
 # its own independent consumer and no-default-feature checks above.
 _test-workspace:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(QUALIFICATION_MANIFEST_FLAG) --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing
 
 # Focused development stages for the CLI package. Release verification retains
 # the complete validate gate until group selection and receipts are qualified.
@@ -410,13 +415,13 @@ test-sql-tier-c-replay:
 
 build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
+	+$(CARGO_WORK_ENV) cargo run --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
 		--profile debug
 
 build-canister-production:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
+	+$(CARGO_WORK_ENV) cargo run --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
 		--profile wasm-release
 
@@ -432,6 +437,7 @@ wasm-audit-report:
 
 fetch:
 	+$(CARGO_WORK_ENV) cargo fetch --locked
+	+$(CARGO_WORK_ENV) cargo fetch $(QUALIFICATION_MANIFEST_FLAG) --locked
 
 fetch-adapter:
 	+$(CARGO_WORK_ENV) cargo fetch $(ADAPTER_MANIFEST_FLAG) --locked
@@ -441,9 +447,11 @@ build:
 
 check:
 	+$(CARGO_WORK_ENV) cargo check --locked --workspace
+	+$(CARGO_WORK_ENV) cargo check $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace
 
 clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --all-targets -- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing -- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build -- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
@@ -472,10 +480,10 @@ _ci-adapter-feature-clippy:
 
 # Formatting has the same ownership boundary as compiler/test qualification.
 fmt-adapter:
-	+$(MAKE) --no-print-directory fmt 'FORMAT_RUST_ARGS=--sort-derives --extra-workspace "$(ROOT_DIR)/testing/canic-adapter"'
+	+$(MAKE) --no-print-directory fmt 'FORMAT_RUST_ARGS=$(FORMAT_RUST_ARGS) --extra-workspace "$(ROOT_DIR)/testing/canic-adapter"'
 
 fmt-adapter-check:
-	+$(MAKE) --no-print-directory fmt-check 'FORMAT_RUST_ARGS=--sort-derives --extra-workspace "$(ROOT_DIR)/testing/canic-adapter"'
+	+$(MAKE) --no-print-directory fmt-check 'FORMAT_RUST_ARGS=$(FORMAT_RUST_ARGS) --extra-workspace "$(ROOT_DIR)/testing/canic-adapter"'
 
 validate-adapter:
 	$(MAKE) --no-print-directory check-rust-compiler
@@ -576,7 +584,12 @@ check-automation:
 	bash scripts/ci/test-pre-commit.sh
 	bash scripts/release/test-finalize-notes.sh
 
-.PHONY: check-adapter-tooling
+.PHONY: check-qualification-tooling check-adapter-tooling
+# Every dispatch admits the independent native workspace against the one installed snapshot.
+toko-tooling-check: check-qualification-tooling
+check-qualification-tooling:
+	+@$(CARGO_WORK_ENV) bash scripts/ci/check-qualification-tooling.sh
+
 check-adapter-tooling: toko-tooling-check
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-adapter-tooling.sh
 
@@ -598,6 +611,7 @@ check-product-invariants: toko-tooling-check
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)" --external-ic
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(QUALIFICATION_MANIFEST_DIR)" --external-ic
 	+$(MAKE) --no-print-directory check-candid-boundary
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
@@ -615,7 +629,7 @@ check-product-invariants: toko-tooling-check
 
 .PHONY: check-candid-boundary
 check-candid-boundary:
-	perl scripts/ci/check-candid-boundary.pl --cbor "$(ROOT_DIR)" ci/candid-boundary.json crates canisters schema testing
+	perl scripts/ci/check-candid-boundary.pl --cbor "$(ROOT_DIR)" ci/candid-boundary.json crates canisters schema testing qualification
 
 check-feature-matrix:
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features
@@ -624,6 +638,7 @@ check-feature-matrix:
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features --features sql
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features --features sql
 	+$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
+	+$(CARGO_WORK_ENV) cargo check $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --no-default-features
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \
@@ -663,6 +678,7 @@ ci-core:
 _ci-core-no-default-check:
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb -p icydb-core --no-default-features
 	+$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
+	+$(CARGO_WORK_ENV) cargo check $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --no-default-features
 
 _ci-core-no-default-test:
 	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
@@ -695,6 +711,7 @@ ci-adapter:
 		_test-durability-integration
 
 _ci-workspace-clippy:
+	+$(CARGO_WORK_ENV) cargo clippy $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --all-targets -- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \
 		-- -D warnings
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing -- -D warnings
@@ -707,6 +724,7 @@ _ci-workspace-integration-clippy:
 _ci-workspace-tests:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		--workspace --all-targets --features icydb-model/build --verbose
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(QUALIFICATION_MANIFEST_FLAG) --locked --no-fail-fast --workspace --all-targets --features icydb-model/build --verbose
 
 ci-sql-tier-a:
 	+$(VALIDATION_RUNNER) \

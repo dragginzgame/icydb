@@ -604,7 +604,7 @@ impl AcceptedIndexPredicate {
         fields: &[PersistedFieldSnapshot],
         catalog: &AcceptedValueCatalogHandle,
     ) -> Result<String, InternalError> {
-        Self::render_predicate(self.to_predicate(fields, catalog, None)?, catalog)
+        self.render_with_names(&|id| field_name(id, fields, None), catalog)
     }
 
     pub(in crate::db) fn render_sql_with_names(
@@ -612,57 +612,87 @@ impl AcceptedIndexPredicate {
         names: &[(FieldId, String)],
         catalog: &AcceptedValueCatalogHandle,
     ) -> Result<String, InternalError> {
-        Self::render_predicate(self.to_predicate_with_names(names, catalog, None)?, catalog)
+        self.render_with_names(
+            &|id| {
+                names
+                    .iter()
+                    .find(|(field, _)| *field == id)
+                    .map(|(_, name)| name.as_str())
+                    .ok_or_else(InternalError::store_corruption)
+            },
+            catalog,
+        )
     }
 
-    fn render_predicate(
-        mut predicate: Predicate,
+    // Render accepted identities directly: display does not need an owned
+    // executor predicate or a second walk that rewrites its literal values.
+    fn render_with_names<'a>(
+        &self,
+        name: &dyn Fn(FieldId) -> Result<&'a str, InternalError>,
         catalog: &AcceptedValueCatalogHandle,
     ) -> Result<String, InternalError> {
-        fn display_value(
-            value: Value,
-            catalog: &AcceptedValueCatalogHandle,
-        ) -> Result<Value, InternalError> {
-            Ok(match value {
-                Value::Enum(value) if value.payload().is_none() => Value::Text(
-                    catalog
-                        .enum_catalog()
-                        .resolve_value(value.canonical())
-                        .map_err(|_| InternalError::store_corruption())?
-                        .variant_name()
-                        .to_string(),
-                ),
-                Value::Ulid(value) => Value::Text(value.to_string()),
-                Value::List(values) => Value::List(
-                    values
-                        .into_iter()
-                        .map(|value| display_value(value, catalog))
-                        .collect::<Result<_, _>>()?,
-                ),
-                other => other,
-            })
-        }
-        fn display(
-            predicate: &mut Predicate,
-            catalog: &AcceptedValueCatalogHandle,
-        ) -> Result<(), InternalError> {
-            match predicate {
-                Predicate::And(children) | Predicate::Or(children) => {
-                    for child in children {
-                        display(child, catalog)?;
-                    }
-                }
-                Predicate::Not(inner) => display(inner, catalog)?,
-                Predicate::Compare(compare) => {
-                    compare.value = display_value(compare.value.clone(), catalog)?;
-                }
-                _ => {}
+        use crate::db::{
+            predicate::{render_sql_comparison, render_sql_field_comparison},
+            schema::check::render_catalog_sql_value,
+        };
+        let render = |child: &Self| child.render_with_names(name, catalog);
+        Ok(match self {
+            Self::True => "TRUE".into(),
+            Self::False => "FALSE".into(),
+            Self::Not(inner) => format!("NOT ({})", render(inner)?),
+            Self::And(children) | Self::Or(children) => {
+                let children = children
+                    .iter()
+                    .map(|child| render(child).map(|text| format!("({text})")))
+                    .collect::<Result<Vec<_>, _>>()?;
+                children.join(if matches!(self, Self::And(_)) {
+                    " AND "
+                } else {
+                    " OR "
+                })
             }
-            Ok(())
-        }
-        display(&mut predicate, catalog)?;
-        crate::db::predicate::render_sql_predicate(&predicate)
-            .ok_or_else(InternalError::store_corruption)
+            Self::Compare {
+                field,
+                op,
+                coercion,
+                values,
+            } => {
+                let literal = |value: &Option<AcceptedCheckLiteralV1>| {
+                    let value = value
+                        .as_ref()
+                        .map(|value| {
+                            decode_literal(value, catalog)
+                                .map_err(|_| InternalError::store_corruption())
+                        })
+                        .transpose()?
+                        .unwrap_or(Value::Null);
+                    render_catalog_sql_value(&value, catalog)
+                };
+                let rhs = if matches!(op, CompareOp::In | CompareOp::NotIn) {
+                    values
+                        .iter()
+                        .map(literal)
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ")
+                } else {
+                    let [value] = values.as_slice() else {
+                        return Err(InternalError::store_corruption());
+                    };
+                    literal(value)?
+                };
+                render_sql_comparison(name(*field)?, *op, *coercion, &rhs)
+                    .ok_or_else(InternalError::store_corruption)?
+            }
+            Self::CompareFields {
+                left,
+                op,
+                right,
+                coercion,
+            } => render_sql_field_comparison(name(*left)?, *op, name(*right)?, *coercion)
+                .ok_or_else(InternalError::store_corruption)?,
+            Self::IsNull(field) => format!("{} IS NULL", name(*field)?),
+            Self::IsNotNull(field) => format!("{} IS NOT NULL", name(*field)?),
+        })
     }
 
     pub(in crate::db::schema) fn validate_fields(
@@ -672,12 +702,20 @@ impl AcceptedIndexPredicate {
         if self != &self.clone().canonicalize()? {
             return Err(InternalError::store_corruption());
         }
+        self.validate_field_references(fields)
+    }
+
+    // Canonicalization recursively checks the whole tree once at entry.
+    fn validate_field_references(
+        &self,
+        fields: &[PersistedFieldSnapshot],
+    ) -> Result<(), InternalError> {
         match self {
             Self::True | Self::False => {}
-            Self::Not(inner) => inner.validate_fields(fields)?,
+            Self::Not(inner) => inner.validate_field_references(fields)?,
             Self::And(children) | Self::Or(children) => {
                 for child in children {
-                    child.validate_fields(fields)?;
+                    child.validate_field_references(fields)?;
                 }
             }
             Self::CompareFields { left, right, .. } => {

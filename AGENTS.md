@@ -1,34 +1,27 @@
 # IcyDB Agent Rules
 
-For scope, delegated delivery, validation, compiler support and reporting, use
-[Toko Tooling 0.38.2 policy](https://github.com/dragginzgame/toko-tooling/blob/9446ca1d18fe027f5fb89d989e0609f137184198/TOKO-TOOLING.md)
-and its revision-bound references over older snapshot or local-guide wording.
-This includes Rust 1.99.1 as minimum and pinned development/release compiler;
-check local declarations and qualification before claiming adoption is complete.
-Product-specific safeguards and scoped permissions below remain binding.
-This policy reference does not refresh executable snapshots.
+Apply the installed [Toko Tooling baseline](TOKO-TOOLING.md) and its
+revision-bound references. [.toko-tooling.snapshot](.toko-tooling.snapshot)
+records the adopted payload; do not edit it or follow a moving sibling baseline.
+This overlay owns product safeguards, local commands and approved exceptions.
+The baseline owns common action authority, validation, compiler and reporting rules,
+including scoped `git add -N` when validation requires new task-owned paths.
 
-Select tooling with one exact root workspace dependency, inherited as a
-dev-dependency by every real package with its cargo-machete exemption. Cargo.lock
-owns the selection; update the installed snapshot with `make toko-tooling-update`
-and admit it offline with `make toko-tooling-check`. Keep real tools/tests;
-do not create selection-only packages, Rust imports or a separate tooling lock.
+Product packages and the two approved Core dev-support packages live under
+`crates/`; native qualification packages use the independent `qualification/`
+workspace. The maintainer approved keeping `icydb-testing-sql-generator` and
+`icydb-testing-sqlite-reference` in `crates/test-support/` on 2026-11-10: Core's
+Tier C unit tests need private executor access. Published product packages may
+consume this support only through dev-dependencies; the oracle may normally depend
+on the generator. No product edge may enter `qualification/`.
+The support packages retain their existing database-group metadata.
 
-Apply the local [shared engineering baseline](TOKO-TOOLING.md), recorded in
-[the snapshot manifest](.toko-tooling.snapshot). This file is IcyDB's local overlay.
-The shared [layout migration](rules/rust-workspaces.md#adoption-and-verification)
-now requires an independent qualification tree. Its separately scoped migration
-is outstanding; this tooling refresh preserves current package locations and
-does not claim full layout-policy adoption. The maintainer approved one exception on 2026-10-31: Canic
-qualification uses `testing/canic-adapter/Cargo.toml` and its own lockfile, with
-no package-directory relocation ([#596](https://github.com/dragginzgame/icydb/issues/596)).
-Product packages and product gates remain in the root workspace; explicit Canic
-qualification owns its integration checks and may retain an older qualified stack.
-The maintainer authorized Shared 0.30's singular-to-plural test-directory cut on
-2026-11-05 (`canisters/tests/` and `schema/tests/`); package identities and workspace
-ownership remain unchanged. Ordinary adoption does not authorize further relocation or workspaces; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
-owns future placement decisions. See [toko-tooling adoption](docs/governance/toko-tooling.md)
-for provenance and consumer boundaries. Keep this file small; open detailed docs as needed.
+The deferred Canic workspace retains `testing/canic-adapter/Cargo.toml` and its
+own lock under [#596](https://github.com/dragginzgame/icydb/issues/596). Its older
+runtime graph remains deferred under [#373](https://github.com/dragginzgame/icydb/issues/373);
+shared package path references are updated without claiming runtime qualification.
+See [the layout tracker](docs/design/0.308-package-layout/status.md) and
+[tooling adoption](docs/governance/toko-tooling.md) for the remaining boundary.
 
 ## Hard Rules
 
@@ -98,7 +91,7 @@ rather than prohibiting retired names.
 
 - Apply the shared simplicity and ownership rules; avoid incidental refactoring.
 - For saved-review repairs, qualify affected boundary families and prevent facts
-  drifting between owners; follow the repair discipline in `docs/code-review/status.md`.
+  drifting between owners; follow the repair discipline in [the retained review record](https://github.com/dragginzgame/icydb/blob/69d885525d136060e2dbf7d3331910a24ff893a7/docs/code-review/status.md).
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
 - Make the smallest safe change that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
@@ -115,7 +108,8 @@ rather than prohibiting retired names.
   docs and changelog. Continuation stays in the accepted line; new independent
   scope or a release boundary needs its own instruction. File counts are reporting
   signals, not a reason to split compiler fallout into separate releases.
-- Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
+- Use `make fmt` after code edits and `make fmt-check` for non-mutating
+  verification so manifest sorting and all configured source roots are covered.
 - Run focused checks after coherent edits; broad gates require an explicit release or check request.
 - When focused validation reports a Clippy warning, stop later validation, fix
   every warning in that selected gate, and rerun it before handoff. Do not
@@ -149,11 +143,11 @@ rather than prohibiting retired names.
 - Before any changelog edit, follow `docs/governance/changelog.md`.
 - Preserve issue-linked outcome bullets in pending group ledgers when adding
   fixes; do not replace them with an omnibus summary. See the shared
-  [readable layout](rules/changelogs.md#readable-release-layout).
+  [readable layout](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/changelogs.md#readable-release-layout).
 - Keep meaningful completed behavior/tooling notes in the selected release-group ledger
   and minor-line draft before handoff. Governance-only edits need no note unless
   requested. Never create an `Unreleased` section or a separate notes queue.
-- Keep one numbered, undated pending entry per release group under `rules/changelogs.md`.
+- Keep one numbered, undated pending entry per release group under [changelogs.md](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/changelogs.md).
   Derive its version from the latest finalized release and the whole pending
   batch; move only pending detail notes when its minor line changes. Numbering
   does not authorize Cargo version changes or release execution.
@@ -168,11 +162,8 @@ rather than prohibiting retired names.
   resume and publication. Root `CHANGELOG.md` indexes the independent ledgers;
   package versions remain unchanged outside authorized release preparation.
 
-- Follow the shared [contribution rules](rules/contributions.md). Ordinary work
-  leaves staging, commits and pushes to the user. An explicitly requested PR
-  includes its scoped branch, commits, branch push and PR; merging, integration
-  pushes and release effects retain separate authority. A PR is not permission
-  to change package versions or run the maintainer-owned release workflow.
+- Follow the baseline's contribution and delegated-delivery rules. A contribution
+  PR does not select the maintainer-owned release workflow or package-version edits.
 - If the user asks "push?", report whether the current slice is ready to push and summarize validation.
 - A statement that a release is live/pushed records the completed boundary.
   Continued work resumes the accepted coherent scope in that line, uses the
@@ -194,14 +185,9 @@ rather than prohibiting retired names.
 
 ## Final Response
 
-Follow the shared [change-reporting rules](rules/change-reporting.md). Detailed
-line metrics and symbol inventories are opt-in. Keep reports brief and include:
+Follow the shared [change-reporting rules](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/change-reporting.md). Use absolute
+file links; report the outcome, validation, limitations and actionable follow-up
+briefly. Detailed line metrics, symbol inventories and individual check commands
+are opt-in.
 
-- summary
-- files changed, using absolute paths
-- whether validation passed
-- failures or skipped checks, if any
-- follow-up items
-
-Do not list individual test/check commands unless requested.
 Do not include long architectural essays unless requested.

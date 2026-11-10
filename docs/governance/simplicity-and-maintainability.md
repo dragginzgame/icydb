@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The [shared principle](../principles/simplicity-and-maintainability.md) owns the
+The [shared principle](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/principles/simplicity-and-maintainability.md) owns the
 common decision gate. This document applies it to IcyDB's product contracts and
 review workflow; it does not define a separate common-policy authority.
 
@@ -24,14 +24,8 @@ gate used before those mechanisms are extended.
 Avoid scope creep and incidental complexity; prioritise simplicity and
 maintainability.
 
-Prefer, in order:
-
-1. delete an obsolete path;
-2. reuse an existing authority or flow;
-3. narrow an existing surface;
-4. change a safe default or derive behavior automatically;
-5. extend an existing owned contract; and
-6. add a new concept only when the preceding options are insufficient.
+Apply the [shared preferred order](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/docs/principles/simplicity-and-maintainability.md#preferred-order)
+when selecting an IcyDB change.
 
 Do not treat a plausible capability, audit observation, design backlog item, or
 testable combination as a requirement. The no-build outcome is always valid.

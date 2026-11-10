@@ -111,12 +111,25 @@ if [[ "${PUBLISH_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
     reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
     : <&"$reader"
     : >&"$writer"
-    [[ "$CARGO_HOME" == "$PUBLISH_EXPECTED_HOME" ]]
+    if [[ "$1" == metadata ]]; then
+        [[ "$CARGO_HOME" == "$PUBLISH_TEST_ROOT/.cache/cargo/icydb" ]]
+    else
+        [[ "$CARGO_HOME" == "$PUBLISH_EXPECTED_HOME" ]]
+    fi
     [[ "$CARGO_TARGET_DIR" == "$PUBLISH_TEST_ROOT/target/icydb" ]]
 fi
 if [[ "$1" == locate-project ]]; then
     [[ "${FAIL_VERSION_READ:-0}" == 0 ]] || exit 7
     printf '%s\n' "$PWD/Cargo.toml"
+    exit 0
+fi
+if [[ "$1" == metadata ]]; then
+    [[ "$*" == 'metadata --format-version 1 --no-deps --locked --offline' ]]
+    jq -nc --args '$ARGS.positional as $names | {
+        workspace_members: ($names + ["private-helper"]),
+        packages: ($names | map({id:., name:., publish:null})) +
+            [{id:"private-helper",name:"private-helper",publish:[]}]
+    }' icydb-diagnostic-code icydb-schema icydb-model-macros icydb-model icydb-core icydb icydb-cli
     exit 0
 fi
 if [[ "$1" == package ]]; then

@@ -1,6 +1,6 @@
 # IcyDB module surface hardening overlay
 
-Apply [the shared method](../../../../audits/module-surface-hardening.md).
+Apply [the shared method](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/audits/module-surface-hardening.md).
 
 Use the reviewed Shared Tooling revision recorded in
 [the snapshot](../../../../.toko-tooling.snapshot). Apply the shared method

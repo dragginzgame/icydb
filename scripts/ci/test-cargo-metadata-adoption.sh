@@ -59,7 +59,7 @@ if [[ "$ordering_only" == false ]]; then
   cp -R "$ROOT/testing/canic-adapter" "$fixture/repo/testing/"
   # Target moves must follow the current manifests even before they are committed;
   # the archived source otherwise retains auto-discovered actor tests in Build.
-  for directory in testing/build/tests testing/integration/tests; do
+  for directory in qualification/build/tests testing/integration/tests; do
     rm -rf "$fixture/repo/$directory"
     if [[ -d "$ROOT/$directory" ]]; then
       cp -R "$ROOT/$directory" "$fixture/repo/$directory"
@@ -67,7 +67,7 @@ if [[ "$ordering_only" == false ]]; then
   done
   # Current member/target paths must accompany current manifests during the
   # plural-directory hard cut and Cargo binary-directory migration.
-  for directory in canisters/tests schema/tests testing/build/src/bin; do
+  for directory in canisters/tests qualification crates/test-support; do
     rm -rf "$fixture/repo/$directory"
     cp -R "$ROOT/$directory" "$fixture/repo/$directory"
   done
@@ -123,6 +123,9 @@ if [[ "$ordering_only" == false ]]; then
     sed '/^remain = /d' "$fixture/member.toml" > crates/icydb-diagnostic-code/Cargo.toml
     printf '\n[%s.adoption_alias]\nworkspace = true\n' "$section" \
       >> crates/icydb-diagnostic-code/Cargo.toml
+    # Product dependency kinds alter the qualification lock's nonmember closure.
+    CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --offline --format-version 1 \
+      --manifest-path qualification/Cargo.toml > "$fixture/renamed-qualification.json"
     check || { cat "$fixture/check.log" >&2; exit 1; }
     printf 'version = "1"\n' >> crates/icydb-diagnostic-code/Cargo.toml
     if check; then echo 'member dependency source override admitted' >&2; exit 1; fi
@@ -134,6 +137,8 @@ if [[ "$ordering_only" == false ]]; then
     > crates/icydb-diagnostic-code/Cargo.toml
   if check; then echo 'mismatched group member version admitted' >&2; exit 1; fi
   cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+  CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --offline --format-version 1 \
+    --manifest-path qualification/Cargo.toml > "$fixture/restored-qualification.json"
   check || { cat "$fixture/check.log" >&2; exit 1; }
   # Exercise the actual consumer allowlist before injecting a forbidden canonical
   # SDK/substrate identity through aliases, disabled optional features and inactive targets.

@@ -7,7 +7,5 @@ mod bounds;
 mod projection;
 
 pub(in crate::db::session::sql::execute) use bounds::validate_sql_materialized_returning_bounds;
-pub(in crate::db::session::sql::execute) use projection::{
-    projection_labels_from_accepted_write_descriptor, sql_returning_statement_projection,
-    validate_sql_returning_projection_fields,
-};
+pub(in crate::db::session::sql) use projection::SqlReturningProjectionPlan;
+pub(in crate::db::session::sql::execute) use projection::sql_returning_statement_projection;

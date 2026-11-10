@@ -142,16 +142,12 @@ impl<C: CanisterKind> DbSession<C> {
                 catalog.accepted_schema_info(),
                 bindings,
             )?;
-            let resident = SqlCompiledCommandCacheEntry {
-                root: catalog.runtime_root_identity(),
-                entity_name: sql_statement_entity_name_from_statement(parsed).map(Rc::from),
-                command: SqlCachedCommand::Parameterized(Rc::new(template)),
-            };
-            if let Some(bytes) = compiled_command_retained_bytes(&key, &resident) {
-                self.with_sql_compiled_command_cache(|cache| {
-                    cache.insert_weighted(key, resident, bytes);
-                });
-            }
+            self.admit_sql_compiled_command(
+                key,
+                &catalog,
+                parsed,
+                SqlCachedCommand::Parameterized(Rc::new(template)),
+            );
             return Ok(SqlCompiledCommandExecutionContext::new(
                 compiled, catalog, surface,
             ));
@@ -187,18 +183,35 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Queries are owned by the clone, so execution-local memoization cannot
         // grow the resident command after its retained-byte admission.
+        self.admit_sql_compiled_command(
+            cache_key,
+            catalog,
+            parsed,
+            SqlCachedCommand::Literal(compiled.clone()),
+        );
+
+        Ok(compiled)
+    }
+
+    // Literal commands and parameter templates share root identity, entity
+    // routing and retained-size admission. A refused resident never blocks execution.
+    fn admit_sql_compiled_command(
+        &self,
+        key: SqlCompiledCommandCacheKey,
+        catalog: &AcceptedSchemaCatalogContext,
+        parsed: &SqlStatement,
+        command: SqlCachedCommand,
+    ) {
         let resident = SqlCompiledCommandCacheEntry {
             root: catalog.runtime_root_identity(),
             entity_name: sql_statement_entity_name_from_statement(parsed).map(Rc::from),
-            command: SqlCachedCommand::Literal(compiled.clone()),
+            command,
         };
-        if let Some(bytes) = compiled_command_retained_bytes(&cache_key, &resident) {
+        if let Some(bytes) = compiled_command_retained_bytes(&key, &resident) {
             self.with_sql_compiled_command_cache(|cache| {
-                cache.insert_weighted(cache_key, resident, bytes);
+                cache.insert_weighted(key, resident, bytes);
             });
         }
-
-        Ok(compiled)
     }
 }
 

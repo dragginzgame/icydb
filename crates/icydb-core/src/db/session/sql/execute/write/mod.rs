@@ -16,16 +16,15 @@ use crate::{
             },
         },
         query::intent::StructuralQuery,
-        schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
+        schema::AcceptedSchemaSnapshot,
         session::sql::{
             CompiledSqlCommand, SqlCompiledCommandSurface, SqlStatementResult,
             execute::write_returning::{
-                projection_labels_from_accepted_write_descriptor,
-                sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
+                SqlReturningProjectionPlan, sql_returning_statement_projection,
+                validate_sql_materialized_returning_bounds,
             },
             write_policy::{MAX_SQL_WRITE_SCANNED_KEYS, SqlWriteReturningBounds},
         },
-        sql::parser::SqlReturningProjection,
         write_context::{AcceptedWriteContext, MutationMode},
     },
     traits::CanisterKind,
@@ -33,9 +32,9 @@ use crate::{
 };
 use authority::{
     accepted_write_field_slot, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_write_input_for_accepted_field,
-    sql_write_input_for_assignment_result, sql_write_patch_set_accepted_field,
-    sql_write_patch_set_insert_default, sql_write_patch_set_update_default,
+    reject_explicit_sql_write_to_managed_field, resolve_sql_write_field,
+    sql_write_input_for_accepted_field, sql_write_input_for_assignment_result,
+    sql_write_patch_set_insert_default,
 };
 use candidate::{
     SqlWriteCandidateBounds, SqlWriteMutationBatch, sql_exact_update_candidate_bounds,
@@ -100,20 +99,15 @@ where
 
 fn sql_write_mutation_statement_result(
     rows: Vec<Vec<Value>>,
-    returning: Option<&SqlReturningProjection>,
-    columns: Vec<String>,
+    returning: Option<&SqlReturningProjectionPlan>,
     catalog: &AcceptedSchemaCatalogContext,
 ) -> Result<SqlStatementResult, QueryError> {
     let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
     match returning {
         None => Ok(SqlStatementResult::Count { row_count }),
-        Some(returning) => sql_returning_statement_projection(
-            catalog.enum_catalog(),
-            columns,
-            rows,
-            row_count,
-            returning,
-        ),
+        Some(returning) => {
+            sql_returning_statement_projection(catalog.enum_catalog(), rows, row_count, returning)
+        }
     }
 }
 
@@ -200,9 +194,8 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_sql_write_mutation_batch(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         execution: SqlWriteMutationExecution,
-        returning: Option<&SqlReturningProjection>,
+        returning: Option<&SqlReturningProjectionPlan>,
     ) -> Result<SqlStatementResult, QueryError> {
         let rows = execution
             .rows
@@ -210,7 +203,6 @@ impl<C: CanisterKind> DbSession<C> {
             .into_iter()
             .map(|(target, patch)| AcceptedStructuralMutation::save(execution.mode, target, patch))
             .collect();
-        let columns = projection_labels_from_accepted_write_descriptor(descriptor);
         let rows = self
             .execute_accepted_structural_save_batch(
                 catalog,
@@ -228,7 +220,6 @@ impl<C: CanisterKind> DbSession<C> {
                     validate_sql_materialized_returning_bounds(
                         self.sql_returning_response_len,
                         catalog.snapshot().persisted_snapshot().entity_name(),
-                        columns.as_slice(),
                         values.as_slice(),
                         returning,
                         catalog.enum_catalog(),
@@ -239,6 +230,6 @@ impl<C: CanisterKind> DbSession<C> {
             )
             .map_err(QueryError::execute)?;
 
-        sql_write_mutation_statement_result(rows, returning, columns, catalog)
+        sql_write_mutation_statement_result(rows, returning, catalog)
     }
 }

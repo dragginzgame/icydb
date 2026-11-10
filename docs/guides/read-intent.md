@@ -115,7 +115,7 @@ This is a plain Rust handler. The application mounts it with
 `canic_icydb::wire_endpoint!` and `canic_icydb::serve_raw`, using an application-owned
 method identity and bounded `ic_wire::native::decode_request` / `encode_response`
 callbacks. The [compiled typed-query actor](../../canisters/audit/one_entity_typed_query/src/lib.rs)
-and [fixture export helper](../../testing/wasm-helpers/src/fixture_wire.rs) demonstrate
+and [fixture export helper](../../qualification/wasm-helpers/src/fixture_wire.rs) demonstrate
 that composition; the helper's method roster and identities are test fixtures,
 not an application dependency. A Candid-generating SDK query attribute does not
 encode this native contract.

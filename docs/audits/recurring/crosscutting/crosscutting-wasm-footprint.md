@@ -22,7 +22,7 @@ Measure and report:
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution
 
 The canonical subject roster and default selection are recorded in
-[wasm_measurement_subjects.tsv](../../../../testing/build/src/wasm_measurement_subjects.tsv).
+[wasm_measurement_subjects.tsv](../../../../qualification/build/src/wasm_measurement_subjects.tsv).
 Rust admission and the portable shell adapters consume this same file.
 It includes the empty/metrics controls, four nested-relation controls, query
 and entity-scale actors, request-future scaling, `sql_perf`, and `sql`.

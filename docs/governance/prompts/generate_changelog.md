@@ -1,7 +1,7 @@
 # IcyDB Changelog Preparation Prompt
 
 Prepare changelog material for IcyDB. Before acting, read and follow
-the shared `rules/changelogs.md` and local `docs/governance/changelog.md`.
+the shared [changelogs.md](https://github.com/dragginzgame/toko-tooling/blob/5806e6e4943f6be600cd53385498ce08a5f804c4/rules/changelogs.md) and local `docs/governance/changelog.md`.
 `AGENTS.md` establishes policy precedence; this helper does not override either.
 
 ## Inputs

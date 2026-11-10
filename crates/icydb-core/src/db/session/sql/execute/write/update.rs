@@ -1,9 +1,8 @@
 use super::{
     SqlWriteMutationExecution, accepted_write_field_slot,
     reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
+    resolve_sql_write_field, sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
     sql_write_input_for_accepted_field, sql_write_input_for_assignment_result,
-    sql_write_patch_set_accepted_field, sql_write_patch_set_update_default,
 };
 use crate::db::query::preparation::PreparationWork;
 use crate::{
@@ -140,43 +139,20 @@ impl<C: CanisterKind> DbSession<C> {
                     SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
                 ));
             }
+            let field = resolve_sql_write_field(descriptor, assignment.field.as_str())?;
             patch = match &assignment.value {
                 SqlWriteValue::Literal(value) => {
-                    reject_explicit_sql_write_to_generated_field(
-                        descriptor,
-                        assignment.field.as_str(),
-                    )?;
-                    reject_explicit_sql_write_to_managed_field(
-                        descriptor,
-                        assignment.field.as_str(),
-                    )?;
-                    let input = sql_write_input_for_accepted_field(
-                        descriptor,
-                        assignment.field.as_str(),
-                        value,
-                    )?;
-                    sql_write_patch_set_accepted_field(
-                        descriptor,
-                        patch,
-                        assignment.field.as_str(),
-                        input,
-                    )?
+                    reject_explicit_sql_write_to_generated_field(field)?;
+                    reject_explicit_sql_write_to_managed_field(field)?;
+                    let input = sql_write_input_for_accepted_field(field, value)?;
+                    patch.set_authored(accepted_write_field_slot(field), input)
                 }
-                SqlWriteValue::Default => sql_write_patch_set_update_default(
-                    descriptor,
-                    patch,
-                    assignment.field.as_str(),
-                )?,
+                SqlWriteValue::Default => {
+                    patch.set_explicit_update_default(accepted_write_field_slot(field))
+                }
                 SqlWriteValue::Expression(_) => {
-                    accepted_write_field_slot(descriptor, assignment.field.as_str())?;
-                    reject_explicit_sql_write_to_generated_field(
-                        descriptor,
-                        assignment.field.as_str(),
-                    )?;
-                    reject_explicit_sql_write_to_managed_field(
-                        descriptor,
-                        assignment.field.as_str(),
-                    )?;
+                    reject_explicit_sql_write_to_generated_field(field)?;
+                    reject_explicit_sql_write_to_managed_field(field)?;
                     patch
                 }
             };
@@ -232,7 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             Some(statement.entity.as_str()),
             statement.returning.as_ref(),
-            |catalog, descriptor| {
+            |catalog, descriptor, projection| {
                 let authority = catalog.accepted_entity_authority();
                 let entity_tag = catalog.identity().entity_tag();
                 let selector = execution_contract.selector(
@@ -269,7 +245,6 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
                 self.execute_sql_write_mutation_batch(
                     catalog,
-                    &descriptor,
                     SqlWriteMutationExecution::from_bounded_batch(
                         rows,
                         candidate_bounds,
@@ -277,7 +252,7 @@ impl<C: CanisterKind> DbSession<C> {
                         write_context,
                         execution_contract.returning_bounds(statement.returning.is_some()),
                     )?,
-                    statement.returning.as_ref(),
+                    projection.as_ref(),
                 )
             },
         )
@@ -306,17 +281,9 @@ impl<C: CanisterKind> DbSession<C> {
             patch = match &assignment.value {
                 SqlWriteValue::Expression(_) => {
                     let value = values.next().ok_or_else(QueryError::invariant)?;
-                    let input = sql_write_input_for_assignment_result(
-                        descriptor,
-                        assignment.field.as_str(),
-                        value,
-                    )?;
-                    sql_write_patch_set_accepted_field(
-                        descriptor,
-                        patch,
-                        assignment.field.as_str(),
-                        input,
-                    )?
+                    let field = resolve_sql_write_field(descriptor, assignment.field.as_str())?;
+                    let input = sql_write_input_for_assignment_result(field, value)?;
+                    patch.set_authored(accepted_write_field_slot(field), input)
                 }
                 SqlWriteValue::Literal(_) | SqlWriteValue::Default => {
                     // Fixed intents retain occurrence order, including duplicate fields.
@@ -341,7 +308,7 @@ impl<C: CanisterKind> DbSession<C> {
             None,
             entity_name,
             None,
-            |catalog, descriptor| {
+            |catalog, descriptor, _projection| {
                 with_accepted_sql_update_policy_context(&descriptor, |context| {
                     PreparationWork::run(
                         self.db.request_execution_scope(),

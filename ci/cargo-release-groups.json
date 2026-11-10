@@ -15,22 +15,8 @@
         "icydb-model",
         "icydb-model-macros",
         "icydb-schema",
-        "icydb-testing-audit-default-empty-fixtures",
-        "icydb-testing-audit-group-path-fixtures",
-        "icydb-testing-audit-one-simple-fixtures",
-        "icydb-testing-audit-sql-perf-fixtures",
-        "icydb-testing-audit-ten-simple-fixtures",
-        "icydb-testing-build",
-        "icydb-testing-codec-query",
-        "icydb-testing-demo-rpg-fixtures",
-        "icydb-testing-model-schema-only",
-        "icydb-testing-model-typed-adapter",
-        "icydb-testing-source-checks",
         "icydb-testing-sql-generator",
-        "icydb-testing-sqlite-reference",
-        "icydb-testing-test-fixtures",
-        "icydb-testing-test-sql-fixtures",
-        "icydb-testing-wasm-helpers"
+        "icydb-testing-sqlite-reference"
       ],
       "changelog": "releases/database/CHANGELOG.md",
       "dependencies": [
@@ -40,27 +26,13 @@
         "icydb-model",
         "icydb-model-macros",
         "icydb-schema",
-        "icydb-testing-audit-default-empty-fixtures",
-        "icydb-testing-audit-group-path-fixtures",
-        "icydb-testing-audit-one-simple-fixtures",
-        "icydb-testing-audit-sql-perf-fixtures",
-        "icydb-testing-audit-ten-simple-fixtures",
-        "icydb-testing-build",
-        "icydb-testing-codec-query",
-        "icydb-testing-demo-rpg-fixtures",
-        "icydb-testing-model-schema-only",
-        "icydb-testing-model-typed-adapter",
-        "icydb-testing-source-checks",
         "icydb-testing-sql-generator",
         "icydb-testing-sqlite-reference",
-        "icydb-testing-test-fixtures",
-        "icydb-testing-test-sql-fixtures",
-        "icydb-testing-wasm-helpers",
         "model_api",
         "runtime_api"
       ],
       "metadata_files": [
-        "releases/database/0.307.md"
+        "releases/database/0.308.md"
       ]
     },
     {
@@ -78,5 +50,6 @@
         "releases/cli/0.296.md"
       ]
     }
-  ]
+  ],
+  "qualification_workspace": "qualification"
 }
