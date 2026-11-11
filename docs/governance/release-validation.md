@@ -124,6 +124,12 @@ the reviewed Make/group declaration digests so full validation can start.
 Preserve native comparison certificates: the changed inputs still select the
 full gate, and this metadata correction authorizes no selected-stage omission.
 
+The 0.309 deployment review readmits only the database detail-note move from
+`releases/database/0.308.md` to `releases/database/0.309.md`. Group membership,
+dependency ownership, Make recipes and the full stage roster are unchanged.
+Refresh only the reviewed group declaration digest so full validation can start;
+preserve the existing native certificates without granting selected omissions.
+
 `ci/release-validation.json` is the single complete stage roster. Its mapping
 contract classifies four supplemental CLI stages and two collecting stages;
 `validation-stages.pl` derives the full gate's fail-fast and collecting selections

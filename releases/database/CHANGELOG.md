@@ -46,6 +46,9 @@ begin with 0.295.0 below.
 
 ### 🩹 Fixed
 
+- Readmit the release mapping after moving pending notes to 0.309, allowing
+  full release validation to start without renewing selected-stage qualification.
+
 - Restore browser codec qualification after the native workspace split by
   selecting the qualification workspace for its contract generator.
 - Keep index-spec invariant scanning aligned with canonical executor errors after cleanup.
