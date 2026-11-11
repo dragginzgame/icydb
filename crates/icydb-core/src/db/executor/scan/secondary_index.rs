@@ -36,7 +36,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     };
     let index_prefix_specs = bindings.index_prefix_specs;
     if index_prefix_specs.len() != path_facts.index_prefix_spec_count() {
-        return Err(InternalError::secondary_index_prefix_spec_required());
+        return Err(InternalError::query_executor_invariant());
     }
     if index_prefix_specs.is_empty() {
         return Ok(None);

@@ -172,23 +172,6 @@ fn branch_distinct_expression_projection_replays_canonical_duplicates() {
     }
 }
 
-fn collect_live(
-    query: &DynamicQuery,
-    public: bool,
-    cursor: Option<String>,
-) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    collect_test_pages(cursor, 16, |cursor| {
-        let root = RequestExecutionRoot::__new_runtime_root();
-        let session = new_request_session(&root);
-        if public {
-            session.execute_public_live_page(query, cursor)
-        } else {
-            session.execute_trusted_live_page(query, cursor)
-        }
-        .unwrap()
-    })
-}
-
 #[test]
 fn branch_distinct_live_resume_preserves_page_union_and_every_suffix() {
     initialize_branches();
@@ -197,17 +180,17 @@ fn branch_distinct_live_resume_preserves_page_union_and_every_suffix() {
         let expected = expected_groups(descending);
         for public in [false, true] {
             for _ in 0..2 {
-                let (rows, tokens) = collect_live(&query, public, None);
+                let (rows, tokens) = collect_distinct_live_pages(&query, public, None);
                 assert_eq!(rows, expected);
                 assert!(!tokens.is_empty());
                 for (token, offset) in tokens {
                     assert_eq!(
-                        collect_live(&query, public, Some(token)).0,
+                        collect_distinct_live_pages(&query, public, Some(token)).0,
                         expected[offset..]
                     );
                 }
                 assert_eq!(
-                    collect_live(&query.clone().limit(1), public, None).0,
+                    collect_distinct_live_pages(&query.clone().limit(1), public, None).0,
                     expected[..1]
                 );
             }

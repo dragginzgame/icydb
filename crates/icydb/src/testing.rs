@@ -7,7 +7,7 @@ use std::{task::Poll, time::Duration};
 
 use crate::db::DatabaseStartupState;
 
-pub use ic_testkit::{pic::TickUntilError, pocket_ic::PocketIc};
+pub use ic_testkit::pic::{PocketIcInstance, TickUntilError};
 
 /// Wait for IcyDB startup using a caller-supplied typed readiness observation.
 ///
@@ -27,16 +27,22 @@ pub use ic_testkit::{pic::TickUntilError, pocket_ic::PocketIc};
 /// configure a server, register timers, or drive recovery inside the canister.
 ///
 /// # Errors
-/// Returns Testkit's typed observation/progression failure or exhausted round
+/// Returns Testkit's typed observation failure or exhausted round
 /// budget. The observation's original error is preserved in `TickUntilError::Failed`.
+///
+/// # Panics
+/// Propagates upstream PocketIC transport panics during simulated progression.
 pub async fn drive_startup<E>(
-    pic: &PocketIc,
+    instance: &PocketIcInstance,
     max_rounds: u32,
-    mut observe: impl AsyncFnMut(&PocketIc) -> Result<DatabaseStartupState, E>,
+    mut observe: impl AsyncFnMut() -> Result<DatabaseStartupState, E>,
 ) -> Result<(), TickUntilError<E>> {
-    ic_testkit::pic::tick_until(pic, max_rounds, Duration::from_secs(1), async |pic| {
-        startup_poll(observe(pic).await)
-    })
+    ic_testkit::pic::tick_until(
+        instance.instance(),
+        max_rounds,
+        Duration::from_secs(1),
+        async |_| startup_poll(observe().await),
+    )
     .await
 }
 

@@ -17,6 +17,21 @@ Every row in this inventory follows the default pre-`1.0.0` posture: one
 current internal form, every genuine format discriminator is version 1,
 noncurrent bytes fail closed, and no legacy fallback is retained.
 
+## 0.309 Storage whole-backing hard cut
+
+Storage 0.73 replaces named backing and all collection engines. Current formats
+are `STORNAM1`, `STORMAP1`, `STORVECT` and `STORCELL`, version 1. Earlier whole
+images, including Storage 0.72's `ICBUCK01` backing, reject without writes before
+IcyDB can adopt their allocations. Hosts explicitly provide fresh/reset whole
+backing; no converter, automatic reset or mixed old/new allocation recovery is
+provided. Retain old binaries/backups for required recovery outside this cut.
+Fresh installs retain same-contract cold reopen and interrupted-operation recovery.
+
+The default Storage control reservation is 18 Wasm pages. IcyDB's restricted
+schema-control region uses Storage's current map framing and its unchanged
+application-owned `ICYSCMID` header. Retired collection framing rejects unchanged.
+IcyDB continues to own record codecs, checksums, semantic admission and recovery.
+
 ## 0.303 identity checkpoint hard cut
 
 The current database boot identity is `ICYDBID\0`, version 1. It rejects the

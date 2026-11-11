@@ -3,6 +3,17 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.10]
+
+### 🔧 Changed
+
+- Adopt Host Tools 0.90.0, Host Foundation 0.76.4 and Host Text 0.74.5 for
+  CLI host operations, with the current compatible Platform patches and Wire 0.21.1.
+- Adopt Toko Tooling 0.39.10 for the shared native dependency-admission rules.
+- Align CLI build/schema consumers with Storage 0.73 in the pending database stack.
+
+[Detailed changes](0.296.md).
+
 ## [0.296.9] - 2026-11-10
 
 ### 🔧 Changed

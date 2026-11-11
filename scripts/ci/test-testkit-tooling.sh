@@ -4,16 +4,11 @@ set -euo pipefail
 # Qualify the consumer's locked selection and execution boundary. Shared owns
 # Cargo receipts; Testkit owns server authentication and lifecycle fixtures.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-testkit-tools.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-testkit-tools.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-  else echo "Testkit tooling fixture retained: $fixture" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$fixture" "Testkit tooling fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/make" "$fixture/bin" "$fixture/.tools/host/bin"
 cp "$ROOT/Makefile" "$fixture/"
 cp "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/make/"

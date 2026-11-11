@@ -117,6 +117,13 @@ are two-element tuples, matching Rust `(PublicValue, PublicValue)`: valid payloa
 and traversal charges are unchanged, and wrong-length entries fail with a value
 error. TypeScript now rejects those malformed pairs at compile time too.
 
+Wire 0.21 derives internal definition names from their types rather than registry
+positions. Regenerate clients and replace any positional type imports; the 111
+explicit IcyDB browser names remain available. The reviewed baseline resolves
+all 228 previous and 285 current definitions to the same ordered layouts, with
+unchanged method identities, modes and budgets. Native/consumer vectors and the
+shared browser runtime remain byte-identical.
+
 The schema wire policy owns native allowances and the intentionally narrower
 browser 32,768-value/32-level allowances. Wire's `method_limits` projects those
 constants; Rust allocation admission is not a JavaScript heap limit.
@@ -154,8 +161,11 @@ accommodate the maintained 76-entity fixture schema (11,174 visited values),
 while remaining deliberately smaller browser limits, not inferred static bounds on arbitrary
 Serde types. Collection counts are admitted before retaining their elements.
 Strings count UTF-8 bytes; integers wider than 32 bits use `bigint`; byte strings
-use `Uint8Array`. Unknown tags, invalid primitive encodings, nonminimal varints,
-wrong method/direction and trailing bytes refuse. Rust retains domain validation,
+use `Uint8Array`. Wire 0.20 accepts redundant integer and length groups within
+Postcard's width bounds; browser lengths use Wasm32's five-group ceiling.
+Unknown tags, primitive overflow, malformed encodings, wrong method/direction and
+trailing bytes refuse. Retain original frames for exact retries, signatures or
+hashes: successful decoding can normalize values. Rust retains domain validation,
 accepted-schema authority and the native node/heap/depth admission. Browser limits
 do not measure or guarantee JavaScript engine heap use; SDK transport buffers are
 allocated before reply decoding. Request smaller pages after a limit refusal.

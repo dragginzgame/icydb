@@ -32,24 +32,6 @@ pub(in crate::db) use read::IndexPlanReadView;
 
 use metadata::PreparedIndexInputs;
 
-// Distinguish the two structural key-build lanes so planner diagnostics can
-// preserve the existing insertion-vs-removal error taxonomy.
-#[derive(Clone, Copy)]
-enum IndexKeyLane {
-    Old,
-    New,
-}
-
-impl IndexKeyLane {
-    // Map one missing entity-key case back onto the planner-owned internal error.
-    fn missing_entity_key_error(self) -> InternalError {
-        match self {
-            Self::Old => InternalError::structural_index_removal_entity_key_required(),
-            Self::New => InternalError::structural_index_insertion_entity_key_required(),
-        }
-    }
-}
-
 // The existing two-family key authority now serves mutation and uniqueness.
 // Key construction stays specialized; transition ordering has one owner.
 enum AcceptedIndexKeyAuthority<'a> {
@@ -86,12 +68,11 @@ impl<'a> AcceptedIndexKeyAuthority<'a> {
 
     fn load_key(
         &self,
-        lane: IndexKeyLane,
         entity_tag: EntityTag,
         primary_key: Option<&PrimaryKeyValue>,
         slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<IndexKey>, InternalError> {
-        let primary_key = primary_key.ok_or_else(|| lane.missing_entity_key_error())?;
+        let primary_key = primary_key.ok_or_else(InternalError::index_internal)?;
 
         self.build_index_key_from_row_slots(entity_tag, primary_key, slots)
     }
@@ -188,7 +169,7 @@ fn validate_existing_old_index_membership(
     }
 
     let Some(old_primary_key) = old_primary_key else {
-        return Err(InternalError::structural_index_removal_entity_key_required());
+        return Err(InternalError::index_internal());
     };
 
     let entry = old_entry.ok_or_else(InternalError::structural_index_entry_corruption)?;
@@ -289,9 +270,7 @@ fn plan_accepted_index_mutation_for_slot_reader_structural(
     // Verification rebuilds every after-image key. Admit it even when the
     // indexed inputs are unchanged, then reuse it without reading index state.
     let new_key = match new_slots {
-        Some(slots) => {
-            accepted_index.load_key(IndexKeyLane::New, entity_tag, new_primary_key, slots)?
-        }
+        Some(slots) => accepted_index.load_key(entity_tag, new_primary_key, slots)?,
         None => None,
     };
     if unchanged_index_inputs(
@@ -307,9 +286,7 @@ fn plan_accepted_index_mutation_for_slot_reader_structural(
     let read_contract = accepted_index.read_contract();
     let index_store = read_contract.store_path();
     let old_key = match old_slots {
-        Some(slots) => {
-            accepted_index.load_key(IndexKeyLane::Old, entity_tag, old_primary_key, slots)?
-        }
+        Some(slots) => accepted_index.load_key(entity_tag, old_primary_key, slots)?,
         None => None,
     };
 
@@ -391,14 +368,14 @@ fn push_index_delta_group(
 
     if let Some(old_key) = old_key {
         let Some(_) = old_primary_key else {
-            return Err(InternalError::index_commit_op_old_entity_key_required());
+            return Err(InternalError::index_internal());
         };
         deltas.push(IndexDelta::remove(old_key));
     }
 
     if let Some(new_key) = new_key {
         let Some(_) = new_primary_key else {
-            return Err(InternalError::index_commit_op_new_entity_key_required());
+            return Err(InternalError::index_internal());
         };
         deltas.push(IndexDelta::insert(new_key));
     }

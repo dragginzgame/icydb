@@ -322,23 +322,6 @@ fn default_cursor_query() -> DynamicQuery {
         .distinct_for_internal_execution()
 }
 
-fn collect_live(
-    query: &DynamicQuery,
-    public: bool,
-    cursor: Option<String>,
-) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
-    collect_test_pages(cursor, 16, |cursor| {
-        let root = RequestExecutionRoot::__new_runtime_root();
-        let session = new_request_session(&root);
-        if public {
-            session.execute_public_live_page(query, cursor)
-        } else {
-            session.execute_trusted_live_page(query, cursor)
-        }
-        .unwrap()
-    })
-}
-
 #[test]
 fn unordered_distinct_default_cursor_order_preserves_live_and_exhaustive_results() {
     initialize_components();
@@ -350,12 +333,12 @@ fn unordered_distinct_default_cursor_order_preserves_live_and_exhaustive_results
         vec![OutputValue::nat64(9), OutputValue::text("alpha".into())],
     ];
     for public in [false, true] {
-        let (rows, tokens) = collect_live(&query, public, None);
+        let (rows, tokens) = collect_distinct_live_pages(&query, public, None);
         assert_eq!(rows, expected);
         assert!(!tokens.is_empty());
         for (token, offset) in tokens {
             assert_eq!(
-                collect_live(&query, public, Some(token)).0,
+                collect_distinct_live_pages(&query, public, Some(token)).0,
                 expected[offset..]
             );
         }

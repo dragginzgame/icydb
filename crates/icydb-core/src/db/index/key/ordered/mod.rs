@@ -157,12 +157,12 @@ pub(in crate::db) fn decode_canonical_index_int64_component(
 ) -> Result<i64, InternalError> {
     let (&tag, payload) = component
         .split_first()
-        .ok_or_else(InternalError::bytes_covering_component_payload_empty)?;
+        .ok_or_else(InternalError::index_corruption)?;
     if tag != ValueTag::Int64.to_u8() {
         return Err(InternalError::query_executor_invariant());
     }
     let Ok(bytes) = <[u8; 8]>::try_from(payload) else {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
+        return Err(InternalError::index_corruption());
     };
     Ok(i64::from_be_bytes(
         (u64::from_be_bytes(bytes) ^ (1_u64 << 63)).to_be_bytes(),

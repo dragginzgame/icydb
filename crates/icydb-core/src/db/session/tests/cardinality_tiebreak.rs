@@ -2115,3 +2115,21 @@ fn collect_test_pages(
     }
     panic!("pages must exhaust within the bounded page count");
 }
+
+// DISTINCT scenarios use the same fresh request scope for each page and retry.
+fn collect_distinct_live_pages(
+    query: &DynamicQuery,
+    public: bool,
+    cursor: Option<String>,
+) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
+    collect_test_pages(cursor, 16, |cursor| {
+        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let session = new_request_session(&root);
+        if public {
+            session.execute_public_live_page(query, cursor)
+        } else {
+            session.execute_trusted_live_page(query, cursor)
+        }
+        .unwrap()
+    })
+}

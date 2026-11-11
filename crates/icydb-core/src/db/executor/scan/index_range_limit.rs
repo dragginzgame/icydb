@@ -36,7 +36,7 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
         return Ok(None);
     };
     let Some(index_range_spec) = index_range_spec else {
-        return Err(InternalError::index_range_limit_spec_required());
+        return Err(InternalError::query_executor_invariant());
     };
     debug_assert_eq!(
         index_range_spec.scan_contract().name(),

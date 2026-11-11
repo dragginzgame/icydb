@@ -51,7 +51,7 @@
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "rusqlite",
-    "value": "=0.41.1",
+    "value": "=0.42.0",
     "reason": "Fix the bundled SQLite reference backend used as the SQL correctness oracle.",
     "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
@@ -59,7 +59,7 @@
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.39.7",
+    "value": "=0.39.10",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   },
@@ -67,7 +67,7 @@
     "rule": "cargo-exact",
     "file": "testing/canic-adapter/Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.39.7",
+    "value": "=0.39.10",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   },
@@ -123,7 +123,7 @@
     "rule": "cargo-exact",
     "file": "qualification/Cargo.toml",
     "subject": "rusqlite",
-    "value": "=0.41.1",
+    "value": "=0.42.0",
     "reason": "Fix the bundled SQLite reference backend used as the SQL correctness oracle.",
     "evidence": "docs/governance/toko-tooling.md#dependency-selection"
   },
@@ -131,7 +131,7 @@
     "rule": "cargo-exact",
     "file": "qualification/Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.39.7",
+    "value": "=0.39.10",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   }

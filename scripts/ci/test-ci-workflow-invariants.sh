@@ -16,16 +16,11 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 export YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workflow-policy.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-workflow-policy.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-  else echo "Workflow fixture failure retained: $fixture" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$fixture" "Workflow fixture failure retained"' EXIT
 mkdir -p "$fixture/.github/workflows" "$fixture/scripts/ci" "$fixture/scripts/release" \
   "$fixture/ci" "$fixture/testing/integration/src"
 cp "$ROOT/Makefile" "$fixture/"

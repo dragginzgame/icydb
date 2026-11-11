@@ -629,12 +629,8 @@ impl IndexStore {
         let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
             return Err(crate::error::InternalError::store_invariant());
         };
-        let keys = keys.into_iter().collect::<BTreeSet<_>>();
-        for key in &keys {
-            positions.preflight_publish(key, position)?;
-        }
         Ok(PreparedIndexPositionPublication {
-            keys: keys.into_iter().collect(),
+            keys: positions.preflight_publication_keys(keys, position)?,
             position,
         })
     }
@@ -665,17 +661,9 @@ impl IndexStore {
         let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
             return Err(crate::error::InternalError::store_invariant());
         };
-        let entries = keys
-            .into_iter()
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .map(|key| {
-                positions
-                    .preflight_retirement(&key, position)
-                    .map(|retirement| (key, retirement))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(PreparedIndexPositionRetirement { entries })
+        Ok(PreparedIndexPositionRetirement {
+            entries: positions.preflight_retirements(keys, position)?,
+        })
     }
 
     /// Retire only exact index overlays after canonical mutation succeeds.

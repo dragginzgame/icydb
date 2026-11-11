@@ -20,16 +20,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
 mkdir -p "$ROOT/target"
-fixture="$(mktemp -d "$ROOT/target/cargo-adoption.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "$ROOT/target/cargo-adoption.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-  else echo "Cargo adoption fixture retained: $fixture" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$fixture" "Cargo adoption fixture retained"' EXIT
 mkdir -p "$fixture/templates"
 # Synthetic repositories must not inherit the caller's Git/index context,
 # signing policy or template hooks. Keep overrides confined to this process.
@@ -42,47 +37,18 @@ done <<< "$git_context"
 # Keep the broader dependency matrix out of focused ordering qualification.
 if [[ "$ordering_only" == false ]]; then
   mkdir "$fixture/repo"
-  git -C "$ROOT" archive --format=tar HEAD > "$fixture/source.tar"
-  tar -xf "$fixture/source.tar" -C "$fixture/repo"
-  git -C "$ROOT" ls-files --cached --others --exclude-standard -z -- '*Cargo.toml' > "$fixture/manifests"
+  # Copy each current Git-visible input once. Deleted paths stay absent, and
+  # pending source/lock/tooling changes share the same inventory as manifests.
+  git -C "$ROOT" ls-files --cached --others --exclude-standard -z > "$fixture/source-paths"
   while IFS= read -r -d '' path; do
-    if [[ -f "$ROOT/$path" ]]; then
-      mkdir -p "$fixture/repo/$(dirname "$path")"
-      cp "$ROOT/$path" "$fixture/repo/$path"
-    else
-      # A retired manifest in HEAD must not join current workspace discovery.
-      rm -f "$fixture/repo/$path"
-    fi
-  done < "$fixture/manifests"
-  # The pending qualification workspace is not in the committed archive yet.
-  # Copy its actual manifest, lock and targets together before Cargo admission.
-  cp -R "$ROOT/testing/canic-adapter" "$fixture/repo/testing/"
-  # Target moves must follow the current manifests even before they are committed;
-  # the archived source otherwise retains auto-discovered actor tests in Build.
-  for directory in qualification/build/tests testing/integration/tests; do
-    rm -rf "$fixture/repo/$directory"
-    if [[ -d "$ROOT/$directory" ]]; then
-      cp -R "$ROOT/$directory" "$fixture/repo/$directory"
-    fi
-  done
-  # Current member/target paths must accompany current manifests during the
-  # plural-directory hard cut and Cargo binary-directory migration.
-  for directory in canisters/tests qualification crates/test-support; do
-    rm -rf "$fixture/repo/$directory"
-    cp -R "$ROOT/$directory" "$fixture/repo/$directory"
-  done
-  for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
-    scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
-    ci/cargo-dependency-boundaries.json docs/governance/toko-tooling.md; do
-    cp "$ROOT/$path" "$fixture/repo/$path"
-  done
-  cp -R "$ROOT/releases" "$fixture/repo/"
-  cp "$ROOT/ci/cargo-release-groups.json" "$fixture/repo/ci/"
-  cp "$ROOT/scripts/release/"{group.sh,version.sh} "$fixture/repo/scripts/release/"
-  # Graph admission must execute the current helper, not its archived HEAD copy.
-  bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/repo" \
-    scripts/ci/check-dependency-pins.sh scripts/ci/check-cargo-graph.pl \
-    scripts/ci/check-cargo-dependency-boundaries.sh
+    [[ -e "$ROOT/$path" || -L "$ROOT/$path" ]] || continue
+    [[ -f "$ROOT/$path" && ! -L "$ROOT/$path" ]] || {
+      printf 'Cargo fixture requires a regular source file: %s\n' "$path" >&2
+      exit 1
+    }
+    mkdir -p "$fixture/repo/$(dirname "$path")"
+    cp -p "$ROOT/$path" "$fixture/repo/$path"
+  done < "$fixture/source-paths"
   cd "$fixture/repo"
   git init --quiet
   git add -- .
@@ -93,9 +59,20 @@ if [[ "$ordering_only" == false ]]; then
   check || { cat "$fixture/check.log" >&2; exit 1; }
   bash scripts/ci/check-dependency-graph-invariants.sh > "$fixture/graph.log" 2>&1
   cp Cargo.lock "$fixture/qualified.lock"
+  # Derive distinct same-line versions so a supplier patch never makes a
+  # negative example identical to the already qualified selection.
+  duplicate_versions="$("$YQ" -p toml -o json '.package' "$fixture/qualified.lock" |
+    jq -er '[.[] | select(.name == "ic-platform-types" or .name == "ic-platform-runtime") |
+      .name as $name | .version | split(".") |
+      "\($name) \(.[0]).\(.[1]).\((.[2] | tonumber) + 1)"] |
+      if length == 2 then .[] else error("expected one Types and Runtime selection") end')"
+  duplicate_patches=()
+  while IFS= read -r duplicate; do
+    duplicate_patches+=("$duplicate")
+  done <<< "$duplicate_versions"
   # Coexisting hash families do not admit another line or duplicate versions
   # within a family, and do not relax other sensitive dependency checks.
-  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0' 'ic-platform-types 0.20.0' 'ic-platform-types 0.18.0' 'ic-platform-types 0.19.1' 'ic-platform-runtime 0.20.4' 'ic-platform-runtime 0.21.1'; do
+  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0' "${duplicate_patches[@]}"; do
     cp "$fixture/qualified.lock" Cargo.lock
     read -r package unexpected_version <<< "$addition"
     printf '\n[[package]]\nname = "%s"\nversion = "%s"\n' "$package" "$unexpected_version" >> Cargo.lock

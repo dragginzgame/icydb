@@ -54,10 +54,10 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     let rows_after_cursor = {
         if cursor.is_some() {
             if logical.order.is_none() {
-                return Err(InternalError::scalar_page_cursor_boundary_order_required());
+                return Err(InternalError::query_executor_invariant());
             }
             if !ordered {
-                return Err(InternalError::scalar_page_cursor_boundary_after_ordering_required());
+                return Err(InternalError::query_executor_invariant());
             }
         }
         if logical
@@ -65,7 +65,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
             .as_ref()
             .is_some_and(|_| logical.order.is_some() && !ordered)
         {
-            return Err(InternalError::scalar_page_pagination_after_ordering_required());
+            return Err(InternalError::query_executor_invariant());
         }
         if defer_retained_slot_distinct_window {
             rows_after_order

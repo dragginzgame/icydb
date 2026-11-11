@@ -120,7 +120,7 @@ fn absent_control_inspection_preserves_marker_region_without_allocating() {
 fn previous_control_tree_framing_is_rejected_without_writing() {
     let memory = Rc::new(test_memory(243));
     SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application).unwrap();
-    for retired_frame in [b"ICMAP001", b"ICMAP002"] {
+    for retired_frame in [b"BTR\x02".as_slice(), b"ICMAP001", b"ICMAP002"] {
         memory.write(CONTROL_START_PAGE * 65_536, retired_frame);
         let pages = memory.size();
         let mut before = vec![0; usize::try_from(pages * 65_536).unwrap()];
@@ -139,9 +139,9 @@ fn previous_control_tree_framing_is_rejected_without_writing() {
 
 #[test]
 fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing() {
-    // Storage admits the BTR2 identity and explicit page-size marker. Other
-    // header bytes belong to its engine, which traps on malformed internals.
-    for offset in (0..4).chain(8..12) {
+    // Storage admits the eight-byte STORMAP1 identity and four-byte version.
+    // Other header bytes belong to its engine's corruption boundary.
+    for offset in 0..12 {
         let memory = Rc::new(test_memory(243));
         SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
             .unwrap();

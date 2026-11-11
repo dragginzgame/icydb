@@ -208,23 +208,12 @@ fn hybrid_components_decline_the_whole_projection_after_a_supported_component() 
 
 #[test]
 fn hybrid_components_preserve_typed_malformed_payload_errors() {
-    for (component, expected) in [
-        (
-            Vec::new(),
-            InternalError::bytes_covering_component_payload_empty(),
-        ),
-        (
-            vec![ValueTag::Bool.to_u8()],
-            InternalError::bytes_covering_bool_payload_truncated(),
-        ),
-        (
-            vec![ValueTag::Bool.to_u8(), 2],
-            InternalError::bytes_covering_bool_payload_invalid_value(),
-        ),
-        (
-            vec![ValueTag::Bool.to_u8(), 1, 0],
-            InternalError::bytes_covering_component_payload_invalid_length(),
-        ),
+    let expected = InternalError::index_corruption();
+    for component in [
+        Vec::new(),
+        vec![ValueTag::Bool.to_u8()],
+        vec![ValueTag::Bool.to_u8(), 2],
+        vec![ValueTag::Bool.to_u8(), 1, 0],
     ] {
         let error = decode_hybrid_covering_components(&[0], vec![component].into()).unwrap_err();
         assert_eq!(error.diagnostic_code(), expected.diagnostic_code());

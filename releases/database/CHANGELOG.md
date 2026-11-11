@@ -3,14 +3,54 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
-## [0.308.1]
+## [0.309.0]
+
+### ⚠️ Breaking
+
+- Adopt Storage 0.73's new whole-backing and collection formats. Existing images
+  are rejected unchanged; hosts must explicitly provide fresh/reset whole backing.
+- Adopt Wire/Derive 0.21.1 and Testkit 0.100 public codec and native testing
+  types. Rebuild downstream Rust consumers against the new supplier identities.
+- Generated TypeScript uses readable type-derived definition names. Regenerate
+  clients and replace positional type imports; endpoint byte contracts are retained.
+- Startup polling now takes Testkit's lifecycle owner and a closure that captures
+  its client; upstream PocketIC owns native transport behavior.
+- Wire decoding now accepts redundant varint groups within width bounds.
+  Regenerate browser clients and retain original frames for retries/signatures;
+  persisted schema and integrity artifacts retain canonical-byte admission.
+
+### 🔧 Changed
+
+- Update the bundled SQLite correctness oracle to rusqlite 0.42.
+- Adopt Host Tools 0.90 with Runtime 0.21.1 and Types 0.19, retaining current
+  Host Foundation/Text patches in the product and native qualification selections.
+- Adopt Toko Tooling 0.39.10's native PocketIC test allowance for the Testkit migration.
+- Regenerate browser clients with Wire 0.21.1's alias resolver; contract metadata and bytes are unchanged.
+
+### 🧹 Cleanup
+
+- Dependency-admission fixtures use one current-source inventory, including pending additions and removals.
+- Share fixture completion and failure retention while preserving process cleanup and diagnostics.
+- Remove duplicate index/page error wrappers and a redundant old/new selector; public diagnostics are unchanged.
+- Use one primitive type inventory for visitor traits.
+- Share DISTINCT pagination and SQL budget test setup while retaining scenario assertions.
+- Share key-stream dispatch without changing concrete polling or count/page-bound hints.
+- Unify lower/upper bound reduction while preserving comparison budgets and strictness.
+- Centralize data/index bulk provenance preflight; retain typed receipts and schema recovery rules.
+- Share canonical standard-library/Serde paths across generated derives and implementations.
+
+### 📊 Audit
+
+- Cleanup removes 105 non-test and 43 test Rust code lines, plus 84 shell-fixture code lines.
+- Further cleanup removes 55 non-test Rust code lines and adds 45 test code lines for bulk preflight controls.
 
 ### 🩹 Fixed
 
 - Restore browser codec qualification after the native workspace split by
   selecting the qualification workspace for its contract generator.
+- Keep index-spec invariant scanning aligned with canonical executor errors after cleanup.
 
-[Detailed changes](0.308.md).
+[Detailed changes](0.309.md).
 
 ## [0.308.0] - 2026-11-10
 

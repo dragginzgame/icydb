@@ -66,8 +66,6 @@ pub(in crate::db) enum ProjectionFunctionEvalError {
     Budget(ExecutionBudgetChargeError),
 }
 
-impl ProjectionFunctionEvalError {}
-
 impl From<NumericEvalError> for ProjectionFunctionEvalError {
     fn from(err: NumericEvalError) -> Self {
         Self::Numeric(err)

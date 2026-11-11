@@ -67,6 +67,7 @@ pub fn encoded_reply_len<T: Serialize>(value: T) -> Result<usize, Error> {
 
 /// Decode one complete payload through IC Wire's bounded codec.
 ///
+/// Redundant varint groups are accepted within Postcard's target width bounds.
 /// Maps, sets and custom visitors may normalize input; successful decoding does
 /// not establish canonical ordering or uniqueness. Retain the original bytes
 /// for exact retries, signatures or hashes instead of re-encoding the value.

@@ -4,18 +4,12 @@ set -euo pipefail
 # Qualify IcyDB orchestration. Shared Tooling owns installer byte/version fixtures.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS IC_TOOLS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
-FIXTURE="$(cd "$FIXTURE" && pwd -P)"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+FIXTURE="$(fixture_create "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
 # Bash 3.2 may report zero after nounset; completion must be explicit.
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE"
-  else echo "Workstation fixture retained: $FIXTURE" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$FIXTURE" "Workstation fixture retained"' EXIT
 mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci" "$FIXTURE/make"
 cp "$ROOT/ci/"{tool-versions.env,icydb-tools.env,ic-tools.tsv} "$FIXTURE/ci/"
 cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"

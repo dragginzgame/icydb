@@ -450,9 +450,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.76.3"
+version = "0.76.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41b3ffc0bf4f5433792aa12dc85e75e44abd65ae16885366494ff7e55d04ac2e"
+checksum = "bde091f8e5f24a0514193582381850e5e16c709c51224b789e265479c9d20259"
 dependencies = [
  "flate2",
  "leb128",
@@ -462,9 +462,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.76.3"
+version = "0.76.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b3e6458ab557194dfd4bd1c84b84bd5ec9dc0725f7846a3412d2fed9810fd45"
+checksum = "a20b52c6f4169fca167cad2965497fd5ba16a6413e2cadb611dd7ccfbc95f062"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -473,9 +473,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.76.3"
+version = "0.76.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84ef33a1da6bebde71e847519140b3fa1a31a82b721d1ecf44394780fdc4dcbf"
+checksum = "900b01d0100f238227d7f2eef6c62b55e4f186127afcbfe6a0581cbb4279b1cf"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -486,9 +486,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.89.0"
+version = "0.90.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c219f40d2421d739aac56985559b23adab4ff33a0aa6fe647cf883463a862df"
+checksum = "40bbc69d07e12697041ba9641bc961d7fc9e91a55e094851df497ed782388481"
 dependencies = [
  "ic-host-artifacts",
  "serde",
@@ -504,15 +504,18 @@ checksum = "2d371f7202cdd23ffcae9013ce0c51998a04ae8e0b64b8fb4845d7e46715f9aa"
 
 [[package]]
 name = "ic-platform-runtime"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c68b2ccef0e24eaf2e2f860e36ba8f63de422719aea060b872e0013cf99cd1b0"
+checksum = "f3f3f3b871dd64d2b5e01696dbed3951cdc4a6a8aa640b1e5d43774b22ec3d0e"
+dependencies = [
+ "ic0",
+]
 
 [[package]]
 name = "ic-platform-types"
-version = "0.19.0"
+version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "105fa02267cbd906dd788f1986fb2e25c60c82e595cee3efeab03aa1c4ea39f2"
+checksum = "298fd9c6c13af0651a875f87c43a003ee6d29fbc2f7ce0233dc1fb0c6d6a8ac4"
 dependencies = [
  "crc32fast",
  "data-encoding",
@@ -523,9 +526,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.72.0"
+version = "0.73.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c868b5e1ae7d5056333140ce86ddfa6de65666b71f1eb7a659f21868041ce6ad"
+checksum = "ca587879b5707c0bfe8ff215b6542714950819a6d2dcfda254f5c439d40ececd"
 dependencies = [
  "ic-platform-runtime",
  "serde",
@@ -534,9 +537,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.19.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f3272065b740a91cb245d819a75432953e26b6d4da56913d8cfe913b0fdb1f7"
+checksum = "5a18713f6661269cfc518adef26d96a6c440d5f0e271d0e7ebdbe5c50e89af51"
 dependencies = [
  "bytemuck",
  "ic-wire-derive",
@@ -548,14 +551,20 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.19.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f21712e65d89ddb60aea74e3879e6ad5d7a4e6906a2958d41cbce8db5dfaa9c"
+checksum = "56ba43bdb078ca8051d785bfeab94abff9c197fd34cba7591adc15adc761660b"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
 ]
+
+[[package]]
+name = "ic0"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05349d5c51ab6cc962c8963f877f826997ee6b737c6be3aafc9779eb8a4dd05"
 
 [[package]]
 name = "icydb"
@@ -1177,9 +1186,9 @@ dependencies = [
 
 [[package]]
 name = "toko-tooling"
-version = "0.39.7"
+version = "0.39.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd795f6ef878496ac27a990a9208b87fa786a9148c18580338ef8ac79df501d7"
+checksum = "ea181684d772d4632ba534b80bd47bb8b2044278ea346f2c02e37d2ea9991a57"
 
 [[package]]
 name = "toml"

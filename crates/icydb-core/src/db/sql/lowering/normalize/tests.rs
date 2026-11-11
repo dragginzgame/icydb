@@ -1,10 +1,36 @@
 use crate::{
-    db::sql::parser::{
-        SqlAggregateCall, SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-        SqlSelectItem, SqlSelectStatement, SqlStatement, parse_sql,
+    db::{
+        QueryError, RequestExecutionRoot,
+        query::preparation::PreparationWork,
+        sql::{
+            lowering::SqlLoweringError,
+            parser::{
+                SqlAggregateCall, SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm,
+                SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, parse_sql,
+            },
+        },
     },
     value::Value,
 };
+
+use icydb_diagnostic_code::DiagnosticExecutionLane;
+
+// Keep budget/error admission identical across normalization boundary fixtures.
+pub(super) fn run_budgeted_lowering<T>(
+    request: &RequestExecutionRoot,
+    f: impl FnOnce(&PreparationWork<'_>) -> Result<T, SqlLoweringError>,
+) -> Result<T, QueryError> {
+    PreparationWork::run(
+        &request.scope(),
+        DiagnosticExecutionLane::PublicRead,
+        |work| {
+            f(work).map_err(|error| match error {
+                SqlLoweringError::Query(error) => *error,
+                other => panic!("unexpected lowering error: {other:?}"),
+            })
+        },
+    )
+}
 
 fn sql_order_expr(term: &str) -> SqlExpr {
     let sql = format!("SELECT id FROM NormalizeOrderEntity ORDER BY {term}");

@@ -97,6 +97,20 @@ impl<K: Ord> PositionedOverlayMetadata<K> {
         Ok(())
     }
 
+    /// Preflight sorted, distinct publication targets without publishing any position.
+    /// Stores retain their own typed publication receipts and value application.
+    pub(in crate::db) fn preflight_publication_keys(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        position: JournalOverlayPosition,
+    ) -> Result<Vec<K>, InternalError> {
+        let keys = keys.into_iter().collect::<BTreeSet<_>>();
+        for key in &keys {
+            self.preflight_publish(key, position)?;
+        }
+        Ok(keys.into_iter().collect())
+    }
+
     /// Publish one position after `preflight_publish` has succeeded.
     pub(in crate::db) fn publish_preflighted(&mut self, key: K, position: JournalOverlayPosition) {
         self.positions.insert(key, position);
@@ -123,6 +137,23 @@ impl<K: Ord> PositionedOverlayMetadata<K> {
         } else {
             Ok(PositionedOverlayRetirement::Superseded)
         }
+    }
+
+    /// Preflight sorted, distinct exact/superseded targets before canonical mutation.
+    /// A missing or invalid target refuses the complete preparation without effects.
+    pub(in crate::db) fn preflight_retirements(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        position: JournalOverlayPosition,
+    ) -> Result<Vec<(K, PositionedOverlayRetirement)>, InternalError> {
+        keys.into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|key| {
+                self.preflight_retirement(&key, position)
+                    .map(|retirement| (key, retirement))
+            })
+            .collect()
     }
 
     /// Return whether one logical target has live overlay provenance.

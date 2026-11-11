@@ -215,11 +215,25 @@ fn simplify_constraint_constraint_pair<E>(
     let left_upper = left.op.upper_bound_inclusive();
     let right_upper = right.op.upper_bound_inclusive();
 
-    if left_lower.is_some() && right_lower.is_some() {
-        return simplify_two_lower_bounds(left, right, charge);
+    if let (Some(left_inclusive), Some(right_inclusive)) = (left_lower, right_lower) {
+        return simplify_same_direction_bounds(
+            left,
+            right,
+            left_inclusive,
+            right_inclusive,
+            Ordering::Greater,
+            charge,
+        );
     }
-    if left_upper.is_some() && right_upper.is_some() {
-        return simplify_two_upper_bounds(left, right, charge);
+    if let (Some(left_inclusive), Some(right_inclusive)) = (left_upper, right_upper) {
+        return simplify_same_direction_bounds(
+            left,
+            right,
+            left_inclusive,
+            right_inclusive,
+            Ordering::Less,
+            charge,
+        );
     }
     if left_lower.is_some() && right_upper.is_some() {
         return simplify_lower_upper_pair(left, right, charge);
@@ -242,65 +256,29 @@ fn simplify_constraint_constraint_pair<E>(
     Ok(ComparePairSimplification::NoChange)
 }
 
-fn simplify_two_lower_bounds<E>(
+// Greater lower bounds and lesser upper bounds are tighter. Equal endpoints
+// retain the first operand unless only the second is strict; charge/compare once.
+fn simplify_same_direction_bounds<E>(
     left: &ComparePredicate,
     right: &ComparePredicate,
+    left_inclusive: bool,
+    right_inclusive: bool,
+    tighter_ordering: Ordering,
     charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
 ) -> Result<ComparePairSimplification, E> {
     admit_compare_values(left, right, charge)?;
     let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
         return Ok(ComparePairSimplification::NoChange);
     };
-    let Some(left_inclusive) = left.op.lower_bound_inclusive() else {
-        return Ok(ComparePairSimplification::NoChange);
-    };
-    let Some(right_inclusive) = right.op.lower_bound_inclusive() else {
-        return Ok(ComparePairSimplification::NoChange);
-    };
 
-    Ok(match ordering {
-        Ordering::Greater => ComparePairSimplification::KeepFirst,
-        Ordering::Less => ComparePairSimplification::KeepSecond,
-        Ordering::Equal => {
-            if !left_inclusive && right_inclusive {
-                ComparePairSimplification::KeepFirst
-            } else if left_inclusive && !right_inclusive {
-                ComparePairSimplification::KeepSecond
-            } else {
-                ComparePairSimplification::KeepFirst
-            }
-        }
-    })
-}
-
-fn simplify_two_upper_bounds<E>(
-    left: &ComparePredicate,
-    right: &ComparePredicate,
-    charge: &mut impl FnMut(Resource, u64) -> Result<(), E>,
-) -> Result<ComparePairSimplification, E> {
-    admit_compare_values(left, right, charge)?;
-    let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
-        return Ok(ComparePairSimplification::NoChange);
+    let keep_first = match ordering {
+        Ordering::Equal => !left_inclusive || right_inclusive,
+        ordering => ordering == tighter_ordering,
     };
-    let Some(left_inclusive) = left.op.upper_bound_inclusive() else {
-        return Ok(ComparePairSimplification::NoChange);
-    };
-    let Some(right_inclusive) = right.op.upper_bound_inclusive() else {
-        return Ok(ComparePairSimplification::NoChange);
-    };
-
-    Ok(match ordering {
-        Ordering::Less => ComparePairSimplification::KeepFirst,
-        Ordering::Greater => ComparePairSimplification::KeepSecond,
-        Ordering::Equal => {
-            if !left_inclusive && right_inclusive {
-                ComparePairSimplification::KeepFirst
-            } else if left_inclusive && !right_inclusive {
-                ComparePairSimplification::KeepSecond
-            } else {
-                ComparePairSimplification::KeepFirst
-            }
-        }
+    Ok(if keep_first {
+        ComparePairSimplification::KeepFirst
+    } else {
+        ComparePairSimplification::KeepSecond
     })
 }
 

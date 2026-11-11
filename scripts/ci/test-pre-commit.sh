@@ -7,17 +7,11 @@ unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
 # Qualify IcyDB's actual Make/hook selection, derive coverage and staged-file
 # preservation. Generic formatter/input-reuse permutations belong upstream.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-formatting.XXXXXX")"
-fixture="$(cd "$fixture" && pwd -P)"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-formatting.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-  else echo "IcyDB formatting evidence retained: $fixture" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$fixture" "IcyDB formatting evidence retained"' EXIT
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 cd "$ROOT"

@@ -9,7 +9,7 @@ fn artifacts_refuse_noncanonical_wire_and_truncation() {
     alternate.splice(5..6, [0x80, 0]);
     assert_eq!(
         decode_schema_fragment(&alternate),
-        Err(SchemaContractError::Decode)
+        Err(SchemaContractError::NonCanonical)
     );
     for end in 0..canonical.len() {
         assert!(decode_schema_fragment(&canonical[..end]).is_err());

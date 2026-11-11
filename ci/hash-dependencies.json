@@ -7,11 +7,53 @@
     "crc32fast": "Established external identity/checksum formats; not integrity or authentication"
   },
   "review_required": [
-    "sha1", "sha-1", "sha3", "keccak", "tiny-keccak", "md5", "md-5", "md4", "md-4",
-    "blake2", "blake2b_simd", "blake2s_simd", "blake2-rfc", "blake3-pure", "blake3-lite",
-    "xxhash", "twox-hash", "ahash", "rustc-hash", "fxhash", "seahash", "siphasher",
-    "crc", "crc32c", "crc64fast", "adler", "adler2", "fasthash", "highway", "wyhash",
-    "murmur3", "murmurhash3", "metrohash", "cityhash", "farmhash", "rapidhash",
-    "digest", "ring", "aws-lc-rs", "openssl", "rust-crypto"
-  ]
+    "sha1",
+    "sha-1",
+    "sha3",
+    "keccak",
+    "tiny-keccak",
+    "md5",
+    "md-5",
+    "md4",
+    "md-4",
+    "blake2",
+    "blake2b_simd",
+    "blake2s_simd",
+    "blake2-rfc",
+    "blake3-pure",
+    "blake3-lite",
+    "xxhash",
+    "twox-hash",
+    "ahash",
+    "rustc-hash",
+    "fxhash",
+    "seahash",
+    "siphasher",
+    "crc",
+    "crc32c",
+    "crc64fast",
+    "adler",
+    "adler2",
+    "fasthash",
+    "highway",
+    "wyhash",
+    "murmur3",
+    "murmurhash3",
+    "metrohash",
+    "cityhash",
+    "farmhash",
+    "rapidhash",
+    "digest",
+    "ring",
+    "aws-lc-rs",
+    "openssl",
+    "rust-crypto"
+  ],
+  "reviewed_adapters": {
+    "digest": {
+      "owner": "ic-platform",
+      "requirement": "^0.10.7",
+      "purpose": "Optional Digest trait forwarding for external BLS hash-to-curve into SHA-2 0.11; no new hash algorithm"
+    }
+  }
 }

@@ -80,42 +80,8 @@ impl<T: Visitable> Visitable for Box<T> {
     }
 }
 
-// Primitive leaf nodes: no structure
-macro_rules! impl_primitive_visitable {
-    ($($ty:ty),* $(,)?) => {
-        $(impl Visitable for $ty {})*
-    };
-}
-
-impl_primitive_visitable!(
-    i8,
-    i16,
-    i32,
-    i64,
-    i128,
-    u8,
-    u16,
-    u32,
-    u64,
-    u128,
-    f32,
-    f64,
-    bool,
-    String,
-    crate::schema::Account,
-    crate::schema::Blob,
-    crate::schema::Date,
-    crate::schema::Decimal,
-    crate::schema::Duration,
-    crate::schema::Float32,
-    crate::schema::Float64,
-    crate::schema::Principal,
-    crate::schema::Subaccount,
-    crate::schema::Timestamp,
-    crate::schema::U256,
-    crate::schema::Ulid,
-    crate::schema::Unit,
-);
+// Primitive leaf nodes share the same inventory as their no-op hooks.
+impl_primitive!(Visitable);
 
 //
 // ============================================================================

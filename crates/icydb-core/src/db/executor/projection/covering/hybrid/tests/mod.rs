@@ -103,7 +103,7 @@ fn hybrid_row_projection_preserves_decode_fallback_and_error_priority() {
     .unwrap_err();
     assert_eq!(
         error.diagnostic(),
-        InternalError::bytes_covering_component_payload_empty().diagnostic()
+        InternalError::index_corruption().diagnostic()
     );
 }
 

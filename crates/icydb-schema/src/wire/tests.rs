@@ -8,14 +8,25 @@ use ic_wire::ByteBuf;
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
 
 #[test]
-fn decoding_accepts_deserialize_only_values_and_rejects_overlong_varints() {
+fn decoding_accepts_deserialize_only_values_and_bounded_redundant_varints() {
     #[derive(Debug, Deserialize, PartialEq)]
     struct ReceiveOnly(u32);
 
     let bytes = encode_one(128_u32).unwrap();
     assert_eq!(bytes, [0x80, 0x01]);
     assert_eq!(decode_one::<ReceiveOnly>(&bytes), Ok(ReceiveOnly(128)));
-    assert_eq!(decode_one::<ReceiveOnly>(&[0x81, 0]), Err(Error::Malformed));
+    assert_eq!(decode_one::<ReceiveOnly>(&[0x81, 0]), Ok(ReceiveOnly(1)));
+    assert_eq!(
+        decode_one::<ReceiveOnly>(&[0x80, 0x80, 0x80, 0x80, 0]),
+        Ok(ReceiveOnly(0))
+    );
+    for malformed in [
+        &[0xff, 0xff, 0xff, 0xff, 0x10][..],
+        &[0x80; 5],
+        &[0x80, 0x80, 0x80, 0x80, 0x80, 0],
+    ] {
+        assert_eq!(decode_one::<ReceiveOnly>(malformed), Err(Error::Malformed));
+    }
 }
 
 #[test]

@@ -5,23 +5,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture_parent="${TMPDIR:-$ROOT/target/tmp}"
 mkdir -p "$fixture_parent"
-TEST_ROOT="$(mktemp -d "$fixture_parent/icydb-wasm-audit.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+TEST_ROOT="$(fixture_create "$fixture_parent/icydb-wasm-audit.XXXXXX")"
 fixture_complete=false
-cleanup() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" -ne 0 ]]; then
-        printf '[ERROR] Wasm audit capture checks failed at run %s\n' "${run:-0}" >&2
-        if [[ -f "$TEST_ROOT/output" ]]; then
-            # Diagnostic replay must not replace the original failure status.
-            cat "$TEST_ROOT/output" >&2 || true
-        fi
-    fi
-    if [[ "$status" == 0 ]]; then find "$TEST_ROOT" -depth -delete
-    else echo "Wasm audit fixture retained: $TEST_ROOT" >&2; fi
-    exit "$status"
+finish() {
+  local status=$?
+  fixture_completion_status "$status" "$fixture_complete" || status=$?
+  if [[ "$status" != 0 ]]; then
+    printf '[ERROR] Wasm audit capture checks failed at run %s\n' "${run:-0}" >&2
+    fixture_replay_logs "$TEST_ROOT/output"
+  fi
+  fixture_finish "$status" "$TEST_ROOT" "Wasm audit fixture retained"
 }
-trap cleanup EXIT
+trap finish EXIT
 # shellcheck source=scripts/ci/wasm-report-common.sh
 source "$ROOT/scripts/ci/wasm-report-common.sh"
 FIXTURE="$TEST_ROOT/repository"

@@ -71,7 +71,9 @@ for (const vector of vectors) {
 assert.equal(methods.size, 12);
 const query = contracts.icydb_query;
 const request = query.encodeRequest('x');
-refused(() => query.decodeRequest(new Uint8Array([...request.subarray(0, 11), 0x81, 0, 120])));
+assert.equal(query.decodeRequest(new Uint8Array([...request.subarray(0, 11), 0x81, 0, 120])), 'x');
+assert.equal(query.decodeRequest(new Uint8Array([...request.subarray(0, 11), 0x80, 0x80, 0x80, 0x80, 0])), '');
+refused(() => query.decodeRequest(new Uint8Array([...request.subarray(0, 11), ...Array(5).fill(0x80), 0])));
 refused(() => query.decodeRequest(new Uint8Array([...request.subarray(0, 11), 1, 255])));
 refused(() => query.encodeRequest('\ud800'));
 refused(() => query.encodeRequest('é'.repeat(1_048_576)));

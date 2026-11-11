@@ -90,8 +90,6 @@ impl HasTraits for Canister {
     }
 }
 
-impl Canister {}
-
 impl HasType for Canister {
     fn type_part(&self, __paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();

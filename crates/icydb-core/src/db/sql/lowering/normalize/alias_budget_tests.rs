@@ -1,36 +1,17 @@
+use super::tests::run_budgeted_lowering;
+
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        query::preparation::PreparationWork,
+        RequestExecutionRoot,
         sql::{
-            lowering::{
-                SqlLoweringError, copy::copy_select_item_expr, normalize::normalize_scalar_aliases,
-            },
+            lowering::{copy::copy_select_item_expr, normalize::normalize_scalar_aliases},
             parser::{SqlExpr, SqlProjection, SqlSelectItem, SqlStatement, parse_sql},
         },
         tests::support::request_with_limit,
     },
     value::Value,
 };
-use icydb_diagnostic_code::{
-    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
-};
-
-fn run<T>(
-    request: &RequestExecutionRoot,
-    f: impl FnOnce(&PreparationWork<'_>) -> Result<T, SqlLoweringError>,
-) -> Result<T, QueryError> {
-    PreparationWork::run(
-        &request.scope(),
-        DiagnosticExecutionLane::PublicRead,
-        |work| {
-            f(work).map_err(|error| match error {
-                SqlLoweringError::Query(error) => *error,
-                other => panic!("unexpected lowering error: {other:?}"),
-            })
-        },
-    )
-}
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
 #[test]
 fn alias_walk_lookup_and_copy_have_exact_limits_and_accumulate_retries() {
@@ -41,7 +22,7 @@ fn alias_walk_lookup_and_copy_have_exact_limits_and_accumulate_retries() {
         (Resource::PredicateExpressionSteps, 18),
     ] {
         let invoke = |request: &RequestExecutionRoot| {
-            run(request, |work| {
+            run_budgeted_lowering(request, |work| {
                 normalize_scalar_aliases(
                     SqlExpr::Field("ALIAS".into()),
                     &projection,
@@ -95,13 +76,13 @@ fn copied_projection_families_preserve_sql_shape_and_source_on_failure() {
         let original = item.clone();
         let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert_eq!(
-            run(&request, |work| copy_select_item_expr(item, work)).unwrap(),
+            run_budgeted_lowering(&request, |work| copy_select_item_expr(item, work)).unwrap(),
             expected
         );
         let retained = request.observed(Resource::TemporaryBytes);
         if retained > 0 {
             assert!(
-                run(
+                run_budgeted_lowering(
                     &request_with_limit(Resource::TemporaryBytes, retained - 1),
                     |work| { copy_select_item_expr(item, work) }
                 )
@@ -120,13 +101,13 @@ fn alias_operand_copies_charge_nested_payload_and_requested_container_backing() 
     let bytes = size_of::<Value>() as u64 + 3;
     let request = request_with_limit(Resource::TemporaryBytes, bytes);
     assert_eq!(
-        run(&request, |work| copy_select_item_expr(&item, work)).unwrap(),
+        run_budgeted_lowering(&request, |work| copy_select_item_expr(&item, work)).unwrap(),
         SqlExpr::from_select_item(&item)
     );
     assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
     assert_eq!(request.observed(Resource::NestedValueSteps), 2);
     assert!(
-        run(
+        run_budgeted_lowering(
             &request_with_limit(Resource::TemporaryBytes, bytes - 1),
             |work| { copy_select_item_expr(&item, work) }
         )
@@ -143,7 +124,7 @@ fn rejected_alias_child_stops_before_later_siblings() {
     };
     let request = request_with_limit(Resource::PredicateExpressionSteps, 1);
     assert!(
-        run(&request, |work| normalize_scalar_aliases(
+        run_budgeted_lowering(&request, |work| normalize_scalar_aliases(
             expr,
             &SqlProjection::All,
             &[],

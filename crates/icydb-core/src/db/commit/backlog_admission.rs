@@ -189,8 +189,6 @@ pub(in crate::db) struct BacklogPressure {
     limit: u64,
 }
 
-impl BacklogPressure {}
-
 /// Gate-2 decision returned before marker publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum BacklogAdmission {

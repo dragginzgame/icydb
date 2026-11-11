@@ -1,8 +1,8 @@
 # Toko Tooling snapshot v1
-# version	0.39.7
+# version	0.39.10
 format	1
 source	https://crates.io/crates/toko-tooling
-revision	fd795f6ef878496ac27a990a9208b87fa786a9148c18580338ef8ac79df501d7
+revision	ea181684d772d4632ba534b80bd47bb8b2044278ea346f2c02e37d2ea9991a57
 # entrypoint	scripts/ci/verify-file-checksum.sh
 # entrypoint	scripts/ci/verify-toko-tooling-snapshot.sh
 # entrypoint	scripts/ci/run-validation-targets.sh
@@ -61,7 +61,7 @@ file	578a5f7217e378280fe378328d39e4b7dcea653bd868159b57362461bd4e8555	x	scripts/
 file	be03eb1b1ed6834b4a93a35cea81d2b8e677311a094e851619de8c393b1800e0	x	scripts/ci/verify-toko-tooling-snapshot.sh
 file	476e5bd1acf2033b75eed5eed080e4d306fa81bc3519eef7b79239294ab637e2	x	scripts/ci/run-validation-targets.sh
 file	92f0d33bdcf5f99ad88b5614bb35055d0128b4ba8026f9ae5cdb97e5cef40393	x	scripts/dev/cloc.sh
-file	c04bf9274df49fc32b450834ba1aec0d1efb2f7d11f9c9d88a8010a8dc924a63	-	TOKO-TOOLING.md
+file	cfed3d5ae20733a798849caa2656fde5195e1188af45109c40850f4cd62a93d8	-	TOKO-TOOLING.md
 file	d4d73d12601ca093878f8206a41185e383ad30484fa9206d60bfcf78248b865c	x	scripts/ci/run-release.sh
 file	918815a81861abd80684fea14f71cb5a298644317afc0f5860a3d1b6506a0a16	x	scripts/ci/next-release-version.sh
 file	29f615ebb5393b02b901985a41e07c7838b3e37d39404a5b98f7c5e09b5f8043	-	scripts/ci/finalize-release-changelog.awk
@@ -98,7 +98,7 @@ file	a3af7084956384262842be33100f91a22fdd82b0f91b6091a00e90f8726f67fe	x	scripts/
 file	26a269c0e63125e8bd939578a64a6a67dbc5280cd3fbfd7da8b9c8e4d44cc6d5	-	.github/actions/retain-failure-evidence/action.yml
 file	c7d7a7dfd617e785cc770f7fc6835447f49b6dc4568a24db0cf0fdf3362c07a2	-	scripts/ci/fixture-retention-probes.sh
 file	8fb2e21888c67507645b0dd0d98c4bf8476f1e443e8ec8a6b3bfd803064ba856	x	scripts/ci/cargo-release-metadata.sh
-file	1782eec112f61159382411038c658ba964cd70b6b80e0d0e14cadabe98dcc71b	x	scripts/ci/check-cargo-dependency-boundaries.sh
+file	38ff7dec5ac00d527023a4d13b89339f5d4298824ee0193ec785c1c7fc075244	x	scripts/ci/check-cargo-dependency-boundaries.sh
 file	06f16c4a6e7f97e13fc568b75b8adca7e7db399efbead9fa806d4a429bd5b742	-	scripts/ci/check-cargo-graph.pl
 file	77993e5d585d46b5112a5897e6a94b85dd421e383c2b1a1dea883d2a9e207257	-	scripts/ci/check-ic-sdk-boundary.mjs
 file	6eb261f79ff2780422a75e018b091bb119f552a1d155504acacefb7e2e290ba0	x	scripts/dev/gh-ci.sh
@@ -106,7 +106,7 @@ file	2b771cc01f37951768d129936f3b57fa838da73b68b7e8b087d0e0d99bacf4af	-	scripts/
 file	3e3510f6cf5b8a576f0d5b0fc9e9540417fd8e0e1baa8f35faf8f0882c93d640	-	scripts/ci/read-cargo-workspace-rust-version.sh
 file	4ba3a93e5ba61d532fa368d0f264a23f601693a8289e83e82749b09da53cf0e9	-	scripts/ci/check-candid-boundary.pl
 file	12bb1ba3ce34f267118ae34c52b514e8390e9fa0c240313918b3dd5bc9e7964d	-	.github/actions/cache-tool-downloads/action.yml
-file	52b9a85c4c1b8d327f23fa9571652db4f5d2adb0d10f7f26e9a0748612385ef2	-	LICENSE.md
+file	3f2971bfefccf71cf4929cabd1fa000e0c7b3d4002b9a08ca58821ccb048c123	-	LICENSE.md
 file	0ae38d62c728fb06f1a2dd2325f99f2277bfdb0cd48ac6df49d4120c0bfe88bd	-	CONTRIBUTING.md
 file	31839878977e00d5b594bed6104c524c63368d70c14a421dcb4e8f4875cda451	-	scripts/ci/check-license.pl
 file	3a3df3b5cb0147ca2a532d963e97b186920a4fa261d1aacc5fa6989f253fb323	-	scripts/ci/validation-evidence.pl
@@ -144,7 +144,7 @@ file	fed2573258080a0c89c7db113208a774f615ca29c372e62c1d2334e58c165654	x	scripts/
 file	b0221c706bcd6382fbb5d658529466aa447e3e03222df74524131115eed4d203	-	scripts/ci/release-metadata-transaction.sh
 file	94bd2fe49818a11955dcb56f5ff6be26f47f50ae0d947d3eba96c15962db0689	-	ci/external-ic-dependencies.txt
 file	e6f6faf964a19009aa00a07bd1cb491fe9bd728be9d07fcde3a0bc6a00f4f568	-	ci/cbor-dependencies.json
-file	3cd252e070f971d54b8966f81e7917296e31b51aa0a0fa7670a555d47f8e629a	-	ci/hash-dependencies.json
+file	8de4cc409b28314667ddf6af521c421f9abc9be1e937f6f0130815a6861b7421	-	ci/hash-dependencies.json
 file	ce27820fc6256fc417d3606dfcc8b850256c3f36a1a29132be587d49aceb82d4	-	scripts/ci/RustSource.pm
 file	6c094eb6af59e9071c7fa5e87c917202f866b220a94e59f1b4fffe154ed5f92e	-	scripts/ci/ValidationPlan.pm
 file	d50eec860f7e4c1f4b44c3414f1f960559e80378ba65aabd268b85ac5f8d5748	-	scripts/ci/cargo-release-groups.jq

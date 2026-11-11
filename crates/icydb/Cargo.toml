@@ -42,6 +42,7 @@ serde = { workspace = true }
 ic-testkit = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+pocket-ic = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "time"] }
 
 [dev-dependencies]

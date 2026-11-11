@@ -19,7 +19,7 @@ const COMPACT_INDEX_DIAGNOSTIC_MESSAGE: &str = "index diagnostic";
 const COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE: &str = "serialize diagnostic";
 const COMPACT_IDENTITY_DIAGNOSTIC_MESSAGE: &str = "identity diagnostic";
 
-const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'static str {
+const fn compact_message_for(origin: ErrorOrigin) -> &'static str {
     match origin {
         ErrorOrigin::Serialize => COMPACT_SERIALIZE_DIAGNOSTIC_MESSAGE,
         ErrorOrigin::Store => COMPACT_STORE_DIAGNOSTIC_MESSAGE,
@@ -285,7 +285,7 @@ impl InternalError {
     /// Return the rendered internal error message.
     #[must_use]
     pub const fn message(&self) -> &'static str {
-        compact_message_for(self.class, self.origin)
+        compact_message_for(self.origin)
     }
 
     /// Return the optional structured detail payload.
@@ -710,31 +710,6 @@ impl InternalError {
         )
     }
 
-    /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
-    pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin scalar page invariant for cursor-before-ordering drift.
-    pub(crate) fn scalar_page_cursor_boundary_after_ordering_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
-    pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin scan invariant for missing index-prefix executable specs.
-    pub(crate) fn secondary_index_prefix_spec_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
-    /// Construct a query-origin scan invariant for missing index-range executable specs.
-    pub(crate) fn index_range_limit_spec_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
     /// Construct an executor-origin mutation conflict for duplicate atomic save keys.
     #[cold]
     #[inline(never)]
@@ -1089,26 +1064,6 @@ impl InternalError {
     #[inline(never)]
     pub(crate) fn index_internal() -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Index)
-    }
-
-    /// Construct the canonical missing old entity-key internal error for structural index removal.
-    pub(crate) fn structural_index_removal_entity_key_required() -> Self {
-        Self::index_internal()
-    }
-
-    /// Construct the canonical missing new entity-key internal error for structural index insertion.
-    pub(crate) fn structural_index_insertion_entity_key_required() -> Self {
-        Self::index_internal()
-    }
-
-    /// Construct the canonical missing old entity-key internal error for index commit-op removal.
-    pub(crate) fn index_commit_op_old_entity_key_required() -> Self {
-        Self::index_internal()
-    }
-
-    /// Construct the canonical missing new entity-key internal error for index commit-op insertion.
-    pub(crate) fn index_commit_op_new_entity_key_required() -> Self {
-        Self::index_internal()
     }
 
     /// Construct a query-origin unsupported error.
@@ -1496,51 +1451,6 @@ impl InternalError {
                 ),
             ],
         )
-    }
-
-    /// Construct the canonical covering-component empty-payload corruption error.
-    pub(crate) fn bytes_covering_component_payload_empty() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component truncated bool corruption error.
-    pub(crate) fn bytes_covering_bool_payload_truncated() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component invalid-length corruption error.
-    pub(crate) fn bytes_covering_component_payload_invalid_length() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component invalid-bool corruption error.
-    pub(crate) fn bytes_covering_bool_payload_invalid_value() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component invalid text terminator corruption error.
-    pub(crate) fn bytes_covering_text_payload_invalid_terminator() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component trailing-text corruption error.
-    pub(crate) fn bytes_covering_text_payload_trailing_bytes() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component invalid-UTF-8 text corruption error.
-    pub(crate) fn bytes_covering_text_payload_invalid_utf8() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component invalid text escape corruption error.
-    pub(crate) fn bytes_covering_text_payload_invalid_escape_byte() -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical covering-component missing text terminator corruption error.
-    pub(crate) fn bytes_covering_text_payload_missing_terminator() -> Self {
-        Self::index_corruption()
     }
 
     /// Construct an identity-origin corruption error.

@@ -2,16 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-read-admission.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+scratch="$(fixture_create "${TMPDIR:-/tmp}/icydb-read-admission.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then find "$scratch" -depth -delete
-  else echo "Read-admission fixture retained: $scratch" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$scratch" "Read-admission fixture retained"' EXIT
 cd "$ROOT"
 
 # Use maintained sources in an isolated fixture: never mutate the worktree.

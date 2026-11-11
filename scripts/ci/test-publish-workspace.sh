@@ -9,17 +9,15 @@ export RELEASE_GROUP=database
 # No Git mutations, credentials, registry requests or real publication occur.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$root/.tools/host/bin:$PATH"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/publish-workspace.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$root/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/publish-workspace.XXXXXX")"
 fixture_complete=false
 finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" != 0 && -f "$fixture/output" ]]; then
-        cat "$fixture/output" >&2 || true
-    fi
-    if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-    else echo "Publication fixture retained: $fixture" >&2; fi
-    exit "$status"
+  local status=$?
+  fixture_completion_status "$status" "$fixture_complete" || status=$?
+  if [[ "$status" != 0 ]]; then fixture_replay_logs "$fixture/output"; fi
+  fixture_finish "$status" "$fixture" "Publication fixture retained"
 }
 trap finish EXIT
 mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/state" "$fixture/receipts"

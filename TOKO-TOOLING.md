@@ -178,7 +178,7 @@ when changing interfaces, persistence or installation/recovery behavior.
   releases; after changing the pin and Cargo.lock, run `make toko-tooling-update`.
   Offline admission checks every member, Cargo.lock and installed bytes together.
   See the
-  [tooling selection rule](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/cargo-dependencies.md#toko-tooling-during-dependency-updates).
+  [tooling selection rule](https://github.com/dragginzgame/toko-tooling/blob/d4b09ceb6dd94d825adee2b894fa26dac4618ae0/rules/cargo-dependencies.md#toko-tooling-during-dependency-updates).
 - Give repeated validation one execution owner: selected group scope must reach
   the leaf commands, and aggregate gates must not repeat full lint/setup through
   nested targets. Reuse unchanged release-stage evidence only through the
@@ -533,12 +533,12 @@ boundary, rather than automatically updating the whole fleet.
 Follow the [adoption planning contract](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/docs/cargo-graph-checks.md#dependency-adoption-planning).
 Use root-owned dependency selections, reviewed toko tooling and explicit setup.
 Rust 1.99.1 is the approved minimum and pinned development/release compiler;
-follow the [compiler support policy](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/cargo-dependencies.md#minimum-supported-rust-version-msrv)
+follow the [compiler support policy](https://github.com/dragginzgame/toko-tooling/blob/d4b09ceb6dd94d825adee2b894fa26dac4618ae0/rules/cargo-dependencies.md#minimum-supported-rust-version-msrv)
 when adopting it and consolidating duplicate compiler checks. Preserve product
 host requirements. Select canonical identities
 from `ic-platform-types`, IC0/execution from `ic-platform-runtime`, and crypto or
 external IC adapters from `ic-platform`, following the
-[Platform ownership rules](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/rules/cargo-dependencies.md#platform-package-owners).
+[Platform ownership rules](https://github.com/dragginzgame/toko-tooling/blob/d4b09ceb6dd94d825adee2b894fa26dac4618ae0/rules/cargo-dependencies.md#platform-package-owners).
 External IC dependencies remain behind that reviewed boundary; Types alone may
 add `ic_principal` for explicit registry conversions. Self-authentication does
 not enable those conversions. npm SDK Core uses

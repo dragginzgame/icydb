@@ -51,7 +51,7 @@ pub(in crate::db) fn decode_covering_projection_component(
     component: &[u8],
 ) -> Result<Option<Value>, InternalError> {
     let Some((&tag, payload)) = component.split_first() else {
-        return Err(InternalError::bytes_covering_component_payload_empty());
+        return Err(InternalError::index_corruption());
     };
 
     if tag == ValueTag::Bool.to_u8() {
@@ -80,22 +80,22 @@ pub(in crate::db) fn decode_covering_projection_component(
 
 fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     let Some(value) = payload.first() else {
-        return Err(InternalError::bytes_covering_bool_payload_truncated());
+        return Err(InternalError::index_corruption());
     };
     if payload.len() != COVERING_BOOL_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
+        return Err(InternalError::index_corruption());
     }
 
     match *value {
         0 => Ok(Some(Value::Bool(false))),
         1 => Ok(Some(Value::Bool(true))),
-        _ => Err(InternalError::bytes_covering_bool_payload_invalid_value()),
+        _ => Err(InternalError::index_corruption()),
     }
 }
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
+        return Err(InternalError::index_corruption());
     }
 
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
@@ -112,7 +112,7 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
         && !payload[..payload.len().saturating_sub(2)].contains(&COVERING_TEXT_ESCAPE_PREFIX)
     {
         let text = String::from_utf8(payload[..payload.len().saturating_sub(2)].to_vec())
-            .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
+            .map_err(|_| InternalError::index_corruption())?;
 
         return Ok(Some(Value::Text(text)));
     }
@@ -129,17 +129,17 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
         }
 
         let Some(next) = payload.get(i.saturating_add(1)).copied() else {
-            return Err(InternalError::bytes_covering_text_payload_invalid_terminator());
+            return Err(InternalError::index_corruption());
         };
         match next {
             COVERING_TEXT_TERMINATOR => {
                 i = i.saturating_add(2);
                 if i != payload.len() {
-                    return Err(InternalError::bytes_covering_text_payload_trailing_bytes());
+                    return Err(InternalError::index_corruption());
                 }
 
-                let text = String::from_utf8(bytes)
-                    .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
+                let text =
+                    String::from_utf8(bytes).map_err(|_| InternalError::index_corruption())?;
 
                 return Ok(Some(Value::Text(text)));
             }
@@ -148,17 +148,17 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
                 i = i.saturating_add(2);
             }
             _ => {
-                return Err(InternalError::bytes_covering_text_payload_invalid_escape_byte());
+                return Err(InternalError::index_corruption());
             }
         }
     }
 
-    Err(InternalError::bytes_covering_text_payload_missing_terminator())
+    Err(InternalError::index_corruption())
 }
 
 fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_ULID_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
+        return Err(InternalError::index_corruption());
     }
 
     let mut bytes = [0u8; COVERING_ULID_PAYLOAD_LEN];

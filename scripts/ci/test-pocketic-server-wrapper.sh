@@ -3,19 +3,19 @@ set -euo pipefail
 
 # Supervision and evidence tests use a harmless substitute, never PocketIC.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-pocketic-wrapper.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-pocketic-wrapper.XXXXXX")"
 control_pid=""
 fixture_complete=false
 finish() {
   local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+  fixture_completion_status "$status" "$fixture_complete" || status=$?
   if [[ -n "$control_pid" ]]; then
     kill "$control_pid" 2>/dev/null || true
     wait "$control_pid" 2>/dev/null || true
   fi
-  if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-  else echo "PocketIC wrapper fixture failure retained: $fixture" >&2; fi
-  exit "$status"
+  fixture_finish "$status" "$fixture" "PocketIC wrapper fixture failure retained"
 }
 trap finish EXIT
 cat > "$fixture/server" <<'SERVER'

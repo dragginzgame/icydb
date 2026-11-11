@@ -63,6 +63,7 @@ fn existing_foreign_and_previous_format_images_are_rejected_unchanged() {
         b"BTR\x02",
         b"ICMEMORY",
         b"ICROOTR1",
+        b"ICBUCK01",
         b"unknown",
     ] {
         let backing = VectorMemory::default();

@@ -8,25 +8,19 @@ unset RELEASE_GROUPS RELEASE_SETUP_MODE
 export RELEASE_BATCH_ACTIVE=1 RELEASE_PUBLISH_TARGET=''
 export RELEASE_GROUP=database
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$root/scripts/ci/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
 # Surface inner Make diagnostics before removing disposable fixture inputs.
 # Preserve incomplete evidence even when Bash 3.2 reports a zero exit status.
 fixture_complete=false
 finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" != 0 ]]; then
-        if [[ -f "$fixture/output" ]]; then cat "$fixture/output" >&2 || true; fi
-        printf "Standard release fixture retained: %s\n" "$fixture" >&2
-    else
-        rm -rf "$fixture"
-    fi
-    exit "$status"
+  local status=$?
+  fixture_completion_status "$status" "$fixture_complete" || status=$?
+  if [[ "$status" != 0 ]]; then fixture_replay_logs "$fixture/output"; fi
+  fixture_finish "$status" "$fixture" "Standard release fixture retained"
 }
 trap finish EXIT
-[[ "$fixture" == /* ]] || fixture="$PWD/$fixture"
-fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
-fixture="${fixture%/.}"
 export TMPDIR="${fixture%/*}"
 # The actual release prerequisites admit the current Git root before cleanup.
 # Own that root here so dispatch controls cannot resolve the parent checkout.

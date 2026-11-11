@@ -2,19 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-invariant-scanners.XXXXXX")"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+scratch="$(fixture_create "${TMPDIR:-/tmp}/icydb-invariant-scanners.XXXXXX")"
 fixture_complete=false
-cleanup() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" -eq 0 ]]; then
-    rm -rf "$scratch"
-  else
-    echo "Invariant scanner fixture retained at: $scratch" >&2
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
+trap 'fixture_finish "$?" "$scratch" "Invariant scanner fixture retained at"' EXIT
 mkdir -p "$scratch/scripts/ci"
 for script in invariant-common.sh check-executor-no-production-panics.sh \
   check-sql-branch-ownership-invariants.sh; do

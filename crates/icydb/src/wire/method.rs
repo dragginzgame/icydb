@@ -71,6 +71,7 @@ impl RpcMethod {
         ic_wire::native::encode_request(self.id(), &value, limits)
     }
     /// Admit identity, direction, resources and request payload primitives.
+    /// Redundant varint groups are accepted within Postcard's width bounds.
     /// Collection ordering and uniqueness remain the caller's semantic contract.
     pub fn decode_request<T: DeserializeOwned>(
         self,

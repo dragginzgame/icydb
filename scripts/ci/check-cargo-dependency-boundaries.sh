@@ -61,14 +61,15 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                     or die "invalid or duplicate CBOR package\n";
             }
         }
-        my %hash_review;
+        my (%hash_review, %hash_adapters);
         if (length $ARGV[4]) {
             open my $file, "<", $ARGV[4] or die "cannot read hash inventory: $!\n";
             my $inventory = decode_json(<$file>);
             close $file or die $!;
-            ref($inventory) eq "HASH" && keys(%$inventory) == 2
+            ref($inventory) eq "HASH" && keys(%$inventory) == 3
                 && ref($inventory->{approved}) eq "HASH" && keys(%{$inventory->{approved}})
                 && ref($inventory->{review_required}) eq "ARRAY" && @{$inventory->{review_required}}
+                && ref($inventory->{reviewed_adapters}) eq "HASH"
                 or die "invalid hash inventory\n";
             my %seen;
             for my $name (keys %{$inventory->{approved}}, @{$inventory->{review_required}}) {
@@ -80,6 +81,15 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                     or die "missing approved hash purpose\n";
             }
             %hash_review = map {$_ => 1} @{$inventory->{review_required}};
+            for my $name (keys %{$inventory->{reviewed_adapters}}) {
+                my $adapter = $inventory->{reviewed_adapters}{$name};
+                $hash_review{$name} && ref($adapter) eq "HASH" && keys(%$adapter) == 3
+                    && !ref($adapter->{owner}) && ($adapter->{owner} // "") =~ /\A[A-Za-z0-9_-]+\z/
+                    && !ref($adapter->{requirement}) && ($adapter->{requirement} // "") =~ /\A\^\d+\.\d+\.\d+\z/
+                    && !ref($adapter->{purpose}) && ($adapter->{purpose} // "") =~ /\S/
+                    or die "invalid reviewed hash adapter\n";
+                $hash_adapters{$name} = $adapter;
+            }
         }
         my %rules;
         for my $rule (@$policy) {
@@ -129,7 +139,14 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                     or die "invalid Cargo dependency\n";
                 my $name = $dependency->{name};
                 $violations{"$package->{name} -> $name (hash/crypto dependency requires shared review: rules/hashing.md)"} = 1
-                    if $members{$package->{id}} && $hash_review{$name};
+                    if $members{$package->{id}} && $hash_review{$name} && !(
+                        exists($hash_adapters{$name})
+                        && $package->{name} eq $hash_adapters{$name}{owner}
+                        && ($dependency->{req} // "") eq $hash_adapters{$name}{requirement}
+                        && !defined($dependency->{kind}) && !defined($dependency->{target})
+                        && JSON::PP::is_bool($dependency->{optional}) && $dependency->{optional}
+                        && JSON::PP::is_bool($dependency->{uses_default_features}) && !$dependency->{uses_default_features}
+                        && ref($dependency->{features}) eq "ARRAY" && !@{$dependency->{features}});
                 $violations{"$package->{name} -> $name"} = 1
                     if $members{$package->{id}} && (
                         (exists($rules{$name}) && !$rules{$name}{$package->{name}})
@@ -145,11 +162,12 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                                 && ($dependency->{kind} // "") eq "dev" && !defined($dependency->{target})
                                 && ref($package->{publish}) eq "ARRAY" && !@{$package->{publish}})
                             && !($name eq "pocket-ic"
-                                && ($package->{name} eq "ic-testkit"
-                                    || ($package->{name} eq "ic-testkit-dev"
-                                        && ref($package->{publish}) eq "ARRAY" && !@{$package->{publish}}))
-                                && !defined($dependency->{kind})
-                                && ($dependency->{target} // "") eq q{cfg(not(target_family = "wasm"))})
+                                && ($dependency->{target} // "") eq q{cfg(not(target_family = "wasm"))}
+                                && (($dependency->{kind} // "") eq "dev"
+                                    || (!defined($dependency->{kind})
+                                        && ($package->{name} eq "ic-testkit"
+                                            || ($package->{name} eq "ic-testkit-dev"
+                                                && ref($package->{publish}) eq "ARRAY" && !@{$package->{publish}})))))
                             && !($package->{name} eq "ic-testkit"
                                 && ($name eq "candid" || $name eq "ic-certification" || $name eq "ic-management-canister-types" || $name eq "ic-transport-types")
                                 && !defined($dependency->{kind})

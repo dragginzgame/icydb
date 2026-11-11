@@ -86,6 +86,27 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     Intersect(IntersectOrderedKeyStream<Box<Self>, Box<Self>>),
 }
 
+// Keep concrete, exhaustive dispatch identical for polling and all three hints.
+// This expands to the original match; it adds no trait object or allocation.
+macro_rules! dispatch_key_stream {
+    ($receiver:expr, $method:ident) => {
+        match $receiver {
+            Self::Empty(stream) => stream.$method(),
+            Self::Single(stream) => stream.$method(),
+            Self::Materialized(stream) => stream.$method(),
+            Self::PrimaryRange(stream) => stream.$method(),
+            Self::IndexRange(stream) => stream.$method(),
+            Self::Budgeted(stream) => stream.$method(),
+            Self::Observed(stream) => stream.$method(),
+            Self::Distinct(stream) => stream.$method(),
+            Self::Concat(stream) => stream.$method(),
+            Self::Merge(stream) => stream.$method(),
+            Self::FlatMerge(stream) => stream.$method(),
+            Self::Intersect(stream) => stream.$method(),
+        }
+    };
+}
+
 impl OrderedKeyStreamBox {
     fn boxed(self) -> Box<Self> {
         Box::new(self)
@@ -365,71 +386,19 @@ impl OrderedKeyStreamBox {
 
 impl OrderedKeyStream for OrderedKeyStreamBox {
     fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        match self {
-            Self::Empty(stream) => stream.next_key(),
-            Self::Single(stream) => stream.next_key(),
-            Self::Materialized(stream) => stream.next_key(),
-            Self::PrimaryRange(stream) => stream.next_key(),
-            Self::IndexRange(stream) => stream.next_key(),
-            Self::Budgeted(stream) => stream.next_key(),
-            Self::Observed(stream) => stream.next_key(),
-            Self::Distinct(stream) => stream.next_key(),
-            Self::Concat(stream) => stream.next_key(),
-            Self::Merge(stream) => stream.next_key(),
-            Self::FlatMerge(stream) => stream.next_key(),
-            Self::Intersect(stream) => stream.next_key(),
-        }
+        dispatch_key_stream!(self, next_key)
     }
 
     fn exact_key_count_hint(&self) -> Option<usize> {
-        match self {
-            Self::Empty(stream) => stream.exact_key_count_hint(),
-            Self::Single(stream) => stream.exact_key_count_hint(),
-            Self::Materialized(stream) => stream.exact_key_count_hint(),
-            Self::PrimaryRange(stream) => stream.exact_key_count_hint(),
-            Self::IndexRange(stream) => stream.exact_key_count_hint(),
-            Self::Budgeted(stream) => stream.exact_key_count_hint(),
-            Self::Observed(stream) => stream.exact_key_count_hint(),
-            Self::Distinct(stream) => stream.exact_key_count_hint(),
-            Self::Concat(stream) => stream.exact_key_count_hint(),
-            Self::Merge(stream) => stream.exact_key_count_hint(),
-            Self::FlatMerge(stream) => stream.exact_key_count_hint(),
-            Self::Intersect(stream) => stream.exact_key_count_hint(),
-        }
+        dispatch_key_stream!(self, exact_key_count_hint)
     }
 
     fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
-        match self {
-            Self::Empty(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Single(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Materialized(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::PrimaryRange(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::IndexRange(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Budgeted(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Observed(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Distinct(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Concat(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Merge(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::FlatMerge(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::Intersect(stream) => stream.cheap_access_candidate_count_hint(),
-        }
+        dispatch_key_stream!(self, cheap_access_candidate_count_hint)
     }
 
     fn page_access_entry_bound(&self) -> Option<usize> {
-        match self {
-            Self::Empty(stream) => stream.page_access_entry_bound(),
-            Self::Single(stream) => stream.page_access_entry_bound(),
-            Self::Materialized(stream) => stream.page_access_entry_bound(),
-            Self::PrimaryRange(stream) => stream.page_access_entry_bound(),
-            Self::IndexRange(stream) => stream.page_access_entry_bound(),
-            Self::Budgeted(stream) => stream.page_access_entry_bound(),
-            Self::Observed(stream) => stream.page_access_entry_bound(),
-            Self::Distinct(stream) => stream.page_access_entry_bound(),
-            Self::Concat(stream) => stream.page_access_entry_bound(),
-            Self::Merge(stream) => stream.page_access_entry_bound(),
-            Self::FlatMerge(stream) => stream.page_access_entry_bound(),
-            Self::Intersect(stream) => stream.page_access_entry_bound(),
-        }
+        dispatch_key_stream!(self, page_access_entry_bound)
     }
 }
 

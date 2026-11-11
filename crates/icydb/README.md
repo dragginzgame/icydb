@@ -30,7 +30,7 @@ that want those Rust behaviors must call `normalize`, `validate`, or
 ## Startup in native canister tests
 
 Enable `testing` in the test application's native dependency on `icydb` to use
-`icydb::testing::drive_startup`. Pass a Testkit-owned PocketIC instance, a maximum
+`icydb::testing::drive_startup`. Pass Testkit's `PocketIcInstance` lifecycle owner, a maximum
 round count, and an async closure that observes the generated `startup_state()` through
 your application's authorized read-only endpoint. The observation returns
 `Result<DatabaseStartupState, E>`: `Ready` completes, `Recovering` permits another
@@ -42,7 +42,8 @@ use icydb::testing::drive_startup;
 
 // Application transport decodes the existing DatabaseStartupState and preserves
 // both transport failures and the existing StartupFailure as typed errors.
-drive_startup(&pic, 60, async |pic| {
+let pic = instance.instance();
+drive_startup(&instance, 60, async || {
     observe_database_startup(pic, canister_id).await
 }).await?;
 ```
@@ -51,7 +52,7 @@ The same helper works after installation and upgrade. Testkit checks readiness
 before progression, then advances simulated time by one second and ticks once
 per pending round. A zero budget still checks once, and readiness on the last
 allowed round succeeds. Exhaustion is `TickUntilError::ProgressLimit`; observation
-and progression failures are `Failed` and `Progress`. Do not retry business writes
+failures are `Failed`. Upstream PocketIC transport panics propagate. Do not retry business writes
 inside the observation closure. Select the round bound for the fixture's workload;
 this helper does not declare a universal recovery deadline.
 

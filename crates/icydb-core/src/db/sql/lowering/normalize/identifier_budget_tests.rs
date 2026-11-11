@@ -1,37 +1,17 @@
+use super::tests::run_budgeted_lowering;
+
 use crate::db::{
-    QueryError, RequestExecutionRoot,
-    query::preparation::PreparationWork,
+    RequestExecutionRoot,
     sql::{
-        lowering::{
-            SqlLoweringError,
-            normalize::{
-                normalize_field_identifier_expr_to_scope, normalize_field_path_to_scope,
-                normalize_identifier, normalize_sql_expr_to_scope,
-            },
+        lowering::normalize::{
+            normalize_field_identifier_expr_to_scope, normalize_field_path_to_scope,
+            normalize_identifier, normalize_sql_expr_to_scope,
         },
         parser::{SqlExpr, SqlExprBinaryOp},
     },
     tests::support::request_with_limit,
 };
-use icydb_diagnostic_code::{
-    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
-};
-
-fn run<T>(
-    request: &RequestExecutionRoot,
-    f: impl FnOnce(&PreparationWork<'_>) -> Result<T, SqlLoweringError>,
-) -> Result<T, QueryError> {
-    PreparationWork::run(
-        &request.scope(),
-        DiagnosticExecutionLane::PublicRead,
-        |work| {
-            f(work).map_err(|error| match error {
-                SqlLoweringError::Query(error) => *error,
-                other => panic!("unexpected lowering error: {other:?}"),
-            })
-        },
-    )
-}
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
 #[test]
 fn owned_path_matching_keeps_longest_root_scope_without_new_backing() {
@@ -72,7 +52,7 @@ fn owned_path_matching_keeps_longest_root_scope_without_new_backing() {
         let scopes: Vec<_> = scopes.into_iter().map(str::to_string).collect();
         let tail = tail.into_iter().map(str::to_string).collect();
         let request = request_with_limit(Resource::TemporaryBytes, 0);
-        let result = run(&request, |work| {
+        let result = run_budgeted_lowering(&request, |work| {
             normalize_field_path_to_scope(head.into(), tail, &scopes, work)
         })
         .unwrap();
@@ -93,7 +73,7 @@ fn owned_path_matching_keeps_longest_root_scope_without_new_backing() {
 fn dotted_field_construction_charges_exact_requested_backing() {
     let bytes = size_of::<String>() as u64 + 11;
     let request = request_with_limit(Resource::TemporaryBytes, bytes);
-    let result = run(&request, |work| {
+    let result = run_budgeted_lowering(&request, |work| {
         normalize_field_identifier_expr_to_scope("profile.city".into(), &[], work)
     })
     .unwrap();
@@ -106,7 +86,7 @@ fn dotted_field_construction_charges_exact_requested_backing() {
     );
     assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
     assert!(
-        run(
+        run_budgeted_lowering(
             &request_with_limit(Resource::TemporaryBytes, bytes - 1),
             |work| { normalize_field_identifier_expr_to_scope("profile.city".into(), &[], work) }
         )
@@ -118,7 +98,7 @@ fn dotted_field_construction_charges_exact_requested_backing() {
 fn scope_reduction_has_a_charged_matching_allowance_and_cumulative_rejection() {
     let scopes = ["u".to_string()];
     let invoke = |request: &RequestExecutionRoot| {
-        run(request, |work| {
+        run_budgeted_lowering(request, |work| {
             normalize_identifier("u.name".into(), &scopes, work)
         })
     };
@@ -145,7 +125,7 @@ fn rejected_identifier_walk_stops_before_later_siblings() {
     };
     let request = request_with_limit(Resource::PredicateExpressionSteps, 1);
     assert!(
-        run(&request, |work| normalize_sql_expr_to_scope(
+        run_budgeted_lowering(&request, |work| normalize_sql_expr_to_scope(
             expr,
             &[],
             work

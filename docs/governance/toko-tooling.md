@@ -5,23 +5,49 @@ identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lo
 and the [reviewed snapshot](../../.toko-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
-The pending database 0.308 root selects published Storage 0.72.0, Wire/Derive 0.19,
-Testkit 0.97 and Build 0.81. Storage 0.72 retains the 0.71 backing format; opening trusts admitted metadata,
-while explicit allocation diagnostics retain integrity verification. Its production graph no longer depends on Wire. Build's
+The pending database 0.309 root selects published Storage 0.73.1, Wire/Derive 0.21.1,
+Testkit 0.100 and Build 0.81. Storage 0.73 replaces whole backing and collection
+formats with STORNAM1, STORMAP1, STORVECT and STORCELL version 1. Previous images
+are rejected unchanged; hosts must explicitly provide fresh/reset whole backing.
+Same-contract cold reopen remains supported. Its production graph does not depend on Wire. Build's
 fallible shared-target maintenance configuration propagates through the existing
 build and dependency-admission boundaries; Host Artifacts owns batch-label
-errors. Host Tools 0.89 and Host Foundation 0.76.3 retain their typed Wasm
-boundary. Testkit selects Host HTTP 0.76.3 and Platform 0.29.2;
-Runtime 0.21.0, Types 0.19.0 and Metrics 0.29.10 are selected for direct consumers. Preserve incoming
-unrelated lock changes. No consumer bridge or supplier requirement is patched.
-Types 0.19 removes external-Principal aliases/conversions; IcyDB retains checked
-caller-byte admission. Testkit 0.97 and Platform 0.29 use that same canonical
-identity and Platform-owned Candid codecs. The root lock no longer contains
-Types 0.18; graph admission again requires one Types version. Native Testkit
-snapshot limits and codec error variants follow the new supplier contract;
-IcyDB adds no supplier patches or external-identity bridges.
+errors. Host Tools 0.90.0 and Host Foundation 0.76.4 retain their typed Wasm
+boundary; CLI text uses Host Text 0.74.5. Runtime 0.21.1 and Metrics 0.29.10
+are selected for direct consumers. The product retains the incoming Types 0.19.3
+patch; native qualification independently selects compatible Types 0.19.1.
+Testkit 0.100 uses upstream
+PocketIC 16.1; its default native selection no longer requires Platform or Host
+HTTP, so those unused transitive packages leave the product lock. The requested
+Platform 0.29.3 archive was verified without adding an unused facade dependency.
+Preserve incoming unrelated lock changes. No supplier requirement is patched.
+IcyDB retains checked caller-byte admission and one canonical Types identity.
+Its startup adapter takes Testkit's existing `PocketIcInstance` lifecycle owner
+and a caller-captured observation closure. Upstream owns client transport;
+Testkit owns startup, lifecycle and bounded simulated polling. The native test's
+direct PocketIC dependency is dev-only, admitted by Toko 0.39.9. PocketIC pins
+thiserror 2.0.18 in that product/native graph; qualification independently retains
+2.0.21. Both satisfy IcyDB's existing compatible requirement.
 
-Published IC Entropy owns seeded expansion; both native graphs now select 0.1.6.
+The compatible Platform/Host patch adoption aligns the product and native
+qualification locks where those packages are consumed. Runtime owns its IC0
+dependency; IcyDB retains the existing Platform owner declarations. Compatible
+patch minimum requirements remain unchanged. The maintainer authorized the
+Testkit and Wire adoption in database 0.309; the
+[cohort tracker](../design/0.309-native-cohort/status.md) records its scope and
+focused qualification. Canic's older selections remain deferred.
+
+Host Tools 0.90 selects Platform 0.30 for its optional external adapters.
+IcyDB consumes ICP/project responses and native Wasm export facts only, so this
+update adds no unused Platform facade. Testkit 0.100 aligns its optional Wire
+adapter with Wire 0.21 and changes standalone stop/start error causes; IcyDB uses
+its existing instance, polling and observation-error types. Their caller APIs
+and server asset policy remain unchanged. Root and qualification catalogs align;
+qualification does not resolve an unused Testkit dependency. Canic's independent
+runtime and CLI selection remain deferred.
+
+Published IC Entropy owns seeded expansion; the product preserves incoming
+0.1.7 while native qualification independently retains compatible 0.1.6.
 The original 0.1.0 adoption retired the temporary sibling-path selection and exception. Native OS acquisition and process lifetime
 stay local, and database boot entropy and cursor-key policy are independent.
 That initial 0.1.0 supplier archive SHA-256 is
@@ -33,12 +59,19 @@ source `0caf4376a98e6c9f0dbd2231900a0d5fb932a83d`. Consumer evidence for
 Direct database/model/schema SHA-2 now selects 0.11.1 without default allocation
 or OID features. Older transitive providers remain independently owned; the
 existing digest bytes and domain separation are retained.
+
+The private SQL correctness oracle selects exact rusqlite 0.42.0 with
+libsqlite3-sys 0.40.0 and the existing bundled/functions/load-extension features.
+Its complete SQLite 3.54.1 environment contract, including source ID and compile
+options, remains unchanged. SQLite stays on Core's dev-only support edge and
+is absent from the production Wasm graph. The qualification catalog mirrors the
+pin without adding SQLite to its lock; Canic retains its deferred older graph.
 Canic's older Testkit and extension imports remain in its deferred independent
 stack. This adoption changes no IcyDB package versions or installed snapshots.
 
 ## Current tooling migration boundary
 
-Toko Tooling 0.39.7 is installed and selected in all three workspaces. The
+Toko Tooling 0.39.10 is installed and selected in all three workspaces. The
 [approved native migration](../design/0.308-package-layout/status.md) separates
 fourteen native qualification packages into `qualification/`, with its own lock.
 The product workspace retains seven published crates and two unpublished Core
@@ -67,13 +100,26 @@ namespace or consumer-specific path remapping.
 
 ## Ownership and provenance
 
-IcyDB selects published **Toko Tooling 0.39.7** with one exact workspace pin
+IcyDB selects published **Toko Tooling 0.39.10** with one exact workspace pin
 inherited as an unconditional dev-dependency by every real package, alongside
 its cargo-machete exemption. Cargo.lock and `.toko-tooling.snapshot` identify
-archive SHA-256 `fd795f6ef878496ac27a990a9208b87fa786a9148c18580338ef8ac79df501d7`,
-from source `fcbbcd147678fdfe5ab22c36710e017fb2c018e4`. All 107 payloads are installed
+archive SHA-256 `ea181684d772d4632ba534b80bd47bb8b2044278ea346f2c02e37d2ea9991a57`,
+from source `6e364f0c8d2729d57566aa740a9cd951c744d707`. All 107 payloads are installed
 by the authenticated exporter; no snapshot-owned files or receipt hashes are
 edited locally.
+
+The 0.39.10 exporter preview and update change only the Cargo boundary checker
+and its hash inventory. Baseline, canonical licence, tool versions and all 107
+selected payload paths remain unchanged. The new reviewed Digest trait-adapter
+exception is limited to IC Platform's optional normal `digest ^0.10.7` edge,
+with defaults and features disabled. IcyDB's own crypto edges retain shared
+review and its stricter local policy. The [published adoption guide](https://github.com/dragginzgame/toko-tooling/blob/6e364f0c8d2729d57566aa740a9cd951c744d707/docs/adoption/consuming-snapshots.md)
+owns refresh and complete entrypoint selection; supporting docs stay upstream.
+
+Wire/Derive 0.21.1 updates browser alias resolution and host bulk-lint traversal.
+Regenerate browser clients from the selected Wire runtime. Contract names,
+metadata, method identities, budgets and native bytes retain the reviewed
+0.21 contract; the existing compatible catalog requirements remain unchanged.
 
 The 0.37 hard cut adopts `TOKO-TOOLING.md`, `toko-tooling-*` Make targets,
 `scripts/dev/toko-tooling.sh`, `TOKO_TOOLING_*` settings and
