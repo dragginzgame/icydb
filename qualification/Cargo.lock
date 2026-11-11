@@ -568,7 +568,7 @@ checksum = "f05349d5c51ab6cc962c8963f877f826997ee6b737c6be3aafc9779eb8a4dd05"
 
 [[package]]
 name = "icydb"
-version = "0.308.0"
+version = "0.309.0"
 dependencies = [
  "ic-platform-runtime",
  "ic-platform-types",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.308.0"
+version = "0.309.0"
 dependencies = [
  "base64",
  "blake3",
@@ -608,14 +608,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.308.0"
+version = "0.309.0"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.308.0"
+version = "0.309.0"
 dependencies = [
  "convert_case",
  "ctor",
@@ -635,7 +635,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.308.0"
+version = "0.309.0"
 dependencies = [
  "convert_case",
  "darling",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.308.0"
+version = "0.309.0"
 dependencies = [
  "ethnum",
  "ic-platform-types",
