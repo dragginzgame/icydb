@@ -156,7 +156,7 @@ printf 'version = 4\n' > "$native/testing/canic-adapter/Cargo.lock"
 for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm \
   run-icydb-validation-targets.sh \
   run-nonempty-cargo-test.sh wasm-size-report.sh wasm-audit-report.sh \
-  wasm-report-common.sh verify-file-checksum.sh; do
+  wasm-report-common.sh verify-file-checksum.sh fixture-lifecycle.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
 export CI_CARGO_ROOT="$native" CI_CARGO_TRACE="$native/cargo-trace"

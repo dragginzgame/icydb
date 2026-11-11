@@ -236,8 +236,20 @@ formatting and documentation pass. Source preservation, authenticated supplier
 archives, metadata and logs are under
 `target/evidence/host-testkit-adoption-20261111/`.
 
-Full repository/release gates, native macOS and installed Canic qualification
-remain skipped user-owned validation. Wasm total/code-section sizes and IC
+Deployment was requested after focused closeout. The first capture refused
+before validation because the detail-note path invalidated the declaration hash;
+the reviewed digest repair retains full validation and grants no omissions.
+Full Clippy and live product invariants then passed, but the adapter fixture
+refused because its copied scanner lacked the common lifecycle helper. Copying
+that runtime dependency restores the full adapter regression suite. Both failed
+captures remain retained under the shared release-state owner.
+
+The incoming Storage 0.73.2 update is included in the replacement capture after
+published checksum/source verification. All 44 library source files are
+byte-identical to 0.73.1; only producer tooling changes. Its API/format contract
+is unchanged and qualification retains Storage 0.73.0. Full release gates are
+now explicitly selected; native macOS and installed Canic qualification remain
+unrun. Wasm total/code-section sizes and IC
 cycle/instruction deltas are unmeasured. Canic remains deferred under
 [#373](https://github.com/dragginzgame/icydb/issues/373), with its existing
 layout exception under [#596](https://github.com/dragginzgame/icydb/issues/596).

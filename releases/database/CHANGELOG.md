@@ -21,6 +21,8 @@ begin with 0.295.0 below.
 
 ### 🔧 Changed
 
+- Include Storage 0.73.2's tooling-only patch; library APIs and formats are unchanged.
+
 - Update the bundled SQLite correctness oracle to rusqlite 0.42.
 - Adopt Host Tools 0.90 with Runtime 0.21.1 and Types 0.19, retaining current
   Host Foundation/Text patches in the product and native qualification selections.
@@ -45,6 +47,9 @@ begin with 0.295.0 below.
 - Further cleanup removes 55 non-test Rust code lines and adds 45 test code lines for bulk preflight controls.
 
 ### 🩹 Fixed
+
+- Keep the shared-adapter fixture's copied scanner dependency complete after
+  adopting the common fixture lifecycle helper; Cargo failure transport stays tested.
 
 - Readmit the release mapping after moving pending notes to 0.309, allowing
   full release validation to start without renewing selected-stage qualification.

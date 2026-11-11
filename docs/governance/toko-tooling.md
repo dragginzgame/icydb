@@ -5,7 +5,7 @@ identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lo
 and the [reviewed snapshot](../../.toko-tooling.snapshot), not historical notes.
 [AGENTS.md](../../AGENTS.md) is IcyDB's local engineering overlay.
 
-The pending database 0.309 root selects published Storage 0.73.1, Wire/Derive 0.21.1,
+The pending database 0.309 root selects published Storage 0.73.2, Wire/Derive 0.21.1,
 Testkit 0.100 and Build 0.81. Storage 0.73 replaces whole backing and collection
 formats with STORNAM1, STORMAP1, STORVECT and STORCELL version 1. Previous images
 are rejected unchanged; hosts must explicitly provide fresh/reset whole backing.
