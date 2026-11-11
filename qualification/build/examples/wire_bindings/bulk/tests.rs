@@ -81,7 +81,13 @@ fn field_id_acknowledgement_does_not_hide_other_fields() {
         })
         .collect();
     assert!(review(&types, &methods).unwrap().is_clean());
-    let fields = types.get_mut("ConstraintValidationFindingOutput").unwrap()["fields"]
+    // Public names reference Wire's type-derived definition; mutate that layout
+    // while retaining the public alias and every endpoint path under review.
+    let finding_type = types["ConstraintValidationFindingOutput"]["name"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let fields = types.get_mut(&finding_type).unwrap()["fields"]
         .as_array_mut()
         .unwrap();
     let mut other = fields
@@ -102,7 +108,7 @@ fn field_id_acknowledgement_does_not_hide_other_fields() {
     assert!(report.stale_acknowledgements.is_empty());
 
     // The shared container surviving elsewhere cannot keep this decision alive.
-    types.get_mut("ConstraintValidationFindingOutput").unwrap()["fields"]
+    types.get_mut(&finding_type).unwrap()["fields"]
         .as_array_mut()
         .unwrap()
         .retain(|f| f["name"] != "field_ids");
@@ -110,7 +116,7 @@ fn field_id_acknowledgement_does_not_hide_other_fields() {
     assert_eq!(report.warnings.len(), 3);
     assert_eq!(report.stale_acknowledgements.len(), 3);
 
-    types.get_mut("ConstraintValidationFindingOutput").unwrap()["fields"]
+    types.get_mut(&finding_type).unwrap()["fields"]
         .as_array_mut()
         .unwrap()
         .push(json!({"name":"field_ids","value":{"k":"bytes"}}));

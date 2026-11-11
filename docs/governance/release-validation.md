@@ -130,6 +130,15 @@ dependency ownership, Make recipes and the full stage roster are unchanged.
 Refresh only the reviewed group declaration digest so full validation can start;
 preserve the existing native certificates without granting selected omissions.
 
+The 0.309 release closeout aligns qualification's test command with its existing
+CI model-generation profile. That independent workspace contains no Testkit
+callers or facade-owned tests. The root workspace continues to enable both
+`icydb-model/build` and `icydb/testing`, including facade contracts, native API
+checks and startup polling. Qualification retains every member and all-target
+tests with `icydb-model/build`. Its lock remains on its independent Types and
+thiserror selections. The reviewed Makefile digest admits this ownership repair;
+existing native certificates remain unchanged and full validation stays required.
+
 `ci/release-validation.json` is the single complete stage roster. Its mapping
 contract classifies four supplemental CLI stages and two collecting stages;
 `validation-stages.pl` derives the full gate's fail-fast and collecting selections

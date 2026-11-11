@@ -48,6 +48,12 @@ begin with 0.295.0 below.
 
 ### 🩹 Fixed
 
+- Align native qualification codec and bulk-policy tests with Wire's bounded
+  redundant varints and type-derived aliases, retaining framing and field-scope checks.
+
+- Align qualification release tests with their existing CI model-generation
+  profile; keep facade Testkit coverage in the root workspace.
+
 - Keep the shared-adapter fixture's copied scanner dependency complete after
   adopting the common fixture lifecycle helper; Cargo failure transport stays tested.
 

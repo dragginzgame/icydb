@@ -500,6 +500,18 @@ printf '%s\n' 'run default' 'run default' 'fetch default' 'fetch default' 'build
   'clean default' 'watch default' \
   > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+# Exercise the release-owned workspace recipes independently of CI's profile.
+: > "$CI_CARGO_TRACE"
+PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 _test-workspace \
+  > "$native/release-workspace-profiles.log" 2>&1
+printf '%s\n' 'test 2' 'test 2' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+# Root owns facade testing; qualification owns model/fixture tests on its
+# independent graph. Keep release coverage aligned with the native CI owner.
+grep -Fx -- 'test --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing' \
+  "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
+grep -Fx -- "test --manifest-path $native/qualification/Cargo.toml --locked --no-fail-fast --workspace --all-targets --features icydb-model/build" \
+  "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 : > "$CI_CARGO_TRACE"
 status=0
 PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 build-canister-local \

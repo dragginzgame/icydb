@@ -35,7 +35,7 @@ fn dynamic_rows_vectors_bind_method_direction_and_integer_width() {
 }
 
 #[test]
-fn dynamic_rows_replies_reject_truncation_trailing_and_noncanonical_bytes() {
+fn dynamic_rows_replies_keep_framing_and_bounded_varint_admission() {
     let reply = native::encode_response(Contract::ID, &1_u32, Contract::RESPONSE_LIMITS).unwrap();
     for length in 0..reply.as_slice().len() {
         assert!(
@@ -59,6 +59,25 @@ fn dynamic_rows_replies_reject_truncation_trailing_and_noncanonical_bytes() {
             b"IWICYDBDR1\x01\x81\x00",
             Contract::RESPONSE_LIMITS
         ),
-        Err(Error::Malformed)
+        Ok(1)
+    );
+    // Redundant groups are accepted within the u32 width; overflow and an
+    // unfinished fifth group still refuse before producing an application value.
+    for payload in [
+        b"IWICYDBDR1\x01\xff\xff\xff\xff\x10".as_slice(),
+        b"IWICYDBDR1\x01\x80\x80\x80\x80\x80".as_slice(),
+    ] {
+        assert_eq!(
+            native::decode_response::<u32>(Contract::ID, payload, Contract::RESPONSE_LIMITS),
+            Err(Error::Malformed)
+        );
+    }
+    assert_eq!(
+        native::decode_response::<u32>(
+            Contract::ID,
+            b"IWICYDBDR1\x01\x80\x80\x80\x80\x80\x00",
+            Contract::RESPONSE_LIMITS
+        ),
+        Err(Error::Limit)
     );
 }

@@ -301,7 +301,8 @@ _test-core-no-default:
 # its own independent consumer and no-default-feature checks above.
 _test-workspace:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing
-	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(QUALIFICATION_MANIFEST_FLAG) --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing
+	# Qualification owns model/fixture tests; root above owns facade testing.
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(QUALIFICATION_MANIFEST_FLAG) --locked --no-fail-fast --workspace --all-targets --features icydb-model/build
 
 # Focused development stages for the CLI package. Release verification retains
 # the complete validate gate until group selection and receipts are qualified.

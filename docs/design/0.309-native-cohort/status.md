@@ -244,6 +244,32 @@ refused because its copied scanner lacked the common lifecycle helper. Copying
 that runtime dependency restores the full adapter regression suite. Both failed
 captures remain retained under the shared release-state owner.
 
+All product tests in the replacement capture pass, including 2,760 no-default
+Core cases, 3,939 SQL-enabled Core cases and all 69 CLI process cases. The
+independent qualification invocation then exposes a redundant release-only
+`icydb/testing` activation, which has no callers or owned tests in that workspace.
+Align it with qualification CI's existing `icydb-model/build` profile while
+retaining every member/all-target test and root's full facade testing profile.
+The unnecessary attempted qualification Types/thiserror changes are restored
+through Cargo; its lock remains byte-identical. Actual command-transport controls
+assert both maintained profiles. The Make declaration digest is reviewed again
+without renewing any native omission certificate.
+
+Direct qualification execution also identifies two stale Wire assertions:
+generic redundant varints now decode within width bounds, and public browser
+names reference type-derived definitions. Update those tests at their existing
+owners, retaining truncation/trailing-byte refusals, exact frame vectors and
+field-scoped bulk acknowledgements. Add overflow/overlong controls to the
+maintained generic varint surface. No production behavior or reviewed browser
+baseline changes for this correction.
+
+The corrected qualification profile passes all 88 tests across its 18 targets.
+Strict Build/Wasm-helper all-target Clippy and the full consumer adapter fixture
+also pass, including explicit command-transport assertions that root retains
+facade testing and qualification retains its CI model-generation profile.
+Formatting, documentation, declaration admission and diff checks pass. Evidence
+is under `target/evidence/deploy-20261111/`.
+
 The incoming Storage 0.73.2 update is included in the replacement capture after
 published checksum/source verification. All 44 library source files are
 byte-identical to 0.73.1; only producer tooling changes. Its API/format contract
