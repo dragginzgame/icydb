@@ -562,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.296.12"
+version = "0.296.13"
 dependencies = [
  "clap",
  "ic-host-artifacts",
