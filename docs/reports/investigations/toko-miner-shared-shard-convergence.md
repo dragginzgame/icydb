@@ -27,14 +27,14 @@ unqualified; ICYDB-039 is not closed by a synthetic round-schedule control.
 The inspected IcyDB source is committed `v0.261.0`,
 `c1a5028eebed7b2f04cce00d49a4ea6b9c58512c`:
 
-- `db/commit/backlog_admission.rs` admits cumulative database-wide journal
+- `db/commit/backlog_admission/mod.rs` admits cumulative database-wide journal
   batches, records and encoded bytes. Batch count is bounded at 64; E263 carries
   the resource, current count, proposal and limit as typed numeric facts.
 
-- `db/commit/recovery.rs::fold_oldest_journal_batch` selects and folds one
+- `db/commit/recovery/mod.rs::fold_oldest_journal_batch` selects and folds one
   complete oldest batch, then checks whether tails are empty.
 
-- `db/startup/driver.rs` reuses that recovery owner for online convergence.
+- `db/startup/driver/mod.rs` reuses that recovery owner for online convergence.
   Optional cardinality work can also use the same callback, so timer success
   counts alone are not a general exact retired-batch counter.
 

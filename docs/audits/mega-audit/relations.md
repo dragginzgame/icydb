@@ -6,7 +6,7 @@ task queue or a redesign of relation execution.
 
 ## Implemented outcome: remove redundant preparation representations
 
-Owner: [reverse relation compilation](../../../crates/icydb-core/src/db/relation/reverse_index.rs),
+Owner: [reverse relation compilation](../../../crates/icydb-core/src/db/relation/reverse_index/mod.rs),
 `compile_accepted_relation_binding`, and
 [tuple validation](../../../crates/icydb-core/src/db/relation/mod.rs),
 `accepted_relation_tuple_edge_descriptor`.

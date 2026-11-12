@@ -100,13 +100,21 @@ namespace or consumer-specific path remapping.
 
 ## Ownership and provenance
 
-IcyDB selects published **Toko Tooling 0.39.15** with one exact workspace pin
+IcyDB selects published **Toko Tooling 0.39.17** with one exact workspace pin
 inherited as an unconditional dev-dependency by every real package, alongside
 its cargo-machete exemption. Cargo.lock and `.toko-tooling.snapshot` identify
-archive SHA-256 `6cc984822e80e52ff7203aadcaf293a13f9fcf33f84175871321cb3a7de703a9`,
-from source `45c75d1841a291df1c7e7d943ab107d5c3822d47`. All 109 payloads are installed
+archive SHA-256 `aaeab49adb84ea0d66cf86ecc48d826125f9c3ac6eafaf2a362bccfeba7acbfd`,
+from source `f3be6c9ea8da46c7f2cebdc420766a829d01f82d`. All 109 payloads are installed
 by the authenticated exporter; no snapshot-owned files or receipt hashes are
 edited locally.
+
+The 0.39.17 refresh changes only the installed baseline; executable payloads and
+native tool selections are unchanged. Product and qualification locks were
+updated with Cargo, and the deferred Canic lock receives the same verified
+registry entry without changing its runtime graph. The maintainer authorized the one-off directory-module migration: 504 Rust
+files now use `mod.rs` inside their existing child directories, preserving module
+paths. Relative includes, scanner/test discovery and active source references
+follow the moved owners; published release history stays unchanged.
 
 The earlier 0.39.12 authenticated preview/update changed only the baseline and LOC
 report scripts; all 107 selected payload paths and tool versions remain unchanged.
@@ -131,7 +139,7 @@ tooling check does not qualify their runtime compatibility.
 IcyDB's Cargo home and target directory. It changes locks within existing
 manifest requirements and does not run validation or publish anything.
 
-Use `make deps-update DEPENDENCY_PACKAGE=toko-tooling DEPENDENCY_PRECISE=0.39.15`
+Use `make deps-update DEPENDENCY_PACKAGE=toko-tooling DEPENDENCY_PRECISE=0.39.17`
 to select one package/version in both workspaces. The deferred Canic workspace
 is excluded by default; an explicit `DEPENDENCY_MANIFEST` adds another manifest.
 Inspect both lock diffs and qualify affected packages afterward. A Cargo failure

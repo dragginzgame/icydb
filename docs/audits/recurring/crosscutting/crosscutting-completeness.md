@@ -546,12 +546,12 @@ when the obligation crosses the canister boundary.
 
 | Proof obligation | Current source/test owners |
 | --- | --- |
-| SQL parsing, predicate lowering, and normalization | `db/sql/parser/tests/mod.rs`, `db/sql/lowering/predicate/tests.rs`, `db/sql/lowering/normalize/tests.rs` |
-| Typed/dynamic/SQL read parity and prepared parameter reuse | `db/session/tests/unit_ordering.rs` |
-| SQL mutation admission and current write behavior | `db/session/sql/update_policy/tests.rs`, `db/session/sql/delete_policy/tests.rs`, `db/session/write.rs` |
+| SQL parsing, predicate lowering, and normalization | `db/sql/parser/tests/mod.rs`, `db/sql/lowering/predicate/tests.rs`, `db/sql/lowering/normalize/tests/mod.rs` |
+| Typed/dynamic/SQL read parity and prepared parameter reuse | `db/session/tests/unit_ordering/mod.rs` |
+| SQL mutation admission and current write behavior | `db/session/sql/update_policy/tests.rs`, `db/session/sql/delete_policy/tests.rs`, `db/session/write/mod.rs` |
 | DDL field/expression indexes, field changes, and accepted publication | `db/schema/mutation/tests/`, `db/schema/sql_ddl/`, `testing/integration/tests/sql_canister.rs` |
 | Public result, blob, introspection, and EXPLAIN behavior | `db/session/sql/`, `testing/integration/tests/sql_canister.rs`, `testing/integration/tests/sql_correctness.rs` |
-| Persisted decode and recovery for admitted mutation families | `db/tests/persisted_format_corpus.rs`, `db/session/write.rs`, `db/schema/application.rs` |
+| Persisted decode and recovery for admitted mutation families | `db/tests/persisted_format_corpus.rs`, `db/session/write/mod.rs`, `db/schema/application/mod.rs` |
 
 Select focused cases for the feature rows actually in scope. Do not run entire
 integration targets merely because they contain candidate proofs. Parsing,

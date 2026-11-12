@@ -19,7 +19,7 @@ constructor/append operations, QueryIntent::append_predicate and the QueryModel 
 StructuralQuery forwarding methods. Keep the required SQL predicate mirror until
 its admission/derivation owners are consolidated: discarding it now adds work.
 
-Do not remove [executable PredicateOnly filter selection](../../../crates/icydb-core/src/db/query/plan/access_choice/model.rs).
+Do not remove [executable PredicateOnly filter selection](../../../crates/icydb-core/src/db/query/plan/access_choice/model/mod.rs).
 It describes a legitimate execution result after access/residual planning, not
 the unreachable authoring mode. Similarly, PreparedQueryParameterContract's
 from_normalized_predicate is a live cache contract, not the retired constructor.
@@ -60,7 +60,7 @@ migration risk, not a newly established user-visible defect.
 ## 3. Remove semantic-to-syntax writeback, including membership work
 
 **Confirmed repeated transformation.** In
-[bindings](../../../crates/icydb-core/src/db/sql/lowering/bindings.rs),
+[bindings](../../../crates/icydb-core/src/db/sql/lowering/bindings/mod.rs),
 admit_compare_or_expression lowers a SQL subtree, compiles/adopts a predicate,
 normalizes and validates its operands, then writes the admitted value back into
 SqlExpr::Literal. bind_prepared_where lowers the whole expression again for truth
@@ -85,7 +85,7 @@ do not describe every AST node as independently re-inferred.
 
 The [exact-count session route](../../../crates/icydb-core/src/db/session/query/exact_count.rs)
 constructs accepted-schema structural intent and asks for prefix keys directly.
-[try_build_count_cardinality_prefix_access_from_query_model](../../../crates/icydb-core/src/db/query/plan/pipeline.rs)
+[try_build_count_cardinality_prefix_access_from_query_model](../../../crates/icydb-core/src/db/query/plan/pipeline/mod.rs)
 consumes the intent predicate without going through
 prepare_query_model_scalar_planning_state_with_schema_info.
 
@@ -188,7 +188,7 @@ or deployment changed; this is not a complete programme closeout.
 ## Slice 3 audit: remove syntax substitution, preserve literal rules
 
 Source inspection on 2026-11-12, after the accepted-schema filter owner landed,
-confirms a remaining independent traversal in `sql/lowering/bindings.rs`.
+confirms a remaining independent traversal in `sql/lowering/bindings/mod.rs`.
 `CheckedSqlSelectTemplate::compile` clones the extracted WHERE predicate, and
 `bind` clones its retained predicate on every invocation. `bind_expr` mutates
 that copy from parameter slots to SQL literals. Early operand admission lowers
@@ -306,11 +306,11 @@ checks are implied by this source inspection.
 MA-04 remains the next substantial mechanism candidate. The maintained physical
 binding contract crosses these concrete owners:
 
-- `access/lowering.rs::lower_index_specs_for_path` emits prefix/range specs.
+- `access/lowering/mod.rs::lower_index_specs_for_path` emits prefix/range specs.
 - `PreparedExecutionPlanResidents` retains the semantic `AccessPlannedQuery`
   alongside two independently typed `Arc` slices of physical specs.
 - `AccessStreamBindings` forwards those slices and continuation policy.
-- `stream/access/traversal.rs::produce_key_stream` consumes the slices in tree
+- `stream/access/traversal/mod.rs::produce_key_stream` consumes the slices in tree
   order, derives required counts from leaf shape, and validates prefix/range
   alignment before opening physical streams. `AccessSpecCursor` also validates
   complete consumption. Union/intersection traversal shares that protocol.

@@ -78,7 +78,7 @@ coverage. Wasm and IC impact unknown; no persistence format change proposed.
 ### MA-02 — Compute the ordinary accepted head once
 
 **Owner:** `apply_schema_with_contract` and `accepted_head_after_candidates` in
-[schema application](../../../crates/icydb-core/src/db/schema/application.rs).
+[schema application](../../../crates/icydb-core/src/db/schema/application/mod.rs).
 
 In the non-pending, non-empty-candidate branch, `accepted_head` calls
 `accepted_head_after_candidates(authorities, candidates)`. Immediately afterward,
@@ -102,7 +102,7 @@ and Wasm savings are unmeasured. This is the safest first implementation slice.
 ### MA-03 — Borrow the accepted-after topology in preflight
 
 **Owner:** `preflight_new_entity_domains` in
-[schema application](../../../crates/icydb-core/src/db/schema/application.rs).
+[schema application](../../../crates/icydb-core/src/db/schema/application/mod.rs).
 
 The function copies `current_bundles` with `to_vec()`, then replaces matching
 entries with cloned candidate bundles. It uses that assembled `after` collection
@@ -155,9 +155,9 @@ that must be explicitly held constant or deliberately cut. Risk high.
 
 ### MA-05 — Reduce filter representation synchronization
 
-**Owners:** [intent state](../../../crates/icydb-core/src/db/query/intent/state.rs),
+**Owners:** [intent state](../../../crates/icydb-core/src/db/query/intent/state/mod.rs),
 [expression-to-predicate compilation](../../../crates/icydb-core/src/db/query/plan/expr/predicate/compile.rs),
-[planning pipeline](../../../crates/icydb-core/src/db/query/plan/pipeline.rs).
+[planning pipeline](../../../crates/icydb-core/src/db/query/plan/pipeline/mod.rs).
 
 `NormalizedFilter` carries semantic authority (expression-backed or predicate-
 only), an optional predicate subset, and Full/Partial/None coverage.
@@ -183,9 +183,9 @@ Overlaps MA-06; savings cannot be summed independently. IC/Wasm impact unknown.
 
 ### MA-06 — Reuse canonical predicate proof during hashing
 
-**Owners:** [predicate fingerprint](../../../crates/icydb-core/src/db/predicate/fingerprint.rs),
+**Owners:** [predicate fingerprint](../../../crates/icydb-core/src/db/predicate/fingerprint/mod.rs),
 [query hash sections](../../../crates/icydb-core/src/db/query/fingerprint/hash_sections/mod.rs),
-[query cache](../../../crates/icydb-core/src/db/session/query/cache.rs).
+[query cache](../../../crates/icydb-core/src/db/session/query/cache/mod.rs).
 
 `hash_predicate` copies and normalizes before structural encoding. Planning
 already has a normalized predicate, and the cache uses the separate
@@ -209,7 +209,7 @@ cache miss/hit and continuation mismatch. Runtime savings remain unmeasured.
 ### MA-07 — Reconsider repeated accepted-field slot ordering
 
 **Owner:** `SchemaInfo::field_names_in_slot_order` and its admitted wrapper in
-[schema info](../../../crates/icydb-core/src/db/schema/info.rs).
+[schema info](../../../crates/icydb-core/src/db/schema/info/mod.rs).
 
 Every call collects `(slot, name)` pairs, sorts them and collects names. Current
 callers include SQL wildcard projection, exact-key projection and covering
@@ -230,10 +230,10 @@ exhaustion. No persisted change proposed. IC/Wasm impact unknown.
 
 ### MA-08 — Overlay containers are a redesign hypothesis, not dead caches
 
-**Owners:** [data store](../../../crates/icydb-core/src/db/data/store.rs),
-[index store](../../../crates/icydb-core/src/db/index/store.rs),
-[position metadata](../../../crates/icydb-core/src/db/positioned_overlay.rs),
-[ordered merge](../../../crates/icydb-core/src/db/ordered_overlay.rs).
+**Owners:** [data store](../../../crates/icydb-core/src/db/data/store/mod.rs),
+[index store](../../../crates/icydb-core/src/db/index/store/mod.rs),
+[position metadata](../../../crates/icydb-core/src/db/positioned_overlay/mod.rs),
+[ordered merge](../../../crates/icydb-core/src/db/ordered_overlay/mod.rs).
 
 Journaled stores keep live values, tombstones and positions in separate
 containers. Position metadata intentionally does not become a second read
@@ -255,9 +255,9 @@ needs an explicit retained-data plan. Critical risk; IC/Wasm effects unknown.
 
 ### MA-09 — Generated adapters require reachability evidence
 
-**Owners:** [typed adapter generator](../../../crates/icydb-model-macros/src/node/typed_adapter.rs),
-[composite-key generator](../../../crates/icydb-model-macros/src/node/entity.rs),
-[measurement policy](../../../qualification/build/src/wasm_measurement.rs).
+**Owners:** [typed adapter generator](../../../crates/icydb-model-macros/src/node/typed_adapter/mod.rs),
+[composite-key generator](../../../crates/icydb-model-macros/src/node/entity/mod.rs),
+[measurement policy](../../../qualification/build/src/wasm_measurement/mod.rs).
 
 `named_adapter_impl_tokens` generates input/output methods generic over
 `TypedAdapterContext`; records, enums and transparent wrappers compose them.
@@ -307,21 +307,21 @@ dependency removal is justified. Wasm/IC effects unknown.
 1. [Storage opening policy](../../../crates/icydb-core/src/db/storage.rs): its
    short create/load branch enforces virgin-memory versus retained-data behavior.
    Inlining it everywhere would duplicate policy.
-2. [Predicate normalization](../../../crates/icydb-core/src/db/predicate/normalize.rs):
+2. [Predicate normalization](../../../crates/icydb-core/src/db/predicate/normalize/mod.rs):
    charged and retained paths share `normalize_with_work`; admission differences
    do not establish two normalization engines.
-3. [Structural mutations](../../../crates/icydb-core/src/db/executor/mutation/structural.rs):
+3. [Structural mutations](../../../crates/icydb-core/src/db/executor/mutation/structural/mod.rs):
    accepted insert/replace/update/delete intent converges here. `ExpectedLoaded`
    deliberately avoids another backend read. Do not add a second generic write
    framework.
-4. [Schema lowering](../../../crates/icydb-core/src/db/schema/application_lowering.rs):
+4. [Schema lowering](../../../crates/icydb-core/src/db/schema/application_lowering/mod.rs):
    generated and explicit ingress share `lower_existing_store_candidates`.
    Generated ingress rejects removals and can avoid retaining removal machinery;
    collapsing the two entrypoints may increase linked Wasm.
 5. [Fast-stream route](../../../crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs):
    it verifies eligibility then calls the canonical structural stream executor.
    It is not an independent traversal engine.
-6. [Runtime root identity](../../../crates/icydb-core/src/db/schema/runtime_root.rs):
+6. [Runtime root identity](../../../crates/icydb-core/src/db/schema/runtime_root/mod.rs):
    incarnation, per-store roots and explicit absence protect authority across
    changes. A maximum revision alone is not equivalent.
 

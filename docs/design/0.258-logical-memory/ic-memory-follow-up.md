@@ -123,6 +123,6 @@ Pre-1.0 changes remain hard cuts; versioned integration formats stay at version 
 
 ## Public source references
 
-- [Generated memory bootstrap](https://github.com/dragginzgame/icydb/blob/f3bd969be9dd7087a0c00e2655d703c397756616/crates/icydb-model/src/build/actor/db/store.rs#L766-L809)
-- [Persisted store reconciliation](https://github.com/dragginzgame/icydb/blob/f3bd969be9dd7087a0c00e2655d703c397756616/crates/icydb-core/src/db/database_format/convergence.rs#L43-L86)
+- [Generated memory bootstrap](https://github.com/dragginzgame/icydb/blob/f3bd969be9dd7087a0c00e2655d703c397756616/crates/icydb-model/src/build/actor/db/store/mod.rs#L766-L809)
+- [Persisted store reconciliation](https://github.com/dragginzgame/icydb/blob/f3bd969be9dd7087a0c00e2655d703c397756616/crates/icydb-core/src/db/database_format/convergence/mod.rs#L43-L86)
 - [ic-memory 0.14.0 integration contract](https://github.com/dragginzgame/ic-memory/blob/33a28e15598fb63d3e7b426abb37d4a0d474dfd8/docs/key-only-recovery.md)

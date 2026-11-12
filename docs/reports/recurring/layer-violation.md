@@ -47,9 +47,9 @@
 | Comparator Logic | File | Owner Layer | Violation Type | Risk |
 | --- | --- | --- | --- | --- |
 | Index key ordering | `db/index/key/*`, `db/index/envelope/*` | index | Owner implementation | Low |
-| Access-plan canonical ordering | `db/access/canonical.rs` | access | Legitimate access canonicalization, not index-key ordering | Low |
+| Access-plan canonical ordering | `db/access/canonical/mod.rs` | access | Legitimate access canonicalization, not index-key ordering | Low |
 | Predicate/value comparison | `db/predicate/*`, `db/numeric/*` | predicate/numeric | Domain-local comparison semantics | Low |
-| Result-row ordering and aggregate ranking | `db/executor/order.rs`, `db/executor/terminal/ranking/*`, `db/executor/aggregate/*` | executor | Runtime result ordering, not index-key ordering | Low |
+| Result-row ordering and aggregate ranking | `db/executor/order/mod.rs`, `db/executor/terminal/ranking/*`, `db/executor/aggregate/*` | executor | Runtime result ordering, not index-key ordering | Low |
 
 ## Continuation Authority Leakage
 
@@ -57,7 +57,7 @@
 | --- | --- | --- | --- | --- |
 | Excluded-anchor resume bounds | `db/index/envelope/mod.rs` | index | No | Low |
 | Strict directional advancement | `db/index/envelope/mod.rs`, consumed by `db/cursor/continuation.rs` and executor continuation planning | index | Defensive delegation | Low |
-| Cursor signature validation | `db/cursor/spine.rs`, `db/query/plan/continuation.rs` | cursor/query plan | Protective split between immutable plan contract and token validation | Low |
+| Cursor signature validation | `db/cursor/spine.rs`, `db/query/plan/continuation/mod.rs` | cursor/query plan | Protective split between immutable plan contract and token validation | Low |
 
 ## Access Capability Fan-Out
 
@@ -74,7 +74,7 @@
 | --- | --- | --- | --- | --- |
 | Envelope containment | `db/index/envelope/mod.rs` | index | Owner-only | Low |
 | Strict advancement | `db/index/envelope/mod.rs`, cursor/executor route assertions | index | Safety-enhancing redundancy | Low |
-| Cursor signature compatibility | `db/cursor/spine.rs`, `db/query/plan/continuation.rs`, prepared-plan revalidation wrappers | cursor/query plan | Safety-enhancing redundancy | Low |
+| Cursor signature compatibility | `db/cursor/spine.rs`, `db/query/plan/continuation/mod.rs`, prepared-plan revalidation wrappers | cursor/query plan | Safety-enhancing redundancy | Low |
 | Commit marker lifecycle | `db/commit/*`, executor mutation commit-window APIs | commit | Safety-enhancing boundary checks | Low |
 | Reverse relation validation | `db/relation/*` | relation | Owner-local | Low |
 
@@ -82,8 +82,8 @@
 
 | Error Concept | Mapping Sites | Class Differences? | Risk |
 | --- | --- | --- | --- |
-| Cursor signature mismatch | `db/cursor/error.rs`, `db/cursor/spine.rs`, `db/query/plan/continuation.rs` | No inspected drift; query plan delegates to cursor error construction | Low |
-| Commit marker corruption/lifecycle | `db/commit/*`, `db/executor/mutation/commit_window.rs` | No inspected drift; commit-owned errors remain the lifecycle authority | Low |
+| Cursor signature mismatch | `db/cursor/error/mod.rs`, `db/cursor/spine.rs`, `db/query/plan/continuation/mod.rs` | No inspected drift; query plan delegates to cursor error construction | Low |
+| Commit marker corruption/lifecycle | `db/commit/*`, `db/executor/mutation/commit_window/mod.rs` | No inspected drift; commit-owned errors remain the lifecycle authority | Low |
 | Predicate/runtime comparison failures | `db/predicate/*`, `db/executor/mutation/save_validation.rs` | No layer violation found; executor uses predicate/numeric helpers for semantic comparison | Low |
 
 ## Semantic Fan-Out Metric

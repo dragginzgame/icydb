@@ -19,15 +19,15 @@ require_text \
     'cache_post_link_wasm(&PostLinkCacheRequest {' \
     'fixture builds must invoke the canonical cached post-link artifact producer.'
 require_text \
-    qualification/build/src/canister_build_cache.rs \
+    qualification/build/src/canister_build_cache/mod.rs \
     'build_artifact_caches_batch(&specs' \
     'whole-fleet post-link validation must use the collect-all artifact cache batch.'
 require_text \
-    qualification/build/src/canister_build_cache.rs \
+    qualification/build/src/canister_build_cache/mod.rs \
     'LabeledArtifactCacheSpec::new(' \
     'whole-fleet post-link validation must retain stable caller labels across batch reports.'
 require_text \
-    qualification/build/src/canister_build_cache.rs \
+    qualification/build/src/canister_build_cache/mod.rs \
     'LabeledWasmBuildSpec::new(' \
     'whole-fleet Cargo validation must retain stable caller labels across batch reports.'
 require_text \
@@ -47,11 +47,11 @@ if ! perl -0777 -ne '
     failures=1
 fi
 require_text \
-    qualification/build/src/canister_build_cache.rs \
+    qualification/build/src/canister_build_cache/mod.rs \
     'let report = build_wasm_canisters_cached_batch(' \
     'whole-fleet profile readers must retain checked input resolution and collect-all failures.'
 require_text \
-    qualification/build/src/canister_build_cache.rs \
+    qualification/build/src/canister_build_cache/mod.rs \
     'optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)' \
     'the post-link artifact cache must invoke the canonical optimizer on cache misses.'
 require_text \
@@ -81,11 +81,11 @@ require_text \
     'cp release-input/default_empty.wasm-release.final-deployable.wasm artifacts/default_empty.wasm' \
     'release packaging must consume the verified canonical post-link artifact.'
 require_text \
-    qualification/build/src/wasm_optimizer.rs \
+    qualification/build/src/wasm_optimizer/mod.rs \
     'binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1' \
     'the post-link pipeline identity must remain explicit.'
 require_text \
-    qualification/build/src/wasm_optimizer.rs \
+    qualification/build/src/wasm_optimizer/mod.rs \
     '--one-caller-inline-max-function-size=0' \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
 require_text \

@@ -9,7 +9,7 @@ final evidence and E3's remaining generated-actor scope.
 
 Base: published 0.260.0, `0339efcd9fe35d9a27c4d4f2b809f9b8a6c557c6`, plus E1 docs
 and the new application-boundary
-[fixture](../../../crates/icydb-core/src/db/schema/application/tests/entity_rename.rs).
+[fixture](../../../crates/icydb-core/src/db/schema/application/tests/entity_rename/mod.rs).
 It reuses the maintained journaled migration-execution registry; no actor or
 alternate build/recovery owner is added.
 
@@ -36,7 +36,7 @@ With `Holder`, the same requested success fails at migration admission with
 this first focused failure; the two tests are the only fresh semantic results.
 
 The source digest includes relation target names and referenced field meanings
-(`icydb-schema/src/source_digest.rs`). Consequently the successor `Holder`
+(`icydb-schema/src/source_digest/mod.rs`). Consequently the successor `Holder`
 is not unchanged. `migration_planner.rs::validate_unchanged_lineage` correctly
 requires a coordinated declaration for its changed meaning. Bumping its source
 version alone also takes the missing-migration branch.

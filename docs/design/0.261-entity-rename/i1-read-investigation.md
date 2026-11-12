@@ -43,13 +43,13 @@ not establish that restarting alone reduced read cost.
 
 ## Attribution and limits
 
-The [runtime-root owner](../../../crates/icydb-core/src/db/session/accepted_schema.rs)
+The [runtime-root owner](../../../crates/icydb-core/src/db/session/accepted_schema/mod.rs)
 matches the cached store roots against current accepted roots. A mismatch
 compiles every accepted entity into one database-wide runtime root, including
 inspection and row-decode contracts. SQL and catalog reads both use that owner.
-The [store owner](../../../crates/icydb-core/src/db/schema/store.rs) also invalidates
+The [store owner](../../../crates/icydb-core/src/db/schema/store/mod.rs) also invalidates
 its verified bundle cache when the accepted root changes. These are heap caches.
-The [metadata migration owner](../../../crates/icydb-core/src/db/schema/application.rs)
+The [metadata migration owner](../../../crates/icydb-core/src/db/schema/application/mod.rs)
 publishes the successor and returns status; terminal command replay does not
 perform an ordinary session read that would retain the current runtime root.
 

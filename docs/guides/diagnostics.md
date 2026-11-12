@@ -93,7 +93,7 @@ schema names or row values.
 Typed operations distinguish database errors from adapter errors. When a
 generated entity or field source cannot bind to the accepted schema, the Rust
 API returns `TypedOperationError::Adapter(TypedAdapterError::BindingUnavailable(context))`.
-The [binding context](../../crates/icydb-core/src/db/dynamic_write.rs) exposes
+The [binding context](../../crates/icydb-core/src/db/dynamic_write/mod.rs) exposes
 `entity_source()` and `field_source()`; `None` identifies the entity lookup,
 while `Some` identifies the requested primary-key or ordinary field. A malformed
 named-type key identifies its containing field. Invalid and absent source keys

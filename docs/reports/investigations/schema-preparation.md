@@ -77,7 +77,7 @@ isolated source copy, as described in probe 01.
 
 Baseline uses the per-kind admission worktree on HEAD
 38d4067a04a2dc11421fc91fa06fa077d9732840. Candidate changes schema
-mod.rs, types.rs, types/query_projection.rs and enum_catalog/publication.rs.
+mod.rs, types.rs, types/query_projection.rs and enum_catalog/publication/mod.rs.
 The prior shared-schema handoff is not reachable from this probe. Both versions
 have identical fixture and runner code; only the measured handoff and production
 admission implementation differ. No instrumentation is installed in production.

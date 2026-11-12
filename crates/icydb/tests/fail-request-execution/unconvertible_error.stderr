@@ -10,7 +10,7 @@ help: the trait `From<icydb::Error>` is not implemented for `ApplicationError`
 1 | struct ApplicationError;
   | ^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `with_request_execution_async`
- --> src/db/session/request.rs
+ --> src/db/session/request/mod.rs
   |
   | pub fn with_request_execution_async<'a, T, E: From<crate::Error>>(
   |                                               ^^^^^^^^^^^^^^^^^^ required by this bound in `with_request_execution_async`

@@ -126,7 +126,7 @@ caps also apply and can reject before either count cap is reached.
 ### Secondary-Index Key Budget
 
 Every complete encoded secondary-index key is limited to **512 bytes** by the
-[key taxonomy](../../crates/icydb-core/src/db/key_taxonomy.rs). The budget includes
+[key taxonomy](../../crates/icydb-core/src/db/key_taxonomy/mod.rs). The budget includes
 the index-kind and physical-identity prefix, all component length prefixes and
 payloads, and the length-prefixed row primary key. It applies to user and system
 indexes; four fields and a 254-byte primary-key suffix remain structural maxima,
@@ -163,12 +163,12 @@ index stores and discarding continuations from the wider-key contract.
 
 | Authority | Scope and responsibility | Compiled owner |
 | --- | --- | --- |
-| Input admission | Authored query components, including effective SQL parameter copies; not planner-produced work | [input](../../crates/icydb-core/src/db/query/admission/input.rs) |
-| Public admission | Selected-plan row, access, key-input and grouped-policy proofs | [policy](../../crates/icydb-core/src/db/query/admission/policy.rs) |
-| Request root | Monotonic preparation and attached execution charges across nested calls and async polls | [request](../../crates/icydb-core/src/db/resource/request.rs) |
-| Read execution | One prepared execution's physical work, attached to its request scope | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
-| Mutation advancement | Fixed engine-owned profile, message-wide instruction ceiling and explicit pre-publication checks | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
-| Grouped state | Live group memory plus cumulative group/DISTINCT work | [grouped accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs) |
+| Input admission | Authored query components, including effective SQL parameter copies; not planner-produced work | [input](../../crates/icydb-core/src/db/query/admission/input/mod.rs) |
+| Public admission | Selected-plan row, access, key-input and grouped-policy proofs | [policy](../../crates/icydb-core/src/db/query/admission/policy/mod.rs) |
+| Request root | Monotonic preparation and attached execution charges across nested calls and async polls | [request](../../crates/icydb-core/src/db/resource/request/mod.rs) |
+| Read execution | One prepared execution's physical work, attached to its request scope | [execution budget](../../crates/icydb-core/src/db/resource/budget/mod.rs) |
+| Mutation advancement | Fixed engine-owned profile, message-wide instruction ceiling and explicit pre-publication checks | [execution budget](../../crates/icydb-core/src/db/resource/budget/mod.rs) |
+| Grouped state | Live group memory plus cumulative group/DISTINCT work | [grouped accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context/mod.rs) |
 
 Named resources include query/planning work, key and row visits, stored/decoded/
 materialized bytes, expression/value steps, sort work and scratch, group/DISTINCT
@@ -268,7 +268,7 @@ authority is rechecked on use. There is no separate query-only insertion policy.
 - Filtered plan-cache hits still normalize current operands and derive identity.
   Filterless early hits skip that normalization, but cache-key lookup and warm
   lifecycle validation still charge their instruction intervals. Hits are not
-  a budget bypass. See the [cache owner](../../crates/icydb-core/src/db/session/query/cache.rs).
+  a budget bypass. See the [cache owner](../../crates/icydb-core/src/db/session/query/cache/mod.rs).
 - Key/fingerprint/continuation construction admits retained backing and supported
   value copies. Only complete successful identities or plans publish. Exhaustion
   cannot become a placeholder fingerprint, missing predicate or absent candidate.
@@ -586,14 +586,14 @@ transition. The budget records peak live groups, aggregate states, DISTINCT
 values, and estimated bytes for diagnostics without weakening cumulative caps.
 
 Grouped DISTINCT insertions pass through the authoritative
-[grouped budget accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs).
+[grouped budget accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context/mod.rs).
 This includes global DISTINCT field aggregates modeled as grouped execution
 with zero group keys.
 
 Outside grouped execution,
-[scalar aggregate reducers](../../crates/icydb-core/src/db/executor/aggregate/scalar_terminals/reducer.rs)
+[scalar aggregate reducers](../../crates/icydb-core/src/db/executor/aggregate/scalar_terminals/reducer/mod.rs)
 own DISTINCT value sets, while
-[projected-row DISTINCT](../../crates/icydb-core/src/db/executor/projection/materialize/distinct.rs)
+[projected-row DISTINCT](../../crates/icydb-core/src/db/executor/projection/materialize/distinct/mod.rs)
 owns adjacent deduplication or global replay. These paths charge execution
 budgets for DISTINCT entries and retained state; they do not obtain their
 limits from grouped-query configuration.

@@ -7,7 +7,7 @@ for a broader recovery redesign.
 
 ## 1. Borrow temporary cardinality coalescing inputs
 
-Owner: [recovery](../../../crates/icydb-core/src/db/commit/recovery.rs),
+Owner: [recovery](../../../crates/icydb-core/src/db/commit/recovery/mod.rs),
 `collect_folded_cardinality_changes`.
 
 The function receives an immutable slice of prepared operations. It clones row
@@ -37,7 +37,7 @@ schema checkpoint recovery and journal envelope validation.
 
 It scans every record, tracks an optional candidate, checks publication position
 and uniqueness, and rejects a row-delete suffix. However,
-[JournalBatch admission](../../../crates/icydb-core/src/db/journal/codec.rs)
+[JournalBatch admission](../../../crates/icydb-core/src/db/journal/codec/mod.rs)
 already requires a publication to be first and unique, and rejects non-schema
 suffixes. Both the checked constructor and persisted decoder enter
 `from_validated_records`, which runs that batch-shape validator. Batch fields

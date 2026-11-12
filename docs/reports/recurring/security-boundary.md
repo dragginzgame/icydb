@@ -55,7 +55,7 @@ Because the verification method changed, deltas against Method V1 are treated as
 ## Structural Hotspots
 
 * `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/mod.rs`
-* `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/compile_cache.rs`
+* `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/compile_cache/mod.rs`
 * `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs`
 * `/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/explain.rs`
 * `/home/adam/projects/icydb/crates/icydb-core/src/db/session/query/mod.rs`

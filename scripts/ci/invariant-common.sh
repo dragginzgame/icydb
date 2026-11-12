@@ -4,7 +4,9 @@ COMMON_GLOBS=(
   --glob '!**/tests/**'
   --glob '!**/tests.rs'
   --glob '!**/*_tests.rs'
+  --glob '!**/*_tests/**'
   --glob '!**/test_*.rs'
+  --glob '!**/test_*/**'
 )
 
 require_rg() {

@@ -17,10 +17,10 @@ The measured schema store file matches the candidate byte-for-byte. The measured
 typed-validation function matches after removing its test-only measurement guard.
 Candidate production-owner file hashes:
 
-- `crates/icydb-core/src/db/schema/store.rs`:
+- `crates/icydb-core/src/db/schema/store/mod.rs`:
   `f09be354e7056732fed57ca269215f5c351e7e3e86977364495715e6b934256b`.
 
-- `crates/icydb-core/src/db/session/write.rs`:
+- `crates/icydb-core/src/db/session/write/mod.rs`:
   `0012ab65eefd3ae6196c5131747499e76afbdc51e0c4ec7300a2e8cc07ac74a3`.
 
 Native method matches run 01: Rust 1.97.1, optimized test profile, all features,

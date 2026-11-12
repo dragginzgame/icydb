@@ -44,9 +44,9 @@ prove the dynamic page's route. Keep the two measurements separate.
 
 The source boundary explains the difference: expression predicate extraction
 chooses `NumericWiden` for signed integral atoms in
-`query/plan/expr/predicate/compile.rs::compare_literal_coercion`; secondary
+`query/plan/expr/predicate/compile/mod.rs::compare_literal_coercion`; secondary
 lookup admission accepts `Strict` or `TextCasefold` in
-`query/plan/planner/compare.rs::coercion_supports_index_lookup`. SQL lowering
+`query/plan/planner/compare/mod.rs::coercion_supports_index_lookup`. SQL lowering
 supplies its schema-canonical strict predicate. This is maintained conservative
 admission, not evidence that a primary-key seek was attempted or failed.
 

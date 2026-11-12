@@ -9,7 +9,7 @@ linked investigation evidence, not a separate follow-up queue.
 
 ### 1. Remove the already-ordered initial entity sort
 
-In [application lowering](../../../crates/icydb-core/src/db/schema/application_lowering.rs),
+In [application lowering](../../../crates/icydb-core/src/db/schema/application_lowering/mod.rs),
 `proposal_definitions` inserts entities into a `BTreeMap<EntitySourceKey, _>`.
 `lower_initial_schema_proposal` iterates that map in source-key order and appends
 each entity to its store-local vector. Every vector is therefore an ordered
@@ -62,7 +62,7 @@ bindings, and attaches new entity/field identities to that temporary catalogue.
 Indexes, relations and constraints resolve against this complete forward-reference
 view. A final attachment then includes the complete object bindings.
 
-[Source-binding admission](../../../crates/icydb-core/src/db/schema/source_binding.rs)
+[Source-binding admission](../../../crates/icydb-core/src/db/schema/source_binding/mod.rs)
 `append_new_entities` rejects reused entity scopes and validates every child
 binding belongs to a newly admitted entity before mutating the catalogue.
 Appending fields first and object bindings later through the same method does
@@ -90,7 +90,7 @@ authorities. This is a redesign hypothesis, not a ready deletion.
   ordinary ready check uses the receipt-only path; merging those helpers would
   introduce head derivation into the common path. Matching terminal failures
   intentionally precede pending-control checks.
-- [Cardinality rebuild](../../../crates/icydb-core/src/db/schema/cardinality_build.rs)
+- [Cardinality rebuild](../../../crates/icydb-core/src/db/schema/cardinality_build/mod.rs)
   shares cursor/header validation, count preparation and page publication after
   separate row/index collection. Rows and indexes have distinct key decoding,
   component/witness checks, prefix-update budgets and checkpoints. Their visible

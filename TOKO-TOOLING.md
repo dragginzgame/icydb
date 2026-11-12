@@ -470,6 +470,11 @@ hard cut, including references, under the
 Use ordinary Rust module discovery. `#[path]` module attributes, including
 conditional path overrides, are prohibited. Do not inject embedded Rust source
 or patch generated entrypoints to change executable code, including in tests.
+Use either a standalone `foo.rs` or a directory module `foo/mod.rs`; never keep
+`foo.rs` and sibling `foo/` together. If a module needs a directory for children,
+tests, fixtures or support code, move its file to `foo/mod.rs` and preserve its
+public module path. Apply this recursively, including test and generated modules.
+This supersedes older linked guidance permitting `foo.rs` with `foo/tests.rs`.
 Follow the
 [module layout rule](https://github.com/dragginzgame/toko-tooling/blob/626da7cd9626cc2e152594862a2d82ea82ef51da/docs/principles/rust-code-hygiene.md#ownership-and-module-shape)
 for source, tests and generated code.

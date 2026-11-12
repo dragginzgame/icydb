@@ -2,7 +2,7 @@
 
 Investigation and authorized implementation after relation preparation,
 2026-11-11. This inspects
-[cache resolution](../../../crates/icydb-core/src/db/session/query/cache.rs) and
+[cache resolution](../../../crates/icydb-core/src/db/session/query/cache/mod.rs) and
 [template ownership](../../../crates/icydb-core/src/db/session/query/cache/template.rs).
 It is evidence for a bounded next outcome, not a separate follow-up queue.
 

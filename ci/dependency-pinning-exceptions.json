@@ -59,7 +59,7 @@
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.39.15",
+    "value": "=0.39.17",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   },
@@ -67,7 +67,7 @@
     "rule": "cargo-exact",
     "file": "testing/canic-adapter/Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.39.15",
+    "value": "=0.39.17",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   },
@@ -131,7 +131,7 @@
     "rule": "cargo-exact",
     "file": "qualification/Cargo.toml",
     "subject": "toko-tooling",
-    "value": "=0.39.15",
+    "value": "=0.39.17",
     "reason": "Toko Tooling admission requires one exact registry source-bundle pin inherited by every real package.",
     "evidence": "docs/governance/toko-tooling.md#ownership-and-provenance"
   }

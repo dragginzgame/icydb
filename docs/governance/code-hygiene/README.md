@@ -38,7 +38,9 @@ example-crate/
     ├── diagnostic.rs
     └── plan/
         ├── mod.rs
-        └── route.rs
+        └── route/
+            ├── mod.rs
+            └── tests.rs
 ```
 
 The example demonstrates module-level ownership headers, top-of-file ordering,

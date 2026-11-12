@@ -19,12 +19,12 @@ ORDERING_AUDIT_DIRS=(
 )
 FIELD_PROJECTION_RUNTIME_FILES=(
   "crates/icydb-core/src/db/executor/mutation/constraint_scheduler.rs"
-  "crates/icydb-core/src/db/executor/order.rs"
-  "crates/icydb-core/src/db/executor/terminal/page/post_access.rs"
-  "crates/icydb-core/src/db/index/key/build.rs"
-  "crates/icydb-core/src/db/index/plan/unique.rs"
+  "crates/icydb-core/src/db/executor/order/mod.rs"
+  "crates/icydb-core/src/db/executor/terminal/page/post_access/mod.rs"
+  "crates/icydb-core/src/db/index/key/build/mod.rs"
+  "crates/icydb-core/src/db/index/plan/unique/mod.rs"
   "crates/icydb-core/src/db/predicate/runtime/mod.rs"
-  "crates/icydb-core/src/db/relation/reverse_index.rs"
+  "crates/icydb-core/src/db/relation/reverse_index/mod.rs"
   "crates/icydb-core/src/traits/mod.rs"
 )
 
@@ -44,7 +44,7 @@ fi
 # Schema owns accepted semantics and publication; SQL owns syntax lowering.
 schema_frontend_edges="$(
   run_rg '(sql|parser)::' "$DB_ROOT/schema/check/bind.rs" \
-    "$DB_ROOT/schema/publication.rs" "$DB_ROOT/schema/publication" | strip_comment_only
+    "$DB_ROOT/schema/publication/mod.rs" "$DB_ROOT/schema/publication" | strip_comment_only
 )"
 if [[ -n "$schema_frontend_edges" ]]; then
   echo "[ERROR] Schema check binding and publication must consume catalog-native contracts." >&2
@@ -53,8 +53,8 @@ if [[ -n "$schema_frontend_edges" ]]; then
 fi
 
 mutation_frontend_edges="$(
-  run_rg '(session|sql)::' "$DB_ROOT/executor/mutation/structural.rs" \
-    "$DB_ROOT/executor/mutation/job.rs" "$DB_ROOT/executor/authority/catalog.rs" | strip_comment_only
+  run_rg '(session|sql)::' "$DB_ROOT/executor/mutation/structural/mod.rs" \
+    "$DB_ROOT/executor/mutation/job/mod.rs" "$DB_ROOT/executor/authority/catalog.rs" | strip_comment_only
 )"
 if [[ -n "$mutation_frontend_edges" ]]; then
   echo "[ERROR] Compiled authority and structural mutation execution must not depend on frontends." >&2
@@ -66,7 +66,7 @@ fi
 # must not acquire SQL parser or executor shell dependencies.
 query_adapter_edges="$(
   run_rg '(sql|executor)::' "$DB_ROOT/query/intent/errors" \
-    "$DB_ROOT/query/explain/plan.rs" | strip_comment_only
+    "$DB_ROOT/query/explain/plan/mod.rs" | strip_comment_only
 )"
 if [[ -n "$query_adapter_edges" ]]; then
   echo "[ERROR] Query error and logical EXPLAIN owners must not depend on frontend/executor adapters." >&2
@@ -187,10 +187,10 @@ residual_filter_presence_leaks="$(
   {
     run_rg "$HAS_RESIDUAL_EXPR_THEN_PREDICATE_PATTERN" \
       "$DB_ROOT" \
-      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs'
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan/mod.rs'
     run_rg "$HAS_RESIDUAL_PREDICATE_THEN_EXPR_PATTERN" \
       "$DB_ROOT" \
-      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs'
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan/mod.rs'
   } | strip_comment_only
 )"
 if [[ -n "$residual_filter_presence_leaks" ]]; then
@@ -205,11 +205,11 @@ residual_filter_accessor_or_leaks="$(
   {
     run_rg "$RESIDUAL_FILTER_EXPR_THEN_PREDICATE_PATTERN" \
       "$DB_ROOT" \
-      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan/mod.rs' \
       --glob '!crates/icydb-core/src/db/query/plan/semantics/logical.rs'
     run_rg "$RESIDUAL_FILTER_PREDICATE_THEN_EXPR_PATTERN" \
       "$DB_ROOT" \
-      --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+      --glob '!crates/icydb-core/src/db/query/plan/access_plan/mod.rs' \
       --glob '!crates/icydb-core/src/db/query/plan/semantics/logical.rs'
   } | strip_comment_only
 )"
@@ -235,9 +235,9 @@ fi
 
 residual_filter_shape_rebuild_leaks="$(
   run_rg "ResidualFilterShape::from_presence\\(" "$DB_ROOT" \
-    --glob '!crates/icydb-core/src/db/query/plan/access_plan.rs' \
+    --glob '!crates/icydb-core/src/db/query/plan/access_plan/mod.rs' \
     --glob '!crates/icydb-core/src/db/query/plan/semantics/logical.rs' \
-    --glob '!crates/icydb-core/src/db/query/explain/execution.rs' \
+    --glob '!crates/icydb-core/src/db/query/explain/execution/mod.rs' \
     --glob '!**/tests/**' \
     | strip_comment_only
 )"
@@ -273,7 +273,7 @@ key_within_envelope_usage_leaks="$(
   run_rg "\\bkey_within_envelope\\b" "$DB_ROOT" \
     --glob '!crates/icydb-core/src/db/index/**' \
     --glob '!crates/icydb-core/src/db/cursor/**' \
-    --glob '!crates/icydb-core/src/db/executor/mutation/commit_window.rs' \
+    --glob '!crates/icydb-core/src/db/executor/mutation/commit_window/mod.rs' \
     | strip_comment_only
 )"
 if [[ -n "$key_within_envelope_usage_leaks" ]]; then

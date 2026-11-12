@@ -46,7 +46,7 @@ Discover current owners before selecting proof. Inventory:
 | Query and planner conversion | `db/query/intent/errors/`, planner errors, cursor plan/decode errors |
 | Compact public identity | `crates/icydb-diagnostic-code/src/{lib,registry}.rs`: leaf code, broad class, detail, origin |
 | Context schemas | `crates/icydb-diagnostic-code/src/{fact,query_field}.rs`: allowed facts and field context |
-| Public projection | `crates/icydb/src/error.rs`: core/query/bootstrap conversion and Candid record |
+| Public projection | `crates/icydb/src/error/mod.rs`: core/query/bootstrap conversion and Candid record |
 | Producer samples | persisted decode, store/index/identity, mutation, schema publication, recovery, admission |
 
 Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
@@ -125,12 +125,12 @@ rejection, not class/origin/detail preservation. Report missing proof explicitly
 
 | Obligation | Candidate proof owners |
 | --- | --- |
-| Runtime classes, origin mapping, cursor conversion, relabeling | Core `error/tests.rs`, exhaustive source matches |
+| Runtime classes, origin mapping, cursor conversion, relabeling | Core `error/tests/mod.rs`, exhaustive source matches |
 | Leaf codes, public axes, fact schemas, query-field validation | Diagnostic-code `lib.rs`, `fact.rs`, `query_field.rs` tests |
-| Public projection and Candid round trips | Facade `error/tests.rs` |
+| Public projection and Candid round trips | Facade `error/tests/mod.rs` |
 | Cursor producer errors | `db/cursor/tests/` plus core conversion matrix |
-| Persisted marker class/origin and format rejection | `db/commit/store/tests.rs`; malformed corpus only for assertions it actually makes |
-| Live/recovery and accepted-index failures | `db/session/write/`, `db/session/write.rs`, `db/session/tests/unit_ordering.rs` |
+| Persisted marker class/origin and format rejection | `db/commit/store/tests/mod.rs`; malformed corpus only for assertions it actually makes |
+| Live/recovery and accepted-index failures | `db/session/write/`, `db/session/write/mod.rs`, `db/session/tests/unit_ordering/mod.rs` |
 | Schema policy and publication | `db/schema/mutation/tests/`, core schema diagnostic tests |
 
 Use focused unit selections: core and facade `--lib --features sql,migration`

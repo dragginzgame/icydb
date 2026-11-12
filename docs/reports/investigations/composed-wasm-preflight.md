@@ -50,9 +50,9 @@ not per-generated-entity engine copies:
 
 | Owner | Finding | Disposition |
 | --- | --- | --- |
-| [Generated callback and driver](../../../crates/icydb-model/src/build/actor/db/store.rs) | The callback calls `startup_state()` before entering the request; the shared driver observes readiness again. Memory bootstrap itself is memoized. | Repeated readiness traversal exists, but the callback's invariant-failure completion is not equivalent to the driver's generic terminal outcome. Do not delete the guard without preserving classification. |
-| [Shared startup driver](../../../crates/icydb-core/src/db/startup/driver.rs) | Both Ready and Recovering states enter recovery/convergence. Pending schema jobs resume from durable receipts; Ready can still have cardinality work. | Keep the shared driver. Ready is not proof that the watchdog can always be omitted. |
-| [Recovery](../../../crates/icydb-core/src/db/commit/recovery.rs) | Replay/fold reaches ordinary prepared row/index publication. A marker-free, empty-tail fast path already exists, selected from durable controls. | No new generated-empty shortcut. Row preparation remains necessary for persisted journal records even when no application write endpoint is linked. |
+| [Generated callback and driver](../../../crates/icydb-model/src/build/actor/db/store/mod.rs) | The callback calls `startup_state()` before entering the request; the shared driver observes readiness again. Memory bootstrap itself is memoized. | Repeated readiness traversal exists, but the callback's invariant-failure completion is not equivalent to the driver's generic terminal outcome. Do not delete the guard without preserving classification. |
+| [Shared startup driver](../../../crates/icydb-core/src/db/startup/driver/mod.rs) | Both Ready and Recovering states enter recovery/convergence. Pending schema jobs resume from durable receipts; Ready can still have cardinality work. | Keep the shared driver. Ready is not proof that the watchdog can always be omitted. |
+| [Recovery](../../../crates/icydb-core/src/db/commit/recovery/mod.rs) | Replay/fold reaches ordinary prepared row/index publication. A marker-free, empty-tail fast path already exists, selected from durable controls. | No new generated-empty shortcut. Row preparation remains necessary for persisted journal records even when no application write endpoint is linked. |
 | [Generated schema facade](../../../crates/icydb/src/db/session/catalog.rs) | `ensure_generated_schema_fragment` and `apply_generated_schema_fragment` repeat proposal decoding/head selection, then differ in migration deferral and return contract. Generation selects one route. | Source-level DRY opportunity, not evidence that both flows contribute to this empty actor. Do not promote it to a measured Wasm fix. |
 
 The startup tests include corruption classification, durable failure receipts,
@@ -65,7 +65,7 @@ replace accepted catalog, journal and schema-job authority.
 
 The authorized follow-up tested exactly one source change: `#[inline(never)]`
 on the existing generated `startup_driver_attempt` in
-[the actor generator](../../../crates/icydb-model/src/build/actor/db/store.rs).
+[the actor generator](../../../crates/icydb-model/src/build/actor/db/store/mod.rs).
 Both maintained production subjects are unchanged byte-for-byte, at both
 compiler-emitted and final deployable stages. **The annotation is discarded.**
 No new driver, recovery shortcut, result mode or compiler policy remains.

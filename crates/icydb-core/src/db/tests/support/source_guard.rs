@@ -11,13 +11,14 @@ use std::{
 /// Identify external test source before applying runtime-only source guards.
 #[must_use]
 pub(in crate::db) fn source_is_test_only(source_path: &Path) -> bool {
-    source_path
-        .components()
-        .any(|part| part.as_os_str() == "tests")
-        || source_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == "tests.rs" || name.ends_with("_tests.rs"))
+    source_path.components().any(|part| {
+        part.as_os_str()
+            .to_str()
+            .is_some_and(|name| name == "tests" || name.ends_with("_tests"))
+    }) || source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == "tests.rs" || name.ends_with("_tests.rs"))
 }
 
 #[test]
@@ -25,6 +26,9 @@ fn test_source_classification_preserves_runtime_neighbors() {
     for path in [
         "src/tests/case.rs",
         "src/tests.rs",
+        "src/tests/mod.rs",
+        "src/owner/fixture_tests/mod.rs",
+        "src/owner/fixture_tests/helpers.rs",
         "src/owner/fixture_tests.rs",
     ] {
         assert!(source_is_test_only(Path::new(path)));
@@ -33,6 +37,7 @@ fn test_source_classification_preserves_runtime_neighbors() {
         "src/contest.rs",
         "src/tests_runtime.rs",
         "src/owner/runtime.rs",
+        "src/owner/fixture_tests_runtime/mod.rs",
     ] {
         assert!(!source_is_test_only(Path::new(path)));
     }

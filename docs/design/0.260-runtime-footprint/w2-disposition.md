@@ -16,7 +16,7 @@ execution cost. No W2 raw-Wasm, IC-cycle or instruction delta was measured.
 Inspection used the current IcyDB worktree at base
 `4698cecb8dbba6786079b759b43494b020559997`, including the earlier 0.260 slices.
 The inspected projection facade and query/preparation owners have no local
-changes. In particular, the SHA-256 of `executor/projection/facade.rs` is
+changes. In particular, the SHA-256 of `executor/projection/facade/mod.rs` is
 `c17108008eb275418f5a35fd465d17b0d3e6d36e2aed69bf407ac984a43527ce`.
 This is a source review, not a new composition baseline for that worktree.
 
@@ -30,15 +30,15 @@ This is a source review, not a new composition baseline for that worktree.
 | Merge or outline the two budget wrappers. | Rows and pages already delegate to one inner coordinator. The rows entry is exported internally only with SQL, which W1 disables. | Apparent source duplication is not demonstrated duplicate code in the measured SQL-off subject. Outlining alone has no established raw-byte benefit. |
 
 The canonical owner remains
-[`execute_structural_projection_rows_inner`](../../../crates/icydb-core/src/db/executor/projection/facade.rs).
+[`execute_structural_projection_rows_inner`](../../../crates/icydb-core/src/db/executor/projection/facade/mod.rs).
 The caller's exact-exhaustion decision is in
-[`session/query/dynamic.rs`](../../../crates/icydb-core/src/db/session/query/dynamic.rs),
+[`session/query/dynamic/mod.rs`](../../../crates/icydb-core/src/db/session/query/dynamic/mod.rs),
 and the public/test-only grammar is in
-[`query/dynamic.rs`](../../../crates/icydb-core/src/db/query/dynamic.rs).
+[`query/dynamic/mod.rs`](../../../crates/icydb-core/src/db/query/dynamic/mod.rs).
 Strict versus conservative preparation is owned by
-[`planning/preparation.rs`](../../../crates/icydb-core/src/db/executor/planning/preparation.rs);
+[`planning/preparation/mod.rs`](../../../crates/icydb-core/src/db/executor/planning/preparation/mod.rs);
 the shared plan's
-[`runtime handoff`](../../../crates/icydb-core/src/db/executor/prepared_execution_plan/shared_plan.rs)
+[`runtime handoff`](../../../crates/icydb-core/src/db/executor/prepared_execution_plan/shared_plan/mod.rs)
 initializes scalar preparation after covering selection. Pure/hybrid covering
 selection remains under its existing
 [`covering owner`](../../../crates/icydb-core/src/db/executor/projection/covering/mod.rs).

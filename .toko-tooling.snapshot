@@ -1,8 +1,8 @@
 # Toko Tooling snapshot v1
-# version	0.39.15
+# version	0.39.17
 format	1
 source	https://crates.io/crates/toko-tooling
-revision	6cc984822e80e52ff7203aadcaf293a13f9fcf33f84175871321cb3a7de703a9
+revision	aaeab49adb84ea0d66cf86ecc48d826125f9c3ac6eafaf2a362bccfeba7acbfd
 # entrypoint	scripts/ci/verify-file-checksum.sh
 # entrypoint	scripts/ci/verify-toko-tooling-snapshot.sh
 # entrypoint	scripts/ci/run-validation-targets.sh
@@ -62,7 +62,7 @@ file	578a5f7217e378280fe378328d39e4b7dcea653bd868159b57362461bd4e8555	x	scripts/
 file	be03eb1b1ed6834b4a93a35cea81d2b8e677311a094e851619de8c393b1800e0	x	scripts/ci/verify-toko-tooling-snapshot.sh
 file	476e5bd1acf2033b75eed5eed080e4d306fa81bc3519eef7b79239294ab637e2	x	scripts/ci/run-validation-targets.sh
 file	d2d43d1876ce29f5e08255ea86f92080ec5db0f9cadeed3b095bdd5d01fdaf1c	x	scripts/dev/cloc.sh
-file	5564b1a5905a808003b3f3461e5ac9c886d08ece834bf54e72327ab4396340f9	-	TOKO-TOOLING.md
+file	98b06138020e538caefbd3a5666fe6dbb3c2df3936a0b8a504c419eba6dcb8b0	-	TOKO-TOOLING.md
 file	d4d73d12601ca093878f8206a41185e383ad30484fa9206d60bfcf78248b865c	x	scripts/ci/run-release.sh
 file	918815a81861abd80684fea14f71cb5a298644317afc0f5860a3d1b6506a0a16	x	scripts/ci/next-release-version.sh
 file	29f615ebb5393b02b901985a41e07c7838b3e37d39404a5b98f7c5e09b5f8043	-	scripts/ci/finalize-release-changelog.awk

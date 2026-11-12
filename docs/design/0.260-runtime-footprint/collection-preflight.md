@@ -26,10 +26,10 @@ can reuse its cache. These consumers must be distinguished in measurements.
 | Boundary | Evidence and implication |
 | --- | --- |
 | Predicate | `db/predicate/runtime/mod.rs`: structural comparisons use `with_compare_operands_structural`; non-scalar emptiness uses `eval_required_value_slot`. `runtime/compare/value.rs` performs membership over an owned `Value::List`. `IN` has a literal list on the other side; it is not evidence of persisted-list allocation. |
-| Slot cache | `db/data/persisted_row/reader/structural_slot_reader.rs`: `required_cached_value` decodes once and caches the selected value. Untouched fields are already lazy. Do not add another collection cache. |
-| Decode authority | `db/data/persisted_row/contract.rs`: the accepted field selects by-kind or canonical recursive decoding. Plain by-kind lists use `structural_field/accepted.rs`, not the generic value-storage list TODO. |
-| Canonical admission | `persisted_row/canonical.rs` decodes the canonical value and admits it through the accepted persistence contract. `schema/enum_catalog/admission.rs` checks recursive kinds and budgets, including strict set/map ordering. A wire-only skip is not equivalent. |
-| Existing walkers | `structural_field/binary.rs` walks complete by-kind lists/maps; `value_storage/canonical.rs` owns canonical boundaries including enum payloads. These are not interchangeable visitor contracts. `value_storage/walk.rs` itself returns owned vectors, not a general non-owning visitor. |
+| Slot cache | `db/data/persisted_row/reader/structural_slot_reader/mod.rs`: `required_cached_value` decodes once and caches the selected value. Untouched fields are already lazy. Do not add another collection cache. |
+| Decode authority | `db/data/persisted_row/contract/mod.rs`: the accepted field selects by-kind or canonical recursive decoding. Plain by-kind lists use `structural_field/accepted/mod.rs`, not the generic value-storage list TODO. |
+| Canonical admission | `persisted_row/canonical/mod.rs` decodes the canonical value and admits it through the accepted persistence contract. `schema/enum_catalog/admission/mod.rs` checks recursive kinds and budgets, including strict set/map ordering. A wire-only skip is not equivalent. |
+| Existing walkers | `structural_field/binary/mod.rs` walks complete by-kind lists/maps; `value_storage/canonical/mod.rs` owns canonical boundaries including enum payloads. These are not interchangeable visitor contracts. `value_storage/walk.rs` itself returns owned vectors, not a general non-owning visitor. |
 | Maps | Maintained map predicates reject at query admission; collection-emptiness session tests prove this for stored empty and populated maps. Do not widen query semantics merely to obtain a map benchmark. |
 | Relations | By-kind relation-list decoding omits null items (`accepted.rs::decode_accepted_list_bytes`). Raw wire length cannot replace logical emptiness. |
 | Projection | Existing borrowed scalar views and nested-path projection already avoid some ownership. Full owned outputs are not redundant allocations. |
@@ -93,7 +93,7 @@ the whole generic envelope before accepted decoding/validation. Replace that
 walk with exact null-sentinel recognition; every other payload still passes
 its accepted codec. This also fixes valid Float32/Float64 list rejection by
 the mismatched preliminary grammar. Both callers remain in the existing
-`persisted_row/contract.rs` owner; ownership is unchanged.
+`persisted_row/contract/mod.rs` owner; ownership is unchanged.
 
 Final qualification passed 18 focused core tests and all 54 measured query
 messages. Raw actor Wasm is 252 bytes smaller, but instructions and cycles

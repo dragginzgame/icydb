@@ -64,7 +64,7 @@ pub fn wasm_opt_sha256() -> Result<&'static str, String> {
         ("macos", "aarch64") => "darwin_arm64",
         (os, arch) => return Err(format!("unsupported Binaryen platform: {os} {arch}")),
     };
-    let pins = include_str!("../../../scripts/ci/wasm-optimizer-checksums.tsv");
+    let pins = include_str!("../../../../scripts/ci/wasm-optimizer-checksums.tsv");
     pins.lines()
         .find_map(|line| {
             let mut fields = line.split_whitespace();

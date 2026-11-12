@@ -80,7 +80,7 @@ Canic qualification, deployment or network lifecycle action is claimed.
 ## Canonical predicate hashing follow-through
 
 The production constructor search found one `ScalarPlan` assembly owner:
-`build_logical_plan` in `query/plan/logical_builder.rs`. Its two production callers
+`build_logical_plan` in `query/plan/logical_builder/mod.rs`. Its two production callers
 are the general planning pipeline and the trivial no-filter path. General
 planning carries `normalize_query_predicate` output through
 `strip_redundant_primary_key_predicate_for_exact_access`, which only retains or

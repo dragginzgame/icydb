@@ -29,10 +29,10 @@ Follow current production callers rather than historical names. Starting owners
 
 | Family | Owners to inspect | Required baseline observation |
 | --- | --- | --- |
-| Live row mutation and durable commit | `db/session/write.rs`, `db/executor/mutation/commit_window.rs`, `db/commit/{prepare,guard}.rs` | Insert, update/replace, delete, index and reverse-relation effects |
-| Marker replay and journal convergence | `db/commit/recovery.rs`, `db/journal/`, `db/commit/store/` | Direct replay versus journaled live projection/fold, retained marker, tail controls, watermark and retirement |
-| Accepted schema publication | `db/commit/schema_publication.rs`, `db/schema/mutation/user_index_domain.rs`, `db/schema/store.rs` | Accepted root and derived index domain recovered together, including interrupted domain replacement |
-| Physical migration and compound controls | `db/schema/application/`, `db/schema/application.rs`, `db/schema/migration*`, mutation-progress owners | Candidate generation/progress and receipt/lineage controls bound to the exact committed operation |
+| Live row mutation and durable commit | `db/session/write/mod.rs`, `db/executor/mutation/commit_window/mod.rs`, `db/commit/{prepare,guard}.rs` | Insert, update/replace, delete, index and reverse-relation effects |
+| Marker replay and journal convergence | `db/commit/recovery/mod.rs`, `db/journal/`, `db/commit/store/` | Direct replay versus journaled live projection/fold, retained marker, tail controls, watermark and retirement |
+| Accepted schema publication | `db/commit/schema_publication/mod.rs`, `db/schema/mutation/user_index_domain/mod.rs`, `db/schema/store/mod.rs` | Accepted root and derived index domain recovered together, including interrupted domain replacement |
+| Physical migration and compound controls | `db/schema/application/`, `db/schema/application/mod.rs`, `db/schema/migration*`, mutation-progress owners | Candidate generation/progress and receipt/lineage controls bound to the exact committed operation |
 | Startup readiness and failure | `db/startup/`, `db/mod.rs` | Pure admission, bounded recovery driver, failure containment and final readiness |
 
 Inventory the selected marker/journal record families and their concrete live
@@ -139,13 +139,13 @@ owners, not fixed selectors:
 
 | Obligation | Candidate tests |
 | --- | --- |
-| Five maintained mixed-entity cuts and progress effects | `db/session/write.rs` |
+| Five maintained mixed-entity cuts and progress effects | `db/session/write/mod.rs` |
 | Direct/journaled replay, stage loss, uniqueness, partial predicates | `db/session/write/identity_pre_key_tests/replay_construction_tests/` and its parent module |
-| Nested relation insert/replace/delete recovery | `db/session/write/identity_pre_key_tests/nested_relation_tests.rs` |
-| Durable tail accounting, replay and reopen | `db/journal/store.rs` |
-| Schema replay/fold, interrupted compound publication, domain staging | `db/schema/store/tests.rs`, `db/commit/schema_publication.rs`, `db/schema/mutation/tests/`; locate domain-publication interruption proof separately |
-| Physical rewrite and publication/control handoff | `db/schema/application.rs` and its test modules |
-| Malformed persisted input and retained failure | `db/commit/store/tests.rs`, `db/tests/persisted_format_corpus.rs`, session/startup tests |
+| Nested relation insert/replace/delete recovery | `db/session/write/identity_pre_key_tests/nested_relation_tests/mod.rs` |
+| Durable tail accounting, replay and reopen | `db/journal/store/mod.rs` |
+| Schema replay/fold, interrupted compound publication, domain staging | `db/schema/store/tests/mod.rs`, `db/commit/schema_publication/mod.rs`, `db/schema/mutation/tests/`; locate domain-publication interruption proof separately |
+| Physical rewrite and publication/control handoff | `db/schema/application/mod.rs` and its test modules |
+| Malformed persisted input and retained failure | `db/commit/store/tests/mod.rs`, `db/tests/persisted_format_corpus.rs`, session/startup tests |
 
 Use focused core `--lib --features sql,migration` selections when both schema
 surfaces are included. List and count each required selector with the execution

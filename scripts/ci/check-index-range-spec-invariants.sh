@@ -14,9 +14,9 @@ source "$ROOT/scripts/ci/invariant-common.sh"
 INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/stream/access/mod.rs"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs"
-  "crates/icydb-core/src/db/executor/stream/access/scan.rs"
+  "crates/icydb-core/src/db/executor/stream/access/traversal/mod.rs"
+  "crates/icydb-core/src/db/executor/stream/access/physical/mod.rs"
+  "crates/icydb-core/src/db/executor/stream/access/scan/mod.rs"
   "crates/icydb-core/src/db/executor/scan/index_range_limit.rs"
   "crates/icydb-core/src/db/executor/scan/secondary_index.rs"
   "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs"
@@ -29,8 +29,8 @@ INDEX_EXECUTOR_FILES=(
 # and access-layer code may own semantic values; executor stream assembly must
 # not rebuild branch slots or branch prefixes.
 BRANCH_SET_RUNTIME_FILES=(
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs"
+  "crates/icydb-core/src/db/executor/stream/access/physical/mod.rs"
+  "crates/icydb-core/src/db/executor/stream/access/traversal/mod.rs"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs"
 )
 
@@ -65,20 +65,20 @@ BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
 # Leaf-owned bindings replace positional consumption/alignment checks; access
 # lowering and prepared execution tests qualify missing bindings and leaf identity.
 REQUIRED_MATCHES=(
-  "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
-  "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
-  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, fixed_values, self\\.budget\\):::branch-set fingerprint identity must include fixed prefix values"
-  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, branch_values, self\\.budget\\):::branch-set fingerprint identity must include branch values"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
+  "crates/icydb-core/src/db/access/path/mod.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
+  "crates/icydb-core/src/db/access/lowering/mod.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
+  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access/mod.rs:::write_values\\(self\\.hasher, fixed_values, self\\.budget\\):::branch-set fingerprint identity must include fixed prefix values"
+  "crates/icydb-core/src/db/query/fingerprint/hash_sections/access/mod.rs:::write_values\\(self\\.hasher, branch_values, self\\.budget\\):::branch-set fingerprint identity must include branch values"
+  "crates/icydb-core/src/db/executor/stream/access/physical/mod.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/scan/secondary_index.rs:::return Err\\(InternalError::query_executor_invariant\\(\\)\\):::missing invariant error for unresolved secondary index prefix specs"
-  "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-prefix physical execution must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::IndexRangeTraversalContract::require_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
-  "crates/icydb-core/src/db/index/key/build.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::fn validate_index_prefix_count:::prefix-family stream execution must centralize lowered prefix count validation"
+  "crates/icydb-core/src/db/executor/stream/access/scan/mod.rs:::visit_raw_entries_in_range:::index-prefix physical execution must use raw-range traversal"
+  "crates/icydb-core/src/db/executor/stream/access/physical/mod.rs:::IndexRangeTraversalContract::require_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
+  "crates/icydb-core/src/db/executor/stream/access/physical/mod.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
+  "crates/icydb-core/src/db/index/key/build/mod.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
+  "crates/icydb-core/src/db/executor/stream/access/physical/mod.rs:::fn validate_index_prefix_count:::prefix-family stream execution must centralize lowered prefix count validation"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/scan/index_range_limit.rs:::return Err\\(InternalError::query_executor_invariant\\(\\)\\):::missing invariant error for unresolved index-range pushdown specs"
-  "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-range physical execution must use raw-range traversal"
+  "crates/icydb-core/src/db/executor/stream/access/scan/mod.rs:::visit_raw_entries_in_range:::index-range physical execution must use raw-range traversal"
 )
 
 status=0
@@ -142,7 +142,7 @@ done
 
 lookup_value_matches="$(
   rg_checked -n --no-heading --color=never "\\bValue\\b" \
-    crates/icydb-core/src/db/index/store.rs
+    crates/icydb-core/src/db/index/store/mod.rs
 )"
 if [[ -n "$lookup_value_matches" ]]; then
   echo "[ERROR] Index traversal lookup must stay raw-key only (found Value usage)." >&2

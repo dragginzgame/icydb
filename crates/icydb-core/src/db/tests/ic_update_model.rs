@@ -13,9 +13,9 @@ use std::{collections::BTreeMap, fs, path::Path};
 const GUARDED_RUNTIME_PATHS: &[&str] = &[
     "src/db/commit/",
     "src/db/executor/mutation/",
-    "src/db/schema/migration_execution.rs",
+    "src/db/schema/migration_execution/mod.rs",
     "src/db/session/sql/execute/write/",
-    "src/db/session/write.rs",
+    "src/db/session/write/mod.rs",
 ];
 
 const FORBIDDEN_SYNC_MODEL_NEEDLES: &[&str] = &[

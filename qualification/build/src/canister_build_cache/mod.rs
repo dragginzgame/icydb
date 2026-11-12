@@ -297,7 +297,7 @@ fn post_link_cache_spec(request: &PostLinkCacheRequest<'_>, optimizer: &Path) ->
         "post-link-pipeline",
         &request
             .workspace_root
-            .join("qualification/build/src/wasm_optimizer.rs"),
+            .join("qualification/build/src/wasm_optimizer/mod.rs"),
     )
     .with_tool("wasm-opt", optimizer)
     .with_arguments(WASM_OPT_FLAGS)

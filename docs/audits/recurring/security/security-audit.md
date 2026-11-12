@@ -78,7 +78,7 @@ Primary owners:
   * `execute_trusted_sql_mutation`
   * `execute_trusted_sql_exact_update`
   * `execute_trusted_sql_prefix_update`
-* `db/session/mutation_job.rs`
+* `db/session/mutation_job/mod.rs`
   * `start_trusted_sql_mutation_job`
   * `advance_trusted_mutation_job`
   * `mutation_job_state`
@@ -547,12 +547,12 @@ when the obligation crosses the canister boundary.
 
 | Proof obligation | Current source/test owners |
 | --- | --- |
-| Query/update lane separation and rejected SQL field roles | `db/session/tests/unit_ordering.rs`, `db/session/sql/` |
+| Query/update lane separation and rejected SQL field roles | `db/session/tests/unit_ordering/mod.rs`, `db/session/sql/` |
 | Grouped admission cannot bypass resource policy | `db/query/plan/validate/grouped/`, `db/executor/group/tests.rs` |
 | Forged cursor identity, direction, offset, and envelope bounds reject | `db/cursor/tests/mod.rs`, `db/index/envelope/tests.rs` |
-| Corrupt persisted rows/markers fail closed | `db/tests/persisted_format_corpus.rs`, `db/commit/store/tests.rs` |
-| Interrupted mutation/recovery preserves final row and relation state | `db/session/write.rs` (`mixed_entity_recovery_after_` family) |
-| Query reuse remains bound to accepted authority and current parameters | `db/session/tests/unit_ordering.rs` |
+| Corrupt persisted rows/markers fail closed | `db/tests/persisted_format_corpus.rs`, `db/commit/store/tests/mod.rs` |
+| Interrupted mutation/recovery preserves final row and relation state | `db/session/write/mod.rs` (`mixed_entity_recovery_after_` family) |
+| Query reuse remains bound to accepted authority and current parameters | `db/session/tests/unit_ordering/mod.rs` |
 | Public endpoint authorization and read authority | `testing/integration/tests/sql_guard.rs`, `testing/integration/tests/read_authority.rs` |
 
 The memory-id, layer-authority, and index-range invariant scripts remain static

@@ -3,6 +3,16 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.12]
+
+### 🔧 Changed
+
+- Install Toko Tooling 0.39.17 with aligned workspace tooling selections.
+  Complete the one-off directory-module layout migration while preserving Rust
+  module paths; update source checks and references for the moved files.
+
+[Detailed changes](0.296.md).
+
 ## [0.296.11] - 2026-11-12
 
 ### 🔧 Changed

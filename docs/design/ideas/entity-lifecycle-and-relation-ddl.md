@@ -12,7 +12,7 @@ Coordinated migration preparation, candidate validation, bounded physical work,
 and publication already have a schema-owned lifecycle. Start from the
 [source-migration design](../archive/0.218-explicit-versioned-schema-migrations/0.218-design.md)
 and the maintained
-[command contract](../../../crates/icydb-core/src/db/schema/migration_api.rs).
+[command contract](../../../crates/icydb-core/src/db/schema/migration_api/mod.rs).
 The existence of a multi-entity transition does not establish a need for a
 second catalog epoch, draft registry, fingerprint family, or publication runner.
 

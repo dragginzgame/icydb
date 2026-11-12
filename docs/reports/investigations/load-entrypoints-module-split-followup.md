@@ -16,7 +16,7 @@ one file.
 - Split `entrypoints` into a directory module:
   - `crates/icydb-core/src/db/executor/load/entrypoints/mod.rs`
   - `crates/icydb-core/src/db/executor/load/entrypoints/scalar.rs`
-  - `crates/icydb-core/src/db/executor/load/entrypoints/grouped.rs`
+  - `crates/icydb-core/src/db/executor/load/entrypoints/grouped/mod.rs`
 - Moved scalar-specific entrypoint materialization + scalar execution spine into
   `scalar.rs`.
 - Moved grouped-specific entrypoint materialization + grouped execution spine into

@@ -11,7 +11,7 @@
 | ---- | ----: | ---- |
 | total inspected LOC | 1,030 | source, README, and manifest |
 | source LOC | 992 | `lib.rs` plus `db/{mod,schema,sql,store}.rs` |
-| largest source file | 338 | `db/sql.rs`; generated SQL surface renderer |
+| largest source file | 338 | `db/sql/mod.rs`; generated SQL surface renderer |
 | public API declarations | 3 | `generate_with_options`, `BuildOptions`, `build_with_options!` |
 | crate-private generated render hubs | 5 | actor builder, store, SQL, schema, metrics/snapshot renderers |
 | unit/doc tests | 0 | build crate is validated through downstream build-script consumers |

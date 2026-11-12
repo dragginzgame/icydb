@@ -34,7 +34,7 @@
 | Requirement | Status | Evidence | Drift / Regression Risk |
 | ----------- | ------ | -------- | ----------------------- |
 | All Class B operators route through budget-accounted execution context. | PASS | `crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs`; `cargo test -p icydb-core db::executor::aggregate::contracts::grouped::tests::budget -- --nocapture` | Low |
-| All Class B DISTINCT insertions are admitted through budget-accounted boundaries. | PASS | `crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs`; grouped budget tests | Low |
+| All Class B DISTINCT insertions are admitted through budget-accounted boundaries. | PASS | `crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context/mod.rs`; grouped budget tests | Low |
 | Zero-key grouped uses implicit-single-group admission. | PASS | `crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/distinct.rs`; `grouped_plan_accepts_global_distinct_field_without_group_keys_matrix` | Low |
 | Ordered-group strategy labels do not imply streaming runtime behavior. | PASS | `docs/contracts/RESOURCE_MODEL.md`; `route_grouped_runtime_revalidation_flags_match_baseline` | Low |
 | `SUM(DISTINCT)` and `COUNT(DISTINCT)` enforce caps deterministically. | PASS | grouped budget tests; `aggregate_core_sum_distinct_uses_grouped_global_distinct_path`; `aggregate_core_avg_distinct_uses_grouped_global_distinct_path` | Low |

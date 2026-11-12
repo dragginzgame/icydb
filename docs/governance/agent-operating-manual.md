@@ -289,10 +289,10 @@ coordinated under `database`; root `CHANGELOG.md` indexes both ledgers.
 
 Post-0.34 cleanup candidates from the DB narrative pass:
 
-- `db/index/store.rs`: split persistence concerns from raw-range scan/resolve logic.
-- `db/index/range.rs` and `db/index/envelope.rs`: consolidate continuation-envelope helpers under one owner.
+- `db/index/store/mod.rs`: split persistence concerns from raw-range scan/resolve logic.
+- `db/index/range/mod.rs` and `db/index/envelope.rs`: consolidate continuation-envelope helpers under one owner.
 - `db/index/plan/load.rs`: consider collapsing into `db/index/plan/mod.rs`.
-- `db/predicate/fingerprint.rs`: keep under predicate only if predicate remains hash authority; otherwise move to query planning/fingerprint.
+- `db/predicate/fingerprint/mod.rs`: keep under predicate only if predicate remains hash authority; otherwise move to query planning/fingerprint.
 
 ## Review Checklist
 

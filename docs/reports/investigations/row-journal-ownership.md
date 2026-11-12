@@ -16,7 +16,7 @@ canonical apply rows. Original recovery bytes are not replaced by canonicalized
 apply bytes. Preflight overlay construction/replacement, record order, schema
 authority, journal validation, backlog admission and replay remain unchanged.
 
-One Rust file changes: crates/icydb-core/src/db/executor/mutation/commit_window.rs.
+One Rust file changes: crates/icydb-core/src/db/executor/mutation/commit_window/mod.rs.
 Its diff has 10 added / 8 removed lines: +2 net production comment lines.
 No types, modes, formats, caches, budgets or public APIs are added. No new tests
 are needed for incidental ownership shape; existing behavioral gates are reused.

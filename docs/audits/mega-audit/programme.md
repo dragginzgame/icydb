@@ -85,24 +85,24 @@ All paths below are relative to `crates/icydb-core/src/` unless otherwise noted.
 
 | Rank | Owner | Why difficult / simplest direction | Coverage |
 | ---: | --- | --- | --- |
-| 1 | `db/query/intent/state.rs` | Full filter, subset and coverage must agree; narrow the derived view, MA-05 | Inspected |
+| 1 | `db/query/intent/state/mod.rs` | Full filter, subset and coverage must agree; narrow the derived view, MA-05 | Inspected |
 | 2 | `db/access/execution_contract/`, `db/executor/stream/access/bindings.rs` | Borrowed tree projection and ordered side specs; direct leaf binding remains unproven, MA-04 | Inspected |
-| 3 | `db/schema/application.rs` | Initial/replay/pending/migration publication states; remove repeated head/topology derivation first, MA-02/03 | Selected paths |
-| 4 | `db/schema/application_lowering.rs` | Removal, identity and candidate assembly; preserve shared construction and explicit trust boundaries | Selected paths |
-| 5 | `db/positioned_overlay.rs`, data/index stores | Three containers plus superseded retirement; evaluate coherent entries, MA-08 | Selected paths |
-| 6 | `db/session/query/cache.rs` | Parameter contract, operand identity and accepted-root identity; prove reuse before skipping admission | Selected path |
-| 7 | `db/predicate/normalize.rs` | Boolean algebra, coercion and charged construction; retain shared recursion, remove repeat callers only | Selected paths |
-| 8 | `db/query/plan/expr/predicate/compile.rs` | SQL truth-set to indexable restriction; preserve NULL/unsupported semantics, MA-05 | Selected paths |
-| 9 | `db/executor/stream/access/physical.rs` | Physical ordering, materialization, branch merge, continuation; preserve measured specialization | Selected contracts |
+| 3 | `db/schema/application/mod.rs` | Initial/replay/pending/migration publication states; remove repeated head/topology derivation first, MA-02/03 | Selected paths |
+| 4 | `db/schema/application_lowering/mod.rs` | Removal, identity and candidate assembly; preserve shared construction and explicit trust boundaries | Selected paths |
+| 5 | `db/positioned_overlay/mod.rs`, data/index stores | Three containers plus superseded retirement; evaluate coherent entries, MA-08 | Selected paths |
+| 6 | `db/session/query/cache/mod.rs` | Parameter contract, operand identity and accepted-root identity; prove reuse before skipping admission | Selected path |
+| 7 | `db/predicate/normalize/mod.rs` | Boolean algebra, coercion and charged construction; retain shared recursion, remove repeat callers only | Selected paths |
+| 8 | `db/query/plan/expr/predicate/compile/mod.rs` | SQL truth-set to indexable restriction; preserve NULL/unsupported semantics, MA-05 | Selected paths |
+| 9 | `db/executor/stream/access/physical/mod.rs` | Physical ordering, materialization, branch merge, continuation; preserve measured specialization | Selected contracts |
 | 10 | `db/executor/pipeline/runtime/adapter.rs` | Collector/page/kernel handoff; shared request exists, challenge only additional transformations | Selected methods |
-| 11 | `db/schema/info.rs` | Accepted kind, query type, slot/name and nested projections; borrow existing order, MA-07 | Selected paths |
+| 11 | `db/schema/info/mod.rs` | Accepted kind, query type, slot/name and nested projections; borrow existing order, MA-07 | Selected paths |
 | 12 | `error/mod.rs` | Multiple detail categories and canonical mappings; retire obsolete executor projection, MA-01 | Selected paths |
-| 13 | `crates/icydb-model-macros/src/node/typed_adapter.rs` (repository path) | Per-type/per-context instantiations; measure reachability, MA-09 | Generator inspected |
-| 14 | `db/executor/mutation/structural.rs` | Identity, after-image, constraints, packing and atomic publication; coordinator already shared | Contracts inspected |
-| 15 | `db/schema/migration_planner.rs` | Identity rekeying and reconstruction; establish semantic equivalence before merging with ordinary lowering | Symbol/caller inventory |
-| 16 | `db/commit/recovery.rs` | Trap/rollback/replay boundaries are essential; model failure transitions before any deletion | Inventory only |
-| 17 | `db/journal/store.rs`, `db/journal/codec.rs` | Durable bounds, checksums, controls and batches; keep decoding checks at trust boundary | Inventory only |
-| 18 | `db/relation/reverse_index.rs` | Referential actions and reverse-key authority; do not merge with ordinary indexes on shape alone | Inventory only |
+| 13 | `crates/icydb-model-macros/src/node/typed_adapter/mod.rs` (repository path) | Per-type/per-context instantiations; measure reachability, MA-09 | Generator inspected |
+| 14 | `db/executor/mutation/structural/mod.rs` | Identity, after-image, constraints, packing and atomic publication; coordinator already shared | Contracts inspected |
+| 15 | `db/schema/migration_planner/mod.rs` | Identity rekeying and reconstruction; establish semantic equivalence before merging with ordinary lowering | Symbol/caller inventory |
+| 16 | `db/commit/recovery/mod.rs` | Trap/rollback/replay boundaries are essential; model failure transitions before any deletion | Inventory only |
+| 17 | `db/journal/store/mod.rs`, `db/journal/codec/mod.rs` | Durable bounds, checksums, controls and batches; keep decoding checks at trust boundary | Inventory only |
+| 18 | `db/relation/reverse_index/mod.rs` | Referential actions and reverse-key authority; do not merge with ordinary indexes on shape alone | Inventory only |
 | 19 | `db/executor/aggregate/`, `db/executor/group/` | Streaming/hash/global/grouped distinctions; need actual state and workload comparison | Inventory only |
 | 20 | `testing/integration/`, `qualification/`, audit actors (repository paths) | Overlapping setup versus independent semantic boundaries; preserve witnesses while sharing fixture data | Membership + selected pair |
 
@@ -165,7 +165,7 @@ MA-05/06 or nested source ranges as independent savings.
 
 ### Wasm and IC
 
-Use the existing `qualification/build/src/wasm_measurement.rs` subjects and
+Use the existing `qualification/build/src/wasm_measurement/mod.rs` subjects and
 one/ten reachable-entity actors for generated-code work. Capture exact source,
 all relevant lockfiles, Rust toolchain, target, feature sets, linker and
 post-link optimizer flags. Compare identical workloads and initialization state.

@@ -109,7 +109,7 @@ fn validate_entity_scale_raw_wasm_with_maximum(
 
 // Shell reporting reads this same roster without compiling or fetching tools.
 // The second column preserves the existing default versus explicit-only cohort.
-const WASM_MEASUREMENT_SUBJECTS: &str = include_str!("wasm_measurement_subjects.tsv");
+const WASM_MEASUREMENT_SUBJECTS: &str = include_str!("../wasm_measurement_subjects.tsv");
 
 /// Exact maintained production subjects in canonical report order.
 pub fn wasm_measurement_subjects() -> impl Iterator<Item = &'static str> + Clone {

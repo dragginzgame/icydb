@@ -344,10 +344,10 @@ persisted-format change under the [format policy](PERSISTED_FORMAT_POLICY.md).
 
 Behavioral evidence lives with the codecs: current-form round trips and
 malformed/checksum rejection in the
-[startup receipt tests](../../crates/icydb-core/src/db/startup/receipt.rs),
-[migration record tests](../../crates/icydb-core/src/db/schema/migration_record.rs),
-[schema-control tests](../../crates/icydb-core/src/db/schema/control_store.rs), and
-[identity-state tests](../../crates/icydb-core/src/db/schema/identity_state.rs).
+[startup receipt tests](../../crates/icydb-core/src/db/startup/receipt/mod.rs),
+[migration record tests](../../crates/icydb-core/src/db/schema/migration_record/mod.rs),
+[schema-control tests](../../crates/icydb-core/src/db/schema/control_store/mod.rs), and
+[identity-state tests](../../crates/icydb-core/src/db/schema/identity_state/mod.rs).
 These execute the codecs; prose wording is not a correctness gate.
 
 Deep inspection yields between physical source units. Its row and derived-entry
@@ -399,7 +399,7 @@ retires complete batches; yielding may allow that work to run, but does not
 guarantee that it has completed before another write.
 
 In the 0.267 line, the canonical
-[backlog admission owner](../../crates/icydb-core/src/db/commit/backlog_admission.rs)
+[backlog admission owner](../../crates/icydb-core/src/db/commit/backlog_admission/mod.rs)
 admits a proposed commit only when current debt plus its exact contribution fits
 all three cumulative limits:
 

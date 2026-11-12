@@ -24,7 +24,7 @@ policy relaxation has been implemented by this investigation.
 ## Candidate and scope
 
 [Prototype](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/reports/investigations/2026/09/16/fallible-canonical-sort/02/prototype.rs.txt) extracts the index merge and final permutation
-from `query/plan/expr/canonicalize/ordering.rs` into a typed fallible function.
+from `query/plan/expr/canonicalize/ordering/mod.rs` into a typed fallible function.
 It keeps stable ties and leaves input values untouched until comparisons finish.
 It allocates two position vectors, reusing the second for final permutation.
 Expression label/Debug key construction is deliberately not part of the kernel.

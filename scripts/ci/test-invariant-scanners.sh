@@ -32,7 +32,7 @@ post_link_call_cases() {
   local fixture="$scratch/post-link-call" path
   mkdir -p "$fixture/scripts/ci"
   for path in scripts/ci/check-wasm-post-link-invariants.sh qualification/build/src/lib.rs \
-    qualification/build/src/canister_build_cache.rs qualification/build/src/wasm_optimizer.rs \
+    qualification/build/src/canister_build_cache/mod.rs qualification/build/src/wasm_optimizer/mod.rs \
     scripts/app/build.sh .github/workflows/canic-adapter.yml Makefile ci/ic-tools.tsv \
     scripts/dev/workstation-setup.sh; do
     mkdir -p "$fixture/$(dirname "$path")"
@@ -57,7 +57,7 @@ post_link_call_cases() {
 
 source_input_cases() {
   local fixture="$scratch/source-inputs"
-  mkdir -p "$fixture/scripts/ci" "$fixture/crates/icydb-model/src/build/actor/db"
+  mkdir -p "$fixture/scripts/ci" "$fixture/crates/icydb-model/src/build/actor/db/sql"
   for script in invariant-common.sh check-generated-endpoint-invariants.sh \
     check-schema-model-boundary-invariants.sh; do
     cp "$ROOT/scripts/ci/$script" "$fixture/scripts/ci/"
@@ -68,7 +68,7 @@ source_input_cases() {
     printf 'canic_icydb::mount! {}\n' > "$fixture/canisters/$source/src/lib.rs"
   done
   printf 'icydb::build::build_canister!();\n' > "$fixture/canisters/tests/sql/build.rs"
-  printf 'fn capability() {}\n' > "$fixture/crates/icydb-model/src/build/actor/db/sql.rs"
+  printf 'fn capability() {}\n' > "$fixture/crates/icydb-model/src/build/actor/db/sql/mod.rs"
   printf 'mod db;\n' > "$fixture/crates/icydb-model/src/build/actor/mod.rs"
   local checker="$fixture/scripts/ci/check-generated-endpoint-invariants.sh"
   check generated-valid 0 bash "$checker"
@@ -185,10 +185,12 @@ for root in "${panic_roots[@]:1}"; do
 done
 printf 'fn production() {}\n' > "$executor/production.rs"
 # Test-only filename exclusions belong to the local discovery inventory.
-mkdir -p "$executor/tests"
+mkdir -p "$executor/tests" "$executor/case_tests" "$executor/test_case"
 printf 'fn test() { panic!("fixture"); }\n' > "$executor/tests/case.rs"
 cp "$executor/tests/case.rs" "$executor/tests.rs"
 cp "$executor/tests/case.rs" "$executor/case_tests.rs"
+cp "$executor/tests/case.rs" "$executor/case_tests/mod.rs"
+cp "$executor/tests/case.rs" "$executor/test_case/mod.rs"
 cp "$executor/tests/case.rs" "$executor/test_case.rs"
 cp "$executor/tests/case.rs" "$scratch/${panic_roots[1]}/convergence_candidate_tests.rs"
 check test-file-exclusion 0 bash "$panic_checker"
@@ -254,7 +256,7 @@ done
 printf 'const CURRENT: Self = Self(2);\n' > "$policy_root/crates/fixture.rs"
 check policy-current-wrapper 1 bash "$policy_checker"
 rm "$policy_root/crates/fixture.rs"
-policy_owner=crates/icydb-core/src/db/executor/mutation/job.rs
+policy_owner=crates/icydb-core/src/db/executor/mutation/job/mod.rs
 mkdir -p "$(dirname "$policy_root/$policy_owner")"
 for component in ENTITY_REVISION MANAGED_WRITE_TIME EXECUTION_FAILURE; do
   printf 'const RESUMABLE_UPDATE_%s_POLICY_REVISION: u32 = 2;\n' "$component" > "$policy_root/$policy_owner"

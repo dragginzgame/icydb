@@ -11,7 +11,7 @@ Candidate 3 remains a proposal.
 
 ### 1. Move completed migration working state into fallback candidates
 
-Owner: [migration planner](../../../crates/icydb-core/src/db/schema/migration_planner.rs),
+Owner: [migration planner](../../../crates/icydb-core/src/db/schema/migration_planner/mod.rs),
 `WorkingStore::candidate` and the final assembly in `plan_schema_migration`.
 
 `WorkingStore::candidate(&self)` clones the enum catalogue, composite catalogue,
@@ -42,7 +42,7 @@ error classification. Existing planner tests cover these boundary families.
 
 ### 2. Unify owned and borrowed value-reducer ingestion
 
-Owner: [value reducer](../../../crates/icydb-core/src/db/executor/aggregate/value_reducer.rs),
+Owner: [value reducer](../../../crates/icydb-core/src/db/executor/aggregate/value_reducer/mod.rs),
 `ingest`, `ingest_owned` and `ingest_cow`.
 
 Borrowed and owned ingestion independently repeat NULL admission and the same
@@ -68,7 +68,7 @@ extrema; direct scalar and grouped callers must preserve results and ownership.
 ### 3. Share grouped HAVING/resume eligibility, retain specialized page storage
 
 Owners: [COUNT window](../../../crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/window.rs)
-`row_matches_window` and [generic page selection](../../../crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/page_finalize.rs)
+`row_matches_window` and [generic page selection](../../../crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/page_finalize/mod.rs)
 `GroupedPageCandidate::matches_window`.
 
 Both construct a borrowed `GroupedRowView`, evaluate the same compiled HAVING
@@ -108,7 +108,7 @@ plumbing. This is lower priority than the existing-Cow ingestion consolidation.
 
 ## Write-flow verdict and review limits
 
-[Structural mutation](../../../crates/icydb-core/src/db/executor/mutation/structural.rs)
+[Structural mutation](../../../crates/icydb-core/src/db/executor/mutation/structural/mod.rs)
 already owns identity materialization, staging, constraint scheduling and atomic
 publication. Session write callers enter `execute_accepted_structural_mutation_batch`;
 the bounded-update entrypoint adapts its iterator and delegates to that same owner.
@@ -173,9 +173,9 @@ module deletion or defensible large LOC estimate follows from similar loops.
 Subsequently authorized for implementation; see the
 [implementation evidence](implementation.md#grouped-distinct-membership-preflight).
 
-Owners: [DISTINCT admission](../../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs)
+Owners: [DISTINCT admission](../../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context/mod.rs)
 `ExecutionContext::admit_distinct_value` and
-[grouped key set](../../../crates/icydb-core/src/db/executor/group/key.rs)
+[grouped key set](../../../crates/icydb-core/src/db/executor/group/key/mod.rs)
 `GroupKeySet::insert_key`.
 
 The sole production insertion caller validates and hashes the borrowed value,

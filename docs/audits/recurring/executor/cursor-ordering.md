@@ -146,8 +146,8 @@ Primary owners to inspect:
   * `resume_bounds_from_refs`
   * `continuation_advanced`
   * `key_within_envelope`
-* `db/query/plan/continuation.rs`
-* `db/schema/info.rs`
+* `db/query/plan/continuation/mod.rs`
+* `db/schema/info/mod.rs`
   * accepted `SchemaInfo` field/index contract exposure used by cursor boundary
     validation
 * `db/executor/prepared_execution_plan/mod.rs`
@@ -328,8 +328,8 @@ when the obligation crosses the canister boundary.
 | Scalar/grouped token decode, signature, direction, and offset validation | `db/cursor/tests/mod.rs`, `db/cursor/token/` |
 | Inclusive/exclusive bounds and strict ascending/descending resume | `db/index/envelope/tests.rs` |
 | Page limit/offset, duplicate suppression, and terminal continuation | `db/executor/terminal/page/tests.rs`, `db/executor/stream/access/tests/` |
-| Accepted schema and query shape remain bound to continuation identity | `db/cursor/signature.rs`, `db/query/fingerprint/hash_sections/tests.rs` |
-| Composite-key pagination and changes between pages | `db/session/tests/unit_ordering.rs`, `testing/integration/tests/sql_canister.rs` |
+| Accepted schema and query shape remain bound to continuation identity | `db/cursor/signature.rs`, `db/query/fingerprint/hash_sections/tests/mod.rs` |
+| Composite-key pagination and changes between pages | `db/session/tests/unit_ordering/mod.rs`, `testing/integration/tests/sql_canister.rs` |
 
 Select tests whose assertions cover the named scalar and grouped obligations,
 including live-state mutation between pages where claimed. Neither an envelope

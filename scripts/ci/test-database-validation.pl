@@ -46,8 +46,8 @@ run('git', 'config', 'tag.gpgsign', 'false');
 run('git', 'config', 'core.hooksPath', '/dev/null');
 write_file('.gitignore', "/target/\n");
 my $parser='crates/icydb-core/src/db/sql/parser/clauses.rs';
-my $planner='crates/icydb-core/src/db/query/plan/access_plan.rs';
-write_file($_, "// baseline\n") for ($parser,$planner,'Cargo.lock','crates/icydb-core/src/db/index/store.rs');
+my $planner='crates/icydb-core/src/db/query/plan/access_plan/mod.rs';
+write_file($_, "// baseline\n") for ($parser,$planner,'Cargo.lock','crates/icydb-core/src/db/index/store/mod.rs');
 run('git', 'add', '.'); run('git', 'commit', '-qm', 'baseline');
 run('git', 'tag', '-am', 'baseline', 'database-v1.0.0');
 my $base=capture('git','rev-parse','HEAD'); chomp $base;
@@ -84,7 +84,7 @@ change($parser,$planner);
 is(selection()->{target}, 'ci-database-query', 'parser and planner share explicit cross-subsystem acceptance');
 change('releases/database/CHANGELOG.md');
 is(selection()->{target}, 'validate', 'notes alone cannot establish subsystem scope');
-for my $path ('Cargo.lock','crates/icydb-core/src/db/index/store.rs','unknown.rs',
+for my $path ('Cargo.lock','crates/icydb-core/src/db/index/store/mod.rs','unknown.rs',
     'crates/icydb-core/src/db/sql/mod.rs','crates/icydb-core/Cargo.toml') {
     change($parser,$path);
     my $selected=selection();

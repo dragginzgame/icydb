@@ -30,7 +30,7 @@ standard-container insertion deferral or SORT-01 without their recorded triggers
 ## Method and scope
 
 An isolated copy of current source compiles a private [probe](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/reports/investigations/2026/09/16/cache-traversal/01/probe.rs.txt) beside
-`query/intent/cache_key.rs`. It invokes the **actual derived StructuralQueryCacheKey
+`query/intent/cache_key/mod.rs`. It invokes the **actual derived StructuralQueryCacheKey
 Hash/Eq**, the standard HashMap lookup, and the **actual RetainedBytes visitor**
 and production Value implementations. No surrogate walker or comparator is used.
 A small measurement wrapper adds root inline storage, then calls the visitor.

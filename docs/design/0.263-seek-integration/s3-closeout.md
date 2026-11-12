@@ -58,10 +58,10 @@ tradeoffs; no general query-speed or integrated-seeking improvement is claimed.
 
 | Current owner | Maintained boundary |
 | --- | --- |
-| [Physical leaves](../../../crates/icydb-core/src/db/executor/stream/access/physical.rs) | Concrete bounded polling, page refill bounds, authenticated primary resume and index suffix anchors |
+| [Physical leaves](../../../crates/icydb-core/src/db/executor/stream/access/physical/mod.rs) | Concrete bounded polling, page refill bounds, authenticated primary resume and index suffix anchors |
 | [Ordered contracts](../../../crates/icydb-core/src/db/executor/stream/key/contracts.rs) and [composites](../../../crates/icydb-core/src/db/executor/stream/key/composite.rs) | One polling contract, ordered alignment/deduplication, observers and budget forwarding |
-| [Traversal](../../../crates/icydb-core/src/db/executor/stream/access/traversal.rs) | Accepted-root admission of two/three exact prefixes and at most 256 entries; cursorless direct probing excluded by continuation boundaries |
-| [Structural scans](../../../crates/icydb-core/src/db/executor/stream/access/scan.rs) | Complete-prefix count agreement and Present row witnesses; no skipped integrity work |
+| [Traversal](../../../crates/icydb-core/src/db/executor/stream/access/traversal/mod.rs) | Accepted-root admission of two/three exact prefixes and at most 256 entries; cursorless direct probing excluded by continuation boundaries |
+| [Structural scans](../../../crates/icydb-core/src/db/executor/stream/access/scan/mod.rs) | Complete-prefix count agreement and Present row witnesses; no skipped integrity work |
 
 The production/test/script call graph has no remaining retired protocol,
 adapter, pending-target state or seek-only accounting references. Composite

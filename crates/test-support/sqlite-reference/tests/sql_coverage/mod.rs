@@ -922,7 +922,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.mutation.trusted_resumable_update_state",
-        "crates/icydb-core/src/db/session/write/identity_pre_key_tests.rs",
+        "crates/icydb-core/src/db/session/write/identity_pre_key_tests/mod.rs",
         "mutation_execution_budget_exhaustion_terminalizes_forward_and_verify",
         ContractAssertion,
         [Execute, State]
@@ -971,7 +971,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.blob.update_hex",
-        "crates/icydb-core/src/db/sql_shared/tests.rs",
+        "crates/icydb-core/src/db/sql_shared/tests/mod.rs",
         "tokenize_sql_decodes_hex_blob_literals",
         ContractAssertion,
         [Execute, State]
@@ -985,7 +985,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.blob.literal_boundary",
-        "crates/icydb-core/src/db/sql_shared/tests.rs",
+        "crates/icydb-core/src/db/sql_shared/tests/mod.rs",
         "tokenize_sql_rejects_oversized_hex_blob_literals",
         BoundaryAssertion,
         [Parse, Boundary, State]
@@ -3054,7 +3054,7 @@ fn providers_require_workspace_test_registration_and_a_ci_selection() {
         assert_eq!(provider_ci_target(source), Some(lane));
     }
     for source in [
-        "crates/orphan/src/tests.rs",
+        "crates/orphan/src/tests/mod.rs",
         "crates/facade/tests/undeclared.rs",
         "crates/core/examples/demo.rs",
     ] {
@@ -3065,12 +3065,12 @@ fn providers_require_workspace_test_registration_and_a_ci_selection() {
     assert!(!provider_source_is_registered(
         &disabled,
         root,
-        "crates/core/src/tests.rs"
+        "crates/core/src/tests/mod.rs"
     ));
     assert!(!provider_source_is_registered(
         &serde_json::json!({}),
         root,
-        "crates/core/src/tests.rs"
+        "crates/core/src/tests/mod.rs"
     ));
     assert_eq!(
         provider_ci_target("testing/integration/tests/sql_perf_audit.rs"),

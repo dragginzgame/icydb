@@ -16,7 +16,7 @@ DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
 TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
 TYPED_SESSION="crates/icydb/src/db/session/mod.rs"
 PREPARED_QUERY="crates/icydb/src/db/session/prepared_query.rs"
-GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
+GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql/mod.rs"
 
 extract_enum_variants() {
   local enum_name="$1"

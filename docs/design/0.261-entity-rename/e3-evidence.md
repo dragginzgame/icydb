@@ -57,9 +57,9 @@ Gzip and production composed/release size are unmeasured.
 
 Source SHA-256 identities:
 
-- [Declarations](../../../schema/test/sql/src/entity_rename.rs):
+- [Declarations](../../../schema/test/sql/src/entity_rename/mod.rs):
   `54c7c5dd370941811d92f88d5fffc5ac10ae29da27784dc24f58b188f299ffb2`.
-- [Fixed controls](../../../canisters/test/sql/src/entity_rename.rs):
+- [Fixed controls](../../../canisters/test/sql/src/entity_rename/mod.rs):
   `1b5815b4c6ab03adce5516a234f9044cc357890a57f0048d3ed596b6e38870cc`.
 - [Rehearsal](../../../testing/integration/tests/entity_rename.rs):
   `3f148b26564df747bc751e714c5c0042b93fe0c8a997011222491b5daa66ea7b`.

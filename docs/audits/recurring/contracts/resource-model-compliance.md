@@ -124,10 +124,10 @@ when the obligation crosses the canister boundary.
 | --- | --- |
 | Finite grouped defaults, planner-limit handoff, and fresh per-query counters | `db/executor/group/tests.rs`, `db/executor/budget.rs` |
 | Exact group/distinct limits and first over-limit rejection without unbounded fallback | `db/executor/budget.rs`, `db/executor/aggregate/runtime/grouped_distinct/` |
-| Global aggregate DISTINCT routing, including COUNT, SUM, and AVG | `db/query/plan/group.rs`, `db/executor/aggregate/runtime/grouped_distinct/tests.rs` |
+| Global aggregate DISTINCT routing, including COUNT, SUM, and AVG | `db/query/plan/group/mod.rs`, `db/executor/aggregate/runtime/grouped_distinct/tests.rs` |
 | Materialized DISTINCT window and state bounds | `db/executor/pipeline/operators/distinct/`, `db/executor/terminal/page/` |
-| Grouped HAVING/order/limit admission and ordered-proof handoff | `db/query/plan/validate/grouped/`, `db/query/plan/group.rs` |
-| Scalar scan admission and continuation-sensitive budgets | `db/query/plan/primary_key_input_resource.rs`, `db/query/plan/continuation.rs`, `db/executor/stream/access/` |
+| Grouped HAVING/order/limit admission and ordered-proof handoff | `db/query/plan/validate/grouped/`, `db/query/plan/group/mod.rs` |
+| Scalar scan admission and continuation-sensitive budgets | `db/query/plan/primary_key_input_resource/mod.rs`, `db/query/plan/continuation/mod.rs`, `db/executor/stream/access/` |
 | Cursor identity and budget-relevant grouped shape | `db/cursor/tests/mod.rs`, `db/cursor/signature.rs` |
 | Metrics cannot affect execution or admission | `crates/icydb-core/src/metrics/`, `db/executor/budget.rs` |
 

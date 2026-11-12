@@ -21,7 +21,7 @@ Rule: lower layers must not depend upward.
 | B. Logical validation ownership leaks | Pass | planner-owned semantics remain in `query/plan/validate.rs`; executor keeps defensive checks in `executor/plan_validate.rs` | Low |
 | C. Physical feasibility ownership leaks | Pass | route feasibility and execution-mode decisions remain in `executor/route/*` | Low |
 | D. Executor runtime logic under `query/` | Pass | non-comment `ExecutionKernel|ExecutionPreparation|LoadExecutor` in `query/*`: `0` | Low |
-| E. Access canonicalization outside `access/` | Pass | implementation remains in `access/canonical.rs`; external modules call boundary functions only | Low |
+| E. Access canonicalization outside `access/` | Pass | implementation remains in `access/canonical/mod.rs`; external modules call boundary functions only | Low |
 
 ## Findings
 

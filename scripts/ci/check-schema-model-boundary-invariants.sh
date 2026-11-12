@@ -16,9 +16,9 @@ FACADE_LIB="crates/icydb/src/lib.rs"
 FACADE_ONLY_FIXTURE_CARGO="testing/model-facade-only/Cargo.toml"
 SCHEMA_ONLY_FIXTURE_CARGO="qualification/model-schema-only/Cargo.toml"
 TYPED_ADAPTER_FIXTURE_CARGO="qualification/model-typed-adapter/Cargo.toml"
-CORE_APPLICATION="crates/icydb-core/src/db/schema/application.rs"
-CORE_SOURCE_BINDING="crates/icydb-core/src/db/schema/source_binding.rs"
-CORE_ACCEPTED_BUNDLE="crates/icydb-core/src/db/schema/enum_catalog/publication.rs"
+CORE_APPLICATION="crates/icydb-core/src/db/schema/application/mod.rs"
+CORE_SOURCE_BINDING="crates/icydb-core/src/db/schema/source_binding/mod.rs"
+CORE_ACCEPTED_BUNDLE="crates/icydb-core/src/db/schema/enum_catalog/publication/mod.rs"
 
 status=0
 
@@ -60,7 +60,7 @@ fi
 
 if ! rg -q --no-heading --color=never \
   'Scalar\(ScalarType\)' \
-  "$SCHEMA_ROOT/fragment.rs"
+  "$SCHEMA_ROOT/fragment/mod.rs"
 then
   echo "[ERROR] proposal fields must retain exact scalar width and bound contracts." >&2
   status=1
@@ -182,7 +182,7 @@ done
 # SQL DDL callers share the candidate builder in the parent module.
 if ! rg -q --fixed-strings \
   '.with_sql_ddl_entity_transition(' \
-  crates/icydb-core/src/db/schema/publication.rs
+  crates/icydb-core/src/db/schema/publication/mod.rs
 then
   echo "[ERROR] the shared SQL DDL candidate builder must evolve immutable source bindings with structural owners" >&2
   status=1

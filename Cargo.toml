@@ -130,7 +130,7 @@ rusqlite = { version = "=0.42.0", default-features = false, features = [
     "load_extension",
 ] }
 serde-reflection = "0.6.0"
-toko-tooling = "=0.39.15"
+toko-tooling = "=0.39.17"
 trybuild = "1.0"
 
 # ---------------------

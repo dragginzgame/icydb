@@ -19,7 +19,7 @@ change removes unused work rather than claiming to settle that question.
 Freeze the workspace source context after the user-published 0.264.0 boundary
 and `lazy_static` lockfile update. Both artifacts include the same captured
 parallel A3 cleanup and partial-feature gating context. Restore only
-`executor/stream/access/traversal.rs` from `bdec3835d` for the baseline and use
+`executor/stream/access/traversal/mod.rs` from `bdec3835d` for the baseline and use
 the candidate traversal for the second build. The real implementation remains
 in the workspace; the isolated checkout is for measurement only.
 

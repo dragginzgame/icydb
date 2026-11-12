@@ -37,6 +37,6 @@
 3. Dependency surface: decide whether `icydb-schema` still needs `canic-cdk` for `now_secs()`; if not, replace it with a schema/local time helper and remove that dependency edge.
 4. Schema facade narrowing: make `schema::validate` private and remove/narrow unused schema graph helpers if no public facade owner claims them.
 5. Visitor narrowing: keep `Visitor` public only if direct schema traversal is intended; make the concrete `ValidateVisitor` crate-private.
-6. Derive modularity: split `node/field.rs` by field parsing, Rust defaults, and database-default encoding in a dedicated behavior-preserving slice if 0.160/0.161 continues schema-default work.
+6. Derive modularity: split `node/field/mod.rs` by field parsing, Rust defaults, and database-default encoding in a dedicated behavior-preserving slice if 0.160/0.161 continues schema-default work.
 
 [Original report and recorded commands](https://github.com/dragginzgame/icydb/blob/5bf0845a043448b0ed07d39f294da0663a16fefe/docs/reports/investigations/2026/05/21/complexity-surface-hygiene-icydb-schema/01/report.md).

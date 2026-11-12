@@ -21,11 +21,11 @@ affected families and adjacent gates necessary to prove their transitions.
 
 | Family | Starting owner locations | Question |
 | --- | --- | --- |
-| Plan -> execution | `db/executor/planning/preparation.rs`, `db/executor/planning/route/planner/`, `db/executor/prepared_execution_plan/` | Does validated accepted-authority planning precede route assembly and execution? |
+| Plan -> execution | `db/executor/planning/preparation/mod.rs`, `db/executor/planning/route/planner/`, `db/executor/prepared_execution_plan/` | Does validated accepted-authority planning precede route assembly and execution? |
 | Schema admission/publication | `db/schema/transition/`, `db/schema/mutation/ddl_admission.rs`, `db/schema/sql_ddl/`, `db/schema/application/` | Can unsupported drift or incomplete physical work become an accepted schema? |
-| Save/update/delete | `db/session/write.rs`, `db/executor/mutation/commit_window.rs`, `db/commit/guard.rs` | Do validation and durable authority precede protected mutation? |
-| Cursor admission | `db/session/query/dynamic.rs`, `db/cursor/token/`, `db/executor/planning/continuation/` | Can an invalid continuation reach row execution or alter its accepted contract? |
-| Recovery/readiness | `db/commit/recovery.rs`, `db/startup/{observe,driver}.rs` | Can normal access or Ready bypass incomplete startup/marker work? |
+| Save/update/delete | `db/session/write/mod.rs`, `db/executor/mutation/commit_window/mod.rs`, `db/commit/guard/mod.rs` | Do validation and durable authority precede protected mutation? |
+| Cursor admission | `db/session/query/dynamic/mod.rs`, `db/cursor/token/`, `db/executor/planning/continuation/` | Can an invalid continuation reach row execution or alter its accepted contract? |
+| Recovery/readiness | `db/commit/recovery/mod.rs`, `db/startup/{observe,driver}.rs` | Can normal access or Ready bypass incomplete startup/marker work? |
 
 Paths are relative to `crates/icydb-core/src/`. Recheck them and record moved
 ownership in the report. Inventory current write frontends and direct schema

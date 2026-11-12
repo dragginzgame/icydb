@@ -19,7 +19,7 @@ Strict scope only:
 - Updated physical index-range resolver wiring to consume index-layer continuation
   contract directly, instead of reading anchor in stream physical resolver:
   - removed `continuation.anchor()` usage from
-    `executor/stream/access/physical.rs`
+    `executor/stream/access/physical/mod.rs`
   - `resolve_index_range` now accepts `IndexScanContinuationInput<'_>` directly.
 - Removed stream-binding anchor exposure and migrated remaining stream fast-path
   callsites to continuation-input wiring:

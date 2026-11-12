@@ -38,7 +38,7 @@ fresh candidate run compared with a **recorded historical baseline**, not a
 fresh two-actor paired run.
 
 The incremental runtime/test edit is confined to
-crates/icydb-core/src/db/session/sql/execute/write_returning/bounds.rs.
+crates/icydb-core/src/db/session/sql/execute/write_returning/bounds/mod.rs.
 Current whole-file SHA256:
 `fa92d346482b6ec4ae68df55b8d47445aac08cdb5fcaac83bb2afc53e3da00fb`.
 Prior F45–F49 edits are preserved; there are no Cargo/version changes.

@@ -24,9 +24,9 @@ while IFS=: read -r source_path source_line declaration; do
   # Exact owner/name/type/value exceptions: semantic job identity inputs are
   # not wire discriminators. Changes still require retained-job review.
   case "$source_path:$declaration" in
-    'crates/icydb-core/src/db/executor/mutation/job.rs:const RESUMABLE_UPDATE_ENTITY_REVISION_POLICY_REVISION: u32 = 2;'|\
-    'crates/icydb-core/src/db/executor/mutation/job.rs:const RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION: u32 = 2;'|\
-    'crates/icydb-core/src/db/executor/mutation/job.rs:const RESUMABLE_UPDATE_EXECUTION_FAILURE_POLICY_REVISION: u32 = 2;') continue ;;
+    'crates/icydb-core/src/db/executor/mutation/job/mod.rs:const RESUMABLE_UPDATE_ENTITY_REVISION_POLICY_REVISION: u32 = 2;'|\
+    'crates/icydb-core/src/db/executor/mutation/job/mod.rs:const RESUMABLE_UPDATE_MANAGED_WRITE_TIME_POLICY_REVISION: u32 = 2;'|\
+    'crates/icydb-core/src/db/executor/mutation/job/mod.rs:const RESUMABLE_UPDATE_EXECUTION_FAILURE_POLICY_REVISION: u32 = 2;') continue ;;
     # Fixed domain-history fixtures, never production format discriminators.
     'crates/icydb-core/src/db/session/write/identity_pre_key_tests/replay_construction_tests/candidate_authority_tests.rs:const CANDIDATE_GENERATION: u64 = 9;'|\
     'testing/integration/tests/group_path_measurement_contract.rs:const ROUNDS_PER_EPOCH: u8 = 60;') continue ;;

@@ -84,7 +84,7 @@ duplicate-insert, invalid-slot and lifecycle/recovery behavior was not executed.
 
 The first page is the largest operation increment. Its named diagnostic points
 to the existing
-[`execute_structural_projection_page`](../../../crates/icydb-core/src/db/executor/projection/facade.rs)
+[`execute_structural_projection_page`](../../../crates/icydb-core/src/db/executor/projection/facade/mod.rs)
 owner and prepared page route. The named closure has 43,282 shallow / 330,541
 retained bytes; the audit-page export retains 788,181 bytes. Those retained
 figures overlap and are not removable-byte estimates. Reachable predicate and

@@ -43,17 +43,17 @@ Expected order used for verification:
 
 Evidence (line-level):
 
-- Lowering-side index range derivation: `crates/icydb-core/src/db/access/lowering.rs:256`
+- Lowering-side index range derivation: `crates/icydb-core/src/db/access/lowering/mod.rs:256`
 
 - Executable plan carries `index_range_spec_invalid`: `crates/icydb-core/src/db/executor/executable_plan.rs:70`
 
-- Runtime alignment check in traversal: `crates/icydb-core/src/db/executor/stream/access/traversal.rs:210`
+- Runtime alignment check in traversal: `crates/icydb-core/src/db/executor/stream/access/traversal/mod.rs:210`
 
 - Cursor envelope authority functions: `crates/icydb-core/src/db/cursor/envelope.rs:13`, `:26`, `:60`, `:80`, `:97`
 
 - Cursor continuation revalidates envelope and advancement: `crates/icydb-core/src/db/cursor/continuation.rs:57`, `:72`
 
-- Unique constraint enforcement entrypoint: `crates/icydb-core/src/db/index/plan/unique.rs:35`
+- Unique constraint enforcement entrypoint: `crates/icydb-core/src/db/index/plan/unique/mod.rs:35`
 
 - Unique check call at index plan composition: `crates/icydb-core/src/db/index/plan/mod.rs:176`
 

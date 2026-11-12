@@ -11,7 +11,7 @@ Compare the local 0.259.3 candidate immediately before and after F38, not the
 published 0.259.2 release. HEAD is
 `46a054b6466c75e63e3ad93475188013139500dd`; both actors include the already-dirty
 F33–F37 changes. The only actor-source difference is `peek_mut` root replacement
-in grouped COUNT `count/window.rs` and generic `generic/page_finalize.rs`.
+in grouped COUNT `count/window.rs` and generic `generic/page_finalize/mod.rs`.
 Added native tests, the host measurement and documentation are not actor code.
 Unbounded staging is unchanged by explicit user choice (F39 deferred).
 

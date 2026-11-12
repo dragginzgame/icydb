@@ -578,13 +578,13 @@ when the obligation crosses the canister boundary.
 
 | Proof obligation | Current source/test owners |
 | --- | --- |
-| Encoded/logical key ordering and component arity | `db/index/key/codec/tests.rs` |
+| Encoded/logical key ordering and component arity | `db/index/key/codec/tests/mod.rs` |
 | Range inclusivity, strict resume, and containment | `db/index/envelope/tests.rs`, `db/executor/stream/access/tests/` |
-| Accepted index membership and accessed orphan classification | `db/session/tests/unit_ordering.rs`, `db/schema/snapshot/tests.rs` |
-| Forward/reverse index consistency across interrupted mutation | `db/session/write.rs` (`mixed_entity_recovery_after_` family), `db/relation/reverse_index/tests.rs` |
-| Field/expression/unique domain projection and collision rejection | `db/schema/mutation/tests/user_index_domain.rs`, `db/schema/mutation/tests/planning.rs` |
-| Index publication, drop, accepted authority, and subsequent query visibility | `db/schema/sql_ddl/`, `db/commit/schema_publication.rs`, `testing/integration/tests/sql_canister.rs` |
-| Recovery before schema reconciliation and migration publication | `db/startup/mod.rs`, `db/schema/application.rs` |
+| Accepted index membership and accessed orphan classification | `db/session/tests/unit_ordering/mod.rs`, `db/schema/snapshot/tests.rs` |
+| Forward/reverse index consistency across interrupted mutation | `db/session/write/mod.rs` (`mixed_entity_recovery_after_` family), `db/relation/reverse_index/tests/mod.rs` |
+| Field/expression/unique domain projection and collision rejection | `db/schema/mutation/tests/user_index_domain/mod.rs`, `db/schema/mutation/tests/planning.rs` |
+| Index publication, drop, accepted authority, and subsequent query visibility | `db/schema/sql_ddl/`, `db/commit/schema_publication/mod.rs`, `testing/integration/tests/sql_canister.rs` |
+| Recovery before schema reconciliation and migration publication | `db/startup/mod.rs`, `db/schema/application/mod.rs` |
 
 For publication claims, verify both catalog-native behavior and frontend
 integration. A domain-projection unit test does not establish SQL endpoint or

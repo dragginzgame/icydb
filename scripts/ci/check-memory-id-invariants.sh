@@ -9,15 +9,15 @@ status=0
 REQUIRED_MATCHES=(
   $'crates/icydb-core/src/traits/mod.rs\tfn commit_memory_id\\(\\) -> Result<u64, ic_storage::RuntimeOpenError>\tCanisterKind must resolve the committed control allocation fallibly'
   $'crates/icydb-core/src/traits/mod.rs\tconst COMMIT_STABLE_KEY: &\'static str;\tCanisterKind must define COMMIT_STABLE_KEY'
-  $'crates/icydb-core/src/db/commit/recovery.rs\tC::commit_memory_id\\(\\)\trecovery must resolve its committed control ID'
+  $'crates/icydb-core/src/db/commit/recovery/mod.rs\tC::commit_memory_id\\(\\)\trecovery must resolve its committed control ID'
   $'crates/icydb-core/src/traits/mod.rs\tallocation_id\\(Self::COMMIT_STABLE_KEY\\)\tcanister controls resolve the bound named allocation'
   $'crates/icydb-core/src/db/registry/handle.rs\tcrate::db::memory_runtime::allocation_id\\(stable_key\\)\tstore identities resolve the bound named allocation'
-  $'crates/icydb-model/src/node/store.rs\tkey: &\'static str,\tjournaled stores must carry a permanent logical key'
-  $'crates/icydb-model/src/node/canister.rs\tmemory_namespace: &\'static str,\tmodel canister node must carry memory_namespace'
-  $'crates/icydb/src/db/bootstrap.rs\tprepare_memory_bootstrap\\(self.0, admission\\)\tstandalone bootstrap must use shared logical admission'
-  $'crates/icydb-core/src/db/database_format/convergence.rs\tlet mut stable_keys = vec!\\[\\s*C::COMMIT_STABLE_KEY,\\s*C::STARTUP_STABLE_KEY,\\s*C::INTEGRITY_PROGRESS_STABLE_KEY,\\s*\\];\tconvergence must reserve the three generated canister control keys'
-  $'crates/icydb-core/src/db/database_format/convergence.rs\tpub\(in crate::db\) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;\tconvergence must charge all four journaled-store allocations'
-  $'crates/icydb-core/src/db/commit/store/control_slot.rs\tpub\(in crate::db\) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 16;\tcommit control must retain the hard-cut 16-store registry ceiling'
+  $'crates/icydb-model/src/node/store/mod.rs\tkey: &\'static str,\tjournaled stores must carry a permanent logical key'
+  $'crates/icydb-model/src/node/canister/mod.rs\tmemory_namespace: &\'static str,\tmodel canister node must carry memory_namespace'
+  $'crates/icydb/src/db/bootstrap/mod.rs\tprepare_memory_bootstrap\\(self.0, admission\\)\tstandalone bootstrap must use shared logical admission'
+  $'crates/icydb-core/src/db/database_format/convergence/mod.rs\tlet mut stable_keys = vec!\\[\\s*C::COMMIT_STABLE_KEY,\\s*C::STARTUP_STABLE_KEY,\\s*C::INTEGRITY_PROGRESS_STABLE_KEY,\\s*\\];\tconvergence must reserve the three generated canister control keys'
+  $'crates/icydb-core/src/db/database_format/convergence/mod.rs\tpub\(in crate::db\) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;\tconvergence must charge all four journaled-store allocations'
+  $'crates/icydb-core/src/db/commit/store/control_slot/mod.rs\tpub\(in crate::db\) const MAX_PERSISTED_STORE_ALLOCATIONS: usize = 16;\tcommit control must retain the hard-cut 16-store registry ceiling'
 )
 
 for check in "${REQUIRED_MATCHES[@]}"; do

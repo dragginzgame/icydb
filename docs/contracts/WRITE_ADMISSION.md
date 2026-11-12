@@ -67,14 +67,14 @@ IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
 
 Session and SQL frontends lower structural intents into the sole
-[structural mutation coordinator](../../crates/icydb-core/src/db/executor/mutation/structural.rs).
+[structural mutation coordinator](../../crates/icydb-core/src/db/executor/mutation/structural/mod.rs).
 It borrows compiled accepted catalog authority and owns identity allocation,
 after-image resolution, exact staged-byte admission, constraint scheduling and
 atomic commit. Frontend callbacks prepare results or durable progress before
 publication; they do not introduce a separate mutation executor.
 
 Durable mutation jobs use the existing
-[executor mutation-job engine](../../crates/icydb-core/src/db/executor/mutation/job.rs)
+[executor mutation-job engine](../../crates/icydb-core/src/db/executor/mutation/job/mod.rs)
 for accepted fixed-patch eligibility, checkpoint encoding, bounded Forward/Verify
 scans and atomic progress. SQL owns syntax and policy preparation only. Session
 owns job admission, exact replay and current runtime-root/cache lookup; the engine

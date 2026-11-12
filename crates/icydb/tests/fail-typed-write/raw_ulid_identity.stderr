@@ -16,7 +16,7 @@ help: the type constructed contains `icydb::prelude::Ulid` due to the type of th
    |                              |
    |                              this argument influences the type of `Value`
 note: tuple variant defined here
-  --> src/db/session/write.rs
+  --> src/db/session/write/mod.rs
    |
    |     Value(T),
    |     ^^^^^

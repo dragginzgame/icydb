@@ -104,7 +104,7 @@ The exact final temporary wrapper (`/tmp/icydb-state-audit-selection.sh`) was:
 | Command / check | Outcome | Selected / passed / failed / ignored | Interpretation |
 | --- | --- | --- | --- | --- |
 | Initial wrapper with `--features sql`, invoked with `--list` | FAIL | 17 of 20 required / 0 / 0 / 0 | Process exited successfully, but three required rename admission/publication cases were absent; no behavioral execution occurred. |
-| `bash /tmp/icydb-state-audit-selection.sh --list` with final `sql,migration` features | PASS | 20 / N/A / N/A / 0 | All required cases listed after inspecting the `cfg(feature = "migration")` gate in `schema/application.rs:3154`. |
+| `bash /tmp/icydb-state-audit-selection.sh --list` with final `sql,migration` features | PASS | 20 / N/A / N/A / 0 | All required cases listed after inspecting the `cfg(feature = "migration")` gate in `schema/application/mod.rs:3154`. |
 | `bash /tmp/icydb-state-audit-selection.sh` | PASS | 20 / 20 / 0 / 0 | All selected cases executed and passed; the two-test rename prefix accounts for the extra case beyond 19 selectors. |
 | `git diff --check`, report-link and recorded-input verification | PASS | N/A | Audit definition and new report only; pre-existing inputs remain unchanged. |
 

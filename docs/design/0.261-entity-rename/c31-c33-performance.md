@@ -52,8 +52,8 @@ not a uniform cycle optimization.
   `fast` profile, metrics enabled, SQL and migration features disabled.
 - Both comparison builds use the same scratch application and the same local
   `icydb-core` dependency path. The initial copy matches published .5 exactly;
-  the candidate replaces only `commit/apply.rs`, `index/cardinality.rs` and
-  `index/store.rs` from the pending worktree. The store change is test-only.
+  the candidate replaces only `commit/apply.rs`, `index/cardinality/mod.rs` and
+  `index/store/mod.rs` from the pending worktree. The store change is test-only.
 - Canonical complete Canic builds generate both managed artifact sets. No
   dependency, manifest, release version or source in either live repository
   changes for measurement.
@@ -127,7 +127,7 @@ This checks that the extra queries do not perturb the measured workload.
 The consistent instruction increase is in the timer identified as
 `icydb / startup / recovery`. The name does not imply failed startup: normal
 online convergence also folds journal batches through
-[`continue_online_convergence`](../../../crates/icydb-core/src/db/commit/recovery.rs#L253).
+[`continue_online_convergence`](../../../crates/icydb-core/src/db/commit/recovery/mod.rs#L253).
 The combined candidate increases this worker's instructions by **1.715–1.808%**
 across the eight cases. Its completion counts remain 72, 16, 8 and 4 for
 batch sizes 1, 8, 16 and 32 in both movement workloads.
@@ -135,7 +135,7 @@ batch sizes 1, 8, 16 and 32 in both movement workloads.
 **C33 alone reproduces the increase:** gross cycles rise **0.203–0.832%**
 and recovery-worker instructions rise **1.695–1.818%** across all eight cases.
 The isolated source change is
-[`apply_signed_count_delta`](../../../crates/icydb-core/src/db/index/cardinality.rs#L777)
+[`apply_signed_count_delta`](../../../crates/icydb-core/src/db/index/cardinality/mod.rs#L777)
 and its `Entry` import. This is evidence against retaining that rewrite as
 an optimization, despite removing key copies and a second lookup.
 

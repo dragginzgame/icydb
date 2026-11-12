@@ -41,9 +41,9 @@ Paths in this table are repository-relative; identities are SHA-256.
 | Cargo.lock | `695051feaba3c8de26eed05f5db590dddd2568f1f7493924e24b87ca08767716` |
 | `crates/icydb-core/src/db/index/scan/tests.rs` (pre-existing) | `635996f907893ddb6d3ab4b2dd34930e2d1bed95707b2d5639940d1b0dd6f938` |
 | `crates/icydb-core/src/db/commit/mod.rs` | `07a7376243c170244e5a53b9ec6f74cb664b629732f826229c40862f4c9ecb63` |
-| `crates/icydb-core/src/db/commit/schema_publication.rs` | `a48f295472b17add2dc1cac589889631429b5ec240ec6064ac1bb46de26e6d70` |
-| `crates/icydb-core/src/db/session/write.rs` | `c5cec6e199c57e0b97c5519ab79e19a55c68a2e45d5aa48fcea1112b3ae15db2` |
-| `crates/icydb-core/src/db/session/write/identity_pre_key_tests/schema_publication_tests.rs` | `8cb6e597f849b22d26489030bbcc3f230fa0e8cd8bf30c6cd14f52592344b097` |
+| `crates/icydb-core/src/db/commit/schema_publication/mod.rs` | `a48f295472b17add2dc1cac589889631429b5ec240ec6064ac1bb46de26e6d70` |
+| `crates/icydb-core/src/db/session/write/mod.rs` | `c5cec6e199c57e0b97c5519ab79e19a55c68a2e45d5aa48fcea1112b3ae15db2` |
+| `crates/icydb-core/src/db/session/write/identity_pre_key_tests/schema_publication_tests/mod.rs` | `8cb6e597f849b22d26489030bbcc3f230fa0e8cd8bf30c6cd14f52592344b097` |
 
 Toolchain: `rustc 1.98.1 (48a229cea 2026-09-01)`. Core native library tests use
 `sql,migration`, locked dependencies, Makefile Cargo home `.cache/cargo/icydb`

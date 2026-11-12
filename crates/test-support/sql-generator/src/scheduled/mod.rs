@@ -24,7 +24,7 @@ pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 1;
 /// The root reference-package manifest gate rederives and golden-vector checks this transport
 /// identity from the authoritative typed coverage cells and provider declarations.
 pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
-    "c944463bafa1806f7a80f2c62bc6c61669fdbb80810803481fd910d2db02cd50";
+    "3ec4ea28033f2153b8ff1f8dbcef7eb62a2629961e3d5bc0ccad8b97b7100dc3";
 
 /// Largest individual Tier C shard, failure or coverage-distribution artifact.
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;

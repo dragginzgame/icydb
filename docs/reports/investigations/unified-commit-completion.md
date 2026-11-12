@@ -23,7 +23,7 @@ Raw key validation still occurs at its existing consumers; only the unused
 row-local validation parameter disappears. Recovery/trap policy is unchanged.
 
 Four Rust files change relative to the F56 candidate: commit_window.rs,
-constraint_scheduler.rs, session/write.rs and commit/guard.rs. Net reduction:
+constraint_scheduler.rs, session/write/mod.rs and commit/guard/mod.rs. Net reduction:
 75 Rust lines (43 for F57/F58, 32 for F59), including native-test support.
 Existing semantic tests are reused. Root/detail notes, tracker and this report
 bring this handoff to eight changed files. Structure is simpler.
@@ -44,13 +44,13 @@ combined cost of all three cleanups or the full active release.
   `1428d09e41983f0c477a8ea2c3d9ae1596565ba26c5233ca976fdaefca340d08`.
 - commit_window.rs after:
   `f0a0bf0dce5ed0a0e4482bb8eb82378e8ac89f647087e1e2b64b5fbcb9237567`.
-- Shared session/write.rs:
+- Shared session/write/mod.rs:
   `445b86407bbdd184bda5c95234a45501977894299e0b6c9aa894866eb26a761b`.
-- Shared commit/guard.rs:
+- Shared commit/guard/mod.rs:
   `ac55d32183a4b8269de04434da856d086afdccc5db57717ba525ba521dcfd589`.
 - Shared mutation/constraint_scheduler.rs:
   `682ac0203643e7607087a8f86393f4e09e5cfa5a41e13e79e7ededb7110f6505`.
-- Shared commit/marker.rs:
+- Shared commit/marker/mod.rs:
   `f4caa5d3c95186ccf13b13b56fede9e61b3e8c46e4a74d71b564225ab4453daf`.
 
 Both use the maintained retained Cargo/post-link builder for canister_test_sql:
