@@ -1052,9 +1052,9 @@ checksum = "45009e4547025d669c579899d17332fdcd00c34429d43bc1795297978b8eb21d"
 
 [[package]]
 name = "ic-platform"
-version = "0.31.2"
+version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "792290b53245519a9e2a7833ffedaefa3dd5cd70b148678727071ae3c81a2ff3"
+checksum = "8fd611c3961165ef22a19764913cbf780b6f426b1f74173f02cce944a151d6aa"
 dependencies = [
  "ic-platform-types",
  "num-bigint 0.5.1",

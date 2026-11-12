@@ -46,8 +46,8 @@ post_link_call_cases() {
   check post-link-fallible-current 0 bash "$checker"
   for mutation in \
     's/build_cached_cargo_wasm_batch/unchecked_cargo_wasm_batch/' \
-    's/plan.cargo_specs(root).map_err/plan.cargo_specs(root).map/' \
-    's/})?;/});/' \
+    's/plan.cargo_specs(root)/unchecked_specs(root)/' \
+    's/collect::<Result<Vec<_>, _>>()?;/collect::<Result<Vec<_>, _>>();/' \
     's/finish_maintained_canister_builds/unchecked_maintained_canister_builds/'; do
     sed "/^pub fn build_maintained_canister_contract_profiles/,/^}/$mutation" \
       "$ROOT/qualification/build/src/lib.rs" > "$source"
@@ -215,23 +215,26 @@ for root in "${panic_roots[@]:1}"; do
 done
 
 # Qualify every SQL scan root, including terminal discovery. The product's
-# required SELECT visibility owners are copied unchanged into the fixture.
+# filter-admission visibility owner is copied unchanged into the fixture.
 roots=(
   crates/icydb-core/src/db/session/sql
   crates/icydb-core/src/db/executor
   crates/icydb-core/src/db/executor/terminal
   crates/icydb-core/src/db/sql/lowering
   crates/icydb-core/src/db/sql/parser
-  crates/icydb-core/src/db/sql/lowering/select
+  crates/icydb-core/src/db/query/intent/filter
 )
 for root in "${roots[@]}"; do
   mkdir -p "$scratch/$root"
   printf '// scan fixture\n' > "$scratch/$root/production.rs"
 done
-binding=crates/icydb-core/src/db/sql/lowering/select/binding.rs
+binding=crates/icydb-core/src/db/query/intent/filter/sql.rs
 cp "$ROOT/$binding" "$scratch/$binding"
 sql_checker="$scratch/scripts/ci/check-sql-branch-ownership-invariants.sh"
 check sql-baseline 0 bash "$sql_checker"
+sed 's/pub(super)/pub(in crate::db)/g' "$ROOT/$binding" > "$scratch/$binding"
+check sql-filter-visibility 1 bash "$sql_checker"
+cp "$ROOT/$binding" "$scratch/$binding"
 for root in "${roots[@]}"; do
   mv "$scratch/$root" "$scratch/absent-root"
   check "sql-missing-$cases" 2 bash "$sql_checker"

@@ -83,7 +83,7 @@ if [[ -n "$lowering_reparse_leaks" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# D. Parser and SELECT-lowering helper seams must stay inside the SQL frontend.
+# D. Parser helpers stay frontend-owned; schema canonicalizers stay intent-private.
 # -----------------------------------------------------------------------------
 
 PARSER_ROOT="crates/icydb-core/src/db/sql/parser"
@@ -96,16 +96,14 @@ if [[ -n "$parser_visibility_leaks" ]]; then
   status=1
 fi
 
-SELECT_LOWERING_ROOT="crates/icydb-core/src/db/sql/lowering/select"
-SELECT_BINDING_FILE="$SELECT_LOWERING_ROOT/binding.rs"
-select_canonicalizer_export_leaks="$(
+FILTER_BINDING_FILE="crates/icydb-core/src/db/query/intent/filter/sql.rs"
+filter_canonicalizer_export_leaks="$(
   run_rg "pub\\(in crate::db\\).*canonicalize_sql_(predicate|filter_expr)_for_schema" \
-    "$SELECT_LOWERING_ROOT" \
-    | strip_comment_only
+    "$FILTER_BINDING_FILE" | strip_comment_only
 )"
-if [[ -n "$select_canonicalizer_export_leaks" ]]; then
-  echo "[ERROR] SQL SELECT strict-literal canonicalizers must remain SELECT-lowering private." >&2
-  echo "$select_canonicalizer_export_leaks" >&2
+if [[ -n "$filter_canonicalizer_export_leaks" ]]; then
+  echo "[ERROR] SQL schema canonicalizers must remain private to query filter admission." >&2
+  echo "$filter_canonicalizer_export_leaks" >&2
   status=1
 fi
 
@@ -114,10 +112,10 @@ for required_canonicalizer in \
   "pub(super) fn canonicalize_sql_filter_expr_for_schema"
 do
   if ! rg -F -n --no-heading --color=never "$required_canonicalizer" \
-    "$SELECT_BINDING_FILE" >/dev/null
+    "$FILTER_BINDING_FILE" >/dev/null
   then
-    echo "[ERROR] SQL SELECT strict-literal canonicalizer visibility drifted from pub(super)." >&2
-    echo "[ERROR] Missing required shape in $SELECT_BINDING_FILE: $required_canonicalizer" >&2
+    echo "[ERROR] SQL schema canonicalizer visibility drifted from pub(super)." >&2
+    echo "[ERROR] Missing required shape in $FILTER_BINDING_FILE: $required_canonicalizer" >&2
     status=1
   fi
 done
