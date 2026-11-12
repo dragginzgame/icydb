@@ -3,6 +3,93 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.310.0]
+
+### ⚠️ Breaking
+
+- Use `InputValue` for filter literals, preserving scalar types, Unit and enum
+  identity instead of stringifying them. Migrate `FilterValue` callers and
+  regenerate serialized filter requests for the new literal contract.
+
+- Replace the Testkit-bound startup driver with a dependency-free typed
+  readiness predicate composed with Testkit's existing polling driver.
+- Remove the obsolete executor error-detail enum; executor failures retain
+  their canonical diagnostic codes, origins and numeric facts.
+
+### 🩹 Fixed
+
+- Isolate native simulator qualification from the product dependency lock,
+  allowing independent thiserror updates while preserving bounded startup tests
+  ([#634 — Decouple native testing dependencies](https://github.com/dragginzgame/icydb/issues/634)).
+
+### 🔧 Changed
+
+- Adopt IC Build 0.83 for qualification, using direct progress events and
+  explicit best-effort cache maintenance before single and batch builds.
+
+- Adopt Toko Tooling 0.39.15 and enable `make deps-update` for root and
+  qualification dependency maintenance. Retain width-bounded LOC reports and
+  supplier freshness review; this adoption preserves runtime selections.
+
+- Adopt Host Tools 0.91.0 for native qualification and Testkit 0.101.0's upstream
+  client re-export in the independent simulator harness.
+
+### 🧹 Cleanup
+
+- Bind physical index bounds to their owning access leaves, removing positional
+  traversal cursors and parallel scalar/grouped handoffs. Covering reads and
+  exact counts reuse the same prepared bounds. Physical scan dispatch consumes
+  the bound leaf directly, with one prefix-count admission check.
+
+- Retain only reusable global-aggregate shape in parameter templates; construct
+  the execution query and metadata eligibility once with the current filter.
+
+- Bind SQL WHERE parameters directly while lowering immutable syntax, removing
+  the per-call syntax copy and substitution pass while preserving typed refusals.
+
+- Admit filters once against accepted schema and reuse their predicates for
+  planning and metadata counts. Cached SQL recompiles after schema-scope renewal;
+  partial-filter coverage and original key-input limits remain enforced.
+
+- Remove unreachable predicate-only query intent and impossible SQL filter states;
+  preserve exact-key residual filtering, cache identity and metadata count paths.
+
+- Reuse the ordinary schema publication head and borrow accepted schema bundles
+  during relation-domain preflight, preserving pending activation and replay.
+- Hash canonical planned predicates without copying and normalizing them again,
+  preserving continuation bytes and fail-closed encoding admission.
+- Borrow executable access children instead of rebuilding union/intersection
+  trees, retaining ordered traversal and leaf-owned bounds.
+- Simplify filter completeness bookkeeping while preserving partial SQL
+  expressions and the proof required to remove redundant exact-key filters.
+- Remove unused overlay classification; exhaustive recovery dispatch and
+  exact-versus-superseded retirement remain authoritative.
+- Move completed migration catalogues into fallback candidates without copying
+  them again, retaining reconciled-candidate precedence.
+- Share owned/borrowed aggregate ingestion while preserving numeric errors and
+  cloning borrowed extrema only when selected.
+- Avoid a redundant grouped DISTINCT membership lookup after admission, retaining
+  collision equality and duplicate-at-budget behavior.
+
+- Remove redundant initial schema sorting and borrow named-type catalogues during
+  additive entity construction, preserving accepted identities and validation.
+
+- Borrow fold-cardinality coalescing inputs and reuse admitted publication order
+  during recovery, preserving checkpoint and schema authority checks.
+
+- Reuse resolved relation component specifications and validate tuple contracts
+  without an intermediate descriptor, preserving validation order.
+
+- Share parameterized cache finalization between rebinding and first compilation,
+  retaining charging order and failure-before-publication.
+
+### 📊 Audit
+
+- Simplification batches: 293 fewer non-test Rust code lines and 80 additional test
+  code lines; remove a diagnostic representation and repeated schema/hash work.
+
+[Detailed changes](0.310.md).
+
 ## [0.309.0] - 2026-11-11
 
 ### ⚠️ Breaking

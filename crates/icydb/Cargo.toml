@@ -24,7 +24,7 @@ build = ["icydb-model/build"]
 sql = ["icydb-core/sql"]
 metrics = ["icydb-core/metrics"]
 migration = ["icydb-core/migration"]
-testing = ["dep:ic-testkit"]
+testing = []
 
 [dependencies]
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
@@ -38,13 +38,6 @@ icydb-model-macros = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-ic-testkit = { workspace = true, optional = true }
-
-[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-pocket-ic = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "rt", "time"] }
-
 [dev-dependencies]
 ic-platform-types = { workspace = true, features = ["principal-self-authenticating"] }
 ic-storage = { workspace = true, features = ["test-support"] }
@@ -54,11 +47,6 @@ trybuild = { workspace = true }
 [[test]]
 name = "storage_bootstrap"
 path = "tests/storage_bootstrap.rs"
-
-[[test]]
-name = "startup_polling"
-path = "tests/startup_polling.rs"
-required-features = ["testing"]
 
 [[test]]
 name = "platform_types"

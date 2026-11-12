@@ -7,55 +7,21 @@ use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::query::{
     intent::{
         IntentError,
-        state::{GroupedIntent, NormalizedFilter, QueryIntent},
+        filter::AdmittedFilter,
+        state::{GroupedIntent, QueryIntent},
     },
     plan::{
         GroupAggregateSpec, GroupFieldSet, GroupedExecutionConfig, OrderSpec,
         expr::{BinaryOp, Expr, normalize_bool_expr},
     },
 };
-use crate::db::{QueryError, predicate::Predicate, query::preparation::PreparationWork};
+use crate::db::{QueryError, query::preparation::PreparationWork};
 
 impl QueryIntent {
-    /// Append one normalized scalar filter expression to intent state,
-    /// implicitly AND-ing multiple scalar filter clauses.
-    pub(in crate::db::query::intent) fn append_filter_expr(
+    /// Append only a filter whose semantic views share accepted-schema admission.
+    pub(in crate::db::query::intent) fn append_admitted_filter(
         &mut self,
-        expr: Expr,
-        work: &PreparationWork<'_>,
-    ) -> Result<(), QueryError> {
-        self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr, work)?, work)
-    }
-
-    /// Append one already-normalized filter predicate to scalar intent,
-    /// implicitly AND-ing chains.
-    pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
-        let scalar = self.scalar_mut();
-        match scalar.filter.as_mut() {
-            Some(existing) => existing.append_predicate(predicate),
-            None => scalar.filter = Some(NormalizedFilter::from_normalized_predicate(predicate)),
-        }
-    }
-
-    /// Append one normalized scalar filter with both semantic views already
-    /// prepared by the caller.
-    pub(in crate::db::query::intent) fn append_filter_with_predicate_subset(
-        &mut self,
-        expr: Expr,
-        predicate: Predicate,
-        work: &PreparationWork<'_>,
-    ) -> Result<(), QueryError> {
-        self.append_normalized_filter(
-            NormalizedFilter::from_normalized_expr_and_predicate_subset(expr, predicate),
-            work,
-        )
-    }
-
-    // Store scalar filters through the single normalized-filter seam so later
-    // planning never has to reconcile independently-mutated filter fields.
-    fn append_normalized_filter(
-        &mut self,
-        filter: NormalizedFilter,
+        filter: AdmittedFilter,
         work: &PreparationWork<'_>,
     ) -> Result<(), QueryError> {
         let scalar = self.scalar_mut();

@@ -17,7 +17,7 @@ use crate::db::{
             AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlanningInputs,
             OrderSpec, PreparedQueryParameterContract, PreparedScalarPlanningState, QueryMode,
             build_query_model_plan_with_indexes_from_scalar_planning_state,
-            expr::{Expr, ProjectionSelection, is_normalized_bool_expr, normalize_bool_expr},
+            expr::{Expr, ProjectionSelection},
             prepare_query_model_scalar_planning_state_with_schema_info,
             resolve_group_fields_with_schema, try_build_trivial_scalar_load_plan_with_schema_info,
         },
@@ -231,49 +231,49 @@ impl QueryModel {
         self.consistency
     }
 
-    /// Append one predicate that has already been normalized by the caller.
-    #[must_use]
-    pub(in crate::db::query) fn filter_normalized_predicate(
-        mut self,
-        predicate: Predicate,
-    ) -> Self {
-        self.intent.append_predicate(predicate);
-        self
-    }
-
     pub(in crate::db::query) fn filter_for_schema(
         self,
         schema: &SchemaInfo,
         expr: &FilterExpr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.filter_expr(expr.lower_bool_expr_for_schema(schema, work)?, work)
+        self.filter_expr(schema, expr.lower_bool_expr_for_schema(schema, work)?, work)
     }
 
     pub(in crate::db::query) fn filter_expr(
         mut self,
+        schema: &SchemaInfo,
         expr: Expr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        let expr = normalize_bool_expr(expr, work)?;
-
-        debug_assert!(is_normalized_bool_expr(&expr));
-
-        self.intent.append_filter_expr(expr, work)?;
+        let filter =
+            crate::db::query::intent::filter::AdmittedFilter::from_expr(schema, expr, work)?;
+        self.intent.append_admitted_filter(filter, work)?;
         Ok(self)
     }
 
-    pub(in crate::db) fn filter_expr_with_normalized_predicate(
+    #[cfg(feature = "sql")]
+    pub(in crate::db::query) fn filter_sql_expr(
         mut self,
+        schema: &SchemaInfo,
         expr: Expr,
-        predicate: Predicate,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        debug_assert!(is_normalized_bool_expr(&expr));
-
-        self.intent
-            .append_filter_with_predicate_subset(expr, predicate, work)?;
+        let filter =
+            crate::db::query::intent::filter::AdmittedFilter::from_sql_expr(schema, expr, work)?;
+        self.intent.append_admitted_filter(filter, work)?;
         Ok(self)
+    }
+
+    pub(in crate::db::query) fn admitted_filter(
+        &self,
+        schema: &SchemaInfo,
+    ) -> Result<Option<&crate::db::query::intent::filter::AdmittedFilter>, QueryError> {
+        let filter = self.intent.scalar().filter.as_ref();
+        if let Some(filter) = filter {
+            filter.validate_schema(schema)?;
+        }
+        Ok(filter)
     }
 
     /// Set one materialized order spec for downstream planner validation.

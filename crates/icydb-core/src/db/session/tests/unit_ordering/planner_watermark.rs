@@ -7,7 +7,6 @@ use crate::db::{
     MissingRowPolicy, QueryPlanCacheReuse, RequestExecutionRoot,
     executor::AcceptedSchemaCatalogContext,
     index::IndexId,
-    predicate::Predicate,
     query::{
         intent::StructuralQuery,
         plan::{CardinalityTiebreakFamily, CardinalityTiebreakRoutePin, OrderSpec},
@@ -19,6 +18,17 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope,
     DiagnosticExecutionLane,
 };
+
+fn constant_query(schema: &crate::db::schema::SchemaInfo, value: bool) -> StructuralQuery {
+    crate::db::query::preparation::with_preparation_work(|work| {
+        query().filter_expr(
+            schema,
+            crate::db::query::plan::expr::Expr::Literal(crate::value::Value::Bool(value)),
+            work,
+        )
+    })
+    .unwrap()
+}
 
 fn request(exhausted: bool, lane: DiagnosticExecutionLane) -> RequestExecutionRoot {
     let root = RequestExecutionRoot::new_for_tests(
@@ -91,7 +101,7 @@ fn construction_exhaustion_keeps_cold_cache_empty_and_memoized_keys_skip_copies(
     ] {
         for query in [
             query(),
-            query().filter_normalized_predicate(Predicate::False),
+            constant_query(catalog.accepted_schema_info(), false),
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
             let root = RequestExecutionRoot::new_for_tests(
@@ -323,11 +333,9 @@ fn filtered_nonparameterized_hits_finish_preparation_before_cache_reuse() {
         DiagnosticExecutionLane::Diagnostic,
     ] {
         for query in [
-            query().filter_normalized_predicate(Predicate::False),
-            query().filter_normalized_predicate(Predicate::True),
-            query()
-                .filter_normalized_predicate(Predicate::False)
-                .limit(0),
+            constant_query(catalog.accepted_schema_info(), false),
+            constant_query(catalog.accepted_schema_info(), true),
+            constant_query(catalog.accepted_schema_info(), false).limit(0),
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
             let root = request(true, lane);
@@ -410,7 +418,7 @@ fn executor_handoff_requires_and_preserves_finalized_planner_metadata() {
     ] {
         for query in [
             query(),
-            query().filter_normalized_predicate(Predicate::False),
+            constant_query(catalog.accepted_schema_info(), false),
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
             let (prepared, _) = setup

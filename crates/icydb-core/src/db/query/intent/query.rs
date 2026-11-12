@@ -3,6 +3,7 @@
 //! Does not own: runtime execution semantics or access-path execution behavior.
 //! Boundary: exposes query APIs and emits planner-owned compiled query contracts.
 
+use crate::db::query::plan::{OrderSpec, expr::Expr};
 use crate::db::query::{expr::FilterExpr, plan::expr::ProjectionSelection};
 use crate::db::{
     access::SemanticIndexAccessContract,
@@ -16,10 +17,6 @@ use crate::db::{
         preparation::PreparationWork,
     },
     schema::SchemaInfo,
-};
-use crate::db::{
-    predicate::Predicate,
-    query::plan::{OrderSpec, expr::Expr},
 };
 use std::{rc::Rc, sync::OnceLock};
 
@@ -122,7 +119,7 @@ impl StructuralQuery {
             .scalar_intent_for_cache_key()
             .filter
             .as_ref()
-            .and_then(|filter| filter.logical_filter_expr())
+            .map(crate::db::query::intent::filter::AdmittedFilter::logical_filter_expr)
     }
 
     #[must_use]
@@ -135,10 +132,13 @@ impl StructuralQuery {
         self.intent.direct_count_cardinality_candidate()
     }
 
-    /// Append one predicate that has already been normalized by the caller.
-    #[must_use]
-    pub(in crate::db) fn filter_normalized_predicate(self, predicate: Predicate) -> Self {
-        self.map_intent(|intent| intent.filter_normalized_predicate(predicate))
+    /// Validate a retained filter before a metadata-only execution shortcut.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn validate_filter_schema(
+        &self,
+        schema: &SchemaInfo,
+    ) -> Result<(), QueryError> {
+        self.intent.admitted_filter(schema).map(|_| ())
     }
 
     pub(in crate::db) fn filter_for_schema(
@@ -150,25 +150,24 @@ impl StructuralQuery {
         self.try_map_intent(|intent| intent.filter_for_schema(schema, expr, work))
     }
 
-    pub(in crate::db) fn filter_expr_with_normalized_predicate(
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn filter_sql_expr(
         self,
+        schema: &SchemaInfo,
         expr: Expr,
-        predicate: Predicate,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| {
-            intent.filter_expr_with_normalized_predicate(expr, predicate, work)
-        })
+        self.try_map_intent(|intent| intent.filter_sql_expr(schema, expr, work))
     }
-    // Keep the exact expression-owned scalar filter lane available for
-    // internal SQL lowering and parity callers that must preserve one planner
-    // expression without routing through the public typed `FilterExpr` surface.
+
+    #[cfg(test)]
     pub(in crate::db) fn filter_expr(
         self,
+        schema: &SchemaInfo,
         expr: Expr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.filter_expr(expr, work))
+        self.try_map_intent(|intent| intent.filter_expr(schema, expr, work))
     }
 
     #[must_use]

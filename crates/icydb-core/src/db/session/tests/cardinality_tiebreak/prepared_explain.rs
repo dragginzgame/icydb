@@ -8,7 +8,6 @@ use crate::{
             SharedPreparedExecutionPlan, assemble_load_execution_node_descriptor_from_route_facts,
             freeze_load_execution_route_facts_for_authority,
         },
-        predicate::Predicate,
         query::{
             builder::{count, sum},
             explain::{ExplainExecutionMode, ExplainGrouping, ExplainPlan},
@@ -149,15 +148,17 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
-    let scalar = StructuralQuery::new(MissingRowPolicy::Ignore).filter_normalized_predicate(
-        Predicate::And(vec![
-            Predicate::eq("rare".into(), Value::Text("group-a".into())),
-            Predicate::TextContains {
-                field: "common".into(),
-                value: Value::Text("every".into()),
-            },
-        ]),
-    );
+    let scalar = with_work(|work| {
+        StructuralQuery::new(MissingRowPolicy::Ignore).filter_for_schema(
+            catalog.accepted_schema_info(),
+            &crate::db::FilterExpr::and(vec![
+                crate::db::FilterExpr::eq("rare", "group-a"),
+                crate::db::FilterExpr::text_contains("common", "every"),
+            ]),
+            work,
+        )
+    })
+    .unwrap();
     let schema = catalog.accepted_schema_info();
     let grouped = with_work(|work| {
         scalar

@@ -74,31 +74,9 @@ struct InitialStoreContext<'a> {
     assignments: &'a BTreeMap<EntitySourceKey, &'static str>,
     all_entities: &'a BTreeMap<EntitySourceKey, &'a EntityFragment>,
     accepted_entities: &'a BTreeMap<EntitySourceKey, EntityTag>,
-    enum_catalog: AcceptedEnumCatalog,
-    composite_catalog: AcceptedCompositeCatalog,
+    enum_catalog: &'a AcceptedEnumCatalog,
+    composite_catalog: &'a AcceptedCompositeCatalog,
     named_type_bindings: AcceptedSourceBindingCatalog,
-}
-
-impl<'a> InitialStoreContext<'a> {
-    fn new(
-        store_path: &'static str,
-        assignments: &'a BTreeMap<EntitySourceKey, &'static str>,
-        all_entities: &'a BTreeMap<EntitySourceKey, &'a EntityFragment>,
-        accepted_entities: &'a BTreeMap<EntitySourceKey, EntityTag>,
-        entities: &[&EntityFragment],
-        types: &BTreeMap<TypeSourceKey, &'a NamedTypeFragment>,
-    ) -> Result<Self, InternalError> {
-        let named_types = lower_initial_named_types(entities, types)?;
-        Ok(Self {
-            store_path,
-            assignments,
-            all_entities,
-            accepted_entities,
-            enum_catalog: named_types.enum_catalog,
-            composite_catalog: named_types.composite_catalog,
-            named_type_bindings: named_types.bindings,
-        })
-    }
 }
 
 struct InitialNamedTypes {
@@ -509,17 +487,13 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
     }
 
     let mut entities_by_store = BTreeMap::<&'static str, Vec<&EntityFragment>>::new();
+    // Each store retains the source-key order of this BTreeMap subsequence.
     for (source, entity) in &entities {
         let path = assignments
             .get(source)
             .copied()
             .ok_or_else(InternalError::store_unsupported)?;
         entities_by_store.entry(path).or_default().push(*entity);
-    }
-    for store_entities in entities_by_store.values_mut() {
-        icydb_schema::compact_sort_unstable_by(store_entities, |left, right| {
-            left.source_key().cmp(right.source_key())
-        });
     }
 
     let accepted_entities = allocate_entity_identities(&entities_by_store)?;
@@ -960,8 +934,8 @@ impl ExistingStoreCandidateState {
             assignments: &assignments,
             all_entities: &all_entities,
             accepted_entities: &accepted_entities,
-            enum_catalog: self.catalogs.enum_catalog.clone(),
-            composite_catalog: self.catalogs.composite_catalog.clone(),
+            enum_catalog: &self.catalogs.enum_catalog,
+            composite_catalog: &self.catalogs.composite_catalog,
             named_type_bindings: self.source_bindings.clone(),
         };
         self.snapshots.extend(lower_new_entity_snapshots(
@@ -2718,21 +2692,23 @@ fn lower_initial_store(
     accepted_entities: &BTreeMap<EntitySourceKey, EntityTag>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
 ) -> Result<CandidateSchemaRevision, InternalError> {
-    let context = InitialStoreContext::new(
+    let named_types = lower_initial_named_types(entities, types)?;
+    let context = InitialStoreContext {
         store_path,
         assignments,
         all_entities,
         accepted_entities,
-        entities,
-        types,
-    )?;
+        enum_catalog: &named_types.enum_catalog,
+        composite_catalog: &named_types.composite_catalog,
+        named_type_bindings: named_types.bindings,
+    };
     let mut bindings = context.named_type_bindings.clone();
     let snapshots = lower_new_entity_snapshots(&context, entities, &mut bindings)?;
     let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         AcceptedSchemaRevision::INITIAL,
         store_path,
-        context.enum_catalog,
-        context.composite_catalog,
+        named_types.enum_catalog,
+        named_types.composite_catalog,
         bindings,
         snapshots,
     )?;
@@ -2866,8 +2842,8 @@ fn lower_initial_constraints(
                     entity_tag,
                     bindings,
                     &snapshot,
-                    &context.enum_catalog,
-                    &context.composite_catalog,
+                    context.enum_catalog,
+                    context.composite_catalog,
                 )
                 .map_err(|_| InternalError::store_unsupported())?;
                 catalog = catalog
@@ -2884,8 +2860,8 @@ fn lower_initial_constraints(
                     entity_tag,
                     bindings,
                     &snapshot,
-                    &context.enum_catalog,
-                    &context.composite_catalog,
+                    context.enum_catalog,
+                    context.composite_catalog,
                 )?;
                 catalog = catalog
                     .with_added_targeted_rule(
@@ -2923,8 +2899,8 @@ fn lower_initial_entity_fields(
         fields.push(
             AcceptedFieldLowering {
                 bindings: &context.named_type_bindings,
-                enum_catalog: &context.enum_catalog,
-                composite_catalog: &context.composite_catalog,
+                enum_catalog: context.enum_catalog,
+                composite_catalog: context.composite_catalog,
             }
             .lower_field(
                 field,
@@ -3060,8 +3036,8 @@ fn lower_initial_indexes(
                 .ok_or_else(InternalError::store_unsupported)?;
             let id = SchemaIndexId::new(raw_id).ok_or_else(InternalError::store_unsupported)?;
             let accepted = IndexLowering {
-                enum_catalog: &context.enum_catalog,
-                composite_catalog: &context.composite_catalog,
+                enum_catalog: context.enum_catalog,
+                composite_catalog: context.composite_catalog,
                 entity_tag,
                 snapshot,
                 bindings,

@@ -910,3 +910,27 @@ fn enum_newtype_literals_normalize_through_the_nominal_admission_contract() {
     validate_predicate(&collection_schema, &normalized_contains)
         .expect("normalized collection newtype predicate should validate");
 }
+
+#[test]
+fn typed_filter_enum_identity_is_admitted_against_the_accepted_field_or_element() {
+    use crate::{
+        db::{FilterExpr, query::intent::StructuralQuery},
+        value::InputValue,
+    };
+    for collection in [false, true] {
+        let schema = enum_newtype_query_schema(collection);
+        for (path, succeeds) in [("tests::Stage", true), ("tests::Other", false)] {
+            let value = InputValue::enum_value("Active", Some(path));
+            let filter = if collection {
+                FilterExpr::contains("stage", value)
+            } else {
+                FilterExpr::eq("stage", value)
+            };
+            let result = crate::db::query::preparation::with_preparation_work(|work| {
+                StructuralQuery::new(crate::db::MissingRowPolicy::Ignore)
+                    .filter_for_schema(&schema, &filter, work)
+            });
+            assert_eq!(result.is_ok(), succeeds);
+        }
+    }
+}

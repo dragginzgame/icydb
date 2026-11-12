@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        QueryError, encode_hex_lower,
+        QueryError,
         query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
         query::preparation::PreparationWork,
         schema::SchemaInfo,
@@ -16,92 +16,6 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use serde::Deserialize;
 use std::borrow::Cow;
-
-/// Serialized frontend-safe filter literal payload.
-///
-/// This keeps the public filter wire surface narrow and string-backed while
-/// the intent boundary still rehydrates typed runtime values from schema.
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-pub enum FilterValue {
-    String(String),
-    Bool(bool),
-    Null,
-    List(Vec<Self>),
-}
-
-impl FilterValue {
-    /// Lower one public wire literal back onto the runtime value model before
-    /// adjacent schema-aware callers optionally canonicalize it to the target
-    /// field kind.
-    fn lower_value(&self, work: &PreparationWork<'_>) -> Result<Value, QueryError> {
-        work.charge(DiagnosticExecutionBudgetResource::NestedValueSteps, 1)?;
-        Ok(match self {
-            Self::String(value) => {
-                work.charge(
-                    DiagnosticExecutionBudgetResource::TemporaryBytes,
-                    value.len() as u64,
-                )?;
-                Value::Text(value.clone())
-            }
-            Self::Bool(value) => Value::Bool(*value),
-            Self::Null => Value::Null,
-            Self::List(values) => {
-                work.charge(
-                    DiagnosticExecutionBudgetResource::TemporaryBytes,
-                    (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
-                )?;
-                let mut lowered = Vec::with_capacity(values.len());
-                for value in values {
-                    lowered.push(value.lower_value(work)?);
-                }
-                Value::List(lowered)
-            }
-        })
-    }
-
-    fn from_input_value(value: InputValue) -> Self {
-        fn from_public_value(value: PublicValue) -> FilterValue {
-            match value {
-                PublicValue::Bool(value) => FilterValue::Bool(value),
-                PublicValue::List(values) => {
-                    FilterValue::List(values.into_iter().map(from_public_value).collect())
-                }
-                PublicValue::Null | PublicValue::Unit => FilterValue::Null,
-                PublicValue::Text(value) => FilterValue::String(value),
-                PublicValue::Enum(value) => FilterValue::String(value.variant().to_string()),
-                PublicValue::Account(value) => FilterValue::String(value.to_string()),
-                PublicValue::Blob(value) => FilterValue::String(encode_hex_lower(value.as_slice())),
-                PublicValue::Date(value) => FilterValue::String(value.to_string()),
-                PublicValue::Decimal(value) => FilterValue::String(value.to_string()),
-                PublicValue::Duration(value) => FilterValue::String(value.as_millis().to_string()),
-                PublicValue::Float32(value) => FilterValue::String(value.to_string()),
-                PublicValue::Float64(value) => FilterValue::String(value.to_string()),
-                PublicValue::Int64(value) => FilterValue::String(value.to_string()),
-                PublicValue::Int128(value) => FilterValue::String(value.to_string()),
-                PublicValue::Map(value) => FilterValue::String(format!("{value:?}")),
-                PublicValue::Principal(value) => FilterValue::String(value.to_string()),
-                PublicValue::Subaccount(value) => FilterValue::String(value.to_string()),
-                PublicValue::Timestamp(value) => FilterValue::String(value.to_string()),
-                PublicValue::Nat64(value) => FilterValue::String(value.to_string()),
-                PublicValue::Nat128(value) => FilterValue::String(value.to_string()),
-                PublicValue::Ulid(value) => FilterValue::String(value.to_string()),
-                PublicValue::U256(value) => FilterValue::String(value.to_string()),
-            }
-        }
-
-        from_public_value(value.into_public())
-    }
-}
-
-impl<T> From<T> for FilterValue
-where
-    T: Into<InputValue>,
-{
-    fn from(value: T) -> Self {
-        Self::from_input_value(value.into())
-    }
-}
 
 /// Boolean junction applied to a group of filter expressions.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -271,7 +185,7 @@ pub enum FilterExpr {
         /// Field name.
         field: String,
         /// Literal value.
-        value: FilterValue,
+        value: InputValue,
     },
     /// Comparison between two fields.
     CompareFields {
@@ -289,7 +203,7 @@ pub enum FilterExpr {
         /// Field name.
         field: String,
         /// Candidate literal values.
-        values: Vec<FilterValue>,
+        values: Vec<InputValue>,
     },
     /// Collection containment or text matching.
     Collection {
@@ -298,7 +212,7 @@ pub enum FilterExpr {
         /// Field name.
         field: String,
         /// Literal operand.
-        value: FilterValue,
+        value: InputValue,
     },
     /// Presence or emptiness predicate.
     State {
@@ -392,7 +306,7 @@ impl FilterExpr {
 
     /// Compare `field == value`.
     #[must_use]
-    pub fn eq(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn eq(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::Eq,
             field: field.into(),
@@ -402,7 +316,7 @@ impl FilterExpr {
 
     /// Compare `field != value`.
     #[must_use]
-    pub fn ne(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn ne(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::Ne,
             field: field.into(),
@@ -412,7 +326,7 @@ impl FilterExpr {
 
     /// Compare `field < value`.
     #[must_use]
-    pub fn lt(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn lt(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::Lt,
             field: field.into(),
@@ -422,7 +336,7 @@ impl FilterExpr {
 
     /// Compare `field <= value`.
     #[must_use]
-    pub fn lte(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn lte(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::Lte,
             field: field.into(),
@@ -432,7 +346,7 @@ impl FilterExpr {
 
     /// Compare `field > value`.
     #[must_use]
-    pub fn gt(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn gt(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::Gt,
             field: field.into(),
@@ -442,7 +356,7 @@ impl FilterExpr {
 
     /// Compare `field >= value`.
     #[must_use]
-    pub fn gte(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn gte(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::Gte,
             field: field.into(),
@@ -452,7 +366,7 @@ impl FilterExpr {
 
     /// Compare `field == value` with casefolded text equality.
     #[must_use]
-    pub fn eq_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn eq_ci(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Compare {
             operator: CompareOperator::EqCi,
             field: field.into(),
@@ -524,7 +438,7 @@ impl FilterExpr {
     #[must_use]
     pub fn in_list(
         field: impl Into<String>,
-        values: impl IntoIterator<Item = impl Into<FilterValue>>,
+        values: impl IntoIterator<Item = impl Into<InputValue>>,
     ) -> Self {
         Self::Set {
             operator: SetOperator::In,
@@ -537,7 +451,7 @@ impl FilterExpr {
     #[must_use]
     pub fn not_in(
         field: impl Into<String>,
-        values: impl IntoIterator<Item = impl Into<FilterValue>>,
+        values: impl IntoIterator<Item = impl Into<InputValue>>,
     ) -> Self {
         Self::Set {
             operator: SetOperator::NotIn,
@@ -548,7 +462,7 @@ impl FilterExpr {
 
     /// Compare collection `field CONTAINS value`.
     #[must_use]
-    pub fn contains(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn contains(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::Contains,
             field: field.into(),
@@ -558,7 +472,7 @@ impl FilterExpr {
 
     /// Compare case-sensitive substring containment.
     #[must_use]
-    pub fn text_contains(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn text_contains(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::TextContains,
             field: field.into(),
@@ -568,7 +482,7 @@ impl FilterExpr {
 
     /// Compare case-insensitive substring containment.
     #[must_use]
-    pub fn text_contains_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn text_contains_ci(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::TextContainsCi,
             field: field.into(),
@@ -578,7 +492,7 @@ impl FilterExpr {
 
     /// Compare case-sensitive prefix match.
     #[must_use]
-    pub fn starts_with(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn starts_with(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::StartsWith,
             field: field.into(),
@@ -588,7 +502,7 @@ impl FilterExpr {
 
     /// Compare case-insensitive prefix match.
     #[must_use]
-    pub fn starts_with_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn starts_with_ci(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::StartsWithCi,
             field: field.into(),
@@ -598,7 +512,7 @@ impl FilterExpr {
 
     /// Compare case-sensitive suffix match.
     #[must_use]
-    pub fn ends_with(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn ends_with(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::EndsWith,
             field: field.into(),
@@ -608,7 +522,7 @@ impl FilterExpr {
 
     /// Compare case-insensitive suffix match.
     #[must_use]
-    pub fn ends_with_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
+    pub fn ends_with_ci(field: impl Into<String>, value: impl Into<InputValue>) -> Self {
         Self::Collection {
             operator: CollectionOperator::EndsWithCi,
             field: field.into(),
@@ -666,14 +580,14 @@ fn lower_field_value_compare(
     operator: CompareOperator,
     schema: &SchemaInfo,
     field: &str,
-    value: &FilterValue,
+    value: &InputValue,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, QueryError> {
     if operator == CompareOperator::EqCi {
         return binary_expr(
             BinaryOp::Eq,
             field_function_expr(Function::Lower, field, work)?,
-            Expr::Literal(value.lower_value(work)?),
+            Expr::Literal(lower_input_value(value, None, work)?),
             work,
         );
     }
@@ -690,7 +604,7 @@ fn lower_collection_compare(
     operator: CollectionOperator,
     schema: &SchemaInfo,
     field: &str,
-    value: &FilterValue,
+    value: &InputValue,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, QueryError> {
     let (function, casefold) = match operator {
@@ -710,7 +624,7 @@ fn lower_collection_compare(
     let value = if operator == CollectionOperator::Contains {
         lower_collection_element(schema, field, value, work)?
     } else {
-        value.lower_value(work)?
+        lower_input_value(value, None, work)?
     };
     function_expr(function, [left, Expr::Literal(value)], work)
 }
@@ -718,10 +632,10 @@ fn lower_collection_compare(
 fn lower_compare(
     schema: &SchemaInfo,
     field: &str,
-    value: &FilterValue,
+    value: &InputValue,
     work: &PreparationWork<'_>,
 ) -> Result<Value, QueryError> {
-    lower_canonical_filter_value(value, work, |raw| {
+    lower_canonical_filter_value(value, Some((schema, field, false)), work, |raw| {
         schema.canonicalize_filter_literal(field, raw, work)
     })
 }
@@ -729,7 +643,7 @@ fn lower_compare(
 fn lower_membership(
     schema: &SchemaInfo,
     field: &str,
-    values: &[FilterValue],
+    values: &[InputValue],
     work: &PreparationWork<'_>,
 ) -> Result<Vec<Value>, QueryError> {
     work.charge(
@@ -747,25 +661,126 @@ fn lower_membership(
 fn lower_collection_element(
     schema: &SchemaInfo,
     field: &str,
-    value: &FilterValue,
+    value: &InputValue,
     work: &PreparationWork<'_>,
 ) -> Result<Value, QueryError> {
-    lower_canonical_filter_value(value, work, |raw| {
+    lower_canonical_filter_value(value, Some((schema, field, true)), work, |raw| {
         schema.canonicalize_filter_collection_element(field, raw, work)
     })
 }
 
 // Keep already-owned storage when canonicalization borrows or declines it.
 fn lower_canonical_filter_value(
-    value: &FilterValue,
+    value: &InputValue,
+    expected: Option<(&SchemaInfo, &str, bool)>,
     work: &PreparationWork<'_>,
     canonicalize: impl for<'a> FnOnce(&'a Value) -> Result<Option<Cow<'a, Value>>, QueryError>,
 ) -> Result<Value, QueryError> {
-    let raw = value.lower_value(work)?;
+    let raw = lower_input_value(value, expected, work)?;
     Ok(match canonicalize(&raw)? {
         Some(Cow::Owned(canonical)) => canonical,
         Some(Cow::Borrowed(_)) | None => raw,
     })
+}
+
+// Charge every copied node and both public/runtime container backings before
+// cloning input. Enum resolution must use accepted authority, never display text.
+fn admit_input_copy(value: &PublicValue, work: &PreparationWork<'_>) -> Result<bool, QueryError> {
+    use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+    work.charge(Resource::NestedValueSteps, 1)?;
+    let mut contains_enum = false;
+    let bytes = match value {
+        PublicValue::Text(text) => text.len(),
+        PublicValue::Blob(bytes) => bytes.len(),
+        PublicValue::List(values) => {
+            work.charge(
+                Resource::TemporaryBytes,
+                (values.len() * (size_of::<PublicValue>() + size_of::<Value>())) as u64,
+            )?;
+            for value in values {
+                contains_enum |= admit_input_copy(value, work)?;
+            }
+            0
+        }
+        PublicValue::Map(entries) => {
+            let comparisons = crate::db::resource::budget::sort_comparison_allowance(entries.len())
+                .saturating_add(entries.len().saturating_sub(1) as u64);
+            let key_bytes = entries.iter().fold(0_u64, |bytes, (key, _)| {
+                bytes.saturating_add(match key {
+                    PublicValue::Text(text) => text.len() as u64,
+                    PublicValue::Blob(blob) => blob.len() as u64,
+                    _ => 0,
+                })
+            });
+            work.charge(Resource::SortEntries, entries.len() as u64)?;
+            work.charge(Resource::SortComparisons, comparisons)?;
+            work.charge(
+                Resource::PredicateExpressionSteps,
+                key_bytes.saturating_mul(comparisons),
+            )?;
+
+            work.charge(
+                Resource::TemporaryBytes,
+                (entries.len()
+                    * (size_of::<(PublicValue, PublicValue)>() + size_of::<(Value, Value)>()))
+                    as u64,
+            )?;
+            for (key, value) in entries {
+                contains_enum |= admit_input_copy(key, work)?;
+                contains_enum |= admit_input_copy(value, work)?;
+            }
+            0
+        }
+        PublicValue::Enum(value) => {
+            contains_enum = true;
+            if let Some(payload) = value.payload() {
+                work.charge(
+                    Resource::TemporaryBytes,
+                    (size_of::<PublicValue>() + size_of::<Value>()) as u64,
+                )?;
+                admit_input_copy(payload, work)?;
+            }
+            value.variant().len() + value.path().map_or(0, str::len)
+        }
+        _ => 0,
+    };
+    work.charge(Resource::TemporaryBytes, bytes as u64)?;
+    Ok(contains_enum)
+}
+
+fn lower_input_value(
+    value: &InputValue,
+    expected: Option<(&SchemaInfo, &str, bool)>,
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    use crate::db::{
+        predicate::predicate_admission_error,
+        schema::enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
+    };
+    let contains_enum = admit_input_copy(value.as_public(), work)?;
+    let field = expected.map_or("", |(_, field, _)| field);
+    let invalid = || {
+        QueryError::from(predicate_admission_error(
+            field,
+            ValueAdmissionError::TypeMismatch,
+        ))
+    };
+    if contains_enum {
+        let (schema, field, element) = expected.ok_or_else(invalid)?;
+        let contract = schema.accepted_field_contract(field).ok_or_else(invalid)?;
+        let contract = if element {
+            contract.collection_element_contract().ok_or_else(invalid)?
+        } else {
+            contract
+        };
+        return contract
+            .normalize_input_to_runtime(value.clone(), &mut ValueAdmissionBudget::standard())
+            .map_err(|error| QueryError::from(predicate_admission_error(field, error)));
+    }
+    value
+        .clone()
+        .try_into_runtime_non_enum()
+        .ok_or_else(invalid)
 }
 
 fn fold_filter_bool_chain(

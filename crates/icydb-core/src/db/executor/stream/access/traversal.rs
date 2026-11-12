@@ -7,8 +7,7 @@ use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         executor::{
-            ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, IndexScan,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            ExecutableAccessChildren, ExecutableAccessPlan, ExecutionPathPayload, IndexScan,
             lowered_index_prefix_exact_cardinalities_for_admitted_root,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
             production_scalar_page_work_is_active,
@@ -16,8 +15,7 @@ use crate::{
             stream::{
                 access::{
                     bindings::{
-                        AccessSpecCursor, AccessStreamExecutionPolicy, ExecutableAccess,
-                        IndexLeafOrderPolicy, IndexStreamConstraints,
+                        AccessStreamExecutionPolicy, ExecutableAccess, IndexLeafOrderPolicy,
                     },
                     physical,
                 },
@@ -26,7 +24,6 @@ use crate::{
                     ordered_key_stream_from_materialized_keys,
                 },
             },
-            traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,
         integrity::DatabaseIncarnationId,
@@ -50,8 +47,6 @@ use std::mem::size_of;
 
 #[derive(Clone, Copy)]
 struct TraversalInputs<'a> {
-    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-    index_range_specs: &'a [LoweredIndexRangeSpec],
     continuation: AccessScanContinuationInput<'a>,
     execution_policy: AccessStreamExecutionPolicy,
     index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'a>>,
@@ -61,7 +56,7 @@ struct TraversalInputs<'a> {
 #[cfg(test)]
 mod exact_intersection_tests;
 
-impl<'a> TraversalInputs<'a> {
+impl TraversalInputs<'_> {
     // Clone this traversal envelope with one overridden physical fetch hint.
     const fn with_physical_fetch_hint(self, physical_fetch_hint: Option<usize>) -> Self {
         Self {
@@ -92,11 +87,6 @@ impl<'a> TraversalInputs<'a> {
                 .with_index_leaf_order_policy(IndexLeafOrderPolicy::PreservePhysicalLeaf),
             ..self
         }
-    }
-
-    // Build one mutable spec-consumption cursor over prefix/range slices.
-    const fn spec_cursor(&self) -> AccessSpecCursor<'a> {
-        AccessSpecCursor::new(self.index_prefix_specs, self.index_range_specs)
     }
 }
 
@@ -158,44 +148,14 @@ impl TraversalRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'input>>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let inputs = TraversalInputs {
-            index_prefix_specs: bindings.index_prefix_specs,
-            index_range_specs: bindings.index_range_specs,
             continuation: bindings.continuation,
             execution_policy,
             index_predicate_execution,
             index_prefix_child_expansion: bindings.index_prefix_child_expansion,
         };
-        let mut spec_cursor = inputs.spec_cursor();
-        let key_stream =
-            AccessPlanStreamResolver::produce_key_stream(self, plan, inputs, &mut spec_cursor)?;
-        spec_cursor.validate_consumed()?;
+        let key_stream = AccessPlanStreamResolver::produce_key_stream(self, plan, inputs)?;
 
         Ok(key_stream)
-    }
-
-    // Resolve one executable path leaf through the structural physical access
-    // boundary without re-erasing the traversal runtime behind a local trait.
-    fn lower_path_access(
-        &self,
-        path: &ExecutionPathPayload<'_, Value>,
-        inputs: TraversalInputs<'_>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-    ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let constraints = IndexStreamConstraints {
-            prefixes: index_prefix_specs,
-            range: index_range_spec,
-        };
-        path.resolve_structural_physical_key_stream(physical::StructuralPhysicalStreamRequest {
-            store: self.store,
-            entity_tag: self.entity_tag,
-            index_prefix_specs: constraints.prefixes,
-            index_range_spec: constraints.range,
-            continuation: inputs.continuation,
-            execution_policy: inputs.execution_policy,
-            index_predicate_execution: inputs.index_predicate_execution,
-            index_prefix_child_expansion: inputs.index_prefix_child_expansion,
-        })
     }
 }
 
@@ -264,80 +224,57 @@ impl AccessPlanStreamResolver {
         Ok(streams)
     }
 
-    // Validate that a consumed prefix spec belongs to the same index path node.
-    fn validate_index_prefix_spec_alignment(
-        path: &ExecutionPathPayload<'_, Value>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-    ) -> Result<(), InternalError> {
-        let path_facts = path.shape_facts();
-        if let Some(details) = path_facts.index_prefix_details() {
-            for spec in index_prefix_specs {
-                if spec.scan_contract().name() != details.name() {
-                    return Err(InternalError::query_executor_invariant());
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     // Collect one child key stream for each child access plan.
     fn collect_child_key_streams(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
+        children: &ExecutableAccessChildren<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
         let mut streams = Self::reserve_stream_slots(children.len())?;
         // Callers select leaf ordering once. Composite children never inherit a
         // physical fetch hint, regardless of their admitted ordering policy.
         let child_inputs = inputs.with_physical_fetch_hint(None);
-        for child in children {
-            streams.push(Self::produce_key_stream(
-                runtime,
-                child,
-                child_inputs,
-                spec_cursor,
-            )?);
+        for child in children.iter() {
+            streams.push(Self::produce_key_stream(runtime, &child, child_inputs)?);
         }
         Ok(streams)
     }
 
     // The selected fallback is already the planner-preferred first prefix.
-    // Consume and validate every lowered binding, but do not construct physical
+    // Require every child to be prepared, but do not construct physical
     // streams for rejected siblings. Overlap probes still visit every child.
     fn produce_exact_intersection_fallback(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
+        children: &ExecutableAccessChildren<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let (first, rejected) = children
-            .split_first()
+        let mut children = children.iter();
+        let first = children
+            .next()
             .ok_or_else(InternalError::executor_invariant)?;
         let stream = Self::produce_key_stream(
             runtime,
-            first,
+            &first,
             inputs
                 .with_physical_fetch_hint(None)
                 .with_physical_leaf_order(),
-            spec_cursor,
         )?;
-        for child in rejected {
-            let ExecutableAccessNode::Path(path) = child.node() else {
+        for child in children {
+            let ExecutableAccessPlan::Path(_, _) = &child else {
                 return Err(InternalError::executor_invariant());
             };
-            let specs = spec_cursor.require_next_index_prefix_specs(1)?;
-            Self::validate_index_prefix_spec_alignment(path, specs)?;
+            let _specs = child
+                .index_specs()?
+                .ok_or_else(InternalError::executor_invariant)?
+                .prefixes();
         }
         Ok(stream)
     }
 
     fn exact_intersection_admission(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
+        children: &ExecutableAccessChildren<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: AccessSpecCursor<'_>,
     ) -> ExactIntersectionAdmission {
         if !(2..=MAX_ATOMIC_EXACT_INTERSECTION_CHILDREN).contains(&children.len())
             || inputs.index_predicate_execution.is_some()
@@ -345,10 +282,9 @@ impl AccessPlanStreamResolver {
             return ExactIntersectionAdmission::NotApplicable;
         }
 
-        let mut metadata_cursor = spec_cursor;
         let mut cardinality_specs = Vec::with_capacity(children.len());
-        for child in children {
-            let ExecutableAccessNode::Path(path) = child.node() else {
+        for child in children.iter() {
+            let ExecutableAccessPlan::Path(path, _) = &child else {
                 return ExactIntersectionAdmission::NotApplicable;
             };
             let ExecutionPathPayload::IndexPrefix { .. } = path else {
@@ -358,9 +294,11 @@ impl AccessPlanStreamResolver {
             if path_facts.index_prefix_spec_count() != 1 || path_facts.consumes_index_range_spec() {
                 return ExactIntersectionAdmission::NotApplicable;
             }
-            let Some(spec) = metadata_cursor
-                .next_index_prefix_specs(1)
-                .and_then(|specs| specs.first())
+            let Some(spec) = child
+                .index_specs()
+                .ok()
+                .flatten()
+                .and_then(|specs| specs.prefixes().first())
             else {
                 return ExactIntersectionAdmission::ConservativeFallback;
             };
@@ -478,9 +416,8 @@ impl AccessPlanStreamResolver {
     // atomic probe; resumed traversal retains the ordinary stream contract.
     fn collect_direct_exact_intersection_overlap(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
+        children: &ExecutableAccessChildren<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
         preflight: &ExactIntersectionPreflight,
     ) -> Result<Option<Vec<DecodedDataStoreKey>>, InternalError> {
         if inputs.continuation.primary_key_boundary().is_some()
@@ -494,12 +431,15 @@ impl AccessPlanStreamResolver {
         }
 
         let mut specs = [None; 3];
-        for (slot, child) in specs.iter_mut().zip(children) {
-            let ExecutableAccessNode::Path(path) = child.node() else {
+        for (slot, child) in specs.iter_mut().zip(children.iter()) {
+            let ExecutableAccessPlan::Path(_, _) = &child else {
                 return Err(InternalError::executor_invariant());
             };
-            let child_specs = spec_cursor.require_next_index_prefix_specs(1)?;
-            Self::validate_index_prefix_spec_alignment(path, child_specs)?;
+            let child_specs = child
+                .index_specs()?
+                .ok_or_else(InternalError::executor_invariant)?
+                .prefixes();
+
             let spec = child_specs
                 .first()
                 .ok_or_else(InternalError::executor_invariant)?;
@@ -533,37 +473,27 @@ impl AccessPlanStreamResolver {
     }
 
     // Build an ordered key stream for this access plan.
-    /// Produce one ordered key stream for an access plan while consuming lowered specs.
+    /// Produce one ordered key stream for an access plan using each leaf's admitted bounds.
     fn produce_key_stream(
         runtime: &TraversalRuntime,
         access: &ExecutableAccessPlan<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        match access.node() {
-            ExecutableAccessNode::Path(path) => {
-                let path_facts = path.shape_facts();
-                let index_prefix_specs = if path_facts.index_prefix_spec_count() > 0 {
-                    spec_cursor
-                        .require_next_index_prefix_specs(path_facts.index_prefix_spec_count())?
-                } else {
-                    &[]
-                };
-                let index_range_spec = if path_facts.consumes_index_range_spec() {
-                    Some(spec_cursor.require_next_index_range_spec()?)
-                } else {
-                    None
-                };
-                Self::validate_index_prefix_spec_alignment(path, index_prefix_specs)?;
-                IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)?;
-
-                runtime.lower_path_access(path, inputs, index_prefix_specs, index_range_spec)
+        match access {
+            ExecutableAccessPlan::Path(_, _) => physical::resolve_structural_physical_key_stream(
+                access,
+                runtime.store,
+                runtime.entity_tag,
+                AccessStreamBindings::new(inputs.continuation)
+                    .with_index_prefix_child_expansion(inputs.index_prefix_child_expansion),
+                inputs.execution_policy,
+                inputs.index_predicate_execution,
+            ),
+            ExecutableAccessPlan::Union(children) => {
+                Self::produce_union_key_stream(runtime, children, inputs)
             }
-            ExecutableAccessNode::Union(children) => {
-                Self::produce_union_key_stream(runtime, children, inputs, spec_cursor)
-            }
-            ExecutableAccessNode::Intersection(children) => {
-                Self::produce_intersection_key_stream(runtime, children, inputs, spec_cursor)
+            ExecutableAccessPlan::Intersection(children) => {
+                Self::produce_intersection_key_stream(runtime, children, inputs)
             }
         }
     }
@@ -571,22 +501,23 @@ impl AccessPlanStreamResolver {
     // Build one canonical stream for a union by pairwise-merging child streams.
     fn produce_union_key_stream(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
+        children: &ExecutableAccessChildren<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let union_uses_accepted_index = children.iter().any(Self::plan_uses_accepted_index);
+        let union_uses_accepted_index = children
+            .iter()
+            .any(|child| Self::plan_uses_accepted_index(&child));
         let mut streams = Self::reserve_stream_slots(children.len())?;
-        for child in children {
+        for child in children.iter() {
             let child_inputs = inputs
                 .with_physical_fetch_hint(None)
                 .without_leaf_index_order_preservation();
-            let stream = Self::produce_key_stream(runtime, child, child_inputs, spec_cursor)?;
+            let stream = Self::produce_key_stream(runtime, &child, child_inputs)?;
             let stream = if union_uses_accepted_index
-                && !Self::plan_uses_accepted_index(child)
-                && Self::plan_may_emit_unverified_primary_lookup(child)
+                && !Self::plan_uses_accepted_index(&child)
+                && Self::plan_may_emit_unverified_primary_lookup(&child)
             {
-                Self::filter_existing_primary_union_keys(runtime, child, stream)?
+                Self::filter_existing_primary_union_keys(runtime, &child, stream)?
             } else {
                 stream
             };
@@ -643,60 +574,61 @@ impl AccessPlanStreamResolver {
     }
 
     fn plan_uses_accepted_index(plan: &ExecutableAccessPlan<'_, Value>) -> bool {
-        match plan.node() {
-            ExecutableAccessNode::Path(path) => matches!(
+        match plan {
+            ExecutableAccessPlan::Path(path, _) => matches!(
                 path,
                 ExecutionPathPayload::IndexPrefix { .. }
                     | ExecutionPathPayload::IndexMultiLookup { .. }
                     | ExecutionPathPayload::IndexBranchSet { .. }
                     | ExecutionPathPayload::IndexRange { .. }
             ),
-            ExecutableAccessNode::Union(children)
-            | ExecutableAccessNode::Intersection(children) => {
-                children.iter().any(Self::plan_uses_accepted_index)
-            }
+            ExecutableAccessPlan::Union(children)
+            | ExecutableAccessPlan::Intersection(children) => children
+                .iter()
+                .any(|child| Self::plan_uses_accepted_index(&child)),
         }
     }
 
     fn plan_may_emit_unverified_primary_lookup(plan: &ExecutableAccessPlan<'_, Value>) -> bool {
-        match plan.node() {
-            ExecutableAccessNode::Path(path) => matches!(
+        match plan {
+            ExecutableAccessPlan::Path(path, _) => matches!(
                 path,
                 ExecutionPathPayload::ByKey(_) | ExecutionPathPayload::ByKeys(_)
             ),
-            ExecutableAccessNode::Union(children) => children
+            ExecutableAccessPlan::Union(children) => children
                 .iter()
-                .any(Self::plan_may_emit_unverified_primary_lookup),
-            ExecutableAccessNode::Intersection(children) => children
+                .any(|child| Self::plan_may_emit_unverified_primary_lookup(&child)),
+            ExecutableAccessPlan::Intersection(children) => children
                 .iter()
-                .all(Self::plan_may_emit_unverified_primary_lookup),
+                .all(|child| Self::plan_may_emit_unverified_primary_lookup(&child)),
         }
     }
 
     fn primary_lookup_candidate_upper_bound(
         plan: &ExecutableAccessPlan<'_, Value>,
     ) -> Option<usize> {
-        match plan.node() {
-            ExecutableAccessNode::Path(ExecutionPathPayload::ByKey(_)) => Some(1),
-            ExecutableAccessNode::Path(ExecutionPathPayload::ByKeys(keys)) => Some(keys.len()),
-            ExecutableAccessNode::Path(
+        match plan {
+            ExecutableAccessPlan::Path(ExecutionPathPayload::ByKey(_), _) => Some(1),
+            ExecutableAccessPlan::Path(ExecutionPathPayload::ByKeys(keys), _) => Some(keys.len()),
+            ExecutableAccessPlan::Path(
                 ExecutionPathPayload::KeyRange { .. }
                 | ExecutionPathPayload::IndexPrefix { .. }
                 | ExecutionPathPayload::IndexMultiLookup { .. }
                 | ExecutionPathPayload::IndexBranchSet { .. }
                 | ExecutionPathPayload::IndexRange { .. }
                 | ExecutionPathPayload::FullScan,
+                _,
             ) => None,
-            ExecutableAccessNode::Union(children) => {
+            ExecutableAccessPlan::Union(children) => {
                 children.iter().try_fold(0usize, |total, child| {
-                    total.checked_add(Self::primary_lookup_candidate_upper_bound(child)?)
+                    total.checked_add(Self::primary_lookup_candidate_upper_bound(&child)?)
                 })
             }
-            ExecutableAccessNode::Intersection(children) => {
+            ExecutableAccessPlan::Intersection(children) => {
                 let mut children = children.iter();
-                let first = Self::primary_lookup_candidate_upper_bound(children.next()?)?;
+                let first = Self::primary_lookup_candidate_upper_bound(&children.next()?)?;
                 children.try_fold(first, |minimum, child| {
-                    Some(minimum.min(Self::primary_lookup_candidate_upper_bound(child)?))
+                    Some(minimum.min(Self::primary_lookup_candidate_upper_bound(&child)?))
                 })
             }
         }
@@ -705,19 +637,17 @@ impl AccessPlanStreamResolver {
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
     fn produce_intersection_key_stream(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'_, Value>],
+        children: &ExecutableAccessChildren<'_, Value>,
         inputs: TraversalInputs<'_>,
-        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
-        let admission = Self::exact_intersection_admission(runtime, children, inputs, *spec_cursor);
+        let admission = Self::exact_intersection_admission(runtime, children, inputs);
         match admission {
             ExactIntersectionAdmission::NotApplicable => {
                 let streams = Self::collect_child_key_streams(
                     runtime,
                     children,
                     inputs.without_leaf_index_order_preservation(),
-                    spec_cursor,
                 )?;
                 let stream = OrderedKeyStreamBox::intersect_all(streams, key_comparator)?;
                 // A pull may skip arbitrarily many nonmatching child keys.
@@ -730,36 +660,24 @@ impl AccessPlanStreamResolver {
                 }
             }
             ExactIntersectionAdmission::ConservativeFallback => {
-                Self::produce_exact_intersection_fallback(runtime, children, inputs, spec_cursor)
+                Self::produce_exact_intersection_fallback(runtime, children, inputs)
             }
             ExactIntersectionAdmission::ProvenEmpty => {
                 let _consumed_streams = Self::collect_child_key_streams(
                     runtime,
                     children,
                     inputs.with_physical_leaf_order(),
-                    spec_cursor,
                 )?;
                 Ok(OrderedKeyStreamBox::empty())
             }
             ExactIntersectionAdmission::Probe(preflight) => {
                 if !Self::exact_intersection_probe_can_beat_single(&preflight) {
-                    return Self::produce_exact_intersection_fallback(
-                        runtime,
-                        children,
-                        inputs,
-                        spec_cursor,
-                    );
+                    return Self::produce_exact_intersection_fallback(runtime, children, inputs);
                 }
 
-                let mut direct_cursor = *spec_cursor;
                 if let Some(overlap) = Self::collect_direct_exact_intersection_overlap(
-                    runtime,
-                    children,
-                    inputs,
-                    &mut direct_cursor,
-                    &preflight,
+                    runtime, children, inputs, &preflight,
                 )? {
-                    *spec_cursor = direct_cursor;
                     if !Self::exact_intersection_cost_beats_single(
                         &preflight,
                         u64::try_from(overlap.len()).unwrap_or(u64::MAX),
@@ -770,19 +688,17 @@ impl AccessPlanStreamResolver {
                     return Ok(ordered_key_stream_from_materialized_keys(overlap));
                 }
 
-                let mut probe_cursor = *spec_cursor;
                 let probe_streams = Self::collect_child_key_streams(
                     runtime,
                     children,
                     inputs.with_physical_leaf_order(),
-                    &mut probe_cursor,
                 )?;
                 let overlap = Self::collect_exact_intersection_overlap(
                     probe_streams,
                     key_comparator,
                     &preflight,
                 )?;
-                *spec_cursor = probe_cursor;
+
                 if !Self::exact_intersection_cost_beats_single(
                     &preflight,
                     u64::try_from(overlap.len()).unwrap_or(u64::MAX),

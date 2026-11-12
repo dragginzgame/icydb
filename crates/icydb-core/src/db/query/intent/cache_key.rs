@@ -242,15 +242,15 @@ impl StructuralQueryCacheKey {
             scalar
                 .filter
                 .as_ref()
-                .and_then(|filter| filter.logical_filter_expr())
+                .map(crate::db::query::intent::filter::AdmittedFilter::logical_filter_expr)
                 .map(|expr| ProjectionExprCacheKey::from_expr(expr, work))
                 .transpose()?
         };
         Ok(Self(Rc::new(StructuralQueryCacheKeyData {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
-            // Ordinary plans retain both filter authorities: predicate-only
-            // appends can constrain access beyond the expression. Fully covered
-            // templates supply their parameter contract instead of this fingerprint.
+            // Ordinary plans identify both the full expression and its admitted
+            // access restriction. Fully covered templates supply their parameter
+            // contract instead of this fingerprint.
             predicate,
             parameter_contract,
             filter_expr,

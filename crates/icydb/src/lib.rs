@@ -224,8 +224,8 @@ pub mod prelude {
         query,
         query::{
             CollectionOperator, CompareOperator, FieldCompareOperator, FieldRef, FilterExpr,
-            FilterValue, JunctionOperator, OrderExpr, OrderTerm, SetOperator, StateOperator, asc,
-            count, count_by, desc, exists, field, first, last, max, max_by, min, min_by, sum,
+            JunctionOperator, OrderExpr, OrderTerm, SetOperator, StateOperator, asc, count,
+            count_by, desc, exists, field, first, last, max, max_by, min, min_by, sum,
         },
     };
     pub use crate::{

@@ -104,20 +104,10 @@ impl<'a> AcceptedRelationTupleEdgeLocalComponent<'a> {
     }
 }
 
-struct AcceptedRelationTupleEdgeDescriptor {
-    target_contract: AcceptedRelationTargetContract,
-}
-
-impl AcceptedRelationTupleEdgeDescriptor {
-    fn into_target_contract(self) -> AcceptedRelationTargetContract {
-        self.target_contract
-    }
-}
-
-fn accepted_relation_tuple_edge_descriptor(
-    target_contract: AcceptedRelationTargetContract,
+fn validate_accepted_relation_tuple_components(
+    target_contract: &AcceptedRelationTargetContract,
     local_components: &[AcceptedRelationTupleEdgeLocalComponent<'_>],
-) -> Result<AcceptedRelationTupleEdgeDescriptor, InternalError> {
+) -> Result<(), InternalError> {
     let target_kinds = target_contract.primary_key_kinds();
     if local_components.len() != target_kinds.len() {
         return Err(InternalError::relation_target_primary_key_arity_mismatch(
@@ -134,7 +124,7 @@ fn accepted_relation_tuple_edge_descriptor(
         validate_relation_primary_key_component_kind(local_kind)?;
     }
 
-    Ok(AcceptedRelationTupleEdgeDescriptor { target_contract })
+    Ok(())
 }
 
 fn accepted_scalar_relation_cardinality(

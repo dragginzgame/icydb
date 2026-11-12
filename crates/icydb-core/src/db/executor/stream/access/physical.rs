@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathPayload, IndexShapeDetails},
+        access::{ExecutableAccessPlan, ExecutionPathPayload, IndexShapeDetails},
         cursor::{CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput},
         data::{
             DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
@@ -22,7 +22,7 @@ use crate::{
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_liveness,
             ordered_key_stream_from_materialized_keys,
-            pipeline::contracts::AccessScanContinuationInput,
+            pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
             production_scalar_page_access_entry_limit,
             route::{
                 IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint,
@@ -141,26 +141,6 @@ impl<'a> MergedIndexPrefixStreamSpec<'a> {
                 .transpose(),
         }
     }
-}
-
-///
-/// StructuralPhysicalStreamRequest
-///
-/// StructuralPhysicalStreamRequest is the generic-free physical access request
-/// used by structural traversal and erased runtime execution.
-/// It carries direct store/index authority plus one entity tag so physical scan
-/// leaves do not need typed `Context<'_, E>` recovery.
-///
-
-pub(super) struct StructuralPhysicalStreamRequest<'a> {
-    pub(super) store: StoreHandle,
-    pub(super) entity_tag: EntityTag,
-    pub(super) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-    pub(super) index_range_spec: Option<&'a LoweredIndexRangeSpec>,
-    pub(super) continuation: AccessScanContinuationInput<'a>,
-    pub(super) execution_policy: AccessStreamExecutionPolicy,
-    pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    pub(super) index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
 ///
@@ -343,7 +323,6 @@ impl KeyAccessRuntime {
         self.resolve_index_prefix_family_stream(
             index,
             index_prefix_specs,
-            1,
             continuation,
             index_fetch_hint,
             PrefixMergeResumePolicy::from_index_leaf_order_policy(index_leaf_order_policy),
@@ -358,14 +337,12 @@ impl KeyAccessRuntime {
         &self,
         index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        branch_count: usize,
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.resolve_index_prefix_family_stream(
             index,
             index_prefix_specs,
-            branch_count,
             continuation,
             index_fetch_hint,
             PrefixMergeResumePolicy::PrimaryKeySuffix,
@@ -376,14 +353,11 @@ impl KeyAccessRuntime {
     fn resolve_index_multi_lookup(
         &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        value_count: usize,
         continuation: IndexScanContinuationInput<'_>,
         index_leaf_order_policy: IndexLeafOrderPolicy,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
-        validate_index_prefix_count(index_prefix_specs, value_count)?;
-
         let per_prefix_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let mut active_specs = active_lowered_index_prefix_specs(
             Some(self.store),
@@ -433,12 +407,10 @@ impl KeyAccessRuntime {
         &self,
         index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        value_count: usize,
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         index_leaf_order_policy: IndexLeafOrderPolicy,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        validate_index_prefix_count(index_prefix_specs, value_count)?;
         if index_leaf_order_policy.preserves_prefix_branch_order() {
             return self.resolve_branch_ordered_index_prefix_streams(
                 MergedIndexPrefixStreamSpec::new(
@@ -454,7 +426,6 @@ impl KeyAccessRuntime {
         self.resolve_index_prefix_family_stream(
             index,
             index_prefix_specs,
-            value_count,
             continuation,
             index_fetch_hint,
             PrefixMergeResumePolicy::from_index_leaf_order_policy(index_leaf_order_policy),
@@ -465,12 +436,10 @@ impl KeyAccessRuntime {
         &self,
         index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        expected_prefix_count: usize,
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         resume_policy: PrefixMergeResumePolicy,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        validate_index_prefix_count(index_prefix_specs, expected_prefix_count)?;
         let spec = MergedIndexPrefixStreamSpec::new(
             index,
             index_prefix_specs,
@@ -486,13 +455,10 @@ impl KeyAccessRuntime {
         &self,
         index: &IndexShapeDetails,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        value_count: usize,
         continuation: AccessScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         expansion: IndexPrefixChildExpansionHint,
     ) -> Result<Option<OrderedKeyStreamBox>, InternalError> {
-        validate_index_prefix_count(index_prefix_specs, value_count)?;
-
         let Some(expanded_family) = expand_index_prefix_family_with_exact_child_prefixes(
             self.store,
             self.entity_tag,
@@ -1560,7 +1526,6 @@ fn validate_index_prefix_count(
 
 fn resolve_index_multi_lookup_physical_key_stream(
     index: &IndexShapeDetails,
-    value_count: usize,
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<PhysicalKeyResolution, InternalError> {
@@ -1568,7 +1533,6 @@ fn resolve_index_multi_lookup_physical_key_stream(
         if let Some(stream) = runtime.expanded_index_multi_lookup_stream(
             index,
             request.index_prefix_specs,
-            value_count,
             request.continuation,
             request.execution_policy.physical_fetch_hint(),
             expansion,
@@ -1578,7 +1542,6 @@ fn resolve_index_multi_lookup_physical_key_stream(
 
         let (candidates, key_order_state) = runtime.resolve_index_multi_lookup(
             request.index_prefix_specs,
-            value_count,
             request.continuation.index_scan_continuation(),
             request.execution_policy.index_leaf_order_policy(),
             request.execution_policy.physical_fetch_hint(),
@@ -1596,7 +1559,6 @@ fn resolve_index_multi_lookup_physical_key_stream(
             runtime.resolve_index_multi_lookup_stream(
                 index,
                 request.index_prefix_specs,
-                value_count,
                 request.continuation,
                 request.execution_policy.physical_fetch_hint(),
                 request.execution_policy.index_leaf_order_policy(),
@@ -1606,7 +1568,6 @@ fn resolve_index_multi_lookup_physical_key_stream(
 
     let (candidates, key_order_state) = runtime.resolve_index_multi_lookup(
         request.index_prefix_specs,
-        value_count,
         request.continuation.index_scan_continuation(),
         request.execution_policy.index_leaf_order_policy(),
         request.execution_policy.physical_fetch_hint(),
@@ -1645,13 +1606,8 @@ fn resolve_index_physical_key_stream(
                 request.index_predicate_execution,
             )?
         }
-        ExecutionPathPayload::IndexMultiLookup { index, value_count } => {
-            match resolve_index_multi_lookup_physical_key_stream(
-                index,
-                *value_count,
-                request,
-                runtime,
-            )? {
+        ExecutionPathPayload::IndexMultiLookup { index, .. } => {
+            match resolve_index_multi_lookup_physical_key_stream(index, request, runtime)? {
                 PhysicalKeyResolution::Stream(stream) => {
                     return Ok(PhysicalKeyResolution::Stream(stream));
                 }
@@ -1661,16 +1617,12 @@ fn resolve_index_physical_key_stream(
                 } => (candidates, key_order_state),
             }
         }
-        ExecutionPathPayload::IndexBranchSet {
-            index,
-            branch_count,
-        } => {
+        ExecutionPathPayload::IndexBranchSet { index, .. } => {
             if index_path_can_stream_in_final_order(request) {
                 return Ok(PhysicalKeyResolution::Stream(Box::new(
                     runtime.resolve_index_branch_set_stream(
                         index,
                         request.index_prefix_specs,
-                        *branch_count,
                         request.continuation,
                         request.execution_policy.physical_fetch_hint(),
                     )?,
@@ -1679,7 +1631,6 @@ fn resolve_index_physical_key_stream(
 
             runtime.resolve_index_multi_lookup(
                 request.index_prefix_specs,
-                *branch_count,
                 request.continuation.index_scan_continuation(),
                 request.execution_policy.index_leaf_order_policy(),
                 request.execution_policy.physical_fetch_hint(),
@@ -1801,27 +1752,34 @@ fn resolve_physical_key_stream(
     Ok(ordered_key_stream_from_materialized_keys(candidates))
 }
 
-impl ExecutionPathPayload<'_, Value> {
-    // Physical access lowering for one structural executable access path.
-    // Typed key recovery is deferred to the concrete path leaves in the
-    // structural runtime adapter.
-    /// Build an ordered key stream for one structural access path.
-    pub(super) fn resolve_structural_physical_key_stream(
-        &self,
-        request: StructuralPhysicalStreamRequest<'_>,
-    ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let runtime = KeyAccessRuntime::new(request.store, request.entity_tag);
-        let bindings = PhysicalStreamBindings {
-            index_prefix_specs: request.index_prefix_specs,
-            index_range_spec: request.index_range_spec,
-            continuation: request.continuation,
-            execution_policy: request.execution_policy,
-            index_predicate_execution: request.index_predicate_execution,
-            index_prefix_child_expansion: request.index_prefix_child_expansion,
-        };
-
-        resolve_physical_key_stream(self, bindings, &runtime)
-    }
+/// Resolve a prepared leaf without accepting independently supplied physical bounds.
+/// Validate at this boundary before dispatch; specialized scans borrow the same specs.
+pub(super) fn resolve_structural_physical_key_stream(
+    access: &ExecutableAccessPlan<'_, Value>,
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    scan: AccessStreamBindings<'_>,
+    execution_policy: AccessStreamExecutionPolicy,
+    index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+) -> Result<OrderedKeyStreamBox, InternalError> {
+    let path = access
+        .as_path()
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let specs = access.index_specs()?;
+    let index_prefix_specs = specs.map_or(&[][..], |specs| specs.prefixes());
+    validate_index_prefix_count(
+        index_prefix_specs,
+        path.shape_facts().index_prefix_spec_count(),
+    )?;
+    let bindings = PhysicalStreamBindings {
+        index_prefix_specs,
+        index_range_spec: specs.and_then(|specs| specs.ranges().first()),
+        continuation: scan.continuation,
+        execution_policy,
+        index_predicate_execution,
+        index_prefix_child_expansion: scan.index_prefix_child_expansion,
+    };
+    resolve_physical_key_stream(path, bindings, &KeyAccessRuntime::new(store, entity_tag))
 }
 
 #[cfg(test)]

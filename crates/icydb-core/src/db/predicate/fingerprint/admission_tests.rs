@@ -1,6 +1,6 @@
 //! Normalized cache identity keeps canonical bytes and admits its temporary backing.
 
-use super::{hash_predicate, hash_predicate_structural, predicate_fingerprint_normalized};
+use super::{hash_canonical_predicate, predicate_fingerprint_normalized};
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
@@ -239,7 +239,7 @@ fn raw_fingerprint_capacity_preserves_coerced_membership_and_nested_values() {
                     assert_eq!(encoded.capacity(), allocated);
                     assert_eq!(encoded, expected);
                     let mut hasher = new_hash_sha256();
-                    hash_predicate_structural(&mut hasher, &predicate, work).unwrap();
+                    hash_canonical_predicate(&mut hasher, &predicate, work).unwrap();
                     let mut reference = new_hash_sha256();
                     reference.update(&expected);
                     assert_eq!(
@@ -255,7 +255,32 @@ fn raw_fingerprint_capacity_preserves_coerced_membership_and_nested_values() {
 }
 
 #[test]
-fn predicate_hash_copy_and_encoding_exhaustion_preserve_input_and_hash_stream() {
+fn canonical_hash_fits_encoding_backing_without_an_input_copy() {
+    let predicate = crate::db::predicate::normalize(Predicate::And(vec![
+        Predicate::eq("a".into(), Value::Nat64(1)),
+        Predicate::eq("b".into(), Value::Nat64(2)),
+    ]));
+    let mut encoded = Vec::new();
+    write_predicate_sort_key(&mut encoded, &predicate);
+    let sizing = request(Resource::TemporaryBytes, 0);
+    let capacity = PreparationWork::run(&sizing.scope(), Lane::PublicRead, |work| {
+        raw_predicate_key_capacity(&predicate, work).map_err(QueryError::execute)
+    })
+    .unwrap();
+    let root = request(Resource::TemporaryBytes, capacity as u64);
+    let mut actual = new_hash_sha256();
+    PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+        hash_canonical_predicate(&mut actual, &predicate, work).map_err(QueryError::execute)
+    })
+    .unwrap();
+    let mut expected = new_hash_sha256();
+    expected.update(&encoded);
+    assert_eq!(finalize_hash_sha256(actual), finalize_hash_sha256(expected));
+    assert_eq!(root.observed(Resource::TemporaryBytes), capacity as u64);
+}
+
+#[test]
+fn predicate_hash_encoding_exhaustion_preserves_input_and_hash_stream() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "name",
         CompareOp::In,
@@ -265,7 +290,8 @@ fn predicate_hash_copy_and_encoding_exhaustion_preserve_input_and_hash_stream() 
     let snapshot = predicate.clone();
     let measured = request(Resource::TemporaryBytes, 32_000_000);
     PreparationWork::run(&measured.scope(), Lane::PublicRead, |work| {
-        hash_predicate(&mut new_hash_sha256(), &predicate, work).map_err(QueryError::execute)
+        hash_canonical_predicate(&mut new_hash_sha256(), &predicate, work)
+            .map_err(QueryError::execute)
     })
     .unwrap();
     for resource in [
@@ -273,15 +299,15 @@ fn predicate_hash_copy_and_encoding_exhaustion_preserve_input_and_hash_stream() 
         Resource::PredicateExpressionSteps,
         Resource::NestedValueSteps,
     ] {
-        // Zero rejects the input copy; one below full cost rejects later
-        // preflight/output admission without publishing any predicate bytes.
+        // Both early and late encoding refusal leave the input and prior hash
+        // sections untouched; canonical input needs no copy admission.
         for limit in [0, measured.observed(resource) - 1] {
             let root = request(resource, limit);
             let mut hasher = new_hash_sha256();
             hasher.update(b"preceding section");
             let before = finalize_hash_sha256(hasher.clone());
             let error = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
-                hash_predicate(&mut hasher, &predicate, work).map_err(QueryError::execute)
+                hash_canonical_predicate(&mut hasher, &predicate, work).map_err(QueryError::execute)
             })
             .unwrap_err();
             assert!(
@@ -328,7 +354,7 @@ fn raw_ordering_refusal_preserves_existing_hash_stream() {
                 hasher.update(b"previous section");
                 let before = hasher.clone();
                 let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
-                    hash_predicate_structural(&mut hasher, &predicate, work)
+                    hash_canonical_predicate(&mut hasher, &predicate, work)
                         .map_err(QueryError::execute)
                 });
                 if limit == exact {

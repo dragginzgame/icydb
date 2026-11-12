@@ -354,6 +354,75 @@ fn nullable_unique_proposal_fixture(
     (proposal, store)
 }
 
+#[test]
+fn initial_lowering_preserves_identities_across_multistore_declaration_order() {
+    let fixtures = ["Alpha", "Beta", "Gamma"].map(|entity| {
+        scalar_proposal_fixture_with_names(
+            ExpectedAcceptedHead::Empty,
+            "ordered-installation",
+            7,
+            entity,
+            "score",
+            true,
+            Vec::new(),
+        )
+    });
+    let stores = [
+        ProposalStoreTarget {
+            path: "test::First",
+            identity: fixtures[0].2,
+        },
+        ProposalStoreTarget {
+            path: "test::Second",
+            identity: TargetStoreIdentity::from_bytes([0x23; 32]),
+        },
+    ];
+    let lower = |order: [usize; 3]| {
+        let base = &fixtures[0].0;
+        let proposal = SchemaProposal::try_compose(
+            base.capabilities().to_vec(),
+            base.target_database(),
+            base.submission_key().clone(),
+            ExpectedAcceptedHead::Empty,
+            vec![
+                SchemaFragment::try_new(
+                    order
+                        .iter()
+                        .map(|&i| fixtures[i].0.fragments()[0].entities()[0].clone())
+                        .collect(),
+                    Vec::new(),
+                )
+                .unwrap(),
+            ],
+            order
+                .iter()
+                .map(|&i| {
+                    EntityStoreAssignment::new(
+                        fixtures[i].1.clone(),
+                        stores[usize::from(i == 1)].identity,
+                    )
+                })
+                .collect(),
+            Vec::new(),
+            None,
+        )
+        .unwrap();
+        lower_initial_schema_proposal(&proposal, &stores).unwrap()
+    };
+    let canonical = lower([0, 1, 2]);
+    for order in [[2, 1, 0], [1, 2, 0], [2, 0, 1]] {
+        let shuffled = lower(order);
+        assert_eq!(shuffled.len(), canonical.len());
+        for (actual, expected) in shuffled.iter().zip(&canonical) {
+            assert_eq!(actual.root().fingerprint(), expected.root().fingerprint());
+            assert_eq!(
+                actual.bundle().source_bindings_for_tests(),
+                expected.bundle().source_bindings_for_tests()
+            );
+        }
+    }
+}
+
 fn scalar_proposal_fixture_with_names(
     expected_head: ExpectedAcceptedHead,
     submission_key: &str,

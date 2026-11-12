@@ -62,7 +62,7 @@ fn assert_resource(error: crate::error::InternalError, resource: Resource) {
 #[test]
 fn query_normalization_admits_new_backing_after_literal_construction() {
     use crate::db::predicate::{normalize, normalize_enum_literals};
-    use crate::db::query::plan::normalize_query_predicate;
+    use crate::db::query::intent::filter::normalize_query_predicate;
 
     let schema = exact_metadata_schema(&[], &[]);
     let leaf = |field: &str| Predicate::IsNull {

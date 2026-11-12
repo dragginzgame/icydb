@@ -8,6 +8,7 @@ use crate::{
         query::plan::{
             CoveringReadFieldSource, covering_hybrid_projection_execution_plan_with_schema_info,
             covering_read_execution_plan_with_schema_info,
+            expr::{BinaryOp, Expr, normalize_bool_expr},
         },
         schema::{
             AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedSourceBindingCatalog,
@@ -93,7 +94,7 @@ fn assert_component_projection(
     seed_component_rows(&session, &input);
     assert_covering_admission(
         &session,
-        Predicate::eq("category".into(), Value::Nat64(3)),
+        strict_filter("category", Value::Nat64(3), false),
         false,
         component_decodable
             .then_some(CoveringReadFieldSource::IndexComponent { component_index: 1 }),
@@ -101,7 +102,7 @@ fn assert_component_projection(
     if ordered {
         assert_covering_admission(
             &session,
-            Predicate::gte("category".into(), Value::Nat64(3)),
+            strict_filter("category", Value::Nat64(3), true),
             true,
             component_decodable
                 .then_some(CoveringReadFieldSource::IndexComponent { component_index: 1 }),
@@ -187,10 +188,7 @@ fn assert_component_projection(
             let value = input.clone().try_into_runtime_non_enum().unwrap();
             assert_covering_admission(
                 &session,
-                Predicate::And(vec![
-                    Predicate::eq("category".into(), Value::Nat64(3)),
-                    Predicate::eq("operand".into(), value.clone()),
-                ]),
+                strict_operand_filter(value.clone()),
                 false,
                 Some(CoveringReadFieldSource::Constant(value)),
             );
@@ -220,9 +218,38 @@ fn seed_component_rows<C: CanisterKind>(session: &DbSession<C>, input: &InputVal
     }
 }
 
+// This matrix qualifies strict planner contracts, independently of frontend
+// widening policy. Build matching semantics and access restriction together.
+fn strict_filter(field: &str, value: Value, range: bool) -> (Expr, Predicate) {
+    let expr = Expr::Binary {
+        op: if range { BinaryOp::Gte } else { BinaryOp::Eq },
+        left: Box::new(Expr::Field(field.into())),
+        right: Box::new(Expr::Literal(value.clone())),
+    };
+    let predicate = if range {
+        Predicate::gte(field.into(), value)
+    } else {
+        Predicate::eq(field.into(), value)
+    };
+    (expr, predicate)
+}
+
+fn strict_operand_filter(value: Value) -> (Expr, Predicate) {
+    let (category_expr, category_predicate) = strict_filter("category", Value::Nat64(3), false);
+    let (operand_expr, operand_predicate) = strict_filter("operand", value, false);
+    (
+        Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(category_expr),
+            right: Box::new(operand_expr),
+        },
+        Predicate::And(vec![category_predicate, operand_predicate]),
+    )
+}
+
 fn assert_covering_admission<C: CanisterKind>(
     session: &DbSession<C>,
-    predicate: Predicate,
+    filter: (Expr, Predicate),
     range: bool,
     expected_source: Option<CoveringReadFieldSource>,
 ) {
@@ -232,37 +259,31 @@ fn assert_covering_admission<C: CanisterKind>(
         .unwrap();
     for projection in [vec!["operand"], vec!["operand", "label"]] {
         let mixed = projection.len() > 1;
-        let query = StructuralQuery::new(MissingRowPolicy::Ignore)
-            .filter_normalized_predicate(predicate.clone())
-            .select_fields(projection)
-            .order_spec(OrderSpec {
-                fields: vec![asc("id").lower()],
-            });
-        for _ in 0..2 {
-            let (prepared, _) = session
-                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
-                    catalog.accepted_entity_authority(),
-                    &catalog,
-                    &query,
-                    DiagnosticExecutionLane::TrustedRead,
-                )
-                .unwrap();
-            assert_eq!(
-                prepared
-                    .logical_plan()
-                    .access
-                    .as_index_range_path()
-                    .is_some(),
-                range
-            );
+        let plan = crate::db::query::preparation::with_preparation_work(|work| {
+            crate::db::query::plan::strict_covering_plan(
+                catalog
+                    .accepted_entity_authority()
+                    .accepted_schema_info_handle(),
+                normalize_bool_expr(filter.0.clone(), work)?,
+                filter.1.clone(),
+                projection
+                    .iter()
+                    .map(|field| (*field).to_string())
+                    .collect(),
+                work,
+            )
+        })
+        .unwrap();
+        {
+            assert_eq!(plan.access.as_index_range_path().is_some(), range);
             let pure = covering_read_execution_plan_with_schema_info(
                 catalog.accepted_schema_info(),
-                prepared.logical_plan(),
+                &plan,
                 true,
             );
             let hybrid = covering_hybrid_projection_execution_plan_with_schema_info(
                 catalog.accepted_schema_info(),
-                prepared.logical_plan(),
+                &plan,
                 true,
             );
             assert_eq!(pure.is_some(), component_decodable && !mixed);

@@ -27,43 +27,60 @@ not invoke `icydb-model` application validators or normalizers. Applications
 that want those Rust behaviors must call `normalize`, `validate`, or
 `normalize_and_validate` explicitly before constructing a write.
 
+## Filter literals
+
+Filter builders accept `Into<icydb::value::InputValue>`. Typed scalars retain
+their kind; construct lists, maps and enum payloads with `InputValue` as well.
+Enum identity is admitted against the accepted schema. Serialized filters use
+PublicValue's representation; clients must regenerate requests from the retired
+FilterValue contract rather than reuse its serialized payloads.
+
 ## Startup in native canister tests
 
 Enable `testing` in the test application's native dependency on `icydb` to use
-`icydb::testing::drive_startup`. Pass Testkit's `PocketIcInstance` lifecycle owner, a maximum
-round count, and an async closure that observes the generated `startup_state()` through
-your application's authorized read-only endpoint. The observation returns
-`Result<DatabaseStartupState, E>`: `Ready` completes, `Recovering` permits another
-round, and errors retain their original typed value. An ordinary-work endpoint
-that returns a startup-pending error is not a readiness observation.
+`icydb::testing::startup_poll`. It projects an authorized read-only observation
+returning `Result<DatabaseStartupState, E>`: `Ready` completes, `Recovering` permits
+another round, and errors retain their original typed value. An ordinary-work
+endpoint that returns a startup-pending error is not a readiness observation.
+
+Select Testkit separately in the native test harness. Compose its existing
+bounded driver with the typed predicate:
 
 ```rust,ignore
-use icydb::testing::drive_startup;
+use std::time::Duration;
 
-// Application transport decodes the existing DatabaseStartupState and preserves
-// both transport failures and the existing StartupFailure as typed errors.
+use ic_testkit::pic::tick_until;
+use icydb::testing::startup_poll;
+
+// Keep the PocketIcInstance owner alive throughout polling. Application transport
+// preserves both transport failures and StartupFailure as typed errors.
 let pic = instance.instance();
-drive_startup(&instance, 60, async || {
-    observe_database_startup(pic, canister_id).await
+tick_until(pic, 60, Duration::from_secs(1), async |_| {
+    startup_poll(observe_database_startup(pic, canister_id).await)
 }).await?;
 ```
 
-The same helper works after installation and upgrade. Testkit checks readiness
-before progression, then advances simulated time by one second and ticks once
-per pending round. A zero budget still checks once, and readiness on the last
-allowed round succeeds. Exhaustion is `TickUntilError::ProgressLimit`; observation
-failures are `Failed`. Upstream PocketIC transport panics propagate. Do not retry business writes
-inside the observation closure. Select the round bound for the fixture's workload;
-this helper does not declare a universal recovery deadline.
+This replaces the previous Testkit-bound `drive_startup` wrapper and its
+`PocketIcInstance`/`TickUntilError` re-exports. Import those types from
+`ic_testkit::pic`; use `ic_testkit::pocket_ic` for the selected upstream client.
+No separate PocketIC dependency or IcyDB-specific simulator adapter is needed.
+The [native qualification fixture](../../qualification/startup/tests/startup_polling.rs)
+compiles and exercises this composition.
 
-The application owns the observation endpoint and its authorization. Enabling
-`testing` exports no IC method, starts no server and registers no watchdog.
-The caller owns the async runtime and explicitly closes its Testkit instance
-with `instance.close().await` after using it. Testkit remains the provisioning,
-lifecycle and polling owner. The optional
-dependency is native-only and absent from ordinary runtime/Wasm graphs. Existing
-private integration fixtures retain their separately qualified Canic/Testkit
-stack until that composition is updated.
+The same composition works after installation and upgrade. Testkit checks
+readiness before progression, then advances simulated time by one second and
+ticks once per pending round. A zero budget still checks once, and readiness on
+the last allowed round succeeds. Exhaustion is Testkit's
+`TickUntilError::ProgressLimit`; observation failures are `Failed`. Upstream
+PocketIC transport panics propagate. Never retry business writes through the
+observation closure. Select the round bound for the fixture's workload.
+
+The application owns the observation endpoint, authorization and async runtime.
+Keep the Testkit instance owner alive throughout polling and explicitly close it
+with `instance.close().await`. Testkit retains provisioning, lifecycle and polling
+ownership. IcyDB's `testing` feature has no simulator dependency and exports no IC
+method, starts no server and registers no watchdog. Private Canic integration
+fixtures retain their separately qualified stack until that composition is updated.
 
 For full setup, examples, and release notes:
 

@@ -36,16 +36,16 @@ pub(in crate::db) use coercion::supports_coercion;
 pub(in crate::db) use normalize::normalize;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use normalize::normalize_accepted_compare_fields_coercion;
-pub(in crate::db) use normalize::normalize_enum_literals;
 pub(in crate::db) use normalize::normalize_with_authority;
 pub(in crate::db) use normalize::normalize_with_budget;
+pub(in crate::db) use normalize::{normalize_enum_literals, predicate_admission_error};
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use parser::parse_sql_predicate;
 #[cfg(test)]
 pub(in crate::db) use render::render_sql_predicate;
 pub(in crate::db) use render::{render_sql_comparison, render_sql_field_comparison};
 
-pub(in crate::db) use fingerprint::hash_predicate;
+pub(in crate::db) use fingerprint::hash_canonical_predicate;
 pub(in crate::db) use fingerprint::predicate_fingerprint_normalized;
 pub(in crate::db) use membership::canonical_value_set_list;
 pub(in crate::db) use membership::{MembershipCompareLeaf, collapse_membership_compare_leaves};

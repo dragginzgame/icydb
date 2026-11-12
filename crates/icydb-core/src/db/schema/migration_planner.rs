@@ -203,7 +203,10 @@ impl<'a> WorkingStore<'a> {
         .map_err(|_| SchemaMigrationPlanningError::RekeyedCatalogInvalid)
     }
 
-    fn candidate(&self) -> Result<Option<CandidateSchemaRevision>, SchemaMigrationPlanningError> {
+    // Final assembly consumes the working catalogues after reconciliation has borrowed them.
+    fn into_candidate(
+        self,
+    ) -> Result<Option<CandidateSchemaRevision>, SchemaMigrationPlanningError> {
         if self.touched.is_empty() {
             return Ok(None);
         }
@@ -215,10 +218,10 @@ impl<'a> WorkingStore<'a> {
         let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
             revision,
             self.path,
-            self.enums.clone(),
-            self.composites.clone(),
-            self.bindings.clone(),
-            self.snapshots.clone(),
+            self.enums,
+            self.composites,
+            self.bindings,
+            self.snapshots,
         )
         .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?;
         CandidateSchemaRevision::new(bundle)
@@ -368,10 +371,10 @@ pub(in crate::db::schema) fn plan_schema_migration(
         reconciled_by_store.insert(candidate.store_path().to_string(), candidate);
     }
     let mut candidates = Vec::new();
-    for store in working.values() {
+    for store in working.into_values() {
         if let Some(candidate) = reconciled_by_store.remove(store.path) {
             candidates.push(candidate);
-        } else if let Some(candidate) = store.candidate()? {
+        } else if let Some(candidate) = store.into_candidate()? {
             candidates.push(candidate);
         }
     }

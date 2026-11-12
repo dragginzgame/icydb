@@ -30,7 +30,7 @@ pub(in crate::db) use shape_facts::{
 
 // Executor-facing access contract and lowering surface.
 pub(in crate::db) use execution_contract::{
-    ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
+    ExecutableAccessChildren, ExecutableAccessPlan, ExecutionPathPayload,
 };
 pub(in crate::db) use lowering::{
     LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,

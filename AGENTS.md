@@ -35,6 +35,11 @@ See [the layout tracker](docs/design/0.308-package-layout/status.md) and
   delegates version preparation to the shared release workflow; preserve unrelated
   version edits and report conflicting in-progress release work.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
+- The maintainer authorizes `make deps-update` during dependency maintenance.
+  It updates root and qualification locks within declared requirements; package
+  selectors may narrow the update. Inspect both lock diffs and run affected
+  focused checks. Do not implicitly include deferred Canic, change manifest
+  requirements, disturb frozen release inputs, or run broad/release gates.
 - IC Testkit is the sole PocketIC infrastructure owner: server selection,
   provisioning, admission and lifecycle. IcyDB consumes Testkit; do not add
   application-owned server pins, version parsers, installers or supervision.

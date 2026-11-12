@@ -37,12 +37,8 @@ pub(in crate::db::executor) fn try_execute_grouped_count_metadata(
     let Some(values) = grouped_count_prefix_values(route) else {
         return Ok(None);
     };
-    let Some(prefixes) = exact_count_cardinality_prefixes_for_plan(
-        entity_tag,
-        route.plan(),
-        route.index_prefix_specs(),
-        true,
-    ) else {
+    let Some(prefixes) = exact_count_cardinality_prefixes_for_plan(entity_tag, route.plan(), true)
+    else {
         return Ok(None);
     };
     if prefixes.prefix_len() != 1 || prefixes.specs().len() != values.len() {

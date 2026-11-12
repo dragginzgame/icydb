@@ -9,7 +9,6 @@ use crate::{
             StructuralAggregateTerminalKind, StructuralProjectionRequest,
             execute_structural_aggregate_rows_for_canister, execute_structural_projection_rows,
         },
-        predicate::Predicate,
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
             builder::count,
@@ -101,21 +100,37 @@ fn expression() -> Expr {
     }
 }
 
-fn query(predicate: Predicate) -> StructuralQuery {
-    query_in_append_order(predicate, true)
+fn equality(field: String, value: Value) -> Expr {
+    Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(field.into())),
+        right: Box::new(Expr::Literal(value)),
+    }
 }
 
-fn query_in_append_order(predicate: Predicate, expression_first: bool) -> StructuralQuery {
+fn query(session: &DbSession<TestCanister>, predicate: Expr) -> StructuralQuery {
+    query_in_append_order(session, predicate, true)
+}
+
+fn query_in_append_order(
+    session: &DbSession<TestCanister>,
+    predicate: Expr,
+    expression_first: bool,
+) -> StructuralQuery {
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let schema = catalog.accepted_schema_info();
     with_preparation_work(|work| {
         let query = StructuralQuery::new(MissingRowPolicy::Ignore);
         let query = if expression_first {
             query
-                .filter_expr(expression(), work)
-                .map(|query| query.filter_normalized_predicate(predicate))
+                .filter_expr(schema, expression(), work)
+                .and_then(|query| query.filter_expr(schema, predicate, work))
         } else {
             query
-                .filter_normalized_predicate(predicate)
-                .filter_expr(expression(), work)
+                .filter_expr(schema, predicate, work)?
+                .filter_expr(schema, expression(), work)
         };
         query.map(|query| query.select_fields(["id"]))
     })
@@ -140,8 +155,12 @@ fn prepare(
         .unwrap()
 }
 
-fn keys(ids: &[u64]) -> Predicate {
-    Predicate::in_("id".into(), ids.iter().copied().map(Value::Nat64).collect())
+fn keys(ids: &[u64]) -> Expr {
+    Expr::membership(
+        Expr::Field("id".into()),
+        ids.iter().copied().map(Value::Nat64).collect(),
+        false,
+    )
 }
 
 fn rows(
@@ -176,11 +195,11 @@ fn rows(
 fn residual_filter_preservation_accepted_reads_keep_partial_exact_key_scopes() {
     let session = initialize_rows();
     let cases = [
-        (Predicate::eq("id".into(), Value::Nat64(1)), vec![1]),
-        (Predicate::eq("id".into(), Value::Nat64(2)), vec![]),
-        (Predicate::eq("id".into(), Value::Nat64(3)), vec![]),
-        (Predicate::eq("id".into(), Value::Nat64(4)), vec![4]),
-        (Predicate::eq("id".into(), Value::Nat64(99)), vec![]),
+        (equality("id".into(), Value::Nat64(1)), vec![1]),
+        (equality("id".into(), Value::Nat64(2)), vec![]),
+        (equality("id".into(), Value::Nat64(3)), vec![]),
+        (equality("id".into(), Value::Nat64(4)), vec![4]),
+        (equality("id".into(), Value::Nat64(99)), vec![]),
         (keys(&[4, 2, 1, 3, 2]), vec![1, 4]),
         (keys(&[2, 3]), vec![]),
         (keys(&[1]), vec![1]),
@@ -210,7 +229,8 @@ fn residual_filter_preservation_accepted_reads_keep_partial_exact_key_scopes() {
                         DiagnosticExecutionLane::TrustedRead,
                     ] {
                         // Fresh syntax and request budgets still use the shared cache.
-                        let query = query_in_append_order(predicate.clone(), expression_first);
+                        let query =
+                            query_in_append_order(&session, predicate.clone(), expression_first);
                         let reader =
                             new_request_session(&RequestExecutionRoot::__new_runtime_root());
                         assert_eq!(rows(&reader, &query, lane), expected);
@@ -236,7 +256,7 @@ fn residual_filter_preservation_accepted_windows_follow_expression_filtering() {
             (1, 1, vec![if descending { 1 } else { 4 }]),
             (9, 9, vec![]),
         ] {
-            let query = query(keys(&[4, 2, 1, 3, 2]))
+            let query = query(&session, keys(&[4, 2, 1, 3, 2]))
                 .order_spec(OrderSpec {
                     fields: vec![order.clone()],
                 })
@@ -273,7 +293,7 @@ fn residual_filter_preservation_structural_count_keeps_partial_and_empty_scopes(
                 (&[1, 2, 3, 4][..], 2),
             ] {
                 let reader = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-                let query = query_in_append_order(keys(ids), expression_first);
+                let query = query_in_append_order(&session, keys(ids), expression_first);
                 let plan = prepare(&reader, &query, DiagnosticExecutionLane::TrustedRead);
                 let request = StructuralAggregateRequest::new(
                     vec![StructuralAggregateTerminal::new(
@@ -322,7 +342,8 @@ fn mixed_filter_cache_identity_reuses_only_the_current_scope_across_requests() {
                 .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
                 .unwrap();
             let query = query_in_append_order(
-                Predicate::eq("id".into(), Value::Nat64(id)),
+                &session,
+                equality("id".into(), Value::Nat64(id)),
                 expression_first,
             );
             let (plan, reuse) = reader
@@ -358,21 +379,22 @@ fn mixed_filter_cache_identity_mutation_selections_keep_changed_key_scopes() {
         session.clear_shared_query_cache_for_tests(capacity);
         for expression_first in [true, false] {
             for (predicate, expected) in [
-                (Predicate::eq("id".into(), Value::Nat64(1)), vec![1]),
-                (Predicate::eq("id".into(), Value::Nat64(2)), vec![]),
-                (Predicate::eq("id".into(), Value::Nat64(3)), vec![]),
-                (Predicate::eq("id".into(), Value::Nat64(4)), vec![4]),
+                (equality("id".into(), Value::Nat64(1)), vec![1]),
+                (equality("id".into(), Value::Nat64(2)), vec![]),
+                (equality("id".into(), Value::Nat64(3)), vec![]),
+                (equality("id".into(), Value::Nat64(4)), vec![4]),
                 (keys(&[1, 2, 3, 4]), vec![1, 4]),
                 (keys(&[2, 3]), vec![]),
                 (keys(&[1]), vec![1]),
                 (keys(&[2]), vec![]),
                 (keys(&[3]), vec![]),
                 (keys(&[4]), vec![4]),
-                (Predicate::eq("id".into(), Value::Nat64(1)), vec![1]),
+                (equality("id".into(), Value::Nat64(1)), vec![1]),
             ] {
-                let selection = query_in_append_order(predicate.clone(), expression_first)
-                    .delete()
-                    .into_load_selection();
+                let selection =
+                    query_in_append_order(&session, predicate.clone(), expression_first)
+                        .delete()
+                        .into_load_selection();
                 let reader = new_request_session(&RequestExecutionRoot::__new_runtime_root());
                 assert_eq!(
                     rows(&reader, &selection, DiagnosticExecutionLane::Mutation),
@@ -525,8 +547,8 @@ fn complete_residual_runtime_scan_enforces_both_filters_and_windows() {
         for expression_first in [true, false] {
             for _ in 0..2 {
                 for (marker, expected) in [(0, vec![1]), (1, vec![4]), (99, vec![])] {
-                    let predicate = Predicate::eq("marker".into(), Value::Nat64(marker));
-                    let query = query_in_append_order(predicate, expression_first);
+                    let predicate = equality("marker".into(), Value::Nat64(marker));
+                    let query = query_in_append_order(&session, predicate, expression_first);
                     for lane in [
                         DiagnosticExecutionLane::TrustedRead,
                         DiagnosticExecutionLane::Mutation,
@@ -597,13 +619,16 @@ fn complete_residual_runtime_counts_keep_singleton_and_scan_scopes() {
                     (keys(&[99]), 0),
                     (keys(&[2, 2]), 0),
                     (keys(&[1, 2, 3, 4]), 2),
-                    (Predicate::eq("marker".into(), Value::Nat64(0)), 1),
-                    (Predicate::eq("marker".into(), Value::Nat64(1)), 1),
-                    (Predicate::eq("marker".into(), Value::Nat64(99)), 0),
+                    (equality("marker".into(), Value::Nat64(0)), 1),
+                    (equality("marker".into(), Value::Nat64(1)), 1),
+                    (equality("marker".into(), Value::Nat64(99)), 0),
                 ] {
                     let reader = new_request_session(&RequestExecutionRoot::__new_runtime_root());
                     assert_eq!(
-                        count_rows(&reader, &query_in_append_order(predicate, expression_first)),
+                        count_rows(
+                            &reader,
+                            &query_in_append_order(&session, predicate, expression_first)
+                        ),
                         vec![vec![Value::Nat64(expected)]]
                     );
                 }
@@ -615,7 +640,9 @@ fn complete_residual_runtime_counts_keep_singleton_and_scan_scopes() {
 #[test]
 fn residual_filter_preservation_mutation_lane_and_sql_writes_keep_unknown_rows() {
     let session = initialize_rows();
-    let selection = query(keys(&[1, 2, 3, 4])).delete().into_load_selection();
+    let selection = query(&session, keys(&[1, 2, 3, 4]))
+        .delete()
+        .into_load_selection();
     assert_eq!(
         rows(&session, &selection, DiagnosticExecutionLane::Mutation),
         vec![vec![Value::Nat64(1)], vec![Value::Nat64(4)]]

@@ -4,238 +4,13 @@
 //! Boundary: records intent-shape state consumed by planner-owned validation/build stages.
 
 use crate::db::{
-    QueryError,
-    predicate::Predicate,
+    query::intent::filter::AdmittedFilter,
     query::plan::{
         AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
         LogicalPlanningInputs, OrderSpec, QueryMode,
-        expr::{
-            BinaryOp, Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
-            is_normalized_bool_expr, normalize_bool_expr,
-        },
+        expr::{Expr, ProjectionSelection},
     },
-    query::preparation::PreparationWork,
 };
-
-///
-/// NormalizedFilter
-///
-/// Canonical scalar filter representation stored by query intent.
-/// It owns the normalized expression that preserves full runtime semantics and
-/// the optional runtime-predicate subset derived once at append boundaries.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::query::intent) enum FilterPredicateCoverage {
-    Full,
-    Partial,
-    None,
-}
-
-impl FilterPredicateCoverage {
-    const fn from_extracted_subset(predicate_subset: Option<&Predicate>) -> Self {
-        if predicate_subset.is_some() {
-            Self::Full
-        } else {
-            Self::None
-        }
-    }
-
-    const fn combine_for_and(existing: Self, appended: Self, combined_subset_exists: bool) -> Self {
-        if !combined_subset_exists {
-            return Self::None;
-        }
-
-        match (existing, appended) {
-            (Self::Full, Self::Full) => Self::Full,
-            _ => Self::Partial,
-        }
-    }
-
-    pub(in crate::db::query::intent) const fn covers_user_visible_filter_semantics(self) -> bool {
-        match self {
-            Self::Full => true,
-            Self::Partial | Self::None => false,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-enum FilterSemanticAuthority {
-    ExpressionBacked(Expr),
-    PredicateOnly,
-}
-
-#[derive(Clone, Debug)]
-pub(in crate::db::query::intent) struct NormalizedFilter {
-    semantic_authority: FilterSemanticAuthority,
-    predicate_subset: Option<Predicate>,
-    predicate_coverage: FilterPredicateCoverage,
-}
-
-impl NormalizedFilter {
-    /// Build one normalized filter from a planner-owned boolean expression.
-    pub(in crate::db::query::intent) fn from_normalized_expr(
-        expr: Expr,
-        work: &PreparationWork<'_>,
-    ) -> Result<Self, QueryError> {
-        debug_assert!(
-            is_normalized_bool_expr(&expr),
-            "intent-owned filter expressions must be normalized before storage",
-        );
-
-        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr, work)?;
-        let predicate_coverage =
-            FilterPredicateCoverage::from_extracted_subset(predicate_subset.as_ref());
-
-        Ok(Self {
-            semantic_authority: FilterSemanticAuthority::ExpressionBacked(expr),
-            predicate_subset,
-            predicate_coverage,
-        })
-    }
-
-    /// Build one normalized filter from an expression plus an already-derived
-    /// predicate subset, used by SQL lowering after it has canonicalized both
-    /// views through the same semantic pass.
-    #[must_use]
-    pub(in crate::db::query::intent) fn from_normalized_expr_and_predicate_subset(
-        expr: Expr,
-        predicate_subset: Predicate,
-    ) -> Self {
-        debug_assert!(
-            is_normalized_bool_expr(&expr),
-            "intent-owned filter expressions must be normalized before storage",
-        );
-
-        Self {
-            semantic_authority: FilterSemanticAuthority::ExpressionBacked(expr),
-            predicate_subset: Some(predicate_subset),
-            predicate_coverage: FilterPredicateCoverage::Full,
-        }
-    }
-
-    /// Build one invisible filter from an already-normalized runtime predicate.
-    #[must_use]
-    pub(in crate::db::query::intent) const fn from_normalized_predicate(
-        predicate: Predicate,
-    ) -> Self {
-        Self {
-            semantic_authority: FilterSemanticAuthority::PredicateOnly,
-            predicate_subset: Some(predicate),
-            predicate_coverage: FilterPredicateCoverage::Full,
-        }
-    }
-
-    /// Borrow the normalized semantic expression only when it should remain
-    /// visible as a planner-owned expression filter.
-    #[must_use]
-    pub(in crate::db::query::intent) const fn logical_filter_expr(&self) -> Option<&Expr> {
-        match &self.semantic_authority {
-            FilterSemanticAuthority::ExpressionBacked(expr) => Some(expr),
-            FilterSemanticAuthority::PredicateOnly => None,
-        }
-    }
-
-    /// Borrow the already-derived predicate subset used by access planning.
-    #[must_use]
-    pub(in crate::db::query::intent) const fn predicate_subset(&self) -> Option<&Predicate> {
-        self.predicate_subset.as_ref()
-    }
-
-    /// Return predicate-subset coverage over the user-visible filter semantics.
-    #[must_use]
-    pub(in crate::db::query::intent) const fn predicate_coverage(&self) -> FilterPredicateCoverage {
-        self.predicate_coverage
-    }
-
-    /// Return whether the predicate subset fully represents the visible
-    /// expression view used by existing logical-planning inputs.
-    #[must_use]
-    pub(in crate::db::query::intent) const fn predicate_subset_covers_expr(&self) -> bool {
-        matches!(
-            self.semantic_authority,
-            FilterSemanticAuthority::ExpressionBacked(_)
-        ) && self
-            .predicate_coverage()
-            .covers_user_visible_filter_semantics()
-    }
-
-    // Append one filter clause by AND-ing the semantic expression and combining
-    // only the predicate subsets that were derived at their original boundary.
-    pub(in crate::db::query::intent) fn append(
-        &mut self,
-        filter: Self,
-        work: &PreparationWork<'_>,
-    ) -> Result<(), QueryError> {
-        let filter_coverage = filter.predicate_coverage;
-
-        match (&mut self.semantic_authority, filter.semantic_authority) {
-            (
-                FilterSemanticAuthority::ExpressionBacked(existing),
-                FilterSemanticAuthority::ExpressionBacked(appended),
-            ) => {
-                *existing = normalize_bool_expr(
-                    Expr::Binary {
-                        op: BinaryOp::And,
-                        left: Box::new(existing.take()),
-                        right: Box::new(appended),
-                    },
-                    work,
-                )?;
-            }
-            (
-                FilterSemanticAuthority::ExpressionBacked(_)
-                | FilterSemanticAuthority::PredicateOnly,
-                FilterSemanticAuthority::PredicateOnly,
-            ) => {}
-            (
-                FilterSemanticAuthority::PredicateOnly,
-                FilterSemanticAuthority::ExpressionBacked(appended),
-            ) => {
-                self.semantic_authority = FilterSemanticAuthority::ExpressionBacked(appended);
-            }
-        }
-
-        if let Some(expr) = self.logical_filter_expr() {
-            debug_assert!(
-                is_normalized_bool_expr(expr),
-                "combined intent-owned filter expressions must stay normalized",
-            );
-        }
-
-        self.append_subset(filter.predicate_subset, filter_coverage);
-        Ok(())
-    }
-
-    // Predicate-only additions do not construct or normalize an expression.
-    pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
-        self.append_subset(Some(predicate), FilterPredicateCoverage::Full);
-    }
-
-    fn append_subset(&mut self, subset: Option<Predicate>, coverage: FilterPredicateCoverage) {
-        self.predicate_subset = combine_predicate_subset(self.predicate_subset.take(), subset);
-        self.predicate_coverage = FilterPredicateCoverage::combine_for_and(
-            self.predicate_coverage,
-            coverage,
-            self.predicate_subset.is_some(),
-        );
-    }
-}
-
-// Combine independently-derived predicate subsets while preserving the old
-// append behavior that left final query predicate normalization to planning.
-fn combine_predicate_subset(
-    existing: Option<Predicate>,
-    appended: Option<Predicate>,
-) -> Option<Predicate> {
-    match (existing, appended) {
-        (Some(existing), Some(appended)) => Some(Predicate::And(vec![existing, appended])),
-        (Some(existing), None) => Some(existing),
-        (None, Some(appended)) => Some(appended),
-        (None, None) => None,
-    }
-}
 
 ///
 /// ScalarIntent
@@ -246,7 +21,7 @@ fn combine_predicate_subset(
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct ScalarIntent {
-    pub(in crate::db::query::intent) filter: Option<NormalizedFilter>,
+    pub(in crate::db::query::intent) filter: Option<AdmittedFilter>,
     pub(in crate::db::query::intent) order: Option<OrderSpec>,
     pub(in crate::db::query::intent) distinct: bool,
     pub(in crate::db::query::intent) projection_selection: ProjectionSelection,
@@ -547,11 +322,11 @@ impl QueryIntent {
             self.scalar()
                 .filter
                 .as_ref()
-                .and_then(NormalizedFilter::logical_filter_expr),
+                .map(AdmittedFilter::logical_filter_expr),
             self.scalar()
                 .filter
                 .as_ref()
-                .is_some_and(NormalizedFilter::predicate_subset_covers_expr),
+                .is_some_and(AdmittedFilter::predicate_subset_covers_expr),
             self.scalar().distinct,
             group,
             having_expr,
@@ -568,7 +343,7 @@ impl QueryIntent {
             scalar
                 .filter
                 .as_ref()
-                .and_then(NormalizedFilter::predicate_subset),
+                .and_then(AdmittedFilter::predicate_subset),
             scalar.order.as_ref(),
         )
     }
@@ -581,12 +356,6 @@ impl QueryIntent {
 #[cfg(test)]
 mod tests;
 
-crate::retained::retained_fields!(FilterSemanticAuthority {
-    Self::ExpressionBacked(expr) => [expr], Self::PredicateOnly => [],
-});
-crate::retained::retained_fields!(NormalizedFilter {
-    Self { semantic_authority, predicate_subset, predicate_coverage: _ } => [semantic_authority, predicate_subset],
-});
 crate::retained::retained_fields!(ScalarIntent {
     Self { filter, order, distinct: _, projection_selection } => [filter, order, projection_selection],
 });

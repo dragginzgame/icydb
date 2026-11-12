@@ -54,14 +54,24 @@ fn assemble(
 #[test]
 fn residual_filter_preservation_partial_exact_access_retains_expression_in_both_append_orders() {
     let schema = exact_metadata_schema(&[], &["age"]);
-    for (predicate, access) in [
+    for (predicate, access, scope) in [
         (
             Predicate::eq("id".into(), Value::Int64(1)),
             AccessPlan::by_key(Value::Int64(1)),
+            Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field("id".into())),
+                right: Box::new(Expr::Literal(Value::Int64(1))),
+            },
         ),
         (
             Predicate::in_("id".into(), vec![Value::Int64(1), Value::Int64(2)]),
             AccessPlan::by_keys(vec![Value::Int64(1), Value::Int64(2)]),
+            Expr::membership(
+                Expr::Field("id".into()),
+                vec![Value::Int64(1), Value::Int64(2)],
+                false,
+            ),
         ),
     ] {
         for expression_first in [true, false] {
@@ -69,13 +79,15 @@ fn residual_filter_preservation_partial_exact_access_retains_expression_in_both_
                 let query = QueryModel::new(MissingRowPolicy::Ignore);
                 let query = if expression_first {
                     query
-                        .filter_expr(expression(), work)
+                        .filter_expr(&schema, expression(), work)
                         .unwrap()
-                        .filter_normalized_predicate(predicate.clone())
+                        .filter_expr(&schema, scope.clone(), work)
+                        .unwrap()
                 } else {
                     query
-                        .filter_normalized_predicate(predicate.clone())
-                        .filter_expr(expression(), work)
+                        .filter_expr(&schema, scope.clone(), work)
+                        .unwrap()
+                        .filter_expr(&schema, expression(), work)
                         .unwrap()
                 };
                 assert!(!query.filter_predicate_fully_covers_expression());
@@ -107,18 +119,15 @@ fn residual_filter_preservation_complete_exact_access_keeps_redundancy_proof() {
             left: Box::new(Expr::Field("id".into())),
             right: Box::new(Expr::Literal(Value::Int64(1))),
         };
-        for query in [
-            QueryModel::new(MissingRowPolicy::Ignore)
-                .filter_normalized_predicate(predicate.clone()),
-            QueryModel::new(MissingRowPolicy::Ignore)
-                .filter_expr(full_expression, work)
-                .unwrap(),
-        ] {
+        {
+            let query = QueryModel::new(MissingRowPolicy::Ignore)
+                .filter_expr(&schema, full_expression, work)
+                .unwrap();
             assert!(query.filter_predicate_fully_covers_expression());
             let plan = assemble(
                 &query,
                 &schema,
-                Some(predicate.clone()),
+                Some(predicate),
                 AccessPlan::by_key(Value::Int64(1)),
                 work,
             );
@@ -158,7 +167,7 @@ fn residual_filter_preservation_covering_terminal_and_explain_require_compatibil
         for has_expression in [false, true] {
             let query = QueryModel::new(MissingRowPolicy::Ignore);
             let query = if has_expression {
-                query.filter_expr(expression(), work).unwrap()
+                query.filter_expr(&schema, expression(), work).unwrap()
             } else {
                 query
             };

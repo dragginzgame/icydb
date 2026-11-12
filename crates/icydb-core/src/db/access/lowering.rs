@@ -48,6 +48,14 @@ pub(in crate::db) struct LoweredIndexSpecs {
 }
 
 impl LoweredIndexSpecs {
+    pub(in crate::db) const fn prefixes(&self) -> &[LoweredIndexPrefixSpec] {
+        self.index_prefix_specs.as_slice()
+    }
+
+    pub(in crate::db) const fn ranges(&self) -> &[LoweredIndexRangeSpec] {
+        self.index_range_specs.as_slice()
+    }
+
     #[must_use]
     pub(in crate::db) fn into_index_specs(
         self,
@@ -106,6 +114,58 @@ pub(in crate::db) fn lower_access_with_schema_info<K>(
         index_range_specs,
     })
 }
+
+/// Prepare the existing access tree in place. Each index leaf owns the exact
+/// bounds encoded from its accepted contract; traversal never zips parallel arrays.
+/// Callers publish the plan only after every leaf succeeds.
+pub(in crate::db) fn bind_access_with_schema_info<K>(
+    entity_tag: EntityTag,
+    access: &mut AccessPlan<K>,
+    schema_info: &SchemaInfo,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), LoweredAccessError> {
+    budget
+        .charge(Resource::PredicateExpressionSteps, 1)
+        .map_err(LoweredAccessError::Construction)?;
+    match access {
+        AccessPlan::Path(path, binding) => {
+            if path.selected_index_contract().is_none() {
+                *binding = None;
+                return Ok(());
+            }
+            let mut index_prefix_specs = Vec::new();
+            let mut index_range_specs = Vec::new();
+            lower_index_specs_for_path(
+                entity_tag,
+                path,
+                schema_info,
+                &mut index_prefix_specs,
+                &mut index_range_specs,
+                budget,
+            )?;
+            budget
+                .charge(
+                    Resource::TemporaryBytes,
+                    (size_of::<LoweredIndexSpecs>() + 2 * size_of::<usize>()) as u64,
+                )
+                .map_err(LoweredAccessError::Construction)?;
+            *binding = Some(Arc::new(LoweredIndexSpecs {
+                index_prefix_specs,
+                index_range_specs,
+            }));
+        }
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            for child in children {
+                bind_access_with_schema_info(entity_tag, child, schema_info, budget)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+crate::retained::retained_fields!(LoweredIndexSpecs {
+    Self {index_prefix_specs, index_range_specs} => [index_prefix_specs, index_range_specs],
+});
 
 ///
 /// LoweredIndexScanContract
@@ -505,21 +565,8 @@ fn lower_access_node<K>(
         .charge(Resource::PredicateExpressionSteps, 1)
         .map_err(LoweredAccessError::Construction)?;
     match access {
-        AccessPlan::Path(path) => {
+        AccessPlan::Path(path, _) => {
             let path = path.as_ref();
-            // The shared shape owner supplies exact output counts without
-            // visiting operands. Admit outer backing before any leaf encoding;
-            // scalar bytes and raw-bound construction retain their own owners.
-            let shape = path.shape_facts();
-            budget
-                .reserve_vec(index_prefix_specs, shape.index_prefix_spec_count())
-                .map_err(LoweredAccessError::Construction)?;
-            budget
-                .reserve_vec(
-                    index_range_specs,
-                    usize::from(shape.consumes_index_range_spec()),
-                )
-                .map_err(LoweredAccessError::Construction)?;
             lower_index_specs_for_path(
                 entity_tag,
                 path,
@@ -554,6 +601,18 @@ fn lower_index_specs_for_path<K>(
     index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
     budget: &dyn ConstructionBudget,
 ) -> Result<(), LoweredAccessError> {
+    // Admit both output collections before encoding a leaf. This shared owner
+    // serves transient cardinality probes and retained prepared bindings alike.
+    let shape = path.shape_facts();
+    budget
+        .reserve_vec(index_prefix_specs, shape.index_prefix_spec_count())
+        .map_err(LoweredAccessError::Construction)?;
+    budget
+        .reserve_vec(
+            index_range_specs,
+            usize::from(shape.consumes_index_range_spec()),
+        )
+        .map_err(LoweredAccessError::Construction)?;
     match path {
         AccessPath::IndexPrefix { index, values } => {
             lower_index_prefix_values_for_specs(

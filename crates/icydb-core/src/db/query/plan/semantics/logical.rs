@@ -453,7 +453,7 @@ impl AccessPlannedQuery {
 const fn distinct_runtime_dedup_strategy<K>(access: &AccessPlan<K>) -> DistinctExecutionStrategy {
     match access {
         AccessPlan::Union(_) | AccessPlan::Intersection(_) => DistinctExecutionStrategy::PreOrdered,
-        AccessPlan::Path(_) => DistinctExecutionStrategy::None,
+        AccessPlan::Path(_, _) => DistinctExecutionStrategy::None,
     }
 }
 

@@ -22,8 +22,7 @@ use crate::{
                 compile_sql_global_aggregate_command_from_prepared_with_schema,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
-                lower_prepared_sql_select_statement_with_schema, prepare_bound_sql_statement,
-                prepare_sql_statement,
+                lower_prepared_sql_select_statement_with_schema, prepare_sql_statement,
             },
             parser::{
                 SqlExpr, SqlInsertSource, SqlOrderDirection, SqlOrderTerm, SqlSelectStatement,
@@ -101,11 +100,11 @@ impl<C: CanisterKind> DbSession<C> {
         bindings: &[InputValue],
         work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let prepared = if bindings.is_empty() {
-            Self::prepare_statement_for_entity_name(statement, entity_name, work)?
-        } else {
-            prepare_bound_sql_statement(statement, entity_name, schema, bindings, work)?
-        };
+        if !bindings.is_empty() {
+            let (_, bound) = CheckedSqlSelectTemplate::compile(statement, schema, bindings, work)?;
+            return Ok(bound_select_command(bound));
+        }
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
         let requires_aggregate_lane = prepared
             .statement()
             .is_global_aggregate_lane_shape(work)

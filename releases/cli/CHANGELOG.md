@@ -3,6 +3,18 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.11]
+
+### 🔧 Changed
+
+- Adopt Toko Tooling 0.39.15 for width-bounded LOC reports and explicit supplier
+  freshness review, preserving existing runtime dependency selections.
+
+- Adopt Host Tools 0.91.0 for CLI ICP/project operations, retaining existing
+  response admission, command behavior and Host Foundation/Text selections.
+
+[Detailed changes](0.296.md).
+
 ## [0.296.10] - 2026-11-11
 
 ### 🔧 Changed

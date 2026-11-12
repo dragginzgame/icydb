@@ -22,10 +22,7 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-use std::{
-    rc::Rc,
-    sync::{Arc, OnceLock},
-};
+use std::{rc::Rc, sync::OnceLock};
 
 fn accepted_identity() -> AcceptedContinuationIdentity {
     let schema = crate::db::query::plan::exact_metadata_schema(&[], &[]);
@@ -81,26 +78,13 @@ fn execution_family_uses_retained_ordering_and_preserves_missing_contract_error(
         })
         .unwrap();
         let plan = Rc::new(plan);
-        let core = PreparedExecutionPlanCore::new(
-            Rc::clone(&plan),
-            0,
-            accepted_identity(),
-            continuation,
-            Arc::default(),
-            Arc::default(),
-        );
+        let core =
+            PreparedExecutionPlanCore::new(Rc::clone(&plan), 0, accepted_identity(), continuation);
         for _ in 0..3 {
             assert_eq!(core.execution_family().unwrap(), expected);
         }
 
-        let missing = PreparedExecutionPlanCore::new(
-            plan,
-            0,
-            accepted_identity(),
-            None,
-            Arc::default(),
-            Arc::default(),
-        );
+        let missing = PreparedExecutionPlanCore::new(plan, 0, accepted_identity(), None);
         let error = missing.execution_family().unwrap_err();
         let expected = CursorPlanError::continuation_cursor_invariant().into_internal_error();
         assert_eq!(error.diagnostic(), expected.diagnostic());
@@ -157,14 +141,8 @@ fn assert_shared_preparation(
         .slot_map = Some(vec![1]);
 
     for retain in [false, true] {
-        let core = PreparedExecutionPlanCore::new(
-            Rc::new(plan.clone()),
-            0,
-            accepted_identity(),
-            None,
-            Arc::default(),
-            Arc::default(),
-        );
+        let core =
+            PreparedExecutionPlanCore::new(Rc::new(plan.clone()), 0, accepted_identity(), None);
         let (entry, total) = CacheEntryWeight::for_tests(32, if retain { 16_000 } else { 32 });
         core.attach_cache_retention(&entry);
         let cell = resident(&core.residents);
@@ -268,8 +246,6 @@ fn failed_optional_compilation_is_not_published_or_charged_as_retention() {
             0,
             accepted_identity(),
             None,
-            Arc::default(),
-            Arc::default(),
         );
         let (entry, total) = CacheEntryWeight::for_tests(32, 4096);
         core.attach_cache_retention(&entry);

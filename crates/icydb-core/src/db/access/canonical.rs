@@ -69,7 +69,7 @@ impl AccessPlan<Value> {
     // Compare access plans with a total deterministic ordering.
     fn canonical_cmp(&self, right: &Self) -> Ordering {
         match (self, right) {
-            (Self::Path(left), Self::Path(right)) => left.canonical_cmp(right),
+            (Self::Path(left, _), Self::Path(right, _)) => left.canonical_cmp(right),
             (Self::Intersection(left), Self::Intersection(right))
             | (Self::Union(left), Self::Union(right)) => {
                 for (left, right) in left.iter().zip(right.iter()) {
@@ -88,7 +88,7 @@ impl AccessPlan<Value> {
     // Rank access-plan variants for canonical ordering.
     const fn canonical_rank(&self) -> u8 {
         match self {
-            Self::Path(_) => 0,
+            Self::Path(_, _) => 0,
             Self::Intersection(_) => 1,
             Self::Union(_) => 2,
         }
@@ -97,7 +97,7 @@ impl AccessPlan<Value> {
     // Normalize this access plan into a canonical deterministic form.
     fn normalize_for_access(self) -> Self {
         match self {
-            Self::Path(path) => Self::path(path.normalize_for_access()),
+            Self::Path(path, _) => Self::path(path.normalize_for_access()),
             Self::Union(children) => Self::normalize_union(children),
             Self::Intersection(children) => Self::normalize_intersection(children),
         }
@@ -141,7 +141,7 @@ impl AccessPlan<Value> {
         let (mut out, is_union) = match plan {
             Self::Union(children) => (children, true),
             Self::Intersection(children) => (children, false),
-            leaf @ Self::Path(_) => return leaf,
+            leaf @ Self::Path(_, _) => return leaf,
         };
 
         canonicalize_access_plans_value(&mut out);

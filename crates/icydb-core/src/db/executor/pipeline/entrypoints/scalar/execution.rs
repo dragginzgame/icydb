@@ -55,8 +55,8 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     let secondary_index_anchor = continuation.secondary_index_resume_anchor(
         plan_core.plan(),
         authority.accepted_schema_info(),
-        plan_core.index_prefix_specs(),
-        plan_core.index_range_specs(),
+        plan_core.single_index_prefix_specs(),
+        plan_core.single_index_range_specs(),
     )?;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime(
         TraversalRuntime::new(
@@ -71,8 +71,6 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         authority,
     );
     let plan = plan_core.plan();
-    let index_prefix_specs = plan_core.index_prefix_specs();
-    let index_range_specs = plan_core.index_range_specs();
     let route_continuation = route_plan.continuation();
     continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
     let direction = route_plan.direction();
@@ -83,11 +81,11 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         runtime: &runtime,
         plan,
         executable_access,
-        stream_bindings: AccessStreamBindings::new(
-            index_prefix_specs,
-            index_range_specs,
-            access_continuation.access_scan_input(direction, plan, secondary_index_anchor.as_ref()),
-        )
+        stream_bindings: AccessStreamBindings::new(access_continuation.access_scan_input(
+            direction,
+            plan,
+            secondary_index_anchor.as_ref(),
+        ))
         .with_index_prefix_child_expansion(route_plan.scan_hints.index_prefix_child_expansion),
         execution_preparation: &prep,
         projection_materialization: projection_runtime_mode,

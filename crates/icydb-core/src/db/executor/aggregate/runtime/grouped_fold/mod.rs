@@ -82,8 +82,6 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         plan: route.plan(),
         executable_access: route.plan().access.executable_contract(),
         stream_bindings: AccessStreamBindings {
-            index_prefix_specs: route.index_prefix_specs(),
-            index_range_specs: route.index_range_specs(),
             continuation: AccessScanContinuationInput::new(
                 route.resume_anchor.as_ref(),
                 route.direction(),

@@ -690,13 +690,11 @@ impl InternalError {
 
     /// Construct an executor-origin corruption failure for row-constraint authority.
     pub(crate) fn accepted_row_constraint_program_corrupt() -> Self {
-        Self {
-            class: ErrorClass::Corruption,
-            origin: ErrorOrigin::Executor,
-            detail: Some(ErrorDetail::Executor(
-                ExecutorErrorDetail::AcceptedRowConstraintProgramCorrupt,
-            )),
-        }
+        Self::mutation_boundary_with_facts(
+            ErrorClass::Corruption,
+            diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt,
+            Vec::new(),
+        )
     }
 
     /// Construct one typed migration conflict for an incomplete activation gate.
@@ -2242,39 +2240,11 @@ fn constraint_value_path_fact(
 pub enum ErrorDetail {
     /// Compact code/detail plus safe numeric context for one public failure.
     DiagnosticFacts(Box<DiagnosticFactDetail>),
-    /// Executor-owned mutation and query execution details.
-    Executor(ExecutorErrorDetail),
     Store(StoreError),
     Query(QueryErrorDetail),
     Recovery(RecoveryErrorDetail),
     // Future-proofing:
     // Index(IndexError),
-}
-
-/// Executor-specific structured error detail.
-pub enum ExecutorErrorDetail {
-    /// A complete insert or replacement omitted one or more required fields.
-    MutationRequiredFieldMissing,
-    /// A logical mutation would move accepted managed time backward.
-    MutationManagedTimestampRegression,
-    /// A caller explicitly authored a field owned by accepted database policy.
-    MutationDatabaseOwnedFieldExplicit,
-    /// A mixed structural mutation batch contained no operations.
-    MutationBatchEmpty,
-    /// A mixed structural mutation batch exceeded its operation-count bound.
-    MutationBatchTooManyItems,
-    /// A mixed structural mutation batch exceeded its staged-byte bound.
-    MutationBatchStagedBytesExceeded,
-    /// A mixed structural mutation result exceeded its encoded response bound.
-    MutationBatchResultBytesExceeded,
-    /// A mixed structural mutation batch crossed an accepted store boundary.
-    MutationBatchStoreMismatch,
-    /// A mixed structural mutation batch exceeded its distinct-entity bound.
-    MutationBatchTooManyEntities,
-    /// More than one mixed structural operation targeted the same accepted key.
-    MutationBatchDuplicateKey,
-    /// Accepted row-constraint metadata or compiled state was inconsistent.
-    AcceptedRowConstraintProgramCorrupt,
 }
 
 ///
@@ -2480,12 +2450,6 @@ impl fmt::Debug for ErrorDetail {
     }
 }
 
-impl fmt::Debug for ExecutorErrorDetail {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
-    }
-}
-
 impl fmt::Debug for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_compact_diagnostic(f, self.diagnostic_code(), self.diagnostic_detail())
@@ -2546,7 +2510,6 @@ impl ErrorDetail {
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
             Self::DiagnosticFacts(detail) => detail.diagnostic.code(),
-            Self::Executor(error) => error.diagnostic_code(),
             Self::Store(error) => error.diagnostic_code(),
             Self::Query(error) => error.diagnostic_code(),
             Self::Recovery(error) => error.diagnostic_code(),
@@ -2558,7 +2521,6 @@ impl ErrorDetail {
     pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
         match self {
             Self::DiagnosticFacts(detail) => detail.diagnostic.detail().copied(),
-            Self::Executor(error) => error.diagnostic_detail(),
             Self::Store(error) => error.diagnostic_detail(),
             Self::Query(error) => error.diagnostic_detail(),
             Self::Recovery(error) => error.diagnostic_detail(),
@@ -2572,72 +2534,10 @@ impl ErrorDetail {
     pub fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
         match self {
             Self::DiagnosticFacts(detail) => detail.facts.clone(),
-            Self::Executor(error) => error.diagnostic_facts(),
             Self::Query(error) => error.diagnostic_facts(),
             Self::Recovery(error) => error.diagnostic_facts(),
             Self::Store(_) => Vec::new(),
         }
-    }
-}
-
-impl ExecutorErrorDetail {
-    // The registry owns the broad category for every boundary detail. Keep only
-    // the executor-to-boundary projection here so code and detail cannot drift.
-    const fn diagnostic_value(&self) -> diagnostic_code::DiagnosticDetail {
-        let boundary = match self {
-            Self::MutationRequiredFieldMissing => {
-                diagnostic_code::RuntimeBoundaryCode::MutationRequiredFieldMissing
-            }
-            Self::MutationDatabaseOwnedFieldExplicit => {
-                diagnostic_code::RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit
-            }
-            Self::MutationBatchEmpty => diagnostic_code::RuntimeBoundaryCode::MutationBatchEmpty,
-            Self::MutationBatchTooManyItems => {
-                diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyItems
-            }
-            Self::MutationBatchStagedBytesExceeded => {
-                diagnostic_code::RuntimeBoundaryCode::MutationBatchStagedBytesExceeded
-            }
-            Self::MutationBatchResultBytesExceeded => {
-                diagnostic_code::RuntimeBoundaryCode::MutationBatchResultBytesExceeded
-            }
-            Self::MutationBatchStoreMismatch => {
-                diagnostic_code::RuntimeBoundaryCode::MutationBatchStoreMismatch
-            }
-            Self::MutationBatchTooManyEntities => {
-                diagnostic_code::RuntimeBoundaryCode::MutationBatchTooManyEntities
-            }
-            Self::MutationBatchDuplicateKey => {
-                diagnostic_code::RuntimeBoundaryCode::MutationBatchDuplicateKey
-            }
-            Self::MutationManagedTimestampRegression => {
-                diagnostic_code::RuntimeBoundaryCode::MutationManagedTimestampRegression
-            }
-            Self::AcceptedRowConstraintProgramCorrupt => {
-                diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt
-            }
-        };
-        diagnostic_code::DiagnosticDetail::RuntimeBoundary { boundary }
-    }
-
-    /// Return the compact diagnostic code for this executor detail.
-    #[must_use]
-    pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
-        self.diagnostic_value().diagnostic_code()
-    }
-
-    /// Return compact structured diagnostic detail for this executor detail.
-    #[must_use]
-    pub const fn diagnostic_detail(&self) -> Option<diagnostic_code::DiagnosticDetail> {
-        Some(self.diagnostic_value())
-    }
-
-    /// Project safe mutation detail into canonical public numeric facts.
-    #[must_use]
-    #[cold]
-    #[inline(never)]
-    pub const fn diagnostic_facts(&self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
-        Vec::new()
     }
 }
 

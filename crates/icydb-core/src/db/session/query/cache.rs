@@ -634,11 +634,20 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(prepared_plan) = reused_plan {
             return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
         }
-        if let Some(mut template) = cached_template {
-            let prepared_plan = PreparationWork::run(
-                self.db.request_execution_scope(),
-                planning_context.lane(),
-                |work| {
+        let reuse = if cached_template.is_some() {
+            QueryPlanCacheReuse::Hit
+        } else {
+            self.charge_request_planning_resource(
+                planning_context,
+                DiagnosticExecutionBudgetResource::PlanCompilations,
+            )?;
+            QueryPlanCacheReuse::Miss
+        };
+        let (prepared_plan, mut template) = PreparationWork::run(
+            self.db.request_execution_scope(),
+            planning_context.lane(),
+            |work| {
+                let (plan, template) = if let Some(template) = cached_template {
                     let bound = template.bind(query, planning_state, work)?;
                     let bound = self.apply_exact_cardinality_tiebreak(
                         authority,
@@ -646,53 +655,30 @@ impl<C: CanisterKind> DbSession<C> {
                         bound,
                         work,
                     )?;
-                    SharedPreparedExecutionPlan::from_plan(
-                        authority.clone(),
-                        bound,
-                        schema_identity.fingerprint(),
+                    (bound, template)
+                } else {
+                    let visible_indexes = Self::visible_indexes_for_accepted_schema(
+                        planning_state.schema_info(),
+                        visibility,
                         work,
-                    )
-                    .map_err(QueryError::execute)
-                },
-            )?;
-            // Binding is synchronous and does not publish into the cache. Keep
-            // the checked-out memo unchanged until the complete plan succeeds.
-            template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
-            let artifact = CachedQueryArtifact::ParameterizedTemplate(template);
-            self.insert_shared_query_artifact(planning_context.lane(), cache_key, artifact)?;
-
-            return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
-        }
-
-        self.charge_request_planning_resource(
-            planning_context,
-            DiagnosticExecutionBudgetResource::PlanCompilations,
-        )?;
-
-        let (prepared_plan, mut template) = PreparationWork::run(
-            self.db.request_execution_scope(),
-            planning_context.lane(),
-            |work| {
-                let visible_indexes = Self::visible_indexes_for_accepted_schema(
-                    planning_state.schema_info(),
-                    visibility,
-                    work,
-                )?;
-                let plan = query.build_plan_with_indexes_from_scalar_planning_state(
-                    visible_indexes.accepted_semantic_index_contracts(),
-                    planning_state,
-                    work,
-                )?;
-                let plan = self.apply_exact_cardinality_tiebreak(
-                    authority,
-                    visible_indexes.accepted_semantic_index_contracts(),
-                    plan,
-                    work,
-                )?;
-                let template = PreparedQueryTemplate::new(
-                    visible_indexes.accepted_semantic_index_contracts(),
-                    work,
-                )?;
+                    )?;
+                    let plan = query.build_plan_with_indexes_from_scalar_planning_state(
+                        visible_indexes.accepted_semantic_index_contracts(),
+                        planning_state,
+                        work,
+                    )?;
+                    let plan = self.apply_exact_cardinality_tiebreak(
+                        authority,
+                        visible_indexes.accepted_semantic_index_contracts(),
+                        plan,
+                        work,
+                    )?;
+                    let template = PreparedQueryTemplate::new(
+                        visible_indexes.accepted_semantic_index_contracts(),
+                        work,
+                    )?;
+                    (plan, template)
+                };
                 let prepared_plan = SharedPreparedExecutionPlan::from_plan(
                     authority.clone(),
                     plan,
@@ -703,11 +689,12 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok((prepared_plan, template))
             },
         )?;
+        // Publish only after construction and its final instruction charge succeed.
         template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
         let artifact = CachedQueryArtifact::ParameterizedTemplate(template);
         self.insert_shared_query_artifact(planning_context.lane(), cache_key, artifact)?;
 
-        Ok((prepared_plan, QueryPlanCacheReuse::Miss))
+        Ok((prepared_plan, reuse))
     }
 
     // Own key construction and current lifecycle checking for ordinary plans.

@@ -23,18 +23,6 @@ use crate::db::{
     },
 };
 
-// Lower one parser-owned SQL `WHERE` expression onto the runtime predicate
-// authority through the shared SQL-expression seam.
-pub(in crate::db::sql::lowering) fn lower_sql_where_expr(
-    expr: &SqlExpr,
-    work: &PreparationWork<'_>,
-) -> Result<Predicate, SqlLoweringError> {
-    let lowered_expr = lower_sql_where_bool_expr(expr, work)?;
-
-    derive_sql_where_expr_predicate_subset(&lowered_expr, work)?
-        .ok_or_else(SqlLoweringError::unsupported_where_expression)
-}
-
 // Derive the predicate subset for one already-lowered SQL WHERE expression.
 pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_subset(
     lowered_expr: &Expr,
@@ -78,6 +66,16 @@ fn lower_sql_bool_expr_internal(
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     let expr = lower_sql_expr(expr, phase, work)?;
+    normalize_lowered_where_expr(expr, scalar_case_canonicalization, work)
+}
+
+// Consume already-lowered operands without returning through SQL syntax.
+// Validation precedes destructive folding for both syntax and bound entrypoints.
+pub(in crate::db::sql::lowering) fn normalize_lowered_where_expr(
+    expr: Expr,
+    scalar_case_canonicalization: bool,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, SqlLoweringError> {
     validate::validate_where_bool_expr(&expr)?;
     let expr = if scalar_case_canonicalization {
         normalize::normalize_scalar_where_bool_expr(expr, work)?

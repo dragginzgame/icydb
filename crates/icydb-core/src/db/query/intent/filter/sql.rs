@@ -7,10 +7,6 @@ use crate::{
     value::{Value, canonicalize_value_set},
 };
 
-// Canonicalize strict numeric SQL predicate literals onto the resolved model
-// field kind so unsigned-width fields keep strict/indexable semantics even
-// though reduced SQL integer tokens parse through one generic numeric value
-// variant first.
 // Canonicalize strict numeric SQL predicate literals through the provided
 // schema view. Session SQL compile paths pass the accepted schema projection
 // here so top-level read predicates line up with live schema reconciliation.
@@ -51,8 +47,6 @@ pub(super) fn canonicalize_sql_predicate_for_schema(
     }
 }
 
-/// Canonicalize one lowered SQL filter expression against model-owned strict
-/// literal rules so the expression shell and derived predicate stay in sync.
 /// Canonicalize one lowered SQL filter expression through a schema view.
 ///
 /// This keeps the expression shell and derived predicate in sync after strict

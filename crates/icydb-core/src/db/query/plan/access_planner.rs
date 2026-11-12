@@ -5,7 +5,7 @@
 
 use crate::db::{
     QueryError,
-    predicate::{Predicate, normalize_enum_literals, normalize_with_budget},
+    predicate::Predicate,
     query::{
         plan::{OrderSpec, canonicalize_order_spec_for_grouping},
         preparation::PreparationWork,
@@ -67,19 +67,4 @@ impl<'a> AccessPlanningInputs<'a> {
             work,
         )
     }
-}
-
-// Normalize one optional predicate into canonical planner form.
-pub(in crate::db::query) fn normalize_query_predicate(
-    schema_info: &SchemaInfo,
-    predicate: Option<&Predicate>,
-    work: &PreparationWork<'_>,
-) -> Result<Option<Predicate>, QueryError> {
-    predicate
-        .map(|predicate| {
-            let predicate = normalize_enum_literals(schema_info, predicate, work)?;
-
-            normalize_with_budget(predicate, work).map_err(QueryError::execute)
-        })
-        .transpose()
 }

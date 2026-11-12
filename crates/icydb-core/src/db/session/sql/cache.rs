@@ -59,6 +59,7 @@ pub(in crate::db) type SqlCompiledCommandCache =
 #[derive(Clone, Debug)]
 pub(in crate::db::session::sql) struct SqlCompiledCommandCacheEntry {
     pub(in crate::db::session::sql) root: AcceptedSchemaRuntimeRootIdentity,
+    pub(in crate::db::session::sql) schema_authority: crate::db::schema::AcceptedSchemaAuthority,
     pub(in crate::db::session::sql) entity_name: Option<Rc<str>>,
     pub(in crate::db::session::sql) command: SqlCachedCommand,
 }
@@ -134,7 +135,7 @@ crate::retained::retained_fields!(SqlCompiledCommandCacheKey {
     Self { surface: _, sql } => [sql],
 });
 crate::retained::retained_fields!(SqlCompiledCommandCacheEntry {
-    Self { root: _, entity_name, command } => [entity_name, command],
+    Self { root: _, schema_authority, entity_name, command } => [schema_authority, entity_name, command],
 });
 
 crate::retained::retained_fields!(SqlCachedCommand {

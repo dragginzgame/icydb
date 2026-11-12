@@ -77,20 +77,6 @@ impl GroupedRouteStage {
         &self.grouped_route_plan
     }
 
-    /// Borrow lowered grouped index-prefix specs.
-    pub(in crate::db::executor) fn index_prefix_specs(
-        &self,
-    ) -> &[crate::db::access::LoweredIndexPrefixSpec] {
-        self.index_specs.index_prefix_specs.as_ref()
-    }
-
-    /// Borrow lowered grouped index-range specs.
-    pub(in crate::db::executor) fn index_range_specs(
-        &self,
-    ) -> &[crate::db::access::LoweredIndexRangeSpec] {
-        self.index_specs.index_range_specs.as_ref()
-    }
-
     /// Return routed grouped stream direction.
     pub(in crate::db::executor) const fn direction(&self) -> Direction {
         self.grouped_route_plan.direction()
@@ -205,14 +191,6 @@ impl GroupedRouteStage {
                 grouped_distinct_execution_strategy: GroupedDistinctExecutionStrategy::None,
             },
             grouped_route_plan,
-            index_specs: crate::db::executor::pipeline::contracts::IndexSpecBundle {
-                index_prefix_specs: std::sync::Arc::from(Vec::<
-                    crate::db::access::LoweredIndexPrefixSpec,
-                >::new()),
-                index_range_specs: std::sync::Arc::from(Vec::<
-                    crate::db::access::LoweredIndexRangeSpec,
-                >::new()),
-            },
             continuation,
             resume_anchor: None,
         }

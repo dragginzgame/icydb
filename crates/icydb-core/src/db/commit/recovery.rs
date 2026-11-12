@@ -40,9 +40,7 @@ use crate::{
             DatabaseCommitSequence, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
             JournalTailStore,
         },
-        positioned_overlay::{
-            JournalOverlayPosition, classify_derived_index_overlay, classify_journal_overlay,
-        },
+        positioned_overlay::JournalOverlayPosition,
         registry::{
             StoreHandle, StoreRecoveryCapability, StoreRegistry, StoreRelationSourceCapability,
             StoreSchemaMetadataCapability,
@@ -872,7 +870,6 @@ fn collect_online_row_retirement_keys(
 ) {
     data_keys.push(prepared.data_key.clone());
     for index_op in &prepared.index_ops {
-        let _decision = classify_derived_index_overlay(index_op.value.as_ref());
         collect_online_index_retirement_key(
             grouped_index_keys,
             index_op.index_store,
@@ -1197,6 +1194,7 @@ fn collect_folded_cardinality_changes(
     authority: &CardinalityBuildAuthority,
     cursor: Option<&CardinalityBuildCursor>,
 ) -> Result<Vec<(CardinalityCountDigest, i64)>, InternalError> {
+    // Coalesce by value while borrowing immutable operations for this call.
     let mut final_rows = BTreeMap::new();
     let mut final_indexes = BTreeMap::new();
     for prepared in prepared_ops
@@ -1207,10 +1205,10 @@ fn collect_folded_cardinality_changes(
         if !std::ptr::eq(prepared.data_store, handle.data_store()) {
             return Err(InternalError::store_corruption());
         }
-        final_rows.insert(prepared.data_key.clone(), prepared.data_value.is_some());
+        final_rows.insert(&prepared.data_key, prepared.data_value.is_some());
         for mutation in &prepared.index_ops {
             if std::ptr::eq(mutation.index_store, handle.index_store()) {
-                final_indexes.insert(mutation.key.clone(), mutation.value.clone());
+                final_indexes.insert(&mutation.key, mutation.value.as_ref());
             }
         }
     }
@@ -1221,16 +1219,16 @@ fn collect_folded_cardinality_changes(
         // Once index scanning begins, the complete row domain is maintained.
         if cursor.is_some_and(|cursor| {
             cursor.phase() == CardinalityBuildPhase::Rows
-                && !matches!(cursor.checkpoint(), Some(CardinalityBuildCheckpoint::Row(last)) if &key <= last)
+                && !matches!(cursor.checkpoint(), Some(CardinalityBuildCheckpoint::Row(last)) if key <= last)
         }) {
             continue;
         }
-        let decoded = DecodedDataStoreKey::try_from_raw(&key)
+        let decoded = DecodedDataStoreKey::try_from_raw(key)
             .map_err(|_| InternalError::store_corruption())?;
         if !authority.accepts_entity(decoded.entity_tag()) {
             return Err(InternalError::store_corruption());
         }
-        let previous_present = handle.with_data(|store| store.get_canonical(&key).is_some());
+        let previous_present = handle.with_data(|store| store.get_canonical(key).is_some());
         let delta = match (previous_present, next_present) {
             (false, true) => 1,
             (true, false) => -1,
@@ -1243,15 +1241,15 @@ fn collect_folded_cardinality_changes(
     }
     for (key, next) in final_indexes {
         if cursor.is_some_and(|cursor| {
-            !matches!(cursor.checkpoint(), Some(CardinalityBuildCheckpoint::Index(last)) if &key <= last)
+            !matches!(cursor.checkpoint(), Some(CardinalityBuildCheckpoint::Index(last)) if key <= last)
         }) {
             continue;
         }
-        let previous = handle.with_index(|store| store.get_canonical(&key));
-        for digest in accepted_prefix_digests(&key, previous.as_ref(), authority)? {
+        let previous = handle.with_index(|store| store.get_canonical(key));
+        for digest in accepted_prefix_digests(key, previous.as_ref(), authority)? {
             add_cardinality_change(&mut changes, digest, -1)?;
         }
-        for digest in accepted_prefix_digests(&key, next.as_ref(), authority)? {
+        for digest in accepted_prefix_digests(key, next, authority)? {
             add_cardinality_change(&mut changes, digest, 1)?;
         }
     }
@@ -1327,7 +1325,6 @@ fn prepare_online_batch_retirement(
     let mut data_keys = Vec::new();
     let mut grouped_index_keys = Vec::new();
     for (record_ordinal, record) in batch.records().iter().enumerate() {
-        let _decision = classify_journal_overlay(record);
         match record {
             JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => {
                 let prepared = prepared_ops
@@ -2057,54 +2054,36 @@ fn journal_batch_schema_candidate(
     expected_store_path: &'static str,
     batch: &JournalBatch,
 ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
-    let mut candidate = None;
-    for (position, record) in batch.records().iter().enumerate() {
-        match record {
-            JournalRecord::AcceptedSchemaPublish {
-                store_path,
-                expected_revision,
-                schema_bundle_bytes,
-                schema_root_bytes,
-            } => {
-                if position != 0 || candidate.is_some() || store_path != expected_store_path {
-                    return Err(InternalError::store_corruption());
-                }
-                let decoded = CandidateSchemaRevision::from_encoded(
-                    schema_bundle_bytes.clone(),
-                    schema_root_bytes.clone(),
-                )?;
-                if decoded.store_path() != expected_store_path
-                    || expected_revision.checked_next() != Some(decoded.revision())
-                {
-                    return Err(InternalError::store_corruption());
-                }
-                for (entity_tag, snapshot) in decoded.bundle().entity_snapshots() {
-                    let source = icydb_schema::EntitySourceKey::try_new(snapshot.entity_path())
-                        .map_err(|_| InternalError::store_corruption())?;
-                    if decoded.bundle().source_bindings().entity(&source) != Some(*entity_tag) {
-                        return Err(InternalError::store_corruption());
-                    }
-                }
-                candidate = Some(decoded);
-            }
-            JournalRecord::RowDelete { .. } if candidate.is_some() => {
-                return Err(InternalError::store_corruption());
-            }
-            JournalRecord::RowPut { .. }
-            | JournalRecord::RowDelete { .. }
-            | JournalRecord::AcceptedSchemaIndexDelete { .. }
-            | JournalRecord::AcceptedSchemaIndexPut { .. }
-            | JournalRecord::ConstraintValidationJobPut { .. }
-            | JournalRecord::ConstraintValidationJobDelete { .. }
-            | JournalRecord::ConstraintValidationIndexPut { .. }
-            | JournalRecord::IdentityRangeAdvance { .. } => {}
-            #[cfg(any(test, feature = "migration"))]
-            JournalRecord::SchemaMigrationRowPut { .. }
-            | JournalRecord::SchemaMigrationIndexPut { .. } => {}
+    // Immutable batch admission already proves publication is first and unique.
+    let Some(JournalRecord::AcceptedSchemaPublish {
+        store_path,
+        expected_revision,
+        schema_bundle_bytes,
+        schema_root_bytes,
+    }) = batch.records().first()
+    else {
+        return Ok(None);
+    };
+    if store_path != expected_store_path {
+        return Err(InternalError::store_corruption());
+    }
+    let decoded = CandidateSchemaRevision::from_encoded(
+        schema_bundle_bytes.clone(),
+        schema_root_bytes.clone(),
+    )?;
+    if decoded.store_path() != expected_store_path
+        || expected_revision.checked_next() != Some(decoded.revision())
+    {
+        return Err(InternalError::store_corruption());
+    }
+    for (entity_tag, snapshot) in decoded.bundle().entity_snapshots() {
+        let source = icydb_schema::EntitySourceKey::try_new(snapshot.entity_path())
+            .map_err(|_| InternalError::store_corruption())?;
+        if decoded.bundle().source_bindings().entity(&source) != Some(*entity_tag) {
+            return Err(InternalError::store_corruption());
         }
     }
-
-    Ok(candidate)
+    Ok(Some(decoded))
 }
 
 fn validate_journal_batch_constraint_validation_job_change<C: CanisterKind>(

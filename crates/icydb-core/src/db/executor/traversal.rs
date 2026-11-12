@@ -10,8 +10,7 @@
 
 use crate::{
     db::{
-        executor::{ExecutionPathPayload, LoweredIndexRangeSpec},
-        predicate::MissingRowPolicy,
+        executor::LoweredIndexRangeSpec, predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -28,39 +27,11 @@ use crate::{
 pub(in crate::db::executor) struct IndexRangeTraversalContract;
 
 impl IndexRangeTraversalContract {
-    /// Validate that one consumed index-range spec is aligned with one index-range path node.
-    pub(in crate::db::executor) fn validate_spec_alignment<K>(
-        path: &ExecutionPathPayload<'_, K>,
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-    ) -> Result<(), InternalError> {
-        let path_facts = path.shape_facts();
-        if let Some(spec) = index_range_spec
-            && let Some(details) = path_facts.index_range_details()
-            && spec.scan_contract().name() != details.name()
-        {
-            return Err(InternalError::query_executor_invariant());
-        }
-
-        Ok(())
-    }
-
     /// Require one index-range spec for index-range physical execution.
     pub(in crate::db::executor) fn require_spec(
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<&LoweredIndexRangeSpec, InternalError> {
         index_range_spec.ok_or_else(InternalError::query_executor_invariant)
-    }
-
-    /// Validate that index-range lowered specs were fully consumed during traversal.
-    pub(in crate::db::executor) fn validate_specs_consumed(
-        consumed: usize,
-        available: usize,
-    ) -> Result<(), InternalError> {
-        if consumed < available {
-            return Err(InternalError::query_executor_invariant());
-        }
-
-        Ok(())
     }
 }
 

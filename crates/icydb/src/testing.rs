@@ -1,54 +1,28 @@
 //! Typed startup observation for native canister tests (`testing` feature).
 //!
-//! Testkit owns PocketIC provisioning, lifecycle and bounded progression. This
-//! module only maps IcyDB's existing startup state into that polling contract.
+//! This module maps typed IcyDB readiness observations without depending on a
+//! simulator. Testkit owns PocketIC provisioning, lifecycle and bounded polling.
 
-use std::{task::Poll, time::Duration};
+use std::task::Poll;
 
 use crate::db::DatabaseStartupState;
 
-pub use ic_testkit::pic::{PocketIcInstance, TickUntilError};
-
-/// Wait for IcyDB startup using a caller-supplied typed readiness observation.
+/// Project an authorized typed startup observation into a readiness predicate.
 ///
-/// `observe` must read the generated canister's `startup_state()` through the
-/// application's own authorized observation endpoint. Transport and terminal
-/// startup failures must remain errors; neither is retried. Do not pass an
-/// application mutation here: readiness polling must not repeat its effects.
+/// Read the generated canister's `startup_state()` through the application's
+/// own authorized read-only endpoint. Only [`DatabaseStartupState::Recovering`]
+/// permits another polling round. Ready completes successfully; transport and
+/// terminal startup errors stop immediately with their original typed value.
+/// An ordinary operation's startup-pending error is still an error here.
 ///
-/// The caller owns the async runtime. The initial observation runs before progression,
-/// even with zero rounds.
-/// While recovering, Testkit advances simulated time by one second and ticks
-/// once per round, allowing entropy replies and watchdog retries to progress.
-/// Readiness on the last allowed round succeeds. Select `max_rounds` for the
-/// fixture's recovery workload; elapsed time does not determine readiness.
+/// Compose this predicate with Testkit's `pic::tick_until` using the existing
+/// `PocketIcInstance` owner, a caller-selected round budget and one-second
+/// simulated advances. Testkit owns initial polling, progression, last-round
+/// completion and typed exhaustion; this function performs no polling or effects.
 ///
-/// This works after installation or upgrade and does not install, restart or
-/// configure a server, register timers, or drive recovery inside the canister.
-///
-/// # Errors
-/// Returns Testkit's typed observation failure or exhausted round
-/// budget. The observation's original error is preserved in `TickUntilError::Failed`.
-///
-/// # Panics
-/// Propagates upstream PocketIC transport panics during simulated progression.
-pub async fn drive_startup<E>(
-    instance: &PocketIcInstance,
-    max_rounds: u32,
-    mut observe: impl AsyncFnMut() -> Result<DatabaseStartupState, E>,
-) -> Result<(), TickUntilError<E>> {
-    ic_testkit::pic::tick_until(
-        instance.instance(),
-        max_rounds,
-        Duration::from_secs(1),
-        async |_| startup_poll(observe().await),
-    )
-    .await
-}
-
-// Only Recovering permits another progression round. In particular, a failed
-// observation must not be interpreted as pending merely because startup ran.
-fn startup_poll<E>(observation: Result<DatabaseStartupState, E>) -> Poll<Result<(), E>> {
+/// Never use a mutation as the observation: readiness polling must not repeat
+/// application effects. The same composition works after installation or upgrade.
+pub fn startup_poll<E>(observation: Result<DatabaseStartupState, E>) -> Poll<Result<(), E>> {
     match observation {
         Ok(DatabaseStartupState::Ready) => Poll::Ready(Ok(())),
         Ok(DatabaseStartupState::Recovering) => Poll::Pending,

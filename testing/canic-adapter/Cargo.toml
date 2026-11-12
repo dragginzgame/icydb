@@ -89,7 +89,7 @@ icydb-testing-test-sql-fixtures = { path = "../../qualification/schema/tests/sql
 icydb-testing-wasm-helpers = { path = "../../qualification/wasm-helpers" }
 # Renamed-dependency fixtures exercise generated imports under caller-selected names.
 runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
-toko-tooling = "=0.39.10"
+toko-tooling = "=0.39.15"
 trybuild = "1.0"
 
 # ---------------------

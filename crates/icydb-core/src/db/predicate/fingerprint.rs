@@ -14,24 +14,12 @@ use crate::{
                 normalized_predicate_key_capacity, raw_predicate_key_capacity,
                 write_normalized_predicate_sort_key, write_predicate_sort_key,
             },
-            normalize_with_budget,
         },
         resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };
 use sha2::{Digest, Sha256};
-
-/// Hash canonical predicate structure into the plan hash stream.
-pub(in crate::db) fn hash_predicate(
-    hasher: &mut Sha256,
-    predicate: &Predicate,
-    budget: &dyn ConstructionBudget,
-) -> Result<(), InternalError> {
-    // Copy, pair simplification and final encoding share the caller's authority.
-    let normalized = normalize_with_budget(budget.copy_predicate(predicate)?, budget)?;
-    hash_predicate_structural(hasher, &normalized, budget)
-}
 
 /// Return a BLAKE3 digest of canonical bytes for in-memory cache identity only.
 pub(in crate::db) fn predicate_fingerprint_normalized(
@@ -45,12 +33,16 @@ pub(in crate::db) fn predicate_fingerprint_normalized(
     Ok(*blake3::hash(&encoded).as_bytes())
 }
 
-// Hash structural predicate bytes without running normalization.
+/// Hash a planner-owned canonical predicate without copying or normalizing it.
+///
+/// The query pipeline normalizes before logical assembly; exact-key pruning
+/// only retains or removes that predicate. Callers must preserve that tree
+/// contract. Value encoding still canonicalizes membership/coercion bytes.
 //
 // Predicate sort-key encoding already owns the canonical structural traversal
 // for deterministic ordering. Reuse that same byte surface for hashing so the
 // predicate subsystem does not carry a second recursive encoding tree.
-fn hash_predicate_structural(
+pub(in crate::db) fn hash_canonical_predicate(
     hasher: &mut Sha256,
     predicate: &Predicate,
     budget: &dyn ConstructionBudget,

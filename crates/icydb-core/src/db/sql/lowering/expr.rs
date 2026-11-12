@@ -3,8 +3,13 @@
 //! Does not own: SQL token parsing or runtime expression evaluation.
 //! Boundary: enforces clause-phase admission while translating parsed expressions.
 
-use crate::db::query::preparation::PreparationWork;
+use std::cell::Cell;
+
+use crate::db::sql::lowering::bindings::{
+    admit_bound_expression, admit_bound_membership_item, operand,
+};
 use crate::db::sql::lowering::{SqlLoweringError, aggregate::lower_aggregate_call};
+use crate::db::{query::preparation::PreparationWork, schema::SchemaInfo};
 use crate::{
     db::{
         predicate::supported_like_prefix,
@@ -16,7 +21,7 @@ use crate::{
         },
         sql_shared::SqlParseError,
     },
-    value::Value,
+    value::{InputValue, Value},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, QueryProjectionCode, SqlFeatureCode,
@@ -38,11 +43,127 @@ pub(in crate::db::sql::lowering) enum SqlExprPhase {
     PostAggregate,
 }
 
-// Lower one SQL expression tree into the canonical planner expression tree
-// while enforcing the aggregate-admission rule for the owning clause phase.
+// Slot visits are invocation-local; syntax remains immutable in cached templates.
+struct BoundOperands<'a> {
+    schema: &'a SchemaInfo,
+    values: &'a [InputValue],
+    visits: Cell<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct SqlExprContext<'a> {
+    phase: SqlExprPhase,
+    operands: Option<&'a BoundOperands<'a>>,
+    infer_here: bool,
+}
+
+impl SqlExprContext<'_> {
+    const fn child(self, infer_here: bool) -> Self {
+        Self { infer_here, ..self }
+    }
+
+    fn visits(self) -> usize {
+        self.operands.map_or(0, |operands| operands.visits.get())
+    }
+
+    fn parameter(
+        self,
+        index: usize,
+        work: &PreparationWork<'_>,
+    ) -> Result<Value, SqlLoweringError> {
+        let Some(operands) = self.operands else {
+            return Err(SqlLoweringError::unsupported_parameter_placement(Some(
+                index,
+            )));
+        };
+        operands.visits.set(operands.visits.get() + 1);
+        Ok(operand(index, operands.values, work)?)
+    }
+}
+
 pub(in crate::db::sql::lowering) fn lower_sql_expr(
     expr: &SqlExpr,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, SqlLoweringError> {
+    lower_expr(
+        expr,
+        SqlExprContext {
+            phase,
+            operands: None,
+            infer_here: false,
+        },
+        work,
+    )
+}
+
+pub(in crate::db::sql::lowering) fn lower_bound_where(
+    expr: &SqlExpr,
+    schema: &SchemaInfo,
+    bindings: &[InputValue],
+    work: &PreparationWork<'_>,
+) -> Result<Expr, SqlLoweringError> {
+    let operands = BoundOperands {
+        schema,
+        values: bindings,
+        visits: Cell::new(0),
+    };
+    lower_expr(
+        expr,
+        SqlExprContext {
+            phase: SqlExprPhase::Where,
+            operands: Some(&operands),
+            infer_here: true,
+        },
+        work,
+    )
+}
+
+// Admit each bound subtree before its parent can simplify it. Slots themselves
+// retain scalar ingress admission; enclosing comparisons/functions own typing.
+fn lower_expr(
+    expr: &SqlExpr,
+    context: SqlExprContext<'_>,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, SqlLoweringError> {
+    let before = context.visits();
+    let lowered = lower_expr_inner(expr, context, work)?;
+    if context.visits() != before
+        && let Some(operands) = context.operands
+    {
+        let infer = context.infer_here;
+        match expr {
+            SqlExpr::Param { .. }
+            | SqlExpr::Unary { .. }
+            | SqlExpr::Membership { .. }
+            | SqlExpr::Binary {
+                op: SqlExprBinaryOp::And | SqlExprBinaryOp::Or,
+                ..
+            } => {}
+            SqlExpr::Binary { op, .. }
+                if infer
+                    || matches!(
+                        op,
+                        SqlExprBinaryOp::Eq
+                            | SqlExprBinaryOp::Ne
+                            | SqlExprBinaryOp::Lt
+                            | SqlExprBinaryOp::Lte
+                            | SqlExprBinaryOp::Gt
+                            | SqlExprBinaryOp::Gte
+                    ) =>
+            {
+                admit_bound_expression(&lowered, operands.schema, infer, work)?;
+            }
+            _ if infer => admit_bound_expression(&lowered, operands.schema, true, work)?,
+            _ => {}
+        }
+    }
+    Ok(lowered)
+}
+
+fn lower_expr_inner(
+    expr: &SqlExpr,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     work.charge(Resource::PredicateExpressionSteps, 1)?;
@@ -59,28 +180,32 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             Ok(Expr::FieldPath(FieldPath::new(FieldId::new(root), copied)))
         }
         SqlExpr::Aggregate(aggregate) => {
-            if !phase_allows_aggregate(phase) {
-                return Err(phase_aggregate_error(phase));
+            if context.operands.is_some() {
+                return Err(crate::db::QueryError::sql_lowering(
+                    icydb_diagnostic_code::SqlLoweringCode::ParameterPlacement,
+                )
+                .into());
+            }
+            if !phase_allows_aggregate(context.phase) {
+                return Err(phase_aggregate_error(context.phase));
             }
 
             Ok(Expr::Aggregate(lower_aggregate_call(aggregate, work)?))
         }
         SqlExpr::Literal(literal) => Ok(Expr::Literal(work.copy_value(literal)?)),
-        SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(Some(
-            *index,
-        ))),
+        SqlExpr::Param { index } => Ok(Expr::Literal(context.parameter(*index, work)?)),
         SqlExpr::Membership {
             expr,
             values,
             negated,
-        } => lower_sql_membership_expr(expr.as_ref(), values.as_slice(), *negated, phase, work),
+        } => lower_sql_membership_expr(expr.as_ref(), values.as_slice(), *negated, context, work),
         SqlExpr::BooleanTest {
             expr,
             value,
             negated,
-        } => lower_sql_boolean_test(expr, *value, *negated, phase, work),
+        } => lower_sql_boolean_test(expr, *value, *negated, context, work),
         SqlExpr::NullTest { expr, negated } => {
-            let arg = lower_sql_expr(expr, phase, work)?;
+            let arg = lower_expr(expr, context.child(false), work)?;
             charge_storage::<Expr>(1, work)?;
             Ok(Expr::FunctionCall {
                 function: if *negated {
@@ -101,14 +226,14 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             pattern.as_str(),
             *negated,
             *casefold,
-            phase,
+            context,
             work,
         ),
         SqlExpr::FunctionCall { function, args } => {
-            lower_sql_function_call(*function, args, phase, work)
+            lower_sql_function_call(*function, args, context, work)
         }
         SqlExpr::Unary { op, expr } => {
-            let expr = lower_sql_expr(expr, phase, work)?;
+            let expr = lower_expr(expr, context, work)?;
             charge_storage::<Expr>(1, work)?;
             Ok(Expr::Unary {
                 op: lower_sql_unary_op(*op),
@@ -116,7 +241,7 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             })
         }
         SqlExpr::Binary { op, left, right } => {
-            lower_sql_binary_expr(*op, left.as_ref(), right.as_ref(), phase, work)
+            lower_sql_binary_expr(*op, left.as_ref(), right.as_ref(), context, work)
         }
         SqlExpr::Case { arms, else_expr } => {
             // Reserve the known length once; fallible collection must not
@@ -125,12 +250,12 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             let mut lowered = Vec::with_capacity(arms.len());
             for arm in arms {
                 lowered.push(CaseWhenArm::new(
-                    lower_sql_expr(&arm.condition, phase, work)?,
-                    lower_sql_expr(&arm.result, phase, work)?,
+                    lower_expr(&arm.condition, context.child(false), work)?,
+                    lower_expr(&arm.result, context.child(false), work)?,
                 ));
             }
             let otherwise = match else_expr.as_ref() {
-                Some(else_expr) => lower_sql_expr(else_expr.as_ref(), phase, work)?,
+                Some(else_expr) => lower_expr(else_expr.as_ref(), context.child(false), work)?,
                 None => Expr::Literal(Value::Null),
             };
             charge_storage::<Expr>(1, work)?;
@@ -147,13 +272,13 @@ fn lower_sql_boolean_test(
     expr: &SqlExpr,
     value: bool,
     negated: bool,
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     // Default UNKNOWN to the opposite Boolean before optional inversion:
     // IS TRUE uses COALESCE(x, FALSE); IS FALSE uses NOT COALESCE(x, TRUE).
     // The same operators handle both negated forms, retaining the operand once.
-    let operand = lower_sql_expr(expr, phase, work)?;
+    let operand = lower_expr(expr, context.child(false), work)?;
     let invert = value == negated;
     charge_storage::<Expr>(2 + usize::from(invert), work)?;
     let total = Expr::FunctionCall {
@@ -197,22 +322,26 @@ fn lower_sql_membership_expr(
     expr: &SqlExpr,
     values: &[SqlMembershipValue],
     negated: bool,
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
-    let target = lower_sql_expr(expr, phase, work)?;
+    let before = context.visits();
+    let target = lower_expr(expr, context, work)?;
+    let target_bound = context.visits() != before;
     charge_storage::<Value>(values.len(), work)?;
     let mut copied = Vec::with_capacity(values.len());
     for value in values {
         work.charge(Resource::PredicateExpressionSteps, 1)?;
-        copied.push(match value {
+        let resolved = match value {
             SqlMembershipValue::Literal(value) => work.copy_value(value)?,
-            SqlMembershipValue::Param { index } => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(Some(
-                    *index,
-                )));
-            }
-        });
+            SqlMembershipValue::Param { index } => context.parameter(*index, work)?,
+        };
+        if (target_bound || matches!(value, SqlMembershipValue::Param { .. }))
+            && let Some(operands) = context.operands
+        {
+            admit_bound_membership_item(&target, &resolved, operands.schema, work)?;
+        }
+        copied.push(resolved);
     }
     charge_storage::<Expr>(2 + usize::from(negated), work)?;
     Ok(Expr::membership(target, copied, negated))
@@ -223,7 +352,7 @@ fn lower_sql_like_expr(
     pattern: &str,
     negated: bool,
     casefold: bool,
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     work.charge(Resource::PredicateExpressionSteps, pattern.len() as u64)?;
@@ -234,7 +363,7 @@ fn lower_sql_like_expr(
         .into());
     };
 
-    let target = lower_sql_like_target_expr(expr, casefold, phase, work)?;
+    let target = lower_sql_like_target_expr(expr, casefold, context, work)?;
     let prefix = copy_text(prefix, work)?;
     charge_storage::<Expr>(2, work)?;
     let expr = Expr::FunctionCall {
@@ -263,10 +392,10 @@ fn lower_sql_like_expr(
 fn lower_sql_like_target_expr(
     expr: &SqlExpr,
     casefold: bool,
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
-    let target = lower_sql_expr(expr, phase, work)?;
+    let target = lower_expr(expr, context.child(false), work)?;
     if casefold {
         charge_storage::<Expr>(1, work)?;
         return Ok(Expr::FunctionCall {
@@ -282,12 +411,15 @@ fn lower_sql_binary_expr(
     op: SqlExprBinaryOp,
     left: &SqlExpr,
     right: &SqlExpr,
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
-    // Preserve SQL's field/literal admission without constructing a fluent
-    // projection wrapper and cloning its expression back into this same tree.
-    if let (SqlExpr::Field(_), SqlExpr::Literal(literal)) = (left, right)
+    let child = context
+        .child(context.infer_here && matches!(op, SqlExprBinaryOp::And | SqlExprBinaryOp::Or));
+    let lowered_left = lower_expr(left, child, work)?;
+    let lowered_right = lower_expr(right, child, work)?;
+    if matches!(left, SqlExpr::Field(_))
+        && let Expr::Literal(literal) = &lowered_right
         && matches!(
             op,
             SqlExprBinaryOp::Add
@@ -298,12 +430,9 @@ fn lower_sql_binary_expr(
     {
         validate_numeric_literal(literal)?;
     }
-
-    let left = lower_sql_expr(left, phase, work)?;
-    charge_storage::<Expr>(1, work)?;
-    let left = Box::new(left);
-    let right = lower_sql_expr(right, phase, work)?;
-    charge_storage::<Expr>(1, work)?;
+    charge_storage::<Expr>(2, work)?;
+    let left = Box::new(lowered_left);
+    let right = lowered_right;
     Ok(Expr::Binary {
         op: lower_sql_binary_op(op),
         left,
@@ -376,11 +505,11 @@ pub(in crate::db::sql::lowering) const fn lower_sql_binary_op(op: SqlExprBinaryO
 fn lower_sql_function_call(
     function: SqlScalarFunction,
     args: &[SqlExpr],
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     if function.uses_numeric_scale_special_case() {
-        return lower_sql_numeric_scale_function_call(function, args, phase, work);
+        return lower_sql_numeric_scale_function_call(function, args, context, work);
     }
 
     let function = function.planner_function().ok_or_else(|| {
@@ -389,7 +518,7 @@ fn lower_sql_function_call(
     charge_storage::<Expr>(args.len(), work)?;
     let mut lowered = Vec::with_capacity(args.len());
     for arg in args {
-        lowered.push(lower_sql_expr(arg, phase, work)?);
+        lowered.push(lower_expr(arg, context.child(false), work)?);
     }
     Ok(Expr::FunctionCall {
         function,
@@ -400,7 +529,7 @@ fn lower_sql_function_call(
 fn lower_sql_numeric_scale_function_call(
     function: SqlScalarFunction,
     args: &[SqlExpr],
-    phase: SqlExprPhase,
+    context: SqlExprContext<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     if !(1..=2).contains(&args.len()) {
@@ -410,15 +539,18 @@ fn lower_sql_numeric_scale_function_call(
         .into());
     }
 
-    let input = lower_sql_expr(&args[0], phase, work)?;
+    let input = lower_expr(&args[0], context.child(false), work)?;
     let scale = match args.get(1) {
-        Some(SqlExpr::Literal(scale)) => {
-            work.charge(Resource::PredicateExpressionSteps, 1)?;
-            Expr::Literal(Value::Nat64(u64::from(
-                validate_numeric_scale_function_scale(scale)?,
-            )))
+        Some(scale) => {
+            let lowered = lower_expr(scale, context.child(false), work)?;
+            if let Expr::Literal(value) = &lowered {
+                Expr::Literal(Value::Nat64(u64::from(
+                    validate_numeric_scale_function_scale(value)?,
+                )))
+            } else {
+                lowered
+            }
         }
-        Some(other) => lower_sql_expr(other, phase, work)?,
         None => Expr::Literal(Value::Nat64(0)),
     };
 

@@ -69,7 +69,7 @@ pub(super) fn plan_compare(
             _ => None,
         };
         if let Some(path) = path {
-            return Ok(AccessPlan::Path(budget.boxed(path)?));
+            return Ok(AccessPlan::boxed_path(budget.boxed(path)?));
         }
     }
     if primary_key_exact_coercion_supports_access(cmp.coercion.id)
@@ -229,7 +229,7 @@ fn plan_pk_compare(
             return Ok(None);
         }
     };
-    Ok(Some(AccessPlan::Path(budget.boxed(path)?)))
+    Ok(Some(AccessPlan::boxed_path(budget.boxed(path)?)))
 }
 
 fn plan_starts_with_compare(
@@ -328,7 +328,7 @@ fn plan_starts_with_compare(
         lower,
         upper,
     );
-    Ok(Some(AccessPlan::Path(
+    Ok(Some(AccessPlan::boxed_path(
         budget.boxed(AccessPath::IndexRange { spec })?,
     )))
 }
@@ -425,7 +425,7 @@ fn plan_ordered_compare(
         lower,
         upper,
     );
-    Ok(Some(AccessPlan::Path(
+    Ok(Some(AccessPlan::boxed_path(
         budget.boxed(AccessPath::IndexRange { spec })?,
     )))
 }

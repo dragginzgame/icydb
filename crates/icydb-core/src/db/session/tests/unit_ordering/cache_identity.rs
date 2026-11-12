@@ -423,17 +423,25 @@ fn warmed_scalar_builder_identity_matches_fresh_intent() {
     assert_current_identity(query, |query| {
         query.projection_selection(ProjectionSelection::Fields(vec!["label".into()]))
     });
+    let session = initialize();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
     with_preparation_work(|work| {
         assert_current_identity(query, |query| {
             query
-                .filter_expr(Expr::Literal(Value::Bool(false)), work)
+                .filter_expr(
+                    catalog.accepted_schema_info(),
+                    Expr::Literal(Value::Bool(false)),
+                    work,
+                )
                 .unwrap()
         });
         assert_current_identity(query, |query| {
             query
-                .filter_expr_with_normalized_predicate(
+                .filter_sql_expr(
+                    catalog.accepted_schema_info(),
                     Expr::Literal(Value::Bool(false)),
-                    crate::db::predicate::Predicate::False,
                     work,
                 )
                 .unwrap()

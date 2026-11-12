@@ -22,7 +22,7 @@ use crate::{
         Db,
         cursor::IndexScanContinuationInput,
         executor::{
-            EntityAuthority, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            EntityAuthority, IndexScan, LoweredIndexRangeSpec,
             decode_single_covering_projection_pairs, projection::MaterializedProjectionRows,
         },
         index::{
@@ -48,8 +48,6 @@ use std::ops::Bound;
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct PreparedCoveringProjectionRuntime<'a> {
     plan: &'a AccessPlannedQuery,
-    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-    index_range_specs: &'a [LoweredIndexRangeSpec],
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
@@ -57,14 +55,10 @@ impl<'a> PreparedCoveringProjectionRuntime<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         plan: &'a AccessPlannedQuery,
-        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-        index_range_specs: &'a [LoweredIndexRangeSpec],
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
         Self {
             plan,
-            index_prefix_specs,
-            index_range_specs,
             index_predicate_execution,
         }
     }
@@ -85,8 +79,8 @@ where
             db,
             authority.clone(),
             runtime.plan,
-            runtime.index_prefix_specs,
-            runtime.index_range_specs,
+            runtime.plan.access.single_index_prefix_specs(),
+            runtime.plan.access.single_index_range_specs(),
             &covering,
             runtime.index_predicate_execution,
         )?

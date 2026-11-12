@@ -11,7 +11,6 @@ use crate::{
         index::{
             EncodedValue, UserIndexPrefixCardinalityKey, encode_accepted_index_literal_component,
         },
-        predicate::Predicate,
         query::{plan::VisibleIndexes, preparation::PreparationWork},
         tests::support::request_with_limit,
     },
@@ -151,37 +150,38 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
         VisibleIndexes::accepted_schema_visible(schema, work)
     })
     .expect("valid accepted index fixture");
-    let branches: Vec<_> = (0..17)
-        .map(|value| Value::Text(format!("branch-{value:02}")))
-        .collect();
+    let branches: Vec<_> = (0..17).map(|value| format!("branch-{value:02}")).collect();
     // The maintained metadata-only composite shortcut accepts a wider branch
     // set than ordinary bounded branch scans; cover its owned exact-prefix case.
     let cases = [
         (
-            Predicate::eq("common".into(), Value::Text("everyone".into())),
+            crate::db::FilterExpr::eq("common", "everyone"),
             vec![vec![Value::Text("everyone".into())]],
         ),
         (
-            Predicate::in_("common".into(), branches[..3].to_vec()),
+            crate::db::FilterExpr::in_list("common", branches[..3].to_vec()),
             branches[..3]
                 .iter()
-                .map(|value| vec![value.clone()])
+                .map(|value| vec![Value::Text(value.clone())])
                 .collect(),
         ),
         (
-            Predicate::And(vec![
-                Predicate::eq("wide_fixed".into(), Value::Text("all".into())),
-                Predicate::in_("wide_branch".into(), branches.clone()),
+            crate::db::FilterExpr::and(vec![
+                crate::db::FilterExpr::eq("wide_fixed", "all"),
+                crate::db::FilterExpr::in_list("wide_branch", branches.clone()),
             ]),
             branches
                 .iter()
-                .map(|value| vec![Value::Text("all".into()), value.clone()])
+                .map(|value| vec![Value::Text("all".into()), Value::Text(value.clone())])
                 .collect(),
         ),
     ];
     for (predicate, values) in cases {
-        let query =
-            StructuralQuery::new(MissingRowPolicy::Ignore).filter_normalized_predicate(predicate);
+        let query = crate::db::query::preparation::with_preparation_work(|work| {
+            StructuralQuery::new(MissingRowPolicy::Ignore)
+                .filter_for_schema(schema, &predicate, work)
+        })
+        .unwrap();
         let proof_root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let access = PreparationWork::run(&proof_root.scope(), Lane::Diagnostic, |work| {
             query.try_build_count_cardinality_prefix_access_with_schema_info(&visible, schema, work)

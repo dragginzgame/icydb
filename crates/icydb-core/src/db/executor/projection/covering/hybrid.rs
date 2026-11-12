@@ -57,8 +57,8 @@ where
         &authority,
         CoveringIndexScanRequest {
             plan: runtime.plan,
-            index_prefix_specs: runtime.index_prefix_specs,
-            index_range_specs: runtime.index_range_specs,
+            index_prefix_specs: runtime.plan.access.single_index_prefix_specs(),
+            index_range_specs: runtime.plan.access.single_index_range_specs(),
             fields: hybrid.fields.as_slice(),
             order_contract: hybrid.order_contract,
             existing_row_mode: hybrid.existing_row_mode,

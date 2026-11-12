@@ -3,11 +3,12 @@ use icydb::{
         DbSession, DynamicQuery, LiveQueryPageOutput, PrimaryKeyValue, TypedEntityAdapter,
         TypedWrite,
         query::{
-            CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
+            CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr,
             JunctionOperator, Query, SetOperator, StateOperator, count,
         },
     },
     traits::CanisterKind,
+    value::InputValue,
 };
 
 #[expect(dead_code)]
@@ -18,7 +19,7 @@ where
     let grouped_filter = FilterExpr::Compare {
         operator: CompareOperator::Eq,
         field: "age".to_string(),
-        value: FilterValue::from(42_u64),
+        value: InputValue::from(42_u64),
     };
     let operator_surface = (
         JunctionOperator::And,

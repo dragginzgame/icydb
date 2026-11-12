@@ -21,6 +21,7 @@ a parent directory reports its sibling repositories.
 Options:
   -d N            Show crates and N module levels (0 = crates only)
   --json          Full file counts and diagnostics for one repository/selection
+  --wide          Show full names instead of middle-truncated table labels
   --manifest PATH Count only the selected Cargo workspace
   --check-tools   Check prerequisites
   -h, --help      Show this help
@@ -113,12 +114,14 @@ report_repositories() (
 depth=''
 selected_manifest=''
 json=false
+wide=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -d)
             [[ $# -ge 2 && "$2" =~ ^(0|[1-9][0-9]*)$ && ${#2} -le 6 ]] || { usage >&2; exit 2; }
             depth="$2"; shift 2 ;;
         --json) json=true; shift ;;
+        --wide) wide=true; shift ;;
         --manifest)
             [[ $# -ge 2 && -n "$2" && -z "$selected_manifest" ]] || { usage >&2; exit 2; }
             selected_manifest="$2"; shift 2 ;;
@@ -131,8 +134,18 @@ done
 [[ $# -le 1 ]] || { usage >&2; exit 2; }
 
 render_table() {
-    local flags=()
+    local flags=() columns=120 observed=''
     if [[ -n "$depth" ]]; then flags=(-d "$depth"); fi
+    if [[ "$wide" == true ]]; then
+        flags+=(--wide)
+    else
+        if [[ -t 1 ]]; then
+            observed="$(tput cols 2>/dev/null || true)"
+            [[ "$observed" =~ ^[1-9][0-9]{0,5}$ ]] || observed="${COLUMNS:-}"
+            if [[ "$observed" =~ ^[1-9][0-9]{0,5}$ ]]; then columns="$observed"; fi
+        fi
+        flags+=(--columns "$columns")
+    fi
     perl "$ROOT/scripts/dev/cloc-classify.pl" --table "$1" ${flags[@]+"${flags[@]}"}
 }
 

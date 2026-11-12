@@ -1,97 +1,78 @@
 //! Module: access::execution_contract::executable
-//! Responsibility: normalized executable access-path contract representation for traversal.
-//! Does not own: planner access-path derivation or executor route precedence policy.
-//! Boundary: carries compact executable access metadata consumed by runtime traversal layers.
+//! Responsibility: borrowed executable access contracts for traversal.
+//! Does not own: planner access selection or executor route precedence.
+//! Boundary: project mechanical leaf payloads without rebuilding the access tree.
 
-use crate::db::access::{AccessPath, AccessPlan, execution_contract::ExecutionPathPayload};
+use crate::db::access::{
+    AccessPlan, execution_contract::ExecutionPathPayload, lowering::LoweredIndexSpecs,
+};
 
-///
-/// ExecutableAccessNode
-///
-/// Recursive normalized execution tree for one access plan.
-///
-
+/// Mechanical access contract borrowing the canonical semantic tree.
+/// Composite children are projected on demand, never copied into another tree.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutableAccessNode<'a, K> {
-    Path(ExecutionPathPayload<'a, K>),
-    Union(Vec<ExecutableAccessPlan<'a, K>>),
-    Intersection(Vec<ExecutableAccessPlan<'a, K>>),
+pub(in crate::db) enum ExecutableAccessPlan<'a, K> {
+    Path(ExecutionPathPayload<'a, K>, Option<&'a LoweredIndexSpecs>),
+    Union(ExecutableAccessChildren<'a, K>),
+    Intersection(ExecutableAccessChildren<'a, K>),
 }
 
-///
-/// ExecutableAccessPlan
-///
-/// Normalized execution contract for one access plan.
-/// This is executor-consumed and planner-lowered.
-///
-
+/// Borrowed children expose only executable projections to traversal consumers.
+/// Keeping the semantic slice private preserves the planner/runtime boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
-    node: ExecutableAccessNode<'a, K>,
+pub(in crate::db) struct ExecutableAccessChildren<'a, K>(&'a [AccessPlan<K>]);
+
+impl<'a, K> ExecutableAccessChildren<'a, K> {
+    /// Return the number of children without projecting their payloads.
+    #[must_use]
+    pub(in crate::db) const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Project direct children in canonical order without allocating backing.
+    pub(in crate::db) fn iter(&self) -> impl ExactSizeIterator<Item = ExecutableAccessPlan<'a, K>> {
+        self.0.iter().map(ExecutableAccessPlan::from_access_plan)
+    }
 }
 
 impl<'a, K> ExecutableAccessPlan<'a, K> {
-    /// Project one semantic access plan into its normalized execution contract.
+    /// Borrow one semantic access plan as an executable contract.
     #[must_use]
     pub(in crate::db::access) fn from_access_plan(access: &'a AccessPlan<K>) -> Self {
         match access {
-            AccessPlan::Path(path) => Self::from_access_path(path.as_ref()),
-            AccessPlan::Union(children) => {
-                Self::union(Self::from_access_plan_children(children.as_slice()))
-            }
+            AccessPlan::Path(path, specs) => Self::Path(
+                ExecutionPathPayload::from_access_path(path),
+                specs.as_deref(),
+            ),
+            AccessPlan::Union(children) => Self::Union(ExecutableAccessChildren(children)),
             AccessPlan::Intersection(children) => {
-                Self::intersection(Self::from_access_plan_children(children.as_slice()))
+                Self::Intersection(ExecutableAccessChildren(children))
             }
         }
     }
 
-    /// Project one semantic access path into a path-backed execution contract.
-    #[must_use]
-    pub(in crate::db::access) fn from_access_path(path: &'a AccessPath<K>) -> Self {
-        Self::for_path(ExecutionPathPayload::from_access_path(path))
-    }
-
-    /// Construct one path-backed executable access plan.
-    #[must_use]
-    const fn for_path(path: ExecutionPathPayload<'a, K>) -> Self {
-        Self {
-            node: ExecutableAccessNode::Path(path),
+    /// Borrow physical bounds from this leaf, rejecting unprepared index access.
+    pub(in crate::db) fn index_specs(
+        &self,
+    ) -> Result<Option<&'a LoweredIndexSpecs>, crate::error::InternalError> {
+        match self {
+            Self::Path(_, Some(specs)) => Ok(Some(specs)),
+            Self::Path(
+                ExecutionPathPayload::ByKey(_)
+                | ExecutionPathPayload::ByKeys(_)
+                | ExecutionPathPayload::KeyRange { .. }
+                | ExecutionPathPayload::FullScan,
+                None,
+            ) => Ok(None),
+            _ => Err(crate::error::InternalError::query_executor_invariant()),
         }
     }
 
-    /// Construct one union executable access plan.
-    #[must_use]
-    pub(in crate::db::access) const fn union(children: Vec<Self>) -> Self {
-        Self {
-            node: ExecutableAccessNode::Union(children),
-        }
-    }
-
-    /// Construct one intersection executable access plan.
-    #[must_use]
-    pub(in crate::db::access) const fn intersection(children: Vec<Self>) -> Self {
-        Self {
-            node: ExecutableAccessNode::Intersection(children),
-        }
-    }
-
-    /// Borrow the normalized execution tree node.
-    #[must_use]
-    pub(in crate::db) const fn node(&self) -> &ExecutableAccessNode<'a, K> {
-        &self.node
-    }
-
-    /// Borrow path execution contract when this plan is one path node.
+    /// Borrow the leaf payload when this contract represents one path.
     #[must_use]
     pub(in crate::db) const fn as_path(&self) -> Option<&ExecutionPathPayload<'a, K>> {
-        match &self.node {
-            ExecutableAccessNode::Path(path) => Some(path),
-            ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
+        match self {
+            Self::Path(path, _) => Some(path),
+            Self::Union(_) | Self::Intersection(_) => None,
         }
-    }
-
-    // Project a child list while preserving canonical child ordering.
-    fn from_access_plan_children(children: &'a [AccessPlan<K>]) -> Vec<Self> {
-        children.iter().map(Self::from_access_plan).collect()
     }
 }

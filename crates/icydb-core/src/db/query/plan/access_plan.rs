@@ -543,7 +543,7 @@ impl PredicatePushdownReason {
 
 fn predicate_pushdown_access_label(access: &AccessPlan<Value>) -> &'static str {
     match access {
-        AccessPlan::Path(path) => predicate_pushdown_access_path_label(path),
+        AccessPlan::Path(path, _) => predicate_pushdown_access_path_label(path),
         AccessPlan::Union(_) => "union",
         AccessPlan::Intersection(_) => "intersection",
     }

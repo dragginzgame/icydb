@@ -4,11 +4,7 @@
 //! Boundary: data/index/schema stores own values while this module owns exact batch positions.
 
 use crate::{
-    db::{
-        index::IndexEntryValue,
-        journal::{JournalRecord, JournalSequence},
-        registry::StoreAllocationIdentity,
-    },
+    db::{journal::JournalSequence, registry::StoreAllocationIdentity},
     error::InternalError,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -188,52 +184,6 @@ impl<K: Ord> PositionedOverlayMetadata<K> {
         if retirement == PositionedOverlayRetirement::Exact {
             self.positions.remove(key);
         }
-    }
-}
-
-/// Exhaustive online decision for one maintained effect family.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum OnlineOverlayDecision {
-    DataPositive,
-    DataTombstone,
-    IndexPositive,
-    IndexTombstone,
-    SchemaPositive,
-    SchemaTombstone,
-}
-
-/// Classify every maintained journal record without a fallback decision.
-#[must_use]
-pub(in crate::db) const fn classify_journal_overlay(
-    record: &JournalRecord,
-) -> OnlineOverlayDecision {
-    match record {
-        JournalRecord::RowPut { .. } => OnlineOverlayDecision::DataPositive,
-        JournalRecord::RowDelete { .. } => OnlineOverlayDecision::DataTombstone,
-        JournalRecord::AcceptedSchemaPublish { .. } => OnlineOverlayDecision::SchemaPositive,
-        JournalRecord::AcceptedSchemaIndexDelete { .. } => OnlineOverlayDecision::IndexTombstone,
-        JournalRecord::AcceptedSchemaIndexPut { .. } => OnlineOverlayDecision::IndexPositive,
-        JournalRecord::ConstraintValidationJobPut { .. } => OnlineOverlayDecision::SchemaPositive,
-        JournalRecord::ConstraintValidationJobDelete { .. } => {
-            OnlineOverlayDecision::SchemaTombstone
-        }
-        JournalRecord::ConstraintValidationIndexPut { .. } => OnlineOverlayDecision::IndexPositive,
-        JournalRecord::IdentityRangeAdvance { .. } => OnlineOverlayDecision::SchemaPositive,
-        #[cfg(any(test, feature = "migration"))]
-        JournalRecord::SchemaMigrationRowPut { .. } => OnlineOverlayDecision::DataPositive,
-        #[cfg(any(test, feature = "migration"))]
-        JournalRecord::SchemaMigrationIndexPut { .. } => OnlineOverlayDecision::IndexPositive,
-    }
-}
-
-/// Classify the maintained derived-index effect representation exhaustively.
-#[must_use]
-pub(in crate::db) const fn classify_derived_index_overlay(
-    value: Option<&IndexEntryValue>,
-) -> OnlineOverlayDecision {
-    match value {
-        Some(_) => OnlineOverlayDecision::IndexPositive,
-        None => OnlineOverlayDecision::IndexTombstone,
     }
 }
 

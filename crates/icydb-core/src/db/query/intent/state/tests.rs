@@ -1,4 +1,8 @@
 use super::*;
+use crate::db::{
+    predicate::Predicate,
+    query::{plan::expr::BinaryOp, preparation::PreparationWork},
+};
 use crate::{
     db::query::plan::{FieldSlot, GroupField, GroupFieldSet, OrderDirection, expr::FieldId},
     value::Value,
@@ -14,9 +18,21 @@ fn rejected_filter_extraction_preserves_existing_intent() {
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
     };
 
+    let schema = crate::db::query::plan::exact_metadata_schema(&[], &[]);
     let mut intent = QueryIntent::new();
     let original = Predicate::eq("tenant".into(), Value::Text("retained".into()));
-    intent.append_predicate(original.clone());
+    let original_expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field("tenant".into())),
+        right: Box::new(Expr::Literal(Value::Text("retained".into()))),
+    };
+    crate::db::query::preparation::with_preparation_work(|work| {
+        intent.append_admitted_filter(
+            AdmittedFilter::from_expr(&schema, original_expr.clone(), work)?,
+            work,
+        )
+    })
+    .unwrap();
     let root = RequestExecutionRoot::new_for_tests(
         HardExecutionBudget::uniform_for_tests(
             16_000_000,
@@ -25,7 +41,10 @@ fn rejected_filter_extraction_preserves_existing_intent() {
         .with_limit_for_tests(Resource::TemporaryBytes, 0),
     );
     let error = PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
-        intent.append_filter_expr(Expr::Field(FieldId::new("enabled")), work)
+        intent.append_admitted_filter(
+            AdmittedFilter::from_expr(&schema, Expr::Field(FieldId::new("enabled")), work)?,
+            work,
+        )
     })
     .unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
@@ -34,8 +53,8 @@ fn rejected_filter_extraction_preserves_existing_intent() {
     )));
     let retained = intent.scalar().filter.as_ref().expect("existing filter");
     assert_eq!(retained.predicate_subset(), Some(&original));
-    assert_eq!(retained.predicate_coverage(), FilterPredicateCoverage::Full);
-    assert!(retained.logical_filter_expr().is_none());
+    assert!(retained.predicate_subset_covers_expr());
+    assert_eq!(retained.logical_filter_expr(), &original_expr);
 }
 
 #[test]
@@ -130,90 +149,42 @@ fn group_field_slot_deduplicates_by_slot_index() {
 }
 
 #[test]
-fn append_predicate_ands_multiple_filters() {
-    let mut intent = QueryIntent::new();
-    intent.append_predicate(Predicate::True);
-    intent.append_predicate(Predicate::False);
+fn appended_expression_preserves_uncovered_expression_semantics() {
+    let schema = crate::db::query::plan::exact_metadata_schema(&[], &[]);
+    let expression = Expr::Binary {
+        op: BinaryOp::Gt,
+        left: Box::new(Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("age"))),
+            right: Box::new(Expr::Literal(Value::Int64(1))),
+        }),
+        right: Box::new(Expr::Literal(Value::Int64(5))),
+    };
+    let mut filter = crate::db::query::preparation::with_preparation_work(|work| {
+        AdmittedFilter::from_expr(&schema, expression, work)
+    })
+    .unwrap();
+    let appended = Predicate::eq("tenant".into(), Value::Text("retained".into()));
+    let clause = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field("tenant".into())),
+        right: Box::new(Expr::Literal(Value::Text("retained".into()))),
+    };
+    crate::db::query::preparation::with_preparation_work(|work| {
+        filter.append(AdmittedFilter::from_expr(&schema, clause, work)?, work)
+    })
+    .unwrap();
 
-    assert!(
-        matches!(
-            intent
-                .scalar()
-                .filter
-                .as_ref()
-                .and_then(NormalizedFilter::predicate_subset),
-            Some(Predicate::And(clauses)) if clauses.len() == 2
-        ),
-        "multiple filters should be preserved as a stable AND chain"
-    );
-}
-
-#[test]
-fn append_predicate_keeps_predicate_only_authority_without_filter_expr() {
-    let mut intent = QueryIntent::new();
-    intent.append_predicate(Predicate::And(vec![Predicate::True, Predicate::False]));
-
-    let filter = intent
-        .scalar()
-        .filter
-        .as_ref()
-        .expect("predicate append should create one scalar filter");
-
-    assert!(
-        filter.logical_filter_expr().is_none(),
-        "predicate-only filters should not expose a logical filter expression",
-    );
-    assert!(
-        matches!(
-            filter.semantic_authority,
-            FilterSemanticAuthority::PredicateOnly
-        ),
-        "predicate-only filters should carry explicit predicate-only authority instead of a placeholder expression",
-    );
-    assert!(
-        filter.predicate_subset().is_some(),
-        "predicate-only filters should retain predicate access-planning identity",
-    );
-    assert_eq!(
-        filter.predicate_coverage(),
-        FilterPredicateCoverage::Full,
-        "predicate-only filters should be full user-visible filter authorities",
-    );
-    assert!(
-        filter
-            .predicate_coverage()
-            .covers_user_visible_filter_semantics(),
-        "predicate-only filters should not need a visible expression for full semantic coverage",
-    );
+    assert!(matches!(
+        filter.logical_filter_expr(),
+        Expr::Binary {
+            op: BinaryOp::And,
+            ..
+        }
+    ));
+    assert_eq!(filter.predicate_subset(), Some(&appended));
     assert!(
         !filter.predicate_subset_covers_expr(),
-        "predicate-only filters should not report expression-subset coverage",
-    );
-}
-
-#[test]
-fn appended_predicate_preserves_uncovered_expression_semantics() {
-    // Supply the extraction result at this owner's boundary so expanding the
-    // compiler's capabilities does not change the coverage-transition fixture.
-    let expression = Expr::Field(FieldId::new("flag"));
-    let mut filter = NormalizedFilter {
-        semantic_authority: FilterSemanticAuthority::ExpressionBacked(expression.clone()),
-        predicate_subset: None,
-        predicate_coverage: FilterPredicateCoverage::None,
-    };
-    let appended = Predicate::eq("tenant".into(), Value::Text("retained".into()));
-    filter.append_predicate(appended.clone());
-
-    assert_eq!(filter.logical_filter_expr(), Some(&expression));
-    assert_eq!(filter.predicate_subset(), Some(&appended));
-    assert_eq!(
-        filter.predicate_coverage(),
-        FilterPredicateCoverage::Partial
-    );
-    assert!(
-        !filter
-            .predicate_coverage()
-            .covers_user_visible_filter_semantics(),
         "an appended predicate must not claim coverage of the retained expression",
     );
     assert!(!filter.predicate_subset_covers_expr());

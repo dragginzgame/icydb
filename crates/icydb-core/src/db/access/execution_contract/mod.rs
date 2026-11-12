@@ -6,5 +6,5 @@
 mod executable;
 mod types;
 
-pub(in crate::db) use executable::{ExecutableAccessNode, ExecutableAccessPlan};
+pub(in crate::db) use executable::{ExecutableAccessChildren, ExecutableAccessPlan};
 pub(in crate::db) use types::ExecutionPathPayload;

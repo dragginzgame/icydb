@@ -36,6 +36,7 @@ use std::{
 fn mixed_filter_cache_identity_preserves_both_filter_authorities() {
     use crate::db::predicate::{Predicate, predicate_fingerprint_normalized};
 
+    let schema = crate::db::query::plan::exact_metadata_schema(&[], &[]);
     with_preparation_work(|work| {
         let key = |id, threshold, expression_first| {
             let predicate = Predicate::eq("id".into(), Value::Nat64(id));
@@ -48,16 +49,23 @@ fn mixed_filter_cache_identity_preserves_both_filter_authorities() {
                 }),
                 right: Box::new(Expr::Literal(Value::Nat64(threshold))),
             };
+            let scope = Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field("id".into())),
+                right: Box::new(Expr::Literal(Value::Nat64(id))),
+            };
             let query = StructuralQuery::new(MissingRowPolicy::Ignore);
             let query = if expression_first {
                 query
-                    .filter_expr(expr, work)
+                    .filter_expr(&schema, expr, work)
                     .unwrap()
-                    .filter_normalized_predicate(predicate.clone())
+                    .filter_expr(&schema, scope, work)
+                    .unwrap()
             } else {
                 query
-                    .filter_normalized_predicate(predicate.clone())
-                    .filter_expr(expr, work)
+                    .filter_expr(&schema, scope, work)
+                    .unwrap()
+                    .filter_expr(&schema, expr, work)
                     .unwrap()
             };
             query

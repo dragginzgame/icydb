@@ -141,9 +141,20 @@ if (($ARGV[0] // '') eq '--select') {
 }
 if (($ARGV[0] // '') eq '--table') {
     shift; my $r=$json->decode(read_file(shift));
-    !@ARGV || (@ARGV==2 && $ARGV[0] eq '-d' && $ARGV[1] =~ /\A(?:0|[1-9][0-9]{0,5})\z/)
-        or die "usage: cloc-classify.pl --table REPORT [-d DEPTH]\n";
-    my $depth=@ARGV ? $ARGV[1] : undef;
+    my ($depth,$wide,$columns)=(undef,0,120);
+    while (@ARGV) {
+        my $flag=shift;
+        if ($flag eq '--wide') { $wide=1; next; }
+        if (($flag eq '-d' || $flag eq '--columns') && @ARGV
+            && $ARGV[0] =~ /\A(?:0|[1-9][0-9]{0,5})\z/) {
+            my $value=shift;
+            if ($flag eq '-d') { $depth=$value; }
+            else { $value>0 or die "table columns must be positive\n"; $columns=$value; }
+            next;
+        }
+        die "usage: cloc-classify.pl --table REPORT [-d DEPTH] [--wide] [--columns N]\n";
+    }
+    binmode STDOUT, ':encoding(UTF-8)';
     my @rows;
     for my $w (@{$r->{workspaces} // [{name=>basename(dirname($r->{manifest})),report=>$r}]}) {
         if ($w->{report}) {
@@ -179,6 +190,19 @@ if (($ARGV[0] // '') eq '--table') {
         for my $i (0..$#keys) {
             my $n=length($row->[1]{$keys[$i]} // 'n/a');
             $widths[$i]=$n if $n>$widths[$i];
+        }
+    }
+    unless ($wide) {
+        my $numeric=0;
+        $numeric+=length($gaps[$_])+$widths[$_] for 0..$#keys;
+        my $limit=$columns-$numeric;
+        $limit=44 if $limit>44;
+        $limit=length('workspace/crate') if $limit<length('workspace/crate');
+        $width=$limit if $width>$limit;
+        for my $row (@rows) {
+            next if length($row->[0])<=$width;
+            my $left=int(($width-1)/2);
+            $row->[0]=substr($row->[0],0,$left)."\x{2026}".substr($row->[0],-($width-1-$left));
         }
     }
     my $separator=('-' x $width).join('',map {$gaps[$_].('-' x $widths[$_])} 0..$#keys)."\n";

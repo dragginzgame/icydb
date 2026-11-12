@@ -4,7 +4,6 @@
 //! Boundary: binds lowered SQL clauses to query intent using schema-owned validation.
 
 mod aggregate;
-mod binding;
 mod order;
 mod projection;
 
@@ -14,11 +13,11 @@ use crate::db::sql::lowering::{
     aggregate::{SqlAggregateCallInterner, lower_grouped_aggregate_call},
     predicate::{
         derive_sql_where_expr_predicate_subset, lower_sql_scalar_where_bool_expr,
-        lower_sql_where_bool_expr, lower_sql_where_expr,
+        lower_sql_where_bool_expr, normalize_lowered_where_expr,
     },
 };
 use crate::db::{
-    predicate::{MissingRowPolicy, Predicate},
+    predicate::MissingRowPolicy,
     query::{
         builder::AggregateExpr,
         intent::{QueryError, StructuralQuery},
@@ -46,7 +45,6 @@ use crate::db::sql::lowering::select::{
 };
 
 pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_expr;
-use binding::{canonicalize_sql_filter_expr_for_schema, canonicalize_sql_predicate_for_schema};
 pub(in crate::db::sql::lowering) use projection::lower_analyzed_select_item_expr;
 
 pub(in crate::db::sql::lowering) fn lower_order_terms(
@@ -59,18 +57,13 @@ pub(in crate::db::sql::lowering) fn lower_order_terms(
 ///
 /// LoweredSqlFilter
 ///
-/// SQL-lowered filter wrapper that keeps SQL's visible expression and any
-/// required predicate subset together until the final `StructuralQuery`
-/// handoff. Ordinary SELECT filters keep expression authority and let query
-/// intent own the shared pre-access filter contract after schema binding; when
-/// the schema-bound expression is extractable, SQL lowering also passes a
-/// canonicalized predicate mirror so numeric SQL literals retain strict
-/// indexable semantics.
+/// SQL semantic expression awaiting the shared accepted-schema admission owner.
+/// SQL-only capability gates run before this handoff; no independent runtime
+/// predicate mirror crosses it.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlFilter {
-    visible_expr: Option<Expr>,
-    predicate_subset: Option<Predicate>,
+    visible_expr: Expr,
 }
 
 impl LoweredSqlFilter {
@@ -83,6 +76,26 @@ impl LoweredSqlFilter {
     ) -> Result<Self, SqlLoweringError> {
         let filter_expr = lower_sql_scalar_where_bool_expr(expr, work)?;
         Ok(Self::from_visible_expr(filter_expr))
+    }
+
+    // Parameter admission has already materialized this tree. Reuse it while
+    // retaining the scalar/grouped normalization policy of the owning lane.
+    pub(in crate::db::sql::lowering) fn from_lowered_where_expr(
+        expr: Expr,
+        scalar: bool,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        Ok(Self::from_visible_expr(normalize_lowered_where_expr(
+            expr, scalar, work,
+        )?))
+    }
+
+    pub(in crate::db::sql::lowering) fn from_lowered_where_expr_requiring_predicate_subset(
+        expr: Expr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        let filter = Self::from_lowered_where_expr(expr, false, work)?;
+        Self::require_predicate_subset(filter.visible_expr, work)
     }
 
     // Lower one grouped WHERE expression without scalar-only CASE
@@ -101,14 +114,16 @@ impl LoweredSqlFilter {
         expr: &SqlExpr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_where_bool_expr(expr, work)?;
-        let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr, work)?
-            .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
+        Self::require_predicate_subset(lower_sql_where_bool_expr(expr, work)?, work)
+    }
 
-        Ok(Self::from_visible_expr_and_predicate_subset(
-            filter_expr,
-            predicate_subset,
-        ))
+    fn require_predicate_subset(
+        filter_expr: Expr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        derive_sql_where_expr_predicate_subset(&filter_expr, work)?
+            .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
+        Ok(Self::from_visible_expr(filter_expr))
     }
 
     // Lower DELETE filters through the same expression-backed authority as
@@ -124,37 +139,17 @@ impl LoweredSqlFilter {
         Ok(Self::from_visible_expr(filter_expr))
     }
 
-    // Preserve UPDATE's two-part filter policy: keep the scalar-visible filter
-    // expression while requiring a strict SQL predicate subset for selector
-    // admission.
+    // UPDATE requires the predicate-capable expression lane. Admit that same
+    // expression rather than pairing a scalar rewrite with a different predicate.
     fn from_update_where_expr(
         expr: &SqlExpr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_scalar_where_bool_expr(expr, work)?;
-        let predicate_subset = lower_sql_where_expr(expr, work)?;
-
-        Ok(Self::from_visible_expr_and_predicate_subset(
-            filter_expr,
-            predicate_subset,
-        ))
+        Self::from_where_expr_requiring_predicate_subset(expr, work)
     }
 
     const fn from_visible_expr(expr: Expr) -> Self {
-        Self {
-            visible_expr: Some(expr),
-            predicate_subset: None,
-        }
-    }
-
-    const fn from_visible_expr_and_predicate_subset(
-        expr: Expr,
-        predicate_subset: Predicate,
-    ) -> Self {
-        Self {
-            visible_expr: Some(expr),
-            predicate_subset: Some(predicate_subset),
-        }
+        Self { visible_expr: expr }
     }
 
     pub(in crate::db::sql::lowering) fn apply_to_query(
@@ -163,31 +158,7 @@ impl LoweredSqlFilter {
         schema: &SchemaInfo,
         work: &PreparationWork<'_>,
     ) -> Result<StructuralQuery, QueryError> {
-        let visible_expr = self
-            .visible_expr
-            .map(|expr| canonicalize_sql_filter_expr_for_schema(schema, expr));
-
-        match (visible_expr, self.predicate_subset) {
-            (Some(filter_expr), Some(predicate)) => {
-                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-
-                query.filter_expr_with_normalized_predicate(filter_expr, predicate, work)
-            }
-            (Some(filter_expr), None) => {
-                if let Some(predicate) = derive_sql_where_expr_predicate_subset(&filter_expr, work)?
-                {
-                    let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-                    query.filter_expr_with_normalized_predicate(filter_expr, predicate, work)
-                } else {
-                    query.filter_expr(filter_expr, work)
-                }
-            }
-            (None, Some(predicate)) => {
-                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-                Ok(query.filter_normalized_predicate(predicate))
-            }
-            (None, None) => Ok(query),
-        }
+        query.filter_sql_expr(schema, self.visible_expr, work)
     }
 }
 
@@ -861,7 +832,7 @@ fn append_primary_key_order_fallback(
 mod tests;
 
 crate::retained::retained_fields!(LoweredSqlFilter {
-    Self { visible_expr, predicate_subset } => [visible_expr, predicate_subset],
+    Self { visible_expr } => [visible_expr],
 });
 crate::retained::retained_fields!(LoweredSelectShape {
     Self { projection_selection, grouped_aggregates, group_by_fields, distinct: _, having, filter, order_by, limit: _, offset: _ }

@@ -5,6 +5,7 @@
 
 use crate::{
     db::KeyValueCodec,
+    db::access::lowering::LoweredIndexSpecs,
     db::access::{
         AccessPath, ExecutableAccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
         SemanticIndexRangeSpec,
@@ -12,14 +13,16 @@ use crate::{
     value::Value,
 };
 
+use std::sync::Arc;
+
 ///
 /// AccessPlan
 /// Composite access structure; may include unions/intersections and is runtime-resolvable.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(in crate::db) enum AccessPlan<K> {
-    Path(Box<AccessPath<K>>),
+    Path(Box<AccessPath<K>>, Option<Arc<LoweredIndexSpecs>>),
     Union(Vec<Self>),
     Intersection(Vec<Self>),
 }
@@ -28,7 +31,38 @@ impl<K> AccessPlan<K> {
     /// Construct a plan from one concrete access path.
     #[must_use]
     pub(in crate::db) fn path(path: AccessPath<K>) -> Self {
-        Self::Path(Box::new(path))
+        Self::boxed_path(Box::new(path))
+    }
+
+    /// Construct a semantic leaf from already-admitted box backing.
+    #[must_use]
+    pub(in crate::db) const fn boxed_path(path: Box<AccessPath<K>>) -> Self {
+        Self::Path(path, None)
+    }
+
+    /// Borrow a single leaf's prepared bounds; composite consumers must visit leaves.
+    pub(in crate::db) fn single_index_specs(&self) -> Option<&LoweredIndexSpecs> {
+        match self {
+            Self::Path(_, specs) => specs.as_deref(),
+            Self::Union(_) | Self::Intersection(_) => None,
+        }
+    }
+
+    /// Borrow prepared prefixes for a single-path shortcut. Composite execution
+    /// visits its leaves and cannot use a single-path metadata shortcut.
+    pub(in crate::db) fn single_index_prefix_specs(
+        &self,
+    ) -> &[crate::db::access::LoweredIndexPrefixSpec] {
+        self.single_index_specs()
+            .map_or(&[], LoweredIndexSpecs::prefixes)
+    }
+
+    /// Borrow prepared ranges for a single-path shortcut.
+    pub(in crate::db) fn single_index_range_specs(
+        &self,
+    ) -> &[crate::db::access::LoweredIndexRangeSpec] {
+        self.single_index_specs()
+            .map_or(&[], LoweredIndexSpecs::ranges)
     }
 
     /// Construct a single-key access plan.
@@ -138,7 +172,7 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(in crate::db) fn as_path(&self) -> Option<&AccessPath<K>> {
         match self {
-            Self::Path(path) => Some(path.as_ref()),
+            Self::Path(path, _) => Some(path.as_ref()),
             Self::Union(_) | Self::Intersection(_) => None,
         }
     }
@@ -146,13 +180,13 @@ impl<K> AccessPlan<K> {
     /// Return true when this plan is exactly one full-scan path.
     #[must_use]
     pub(crate) const fn is_single_full_scan(&self) -> bool {
-        matches!(self, Self::Path(path) if path.is_full_scan())
+        matches!(self, Self::Path(path, _) if path.is_full_scan())
     }
 
     /// Return true when this plan is exactly one explicit empty key set.
     #[must_use]
     pub(in crate::db) fn is_explicit_empty(&self) -> bool {
-        matches!(self, Self::Path(path) if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty()))
+        matches!(self, Self::Path(path, _) if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty()))
     }
 
     /// Borrow reduced index-prefix access details when this is a single
@@ -220,7 +254,7 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(in crate::db) fn has_selected_index_access_path(&self) -> bool {
         match self {
-            Self::Path(path) => path.selected_index_contract().is_some(),
+            Self::Path(path, _) => path.selected_index_contract().is_some(),
             Self::Union(children) | Self::Intersection(children) => {
                 children.iter().any(Self::has_selected_index_access_path)
             }
@@ -304,7 +338,7 @@ impl<K> AccessPlan<K> {
         F: FnMut(K) -> Result<T, E>,
     {
         match self {
-            Self::Path(path) => Ok(AccessPlan::path(path.map_keys(map_key)?)),
+            Self::Path(path, _) => Ok(AccessPlan::path(path.map_keys(map_key)?)),
             Self::Union(children) => {
                 Ok(AccessPlan::union(Self::map_child_plans(children, map_key)?))
             }
@@ -358,7 +392,22 @@ mod tests;
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_fields!(AccessPlan<K> {
-Self::Path(field_0) => [field_0],
+Self::Path(field_0, field_1) => [field_0, field_1],
 Self::Union(field_0) => [field_0],
 Self::Intersection(field_0) => [field_0],
 });
+
+// Physical residents do not participate in semantic identity. Preparation may
+// attach bounds, but must never change planner equality or continuation inputs.
+impl<K: Eq> Eq for AccessPlan<K> {}
+
+impl<K: PartialEq> PartialEq for AccessPlan<K> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Path(left, _), Self::Path(right, _)) => left == right,
+            (Self::Union(left), Self::Union(right))
+            | (Self::Intersection(left), Self::Intersection(right)) => left == right,
+            _ => false,
+        }
+    }
+}

@@ -32,7 +32,7 @@ pub(super) fn execute_primary_key_fast_stream_route(
     Ok(Some(execute_structural_fast_stream_request(
         runtime,
         executable_access,
-        AccessStreamBindings::new(&[], &[], continuation),
+        AccessStreamBindings::new(continuation),
         AccessStreamExecutionPolicy::canonical_key_order(probe_fetch_hint),
         None,
     )?))

@@ -1,4 +1,4 @@
-use super::{hash_predicate_structural, predicate_fingerprint};
+use super::{hash_canonical_predicate, predicate_fingerprint};
 use crate::{
     db::predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionId, normalize},
     value::Value,
@@ -156,7 +156,7 @@ fn digest(predicate: &Predicate) -> [u8; 32] {
 fn digest_structural(predicate: &Predicate) -> [u8; 32] {
     let mut hasher = crate::db::codec::new_hash_sha256();
     crate::db::query::preparation::with_preparation_work(|work| {
-        hash_predicate_structural(&mut hasher, predicate, work).unwrap();
+        hash_canonical_predicate(&mut hasher, predicate, work).unwrap();
     });
     crate::db::codec::finalize_hash_sha256(hasher)
 }

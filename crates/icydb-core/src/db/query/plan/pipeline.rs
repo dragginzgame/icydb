@@ -4,7 +4,6 @@
 //! Boundary: turns `QueryModel` data into finalized `AccessPlannedQuery` contracts.
 
 use crate::db::query::preparation::PreparationWork;
-use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::rc::Rc;
 
 use crate::{
@@ -17,10 +16,9 @@ use crate::{
                 AccessPlannedQuery, AccessPlanningInputs, CardinalityTiebreakState, LogicalPlan,
                 LogicalPlanningInputs, OrderSpec, PlannedAccessSelection,
                 PlannedNonIndexAccessReason, PrimaryKeyAccessProof, PrimaryKeyInputResourceSummary,
-                VisibleIndexes, build_logical_plan, fold_constant_predicate,
-                is_limit_zero_load_window, logical_query_from_logical_inputs,
-                normalize_query_predicate, plan_access_selection_with_order_and_semantic_indexes,
-                predicate_is_constant_false, primary_key_input_resource_from_value_list,
+                VisibleIndexes, build_logical_plan, is_limit_zero_load_window,
+                logical_query_from_logical_inputs,
+                plan_access_selection_with_order_and_semantic_indexes, predicate_is_constant_false,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
                 residual_query_predicate_after_access_path_bounds,
                 validate_group_query_semantics_with_schema, validate_query_semantics_with_schema,
@@ -58,7 +56,7 @@ pub(in crate::db) const MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS: usize = 17;
 pub(in crate::db) struct PreparedScalarPlanningState<'a> {
     schema_info: Rc<SchemaInfo>,
     access_inputs: AccessPlanningInputs<'a>,
-    normalized_predicate: Option<Predicate>,
+    normalized_predicate: Option<&'a Predicate>,
     primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
 }
 
@@ -68,7 +66,7 @@ impl<'a> PreparedScalarPlanningState<'a> {
     const fn new(
         schema_info: Rc<SchemaInfo>,
         access_inputs: AccessPlanningInputs<'a>,
-        normalized_predicate: Option<Predicate>,
+        normalized_predicate: Option<&'a Predicate>,
         primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
     ) -> Self {
         Self {
@@ -81,7 +79,7 @@ impl<'a> PreparedScalarPlanningState<'a> {
 
     #[must_use]
     pub(in crate::db) const fn normalized_predicate(&self) -> Option<&Predicate> {
-        self.normalized_predicate.as_ref()
+        self.normalized_predicate
     }
 
     #[must_use]
@@ -158,6 +156,9 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
         normalized_predicate,
         primary_key_input_resource,
     } = planning_state;
+    let normalized_predicate = normalized_predicate
+        .map(|predicate| work.copy_predicate(predicate))
+        .transpose()?;
     let canonical_order = access_inputs.canonical_order(&schema_info, query.is_grouped(), work)?;
 
     // Phase 2: choose one access path from the shared normalized predicate and
@@ -190,7 +191,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
     clippy::too_many_arguments,
     reason = "assembly keeps shared request authority explicit alongside accepted planning inputs"
 )]
-fn assemble_query_model_plan(
+pub(in crate::db::query::plan) fn assemble_query_model_plan(
     query: &QueryModel,
     rerank_indexes: &[SemanticIndexAccessContract],
     schema_info: Rc<SchemaInfo>,
@@ -315,6 +316,7 @@ pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query
     schema_info: &SchemaInfo,
     work: &PreparationWork<'_>,
 ) -> Result<Option<CountCardinalityPrefixAccess<'query>>, QueryError> {
+    query.admitted_filter(schema_info)?;
     let Some(predicate) = query.direct_count_cardinality_prefix_predicate()? else {
         return Ok(None);
     };
@@ -619,7 +621,7 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
 pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info<'query>(
     query: &'query QueryModel,
     schema_info: Rc<SchemaInfo>,
-    work: &PreparationWork<'_>,
+    _work: &PreparationWork<'_>,
 ) -> Result<PreparedScalarPlanningState<'query>, QueryError> {
     // Phase 1: validate query-intent policy shape before any cache or planner
     // work so compile attribution keeps policy failures honest.
@@ -628,13 +630,12 @@ pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schem
     // Phase 2: retain borrowed intent inputs alongside the normalized predicate
     // and primary-key resource facts needed by cache lookup and planning.
     let access_inputs = query.planning_access_inputs();
-    let primary_key_input_resource =
-        primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate(), work)?;
-    let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
-        &schema_info,
-        access_inputs.predicate(),
-        work,
-    )?);
+    let filter = query.admitted_filter(&schema_info)?;
+    let primary_key_input_resource = filter
+        .and_then(crate::db::query::intent::filter::AdmittedFilter::primary_key_input_resource);
+    let normalized_predicate = access_inputs
+        .predicate()
+        .filter(|predicate| !matches!(predicate, Predicate::True));
 
     Ok(PreparedScalarPlanningState::new(
         schema_info,
@@ -712,101 +713,6 @@ fn attach_primary_key_input_resource_if_exact_access(
         .access_choice
         .clone()
         .with_primary_key_input_resource(resource);
-}
-
-fn primary_key_input_resource_from_predicate(
-    schema_info: &SchemaInfo,
-    predicate: Option<&Predicate>,
-    work: &PreparationWork<'_>,
-) -> Result<Option<PrimaryKeyInputResourceSummary>, QueryError> {
-    let (Some(primary_key_name), Some(predicate)) =
-        (scalar_primary_key_name(schema_info), predicate)
-    else {
-        return Ok(None);
-    };
-    let mut resource = PrimaryKeyInputResourceAccumulator::default();
-    collect_primary_key_in_resource(predicate, primary_key_name, &mut resource, work)?;
-
-    Ok(resource.into_summary())
-}
-
-fn collect_primary_key_in_resource(
-    predicate: &Predicate,
-    primary_key_name: &str,
-    resource: &mut PrimaryKeyInputResourceAccumulator,
-    work: &PreparationWork<'_>,
-) -> Result<(), QueryError> {
-    work.charge(Resource::PredicateExpressionSteps, 1)?;
-    match predicate {
-        Predicate::Compare(cmp) => {
-            // Ineligible operators and different name lengths need no byte scan.
-            if cmp.op == CompareOp::In && cmp.field.len() == primary_key_name.len() {
-                work.charge(
-                    Resource::PredicateExpressionSteps,
-                    primary_key_name.len() as u64,
-                )?;
-                if cmp.field == primary_key_name
-                    && let Value::List(values) = &cmp.value
-                {
-                    resource.add_values(values, work)?;
-                }
-            }
-        }
-        Predicate::And(children) => {
-            for child in children {
-                collect_primary_key_in_resource(child, primary_key_name, resource, work)?;
-            }
-        }
-        Predicate::Or(_)
-        | Predicate::Not(_)
-        | Predicate::CompareFields(_)
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. }
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::True
-        | Predicate::False => {}
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct PrimaryKeyInputResourceAccumulator {
-    raw_term_count: u32,
-    estimated_payload_bytes: u32,
-}
-
-impl PrimaryKeyInputResourceAccumulator {
-    fn add_values(
-        &mut self,
-        values: &[Value],
-        work: &PreparationWork<'_>,
-    ) -> Result<(), QueryError> {
-        let Some(summary) = primary_key_input_resource_from_value_list(values, work)
-            .map_err(QueryError::execute)?
-        else {
-            return Ok(());
-        };
-        self.raw_term_count = self.raw_term_count.saturating_add(summary.raw_term_count());
-        self.estimated_payload_bytes = self
-            .estimated_payload_bytes
-            .saturating_add(summary.estimated_payload_bytes());
-        Ok(())
-    }
-
-    const fn into_summary(self) -> Option<PrimaryKeyInputResourceSummary> {
-        if self.raw_term_count == 0 {
-            return None;
-        }
-
-        Some(PrimaryKeyInputResourceSummary::new(
-            self.raw_term_count,
-            self.estimated_payload_bytes,
-        ))
-    }
 }
 
 struct PrimaryKeyPredicateStripResult {

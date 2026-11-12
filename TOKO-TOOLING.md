@@ -295,6 +295,22 @@ guidance, including permission for new licence-adoption changelog notices.
 
 ## Current dependencies and upstream independence
 
+- Freshness review is separate from pin consistency and passing tests. During
+  dependency maintenance, review every direct supplier in the selected scope,
+  including native tools, dev/build dependencies and independent qualification
+  workspaces. Before freezing a release candidate, review first-party suppliers
+  used by that release's product and required qualification graphs. Compare
+  manifest requirements and actual locked selections with current stable,
+  non-yanked registry releases, including versions outside the declared range.
+  Report unavailable registry evidence as incomplete, never current.
+- Give each newer supplier a disposition in the existing change or release
+  notes: adopt within authorized scope, explicitly defer an optional refresh to
+  a named maintenance boundary, or link an approved compatibility hold with its
+  blocker and revisit condition. Revisit that disposition at the next applicable
+  review; a fixed qualification supplier, passing old tests or a previous deferral
+  is not a permanent exemption. Do not claim freshness from an older manifest
+  minimum when the lock already selects the current version, or from an
+  unpublished sibling checkout. No new report file is required.
 - When adding or updating a direct dependency, select its latest stable,
   non-yanked release, including a newer major version where applicable. Verify
   registry availability at selection time and qualify the affected APIs, targets

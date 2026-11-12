@@ -1,5 +1,5 @@
 use super::{
-    CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
+    CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, InputValue,
     JunctionOperator, SetOperator, StateOperator, field_compare_expr, membership_expr,
 };
 use crate::{
@@ -46,8 +46,8 @@ fn nested_filter_value_lowering_charges_before_descent_and_retains_failed_work()
     let filter = FilterExpr::in_list(
         "id",
         [
-            FilterValue::String("1".into()),
-            FilterValue::List(vec![FilterValue::Bool(true)]),
+            InputValue::text("1".to_string()),
+            InputValue::list(vec![InputValue::boolean(true)]),
         ],
     );
     let root = RequestExecutionRoot::new_for_tests(
@@ -94,17 +94,17 @@ fn filter_construction_cases() -> Vec<(FilterExpr, u64)> {
             ]),
             2 * slot,
         ),
-        (FilterExpr::in_list("id", Vec::<FilterValue>::new()), 0),
-        (FilterExpr::not_in("id", Vec::<FilterValue>::new()), 0),
-        (FilterExpr::eq("id", FilterValue::Null), 2 + 2 * slot),
-        (FilterExpr::eq_ci("id", FilterValue::Null), 2 + 3 * slot),
+        (FilterExpr::in_list("id", Vec::<InputValue>::new()), 0),
+        (FilterExpr::not_in("id", Vec::<InputValue>::new()), 0),
+        (FilterExpr::eq("id", InputValue::null()), 2 + 2 * slot),
+        (FilterExpr::eq_ci("id", InputValue::null()), 2 + 3 * slot),
         (FilterExpr::eq_field("id", "id"), 4 + 2 * slot),
         (
-            FilterExpr::in_list("id", [FilterValue::Null]),
+            FilterExpr::in_list("id", [InputValue::null()]),
             2 + size_of::<Value>() as u64 + 2 * slot,
         ),
         (
-            FilterExpr::not_in("id", [FilterValue::Null]),
+            FilterExpr::not_in("id", [InputValue::null()]),
             2 + size_of::<Value>() as u64 + 3 * slot,
         ),
     ];
@@ -121,7 +121,7 @@ fn filter_construction_cases() -> Vec<(FilterExpr, u64)> {
             FilterExpr::Collection {
                 operator,
                 field: "id".into(),
-                value: FilterValue::Null,
+                value: InputValue::null(),
             },
             2 + slots * slot,
         ));
@@ -249,7 +249,7 @@ fn flat_junctions_lower_with_logarithmic_depth_in_source_order() {
         let schema = membership_schema();
         for count in [0_usize, 1, 2, 3, 127, 128, 129, 1024, 4096] {
             let values = (0..count)
-                .map(|value| FilterValue::String(value.to_string()))
+                .map(|value| InputValue::text(value.to_string()))
                 .collect::<Vec<_>>();
             for negated in [false, true] {
                 let compare = if negated { BinaryOp::Ne } else { BinaryOp::Eq };
@@ -319,10 +319,10 @@ fn compact_membership_preserves_admitted_values_without_comparison_expansion() {
     crate::db::query::preparation::with_preparation_work(|work| {
         let schema = membership_schema();
         let values = vec![
-            FilterValue::String("3".to_string()),
-            FilterValue::Null,
-            FilterValue::String("1".to_string()),
-            FilterValue::String("3".to_string()),
+            InputValue::text("3".to_string()),
+            InputValue::null(),
+            InputValue::text("1".to_string()),
+            InputValue::text("3".to_string()),
         ];
         for negated in [false, true] {
             let lowered = FilterExpr::Set {
@@ -486,32 +486,32 @@ fn compact_membership_matches_explicit_comparisons_and_empty_identities() {
 }
 
 #[test]
-fn typed_filter_atoms_use_reversible_string_representations() {
+fn typed_filter_atoms_preserve_public_value_kinds() {
     assert_eq!(
-        FilterValue::from(vec![0x00, 0x0a, 0xff]),
-        FilterValue::String("000aff".to_string()),
+        InputValue::from(vec![0x00, 0x0a, 0xff]),
+        InputValue::from_public(PublicValue::Blob(vec![0x00, 0x0a, 0xff])),
     );
     assert_eq!(
-        FilterValue::from(Date::try_new(2026, 8, 5).expect("test date should be valid")),
-        FilterValue::String("2026-08-05".to_string()),
+        InputValue::from(Date::try_new(2026, 8, 5).expect("test date should be valid")),
+        InputValue::from_public(PublicValue::Date(Date::try_new(2026, 8, 5).unwrap())),
     );
     assert_eq!(
-        FilterValue::from(Duration::from_millis(12_345)),
-        FilterValue::String("12345".to_string()),
+        InputValue::from(Duration::from_millis(12_345)),
+        InputValue::from_public(PublicValue::Duration(Duration::from_millis(12_345))),
     );
     assert_eq!(
-        FilterValue::from(Subaccount::from_array([0xab; 32])),
-        FilterValue::String("ab".repeat(32)),
+        InputValue::from(Subaccount::from_array([0xab; 32])),
+        InputValue::from_public(PublicValue::Subaccount(Subaccount::from_array([0xab; 32]))),
     );
     assert_eq!(
-        FilterValue::from(Timestamp::from_millis(-42)),
-        FilterValue::String("-42".to_string()),
+        InputValue::from(Timestamp::from_millis(-42)),
+        InputValue::from_public(PublicValue::Timestamp(Timestamp::from_millis(-42))),
     );
 }
 
 #[test]
 fn grouped_filter_wire_round_trips_every_supported_operation() {
-    let value = FilterValue::String("value".to_string());
+    let value = InputValue::text("value".to_string());
     let comparisons = [
         CompareOperator::Eq,
         CompareOperator::EqCi,
@@ -637,13 +637,13 @@ fn recursive_filter_wire_refuses_depth_before_materializing_the_input() {
     ));
 
     assert_eq!(
-        icydb_schema::wire::encode_one(FilterValue::List(vec![FilterValue::Null])).unwrap(),
-        [3, 1, 2],
+        icydb_schema::wire::encode_one(InputValue::list(vec![InputValue::null()])).unwrap(),
+        [11, 1, 13],
     );
-    let mut nested = [3, 1].repeat(icydb_schema::wire::MAX_DEPTH + 1);
-    nested.push(2);
+    let mut nested = [11, 1].repeat(icydb_schema::wire::MAX_DEPTH + 1);
+    nested.push(13);
     assert!(matches!(
-        icydb_schema::wire::decode_one::<FilterValue>(&nested),
+        icydb_schema::wire::decode_one::<InputValue>(&nested),
         Err(icydb_schema::wire::Error::Limit),
     ));
 
@@ -689,7 +689,7 @@ fn optional_filter_wire_rejects_malformed_current_payloads() {
         Compare {
             operator: String,
             field: String,
-            value: FilterValue,
+            value: InputValue,
         },
         Not(Box<Self>),
         Junction {
@@ -703,7 +703,7 @@ fn optional_filter_wire_rejects_malformed_current_payloads() {
         InvalidFilter::Compare {
             operator: "Eq".to_string(),
             field: "stage".to_string(),
-            value: FilterValue::String("Draft".to_string()),
+            value: InputValue::text("Draft".to_string()),
         },
         InvalidFilter::Not(Box::new(InvalidFilter::Constant("false".to_string()))),
         InvalidFilter::Junction {
@@ -788,4 +788,34 @@ fn grouped_operator_lowering_retains_the_existing_planner_operations() {
     assert_eq!(StateOperator::IsMissing.function(), Function::IsMissing);
     assert_eq!(StateOperator::IsEmpty.function(), Function::IsEmpty);
     assert_eq!(StateOperator::IsNotEmpty.function(), Function::IsNotEmpty);
+}
+
+#[test]
+fn typed_literals_keep_identity_structure_and_unit_through_wire_and_lowering() {
+    let values = [
+        InputValue::nat64(u64::MAX),
+        InputValue::unit(),
+        InputValue::null(),
+        InputValue::map(vec![(
+            InputValue::text("key".to_string()),
+            InputValue::nat64(7),
+        )]),
+        InputValue::enum_value("Variant", Some("test::Enum"))
+            .with_enum_payload(InputValue::list(vec![InputValue::nat64(9)]))
+            .unwrap(),
+    ];
+    for value in values {
+        let filter = FilterExpr::eq("id", value.clone());
+        let bytes = icydb_schema::wire::encode_one(&filter).unwrap();
+        assert_eq!(
+            icydb_schema::wire::decode_one::<FilterExpr>(&bytes).unwrap(),
+            filter
+        );
+        if !matches!(value.as_public(), PublicValue::Enum(_)) {
+            crate::db::query::preparation::with_preparation_work(|work| {
+                let lowered = super::lower_input_value(&value, None, work).unwrap();
+                assert_eq!(lowered, value.clone().try_into_runtime_non_enum().unwrap());
+            });
+        }
+    }
 }

@@ -1,14 +1,12 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
 use super::{
-    ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
-    CACHE_MAX_AGE, CACHE_MAX_BYTES, CARGO_CONFIGURATION_LIMITS, CargoSelection,
-    CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
-    SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceConfig,
-    SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
+    ArtifactCacheOutcome, CACHE_MAX_AGE, CACHE_MAX_BYTES, CARGO_CONFIGURATION_LIMITS,
+    CargoSelection, CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry,
+    PostLinkCacheRequest, SHARED_INCREMENTAL_TARGET_MAX_BYTES, artifact_cache_prune_policy,
     build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
     cache_post_link_wasm_batch, cargo_wasm_batch_specs, cargo_wasm_spec,
-    wasm_build_progress_config,
+    shared_incremental_target_prune_policy,
 };
 
 fn workspace_root() -> PathBuf {
@@ -103,7 +101,6 @@ fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
             },
         ],
     );
-    let specs = specs.unwrap();
     let batch = build_cached_cargo_wasm_batch(&specs).unwrap();
     assert_eq!(batch.batch.failures().count(), 0, "{batch:?}");
     let same = batch.batch.entries()[0].result().unwrap().record();
@@ -149,7 +146,6 @@ fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
         &CargoSelection::default(),
         Some(&flags),
     );
-    let single_spec = single_spec.unwrap();
     for spec in [&single_spec, specs[0].spec()] {
         let error = ic_build::artifacts::resolve_cargo_build_inputs(spec).unwrap_err();
         let ic_build::artifacts::WasmBuildError::InvalidCargoConfiguration { path, .. } = error
@@ -170,49 +166,33 @@ fn cargo_cache_retention_bounds_exact_and_incremental_state() {
     assert_eq!(artifact_policy.max_age(), Some(CACHE_MAX_AGE));
     assert_eq!(artifact_policy.max_size_bytes(), Some(CACHE_MAX_BYTES));
 
-    // Inspect the supported spec contract at the actual consumer wiring.
-    // The consumer wires the same policy for single and batch acquisition;
-    // Build coalesces that policy once per canonical batch target.
-    let expected = SharedIncrementalTargetMaintenanceConfig::new(
-        ic_build::artifacts::CacheRetentionLimits::new()
-            .with_max_age(CACHE_MAX_AGE)
-            .with_max_size_bytes(SHARED_INCREMENTAL_TARGET_MAX_BYTES),
-        CACHE_MAINTENANCE_INTERVAL,
-    )
-    .with_failure_mode(SharedIncrementalTargetMaintenanceFailureMode::BestEffort);
-    let root = workspace_root();
-    let target = root.join("target/cache-policy-probe");
-    let single =
-        cargo_wasm_spec(&root, &target, &["probe"], &CargoSelection::default(), None).unwrap();
-    let selection = CargoSelection::default();
-    let batch = cargo_wasm_batch_specs(
-        &root,
-        &target,
-        &[CargoWasmBatchEntry {
-            context: "probe",
-            package: "probe",
-            selection: &selection,
-            encoded_rustflags: None,
-        }],
-    );
-    let batch = batch.unwrap();
+    let shared_policy = shared_incremental_target_prune_policy();
+    assert_eq!(shared_policy.max_age(), Some(CACHE_MAX_AGE));
     assert_eq!(
-        single.shared_incremental_target_maintenance(),
-        Some(expected),
-    );
-    assert_eq!(
-        batch[0].spec().shared_incremental_target_maintenance(),
-        Some(expected)
+        shared_policy.max_size_bytes(),
+        Some(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
     );
 }
 
 #[test]
-fn cargo_cache_progress_keeps_selected_heartbeat_interval() {
-    let config = wasm_build_progress_config();
-    assert_eq!(
-        config.heartbeat_interval(),
-        BUILD_PROGRESS_HEARTBEAT_INTERVAL
+fn cargo_cache_maintenance_accepts_missing_target() {
+    let root = ic_host_fs::testing::create_fixture_directory(
+        &env::temp_dir(),
+        "icydb missing cache target",
+    )
+    .unwrap();
+    let target = root.join("missing-target");
+    let spec = cargo_wasm_spec(&root, &target, &["probe"], &CargoSelection::default(), None);
+    assert!(
+        ic_build::artifacts::maintain_shared_incremental_target(
+            &spec,
+            shared_incremental_target_prune_policy(),
+        )
+        .unwrap()
+        .is_none()
     );
+    assert!(!target.exists());
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

@@ -23,7 +23,7 @@ fn maintained_actor_requests_keep_profile_features_and_report_identity() {
                 ..CanisterBuildOptions::default()
             };
             let plan = plan_maintained_canister_builds(&root, options).unwrap();
-            let specs = plan.cargo_specs(&root).unwrap();
+            let specs = plan.cargo_specs(&root);
             for (entry, request) in plan.entries.iter().zip(&specs) {
                 let resolved =
                     resolve_fixture_canister_build_configuration(entry.policy.canister, options)

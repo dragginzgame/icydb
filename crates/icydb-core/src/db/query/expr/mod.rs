@@ -7,7 +7,7 @@ mod filter;
 mod order;
 
 pub use filter::{
-    CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
-    JunctionOperator, SetOperator, StateOperator,
+    CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, JunctionOperator,
+    SetOperator, StateOperator,
 };
 pub use order::{OrderExpr, OrderTerm, asc, desc, field};

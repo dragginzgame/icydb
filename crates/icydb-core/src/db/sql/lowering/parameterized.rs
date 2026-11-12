@@ -4,7 +4,7 @@
 use crate::{
     db::{
         MissingRowPolicy, QueryError,
-        query::{intent::StructuralQuery, preparation::PreparationWork},
+        query::{intent::StructuralQuery, plan::expr::Expr, preparation::PreparationWork},
         schema::SchemaInfo,
         sql::{
             lowering::{
@@ -58,8 +58,7 @@ impl CheckedSqlSelectTemplate {
         let predicate = select.predicate.take().ok_or_else(QueryError::invariant)?;
         // Preserve first-call error precedence: bound WHERE operands are admitted
         // before unrelated projection/lane lowering, just as on an uncached call.
-        let mut bound_predicate = predicate.clone();
-        bind_prepared_where(&mut bound_predicate, schema, bindings, work)?;
+        let bound_predicate = bind_prepared_where(&predicate, schema, bindings, work)?;
         let global = prepared
             .is_global_aggregate_lane_shape(work)
             .map_err(QueryError::from_sql_lowering_error)?;
@@ -69,7 +68,7 @@ impl CheckedSqlSelectTemplate {
         let body = if global {
             SelectTemplateBody::GlobalAggregate(Box::new(
                 lower_global_aggregate_select_shape(select, work)
-                    .and_then(|lowered| lowered.into_parameter_template(schema, work))
+                    .and_then(|lowered| lowered.into_parameter_template(schema))
                     .map_err(QueryError::from_sql_lowering_error)?,
             ))
         } else {
@@ -89,7 +88,7 @@ impl CheckedSqlSelectTemplate {
             }
         };
         let template = Self { predicate, body };
-        let bound = template.bind_prepared_predicate(&bound_predicate, schema, work)?;
+        let bound = template.bind_prepared_predicate(bound_predicate, schema, work)?;
         Ok((template, bound))
     }
 
@@ -99,25 +98,20 @@ impl CheckedSqlSelectTemplate {
         bindings: &[InputValue],
         work: &PreparationWork<'_>,
     ) -> Result<BoundSqlSelect, QueryError> {
-        let mut predicate = self.predicate.clone();
-        bind_prepared_where(&mut predicate, schema, bindings, work)?;
-        self.bind_prepared_predicate(&predicate, schema, work)
+        let predicate = bind_prepared_where(&self.predicate, schema, bindings, work)?;
+        self.bind_prepared_predicate(predicate, schema, work)
     }
 
     fn bind_prepared_predicate(
         &self,
-        predicate: &SqlExpr,
+        predicate: Expr,
         schema: &SchemaInfo,
         work: &PreparationWork<'_>,
     ) -> Result<BoundSqlSelect, QueryError> {
         match &self.body {
             SelectTemplateBody::Select { query, grouped } => {
-                let filter = if *grouped {
-                    LoweredSqlFilter::from_grouped_where_expr(predicate, work)
-                } else {
-                    LoweredSqlFilter::from_scalar_where_expr(predicate, work)
-                }
-                .map_err(QueryError::from_sql_lowering_error)?;
+                let filter = LoweredSqlFilter::from_lowered_where_expr(predicate, !*grouped, work)
+                    .map_err(QueryError::from_sql_lowering_error)?;
                 Ok(BoundSqlSelect::Select(filter.apply_to_query(
                     query.as_ref().clone(),
                     schema,

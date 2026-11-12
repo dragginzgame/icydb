@@ -237,7 +237,7 @@ where
             try_execute_ordered_distinct_group_seek_for_canister(
                 db,
                 prepared_plan.authority(),
-                prepared_plan.index_range_specs(),
+                prepared_plan.single_index_range_specs(),
                 &covering,
             )?
             .map(|representatives| (representatives, covering))
@@ -268,8 +268,6 @@ where
         && !emit_cursor
     {
         let covering = prepared_plan.projection_covering_read_execution_plan();
-        let index_prefix_specs = prepared_plan.index_prefix_specs();
-        let index_range_specs = prepared_plan.index_range_specs();
         let index_predicate_execution = if prepared_plan
             .logical_plan()
             .has_residual_filter_predicate()?
@@ -287,8 +285,6 @@ where
             prepared_plan.authority(),
             PreparedCoveringProjectionRuntime::new(
                 prepared_plan.logical_plan(),
-                index_prefix_specs,
-                index_range_specs,
                 index_predicate_execution.as_ref(),
             ),
             covering,

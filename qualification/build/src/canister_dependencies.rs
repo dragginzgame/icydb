@@ -50,8 +50,7 @@ pub(crate) fn admit(
         request.packages,
         request.selection,
         request.encoded_rustflags,
-    )
-    .map_err(|error| format!("dependency admission configuration failed: {error}"))?;
+    );
     let inputs = resolve_cargo_build_inputs(&spec).map_err(|error| error.to_string())?;
     if inputs.fingerprint() != record.fingerprint() {
         return Err("dependency admission does not match retained Cargo inputs".to_owned());

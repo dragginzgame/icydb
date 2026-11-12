@@ -48,7 +48,7 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     Ok(Some(execute_structural_fast_stream_request(
         runtime,
         executable,
-        AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
+        AccessStreamBindings::new(continuation),
         AccessStreamExecutionPolicy::canonical_key_order(Some(effective_fetch)),
         index_predicate_execution,
     )?))

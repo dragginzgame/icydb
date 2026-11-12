@@ -508,7 +508,7 @@ fn physical_polling_hard_budget_rejects_refill_before_progress() {
 
 #[test]
 fn materialized_primary_keys_resume_strictly_in_both_directions() {
-    let runtime = KeyAccessRuntime::new(STORE, ENTITY);
+    use crate::db::access::AccessPlan;
     for composite in [false, true] {
         let key_value = |key| {
             if composite {
@@ -519,8 +519,8 @@ fn materialized_primary_keys_resume_strictly_in_both_directions() {
         };
         let keys = [3, 1, 2, 3].map(key_value);
         for path in [
-            ExecutionPathPayload::ByKey(&keys[0]),
-            ExecutionPathPayload::ByKeys(&keys),
+            AccessPlan::by_key(keys[0].clone()),
+            AccessPlan::by_keys(keys.to_vec()),
         ] {
             for direction in [Direction::Asc, Direction::Desc] {
                 for boundary_value in [0, 2, 3, 4] {
@@ -534,27 +534,23 @@ fn materialized_primary_keys_resume_strictly_in_both_directions() {
                             vec![CursorBoundarySlot::Present(Value::Nat64(boundary_value))]
                         },
                     };
-                    let mut stream = resolve_physical_key_stream(
-                        &path,
-                        PhysicalStreamBindings {
-                            index_prefix_specs: &[],
-                            index_range_spec: None,
-                            continuation: AccessScanContinuationInput::with_primary_key_boundary(
+                    let mut stream = resolve_structural_physical_key_stream(
+                        &path.executable_contract(),
+                        STORE,
+                        ENTITY,
+                        AccessStreamBindings::new(
+                            AccessScanContinuationInput::with_primary_key_boundary(
                                 None,
                                 direction,
                                 Some(&boundary),
                             ),
-                            execution_policy: AccessStreamExecutionPolicy::canonical_key_order(
-                                None,
-                            ),
-                            index_predicate_execution: None,
-                            index_prefix_child_expansion: None,
-                        },
-                        &runtime,
+                        ),
+                        AccessStreamExecutionPolicy::canonical_key_order(None),
+                        None,
                     )
                     .unwrap();
                     let mut expected = (1..=3)
-                        .filter(|key| !matches!(path, ExecutionPathPayload::ByKey(_)) || *key == 3)
+                        .filter(|key| !path.as_path().unwrap().is_by_key() || *key == 3)
                         .filter(|key| match direction {
                             Direction::Asc => *key > boundary_value,
                             Direction::Desc => *key < boundary_value,
@@ -846,4 +842,21 @@ fn index_leaf_propagates_malformed_entry_corruption() {
         .next_key()
         .expect_err("malformed index entries must fail");
     assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
+}
+
+#[test]
+fn physical_entrypoint_rejects_composite_plans() {
+    use crate::db::access::AccessPlan;
+    let plan = AccessPlan::<Value>::Union(vec![AccessPlan::full_scan(), AccessPlan::full_scan()]);
+    assert!(
+        resolve_structural_physical_key_stream(
+            &plan.executable_contract(),
+            STORE,
+            ENTITY,
+            AccessStreamBindings::new(AccessScanContinuationInput::new(None, Direction::Asc)),
+            AccessStreamExecutionPolicy::canonical_key_order(None),
+            None,
+        )
+        .is_err()
+    );
 }

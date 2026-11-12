@@ -705,20 +705,19 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
         candidates.as_slice(),
         database_incarnation_id()?,
     )?;
-    let accepted_head = if let Some(pending) = pending.as_ref() {
+    // Derive the actual publication head once. Pending activation alone needs
+    // a separate future head for its receipt; lineage records the admitted head.
+    let lineage_head =
+        accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?;
+    let outcome_head = if let Some(pending) = pending.as_ref() {
         let final_candidates =
             final_candidates_for_pending_row_local_constraint(&candidates, pending)?;
         accepted_head_after_candidates(authorities.as_slice(), final_candidates.as_slice())?
     } else if candidates.is_empty() {
         target.accepted_head().clone()
     } else {
-        accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?
+        lineage_head.clone()
     };
-    // Completed entities publish at the actual admitted head, not the future
-    // prediction retained for the deferred activation's eventual promotion.
-    let lineage_head =
-        accepted_head_after_candidates(authorities.as_slice(), candidates.as_slice())?;
-    let outcome_head = accepted_head;
     let outcome = if pending.is_some() {
         let job_id = derive_schema_change_job_id(
             target.database_identity(),
@@ -2470,7 +2469,10 @@ fn preflight_new_entity_domains(
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
 ) -> Result<(), InternalError> {
-    let mut after = current_bundles.to_vec();
+    let mut after = current_bundles
+        .iter()
+        .map(Option::as_ref)
+        .collect::<Vec<_>>();
     for candidate in candidates {
         let position = authorities
             .iter()
@@ -2479,7 +2481,7 @@ fn preflight_new_entity_domains(
         let bundle = after
             .get_mut(position)
             .ok_or_else(InternalError::store_invariant)?;
-        *bundle = Some(candidate.bundle().clone());
+        *bundle = Some(candidate.bundle());
     }
     for candidate in candidates {
         let (position, authority) = authorities
@@ -2501,8 +2503,11 @@ fn preflight_new_entity_domains(
                 .with_index(|store| prove_empty_user_index_domain(store, *tag))
                 .map_err(StagedUserIndexDomainError::into_internal_error)?;
             for relation in snapshot.relations() {
-                let target =
-                    accepted_entity_store_for_path(authorities, &after, relation.target_path())?;
+                let target = accepted_entity_store_for_path(
+                    authorities,
+                    after.iter().copied(),
+                    relation.target_path(),
+                )?;
                 target.with_index(|store| {
                     prove_empty_reverse_relation_domain(store, *tag, snapshot, relation)
                 })?;
@@ -2570,7 +2575,7 @@ fn require_empty_physical_entity_removal(
         for relation in snapshot.relations() {
             let target_store = accepted_entity_store_for_path(
                 authorities,
-                current_bundles,
+                current_bundles.iter().map(Option::as_ref),
                 relation.target_path(),
             )?;
             target_store.with_index(|store| {
@@ -2653,7 +2658,7 @@ fn require_empty_physical_relation_removals(
             require_exact_empty_entity(source_authority.handle, *entity_tag)?;
             let target_store = accepted_entity_store_for_path(
                 authorities,
-                current_bundles,
+                current_bundles.iter().map(Option::as_ref),
                 removed.target_path(),
             )?;
             target_store.with_index(|store| {
@@ -2664,13 +2669,13 @@ fn require_empty_physical_relation_removals(
     Ok(())
 }
 
-fn accepted_entity_store_for_path(
+fn accepted_entity_store_for_path<'a>(
     authorities: &[StoreApplicationAuthority],
-    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    current_bundles: impl Iterator<Item = Option<&'a AcceptedSchemaRevisionBundle>>,
     entity_path: &str,
 ) -> Result<StoreHandle, InternalError> {
     let mut resolved = None;
-    for (position, bundle) in current_bundles.iter().enumerate() {
+    for (position, bundle) in current_bundles.enumerate() {
         let Some(bundle) = bundle else {
             continue;
         };

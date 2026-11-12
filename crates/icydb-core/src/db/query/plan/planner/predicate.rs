@@ -101,7 +101,7 @@ pub(super) fn plan_predicate(
             .map(|spec| {
                 budget
                     .boxed(AccessPath::IndexRange { spec })
-                    .map(AccessPlan::Path)
+                    .map(AccessPlan::boxed_path)
             })
             .transpose()?;
             let prefix_access = prefix::index_prefix_from_and(
@@ -341,10 +341,12 @@ fn exact_index_intersection_candidate(
         for value in *prefix {
             values.push(budget.copy_value(value)?);
         }
-        children.push(AccessPlan::Path(budget.boxed(AccessPath::IndexPrefix {
-            index: (*index).clone(),
-            values,
-        })?));
+        children.push(AccessPlan::boxed_path(budget.boxed(
+            AccessPath::IndexPrefix {
+                index: (*index).clone(),
+                values,
+            },
+        )?));
     }
     // Two or three nonempty flat prefix paths are already canonical; the
     // generic flattening constructor would allocate another identical list.
@@ -424,7 +426,7 @@ fn primary_key_child_access_candidate(
         (children.len() as u64).saturating_mul(2),
     )?;
     if children.iter().any(AccessPlan::is_explicit_empty) {
-        let access = AccessPlan::Path(budget.boxed(AccessPath::ByKeys(Vec::new()))?);
+        let access = AccessPlan::boxed_path(budget.boxed(AccessPath::ByKeys(Vec::new()))?);
         return Ok(Some((
             PlannedAccessSelection::new(
                 access,
@@ -496,7 +498,7 @@ fn primary_key_children_selection_for_keys(
     };
 
     Ok((
-        PlannedAccessSelection::new(AccessPlan::Path(budget.boxed(path)?), Some(reason)),
+        PlannedAccessSelection::new(AccessPlan::boxed_path(budget.boxed(path)?), Some(reason)),
         if conflicting_children {
             AndFamilyPriorityClass::ConflictingPrimaryKeyChildren
         } else {
@@ -631,7 +633,7 @@ fn child_is_redundant_under_selected_index_access(
     child: &Predicate,
     budget: &dyn ConstructionBudget,
 ) -> Result<bool, InternalError> {
-    let Some(AccessPlan::Path(path)) = selected_access else {
+    let Some(AccessPlan::Path(path, _)) = selected_access else {
         return Ok(false);
     };
     let Predicate::Compare(cmp) = child else {

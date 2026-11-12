@@ -29,7 +29,7 @@ mod window;
 use crate::db::access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey};
 
 pub(in crate::db) use crate::db::access::{
-    ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
+    ExecutableAccessChildren, ExecutableAccessPlan, ExecutionPathPayload,
 };
 pub(in crate::db) use aggregate::runtime::RuntimeGroupedRow;
 pub(in crate::db) use aggregate::{ExactCardinalityTarget, execute_exact_cardinality_for_canister};

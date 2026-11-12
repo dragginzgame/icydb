@@ -31,7 +31,7 @@ use crate::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
             accepted_relation_target_contract, accepted_relation_target_metadata_from_kind,
-            accepted_relation_tuple_edge_descriptor, accepted_scalar_relation_cardinality,
+            accepted_scalar_relation_cardinality, validate_accepted_relation_tuple_components,
             validate_relation_primary_key_component_kind,
         },
         schema::AcceptedFieldKind,
@@ -1191,30 +1191,34 @@ fn compile_accepted_relation_binding(
     }
     if let Some((nested, terminal)) = accepted_relation_traversal(&source, source_row_contract)? {
         let local_component = AcceptedRelationTupleEdgeLocalComponent::new(terminal.kind());
-        let descriptor = accepted_relation_tuple_edge_descriptor(
-            target_contract,
+        validate_accepted_relation_tuple_components(
+            &target_contract,
             std::slice::from_ref(&local_component),
         )?;
         return AcceptedRelationInfo::new_nested(
             constraint,
             reverse_identity,
             nested,
-            descriptor.into_target_contract(),
+            target_contract,
         );
     }
     let AcceptedRelationBindingSource::Direct(slots) = source else {
         return Err(InternalError::store_invariant());
     };
-    let local_fields = slots
+    // Resolve each field once, retaining the specification used by final construction.
+    let component_specs = slots
         .iter()
         .map(|slot| {
             source_row_contract
                 .required_accepted_field_decode_contract(*slot)
-                .map(|field| (*slot, field))
+                .map(|field| AcceptedRelationLocalComponentSpec {
+                    index: *slot,
+                    field,
+                })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    if let [(slot, field)] = local_fields.as_slice()
+    if let [AcceptedRelationLocalComponentSpec { index: slot, field }] = component_specs.as_slice()
         && let Some(cardinality) =
             accepted_scalar_relation_cardinality(field.kind(), &target_contract)?
     {
@@ -1228,19 +1232,14 @@ fn compile_accepted_relation_binding(
         );
     }
 
-    let local_component_facts = local_fields
+    let local_component_facts = component_specs
         .iter()
-        .map(|(_, field)| AcceptedRelationTupleEdgeLocalComponent::new(field.kind()))
+        .map(|component| AcceptedRelationTupleEdgeLocalComponent::new(component.field.kind()))
         .collect::<Vec<_>>();
-    let tuple_descriptor =
-        accepted_relation_tuple_edge_descriptor(target_contract, local_component_facts.as_slice())?;
-    let component_specs = local_fields
-        .iter()
-        .map(|(slot, field)| AcceptedRelationLocalComponentSpec {
-            index: *slot,
-            field: *field,
-        })
-        .collect::<Vec<_>>();
+    validate_accepted_relation_tuple_components(
+        &target_contract,
+        local_component_facts.as_slice(),
+    )?;
     let source_field_index = slots
         .first()
         .copied()
@@ -1250,7 +1249,7 @@ fn compile_accepted_relation_binding(
         reverse_identity,
         source_field_index,
         AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
-        tuple_descriptor.into_target_contract(),
+        target_contract,
         AcceptedRelationCardinality::Single,
     )
 }

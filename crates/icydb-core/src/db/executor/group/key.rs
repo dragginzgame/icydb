@@ -225,14 +225,13 @@ impl GroupKeySet {
         self.keys.len()
     }
 
-    /// Insert one canonical key and return true if it was newly observed.
+    /// Reserve and insert an admitted canonical key, returning whether it is new.
+    /// The admission caller probes borrowed input before charging or retaining it;
+    /// do not repeat that lookup here. HashSet insertion still checks equality.
     pub(in crate::db::executor) fn insert_key(
         &mut self,
         key: GroupKey,
     ) -> Result<bool, InternalError> {
-        if self.keys.contains(&key) {
-            return Ok(false);
-        }
         try_reserve_hash_set_entry(&mut self.keys)?;
         Ok(self.keys.insert(key))
     }

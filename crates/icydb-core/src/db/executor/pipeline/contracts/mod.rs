@@ -25,9 +25,7 @@ pub(in crate::db::executor) use execution::{
     ProjectionMaterializationMode, ResolvedExecutionKeyStream, ScalarPageMaterialization,
 };
 pub(in crate::db::executor) use fast_stream::FastStreamRouteRequest;
-pub(in crate::db::executor) use grouped::{
-    GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle,
-};
+pub(in crate::db::executor) use grouped::{GroupedPlannerPayload, GroupedRouteStage};
 pub(in crate::db::executor) use materialization::{
     KernelPageMaterializationRequest, ScalarMaterializationCapabilities,
 };

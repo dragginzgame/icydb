@@ -151,7 +151,7 @@ impl AccessPlan<Value> {
     // Validate executor-runtime access invariants through accepted schema facts.
     fn validate_runtime_invariants(&self, schema: &SchemaInfo) -> Result<(), AccessPlanError> {
         match self {
-            Self::Path(path) => path.validate_runtime_invariants(schema),
+            Self::Path(path, _) => path.validate_runtime_invariants(schema),
             Self::Union(children) | Self::Intersection(children) => {
                 for child in children {
                     child.validate_runtime_invariants(schema)?;

@@ -177,7 +177,7 @@ fn redundancy_dispatch_preserves_fixed_prefix_range_and_branch_proofs() {
     let index = visible.accepted_semantic_index_contracts()[0].clone();
     let fixed = vec![Value::Int64(7)];
     let prefix = AccessPlan::index_prefix_from_contract(index.clone(), fixed.clone());
-    let range = AccessPlan::Path(Box::new(AccessPath::IndexRange {
+    let range = AccessPlan::boxed_path(Box::new(AccessPath::IndexRange {
         spec: SemanticIndexRangeSpec::from_access_contract(
             index.clone(),
             vec![1, 2],

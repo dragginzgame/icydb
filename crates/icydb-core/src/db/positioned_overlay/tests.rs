@@ -94,15 +94,3 @@ fn bulk_retirement_preserves_exact_superseded_and_missing_target_authority() {
     }
     assert_eq!(metadata.positions, before);
 }
-
-#[test]
-fn derived_index_classification_uses_value_presence_as_semantics() {
-    assert_eq!(
-        classify_derived_index_overlay(Some(&IndexEntryValue::presence())),
-        OnlineOverlayDecision::IndexPositive,
-    );
-    assert_eq!(
-        classify_derived_index_overlay(None),
-        OnlineOverlayDecision::IndexTombstone,
-    );
-}

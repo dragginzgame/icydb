@@ -88,7 +88,7 @@ impl<K> AccessPlan<K> {
         P: AccessPlanProjection<K>,
     {
         match self {
-            Self::Path(path) => path.project(projection),
+            Self::Path(path, _) => path.project(projection),
             Self::Union(children) => projection.union(children, Self::project),
             Self::Intersection(children) => projection.intersection(children, Self::project),
         }

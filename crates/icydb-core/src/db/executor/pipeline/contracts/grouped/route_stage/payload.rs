@@ -11,20 +11,7 @@ use crate::db::{
         GroupedExecutionConfig, GroupedExecutionRoute, PlannedProjectionLayout,
     },
 };
-use std::{rc::Rc, sync::Arc};
-
-///
-/// IndexSpecBundle
-///
-/// Grouped execution lowered index-spec bundle used by grouped stream
-/// resolution. Keeps prefix/range specs grouped to avoid parallel vector drift.
-///
-
-pub(in crate::db::executor) struct IndexSpecBundle {
-    pub(in crate::db::executor) index_prefix_specs:
-        Arc<[crate::db::access::LoweredIndexPrefixSpec]>,
-    pub(in crate::db::executor) index_range_specs: Arc<[crate::db::access::LoweredIndexRangeSpec]>,
-}
+use std::rc::Rc;
 
 ///
 /// GroupedPlannerPayload
@@ -59,7 +46,6 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
 pub(in crate::db::executor) struct GroupedRouteStage {
     pub(in crate::db::executor) planner_payload: GroupedPlannerPayload,
     pub(in crate::db::executor) grouped_route_plan: ExecutionRoutePlan,
-    pub(in crate::db::executor) index_specs: IndexSpecBundle,
     pub(in crate::db::executor) continuation: GroupedContinuationContext,
     pub(in crate::db::executor) resume_anchor: Option<crate::db::access::LoweredKey>,
 }

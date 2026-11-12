@@ -47,6 +47,17 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
             if cached.root == root.identity() {
                 let catalog = sql_query_catalog_context(root, cached.entity_name.as_deref())?;
+                // A rebuilt heap root may preserve durable identity while renewing
+                // its store-local value authority. Recompile bound literals then.
+                if &cached.schema_authority
+                    != catalog
+                        .accepted_schema_info()
+                        .value_catalog_handle()
+                        .authority()
+                {
+                    let dispatch = crate::db::sql_statement_dispatch(sql)?;
+                    return self.compile_sql_query_with_dispatch_execution_context(&dispatch, &[]);
+                }
                 self.with_sql_compiled_command_cache(|cache| cache.refresh(&key));
                 let entity = cached
                     .entity_name
@@ -124,6 +135,11 @@ impl<C: CanisterKind> DbSession<C> {
             let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&key).cloned());
             if let Some(cached) = cached
                 && cached.root == catalog.runtime_root_identity()
+                && &cached.schema_authority
+                    == catalog
+                        .accepted_schema_info()
+                        .value_catalog_handle()
+                        .authority()
                 && let SqlCachedCommand::Parameterized(template) = cached.command
             {
                 let compiled = self.bind_sql_parameter_template(
@@ -172,6 +188,11 @@ impl<C: CanisterKind> DbSession<C> {
         let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
         if let Some(cached) = cached
             && cached.root == catalog.runtime_root_identity()
+            && &cached.schema_authority
+                == catalog
+                    .accepted_schema_info()
+                    .value_catalog_handle()
+                    .authority()
             && let SqlCachedCommand::Literal(command) = cached.command
         {
             self.with_sql_compiled_command_cache(|cache| cache.refresh(&cache_key));
@@ -204,6 +225,11 @@ impl<C: CanisterKind> DbSession<C> {
     ) {
         let resident = SqlCompiledCommandCacheEntry {
             root: catalog.runtime_root_identity(),
+            schema_authority: catalog
+                .accepted_schema_info()
+                .value_catalog_handle()
+                .authority()
+                .clone(),
             entity_name: sql_statement_entity_name_from_statement(parsed).map(Rc::from),
             command,
         };

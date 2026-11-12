@@ -5,6 +5,7 @@
 
 mod cache_key;
 mod errors;
+pub(in crate::db::query) mod filter;
 mod model;
 mod mutation;
 mod policy;

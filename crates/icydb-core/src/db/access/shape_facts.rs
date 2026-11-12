@@ -4,8 +4,8 @@
 //! Boundary: access-layer shape authority consumed by executor route/load/stream modules.
 
 use crate::db::access::{
-    AccessPath, AccessPathKind, AccessPlan, ExecutableAccessNode, ExecutableAccessPlan,
-    ExecutionPathPayload, SemanticIndexAccessContract, SemanticIndexKeyItem,
+    AccessPath, AccessPathKind, AccessPlan, ExecutableAccessPlan, ExecutionPathPayload,
+    SemanticIndexAccessContract, SemanticIndexKeyItem,
 };
 
 // Project whether traversal can safely reverse the underlying access shape.
@@ -319,10 +319,14 @@ fn summarize_child_runtime_shapes(
 fn summarize_access_plan_runtime_shape<K>(
     access: &ExecutableAccessPlan<'_, K>,
 ) -> (Option<IndexShapeDetails>, bool) {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => summarize_path_runtime_shape(&path.shape_facts()),
-        ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            summarize_child_runtime_shapes(children.iter().map(summarize_access_plan_runtime_shape))
+    match access {
+        ExecutableAccessPlan::Path(path, _) => summarize_path_runtime_shape(&path.shape_facts()),
+        ExecutableAccessPlan::Union(children) | ExecutableAccessPlan::Intersection(children) => {
+            summarize_child_runtime_shapes(
+                children
+                    .iter()
+                    .map(|child| summarize_access_plan_runtime_shape(&child)),
+            )
         }
     }
 }
@@ -331,7 +335,7 @@ fn summarize_semantic_access_plan_runtime_shape<K>(
     access: &AccessPlan<K>,
 ) -> (Option<IndexShapeDetails>, bool) {
     match access {
-        AccessPlan::Path(path) => summarize_path_runtime_shape(&path.shape_facts()),
+        AccessPlan::Path(path, _) => summarize_path_runtime_shape(&path.shape_facts()),
         AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
             summarize_child_runtime_shapes(
                 children
@@ -345,9 +349,9 @@ fn summarize_semantic_access_plan_runtime_shape<K>(
 /// Derive immutable access-shape facts for one executable access plan.
 #[must_use]
 fn derive_access_shape_facts<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessShapeFacts {
-    let single_path = match access.node() {
-        ExecutableAccessNode::Path(path) => Some(path.shape_facts()),
-        ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
+    let single_path = match access {
+        ExecutableAccessPlan::Path(path, _) => Some(path.shape_facts()),
+        ExecutableAccessPlan::Union(_) | ExecutableAccessPlan::Intersection(_) => None,
     };
     let (first_index_range_details, all_paths_support_reverse_traversal) =
         summarize_access_plan_runtime_shape(access);
@@ -363,7 +367,7 @@ fn derive_access_shape_facts<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessS
 #[must_use]
 fn derive_semantic_access_shape_facts<K>(access: &AccessPlan<K>) -> AccessShapeFacts {
     let single_path = match access {
-        AccessPlan::Path(path) => Some(path.shape_facts()),
+        AccessPlan::Path(path, _) => Some(path.shape_facts()),
         AccessPlan::Union(_) | AccessPlan::Intersection(_) => None,
     };
     let (first_index_range_details, all_paths_support_reverse_traversal) =

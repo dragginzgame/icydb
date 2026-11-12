@@ -29,9 +29,10 @@ canister uses session/library SQL APIs or generated SQL endpoints:
 Add `features = ["sql"]` to the runtime dependency when needed. The other
 optional runtime features are `metrics` and `migration`. Native binding tools
 explicitly select `wire-schema`; native targets do not enable it automatically.
-Native canister tests can enable `testing` for the bounded typed startup helper
+Native canister tests can enable `testing` for the typed startup predicate
 described in the [facade guide](crates/icydb/README.md#startup-in-native-canister-tests).
-This selects Testkit only on native targets and exports no IC endpoint.
+This has no simulator dependency and exports no IC endpoint. Native harnesses
+select Testkit separately for bounded progression and simulator lifecycle.
 
 Choose one direct IcyDB package for the consumer's needs:
 

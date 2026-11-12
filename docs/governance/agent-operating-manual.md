@@ -55,6 +55,8 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   output and records the exact version-and-release-note transition. Failed
   preparation restores its bounded metadata file set; validation failures leave
   package versions untouched. Tagging and publication reuse the tested receipt.
+- Dependency maintenance may use `make deps-update` under the standing
+  authorization in AGENTS.md; see [scope and selectors](toko-tooling.md#dependency-updates).
 - Development checks: select the changed package, target or named tests; run
   strict Clippy for that same selection. `make check`, `make clippy`,
   `make validate-fast` and `make validate` are broad gates, requiring an explicit

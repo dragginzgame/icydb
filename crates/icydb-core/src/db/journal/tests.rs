@@ -18,7 +18,6 @@ use crate::{
         index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
         integrity::DatabaseIncarnationId,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-        positioned_overlay::{OnlineOverlayDecision, classify_journal_overlay},
         schema::{
             AcceptedCheckExprV1, AcceptedFieldKind, AcceptedSchemaFingerprint,
             AcceptedSchemaRevision, ConstraintActivationKind, ConstraintActivationSnapshot,
@@ -195,90 +194,6 @@ fn journal_batch_codec_round_trips_logical_row_and_control_records() {
 
     assert_eq!(decoded, batch);
     assert_eq!(decoded.records().len(), 3);
-}
-
-#[test]
-fn every_journal_record_family_has_an_explicit_online_overlay_decision() {
-    let job = validation_job();
-    let index_key = accepted_schema_index_key(7, 9);
-    let plan = SchemaMigrationPlanDigest::from_bytes([0x72; 32]);
-    let records = vec![
-        (row_put_record(1), OnlineOverlayDecision::DataPositive),
-        (row_delete_record(2), OnlineOverlayDecision::DataTombstone),
-        (
-            accepted_schema_publish_record(),
-            OnlineOverlayDecision::SchemaPositive,
-        ),
-        (
-            JournalRecord::accepted_schema_index_delete(
-                "test::Store",
-                EntityTag::new(1),
-                [0x51; 16],
-                vec![index_key.clone()],
-            )
-            .expect("accepted-schema index deletion should build"),
-            OnlineOverlayDecision::IndexTombstone,
-        ),
-        (
-            JournalRecord::accepted_schema_index_put(
-                "test::Store",
-                EntityTag::new(1),
-                [0x51; 16],
-                vec![index_key.clone()],
-            )
-            .expect("accepted-schema index insertion should build"),
-            OnlineOverlayDecision::IndexPositive,
-        ),
-        (
-            JournalRecord::constraint_validation_job_put("test::Store", &job)
-                .expect("validation-job insertion should build"),
-            OnlineOverlayDecision::SchemaPositive,
-        ),
-        (
-            JournalRecord::constraint_validation_job_delete(
-                "test::Store",
-                job.entity_tag(),
-                job.constraint_id(),
-            )
-            .expect("validation-job deletion should build"),
-            OnlineOverlayDecision::SchemaTombstone,
-        ),
-        (
-            JournalRecord::constraint_validation_index_put(
-                "test::Store",
-                job.entity_tag(),
-                job.constraint_id(),
-                index_key.clone(),
-            )
-            .expect("validation candidate index insertion should build"),
-            OnlineOverlayDecision::IndexPositive,
-        ),
-        (
-            identity_range_record(1),
-            OnlineOverlayDecision::SchemaPositive,
-        ),
-        (
-            JournalRecord::schema_migration_row_put(
-                "test::Store",
-                raw_data_store_key(9),
-                vec![0x59; 8],
-                [0x69; 16],
-                plan,
-            )
-            .expect("migration row insertion should build"),
-            OnlineOverlayDecision::DataPositive,
-        ),
-        (
-            JournalRecord::schema_migration_index_put("test::Store", index_key, plan)
-                .expect("migration index insertion should build"),
-            OnlineOverlayDecision::IndexPositive,
-        ),
-    ];
-
-    assert_eq!(records.len(), 11);
-    for (record, expected) in records {
-        assert_eq!(classify_journal_overlay(&record), expected);
-    }
 }
 
 #[test]
@@ -496,6 +411,47 @@ fn accepted_schema_publication_rejects_late_duplicate_and_non_schema_suffixes() 
         let error = JournalBatch::new([0x3D; 16], [0x4D; 16], JournalSequence::new(12), records)
             .expect_err("accepted schema publication batches must stay schema-owned");
 
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
+}
+
+#[test]
+fn raw_journal_decode_rejects_late_duplicate_and_mixed_publications() {
+    let encode_record = |record| {
+        encode_journal_batch(
+            &JournalBatch::new(
+                [0x3D; 16],
+                [0x4D; 16],
+                JournalSequence::new(12),
+                vec![record],
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    let publication = encode_record(accepted_schema_publish_record());
+    let row = encode_record(row_put_record(1));
+    for records in [
+        [&row, &publication],
+        [&publication, &publication],
+        [&publication, &row],
+    ] {
+        // Authenticate a well-framed envelope so rejection reaches batch-shape
+        // admission, rather than stopping at length or checksum validation.
+        let mut bytes = publication[..93].to_vec();
+        for record in records {
+            bytes.extend_from_slice(&record[93..]);
+        }
+        let payload_len = u32::try_from(bytes.len() - 9).unwrap();
+        bytes[5..9].copy_from_slice(&payload_len.to_le_bytes());
+        bytes[57..61].copy_from_slice(&2_u32.to_le_bytes());
+        let mut hash = Sha256::new();
+        hash.update(b"ICYDB-JOURNAL-BATCH-FINGERPRINT\0");
+        hash.update(&bytes[..61]);
+        hash.update(&bytes[93..]);
+        bytes[61..93].copy_from_slice(&hash.finalize());
+        let error = decode_journal_batch(&bytes).unwrap_err();
         assert_eq!(error.class(), ErrorClass::Corruption);
         assert_eq!(error.origin(), ErrorOrigin::Store);
     }

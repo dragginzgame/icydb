@@ -6,7 +6,7 @@ use crate::{
     db::{
         access::{
             LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            lower_access_with_schema_info,
+            lowering::bind_access_with_schema_info,
         },
         commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, ValidatedGroupedCursor},
@@ -36,7 +36,7 @@ use crate::{
 use std::{
     cell::RefCell,
     rc::{Rc, Weak},
-    sync::{Arc, OnceLock},
+    sync::OnceLock,
 };
 
 use crate::db::executor::planning::preparation::covering_strict_predicate_compatible_for_plan;
@@ -89,10 +89,6 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
         OnceLock<Option<RetainedSlotLayout>>,
     pub(in crate::db::executor::prepared_execution_plan) continuation:
         Option<PlannedContinuationContract>,
-    pub(in crate::db::executor::prepared_execution_plan) index_prefix_specs:
-        Arc<[LoweredIndexPrefixSpec]>,
-    pub(in crate::db::executor::prepared_execution_plan) index_range_specs:
-        Arc<[LoweredIndexRangeSpec]>,
 }
 
 impl std::fmt::Debug for PreparedExecutionPlanResidents {
@@ -177,12 +173,12 @@ impl PreparedScalarPlanCore {
         self.core.plan()
     }
 
-    pub(in crate::db::executor) fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
-        self.core.residents.index_prefix_specs.as_ref()
+    pub(in crate::db::executor) fn single_index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
+        self.core.residents.plan.access.single_index_prefix_specs()
     }
 
-    pub(in crate::db::executor) fn index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
-        self.core.residents.index_range_specs.as_ref()
+    pub(in crate::db::executor) fn single_index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
+        self.core.residents.plan.access.single_index_range_specs()
     }
 
     pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
@@ -255,8 +251,6 @@ impl PreparedExecutionPlanCore {
         execution_shape_fingerprint_prefix: u64,
         continuation_identity: AcceptedContinuationIdentity,
         continuation: Option<PlannedContinuationContract>,
-        index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-        index_range_specs: Arc<[LoweredIndexRangeSpec]>,
     ) -> Self {
         Self {
             residents: Rc::new(PreparedExecutionPlanResidents {
@@ -273,8 +267,6 @@ impl PreparedExecutionPlanCore {
                 initial_scalar_route_plan: OnceLock::new(),
                 cursorless_retained_slot_layout: OnceLock::new(),
                 continuation,
-                index_prefix_specs,
-                index_range_specs,
             }),
         }
     }
@@ -524,7 +516,7 @@ mod retention_tests;
 
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
     authority: &EntityAuthority,
-    plan: AccessPlannedQuery,
+    mut plan: AccessPlannedQuery,
     schema_fingerprint: CommitSchemaFingerprint,
     budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
@@ -542,21 +534,18 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     // state. Projection shapes, grouped residents, and retained-slot layouts are
     // lazy residents because each execution surface consumes only one of those
     // families.
-    let lowered_access = lower_access_with_schema_info(
+    bind_access_with_schema_info(
         authority.entity_tag(),
-        &plan.access,
+        &mut plan.access,
         authority.accepted_schema_info(),
         budget,
     )
     .map_err(LoweredAccessError::into_internal_error)?;
-    let (index_prefix_specs, index_range_specs) = lowered_access.into_index_specs();
 
-    build_prepared_execution_plan_core_with_lowered_access(
+    build_prepared_execution_plan_core_from_bound_plan(
         authority,
         plan,
         continuation_identity,
-        Arc::from(index_prefix_specs),
-        Arc::from(index_range_specs),
         budget,
     )
 }
@@ -564,20 +553,17 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
 // Rebuild prepared metadata from one already-finalized logical plan plus
 // already-lowered access specs. Logical rewrites that preserve the access plan
 // can reuse the lowered specs while refreshing continuation metadata locally.
-pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_lowered_access(
+pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_from_bound_plan(
     authority: &EntityAuthority,
     plan: AccessPlannedQuery,
     continuation_identity: AcceptedContinuationIdentity,
-    index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    index_range_specs: Arc<[LoweredIndexRangeSpec]>,
+
     budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
-    build_prepared_execution_plan_core_with_shared_lowered_access(
+    build_prepared_execution_plan_core_from_shared_bound_plan(
         authority,
         Rc::new(plan),
         continuation_identity,
-        index_prefix_specs,
-        index_range_specs,
         budget,
     )
 }
@@ -595,14 +581,14 @@ crate::retained::retained_fields!(PreparedExecutionPlanResidents {
         aggregate_execution_preparation, scalar_execution_preparation,
         initial_scalar_route_plan,
         cursorless_retained_slot_layout,
-        continuation, index_prefix_specs, index_range_specs
+        continuation
     } => [plan, execution_shape_fingerprint_prefix, continuation_identity,
         prepared_projection_contract, projection_covering_read_execution_plan,
         hybrid_covering_read_plan, prepared_grouped_runtime_residents,
         aggregate_execution_preparation, scalar_execution_preparation,
         initial_scalar_route_plan,
         cursorless_retained_slot_layout,
-        continuation, index_prefix_specs, index_range_specs],
+        continuation],
 });
 crate::retained::retained_fields!(PreparedGroupedRuntimeResidents {
 Self{execution_preparation,grouped_slot_layout} => [execution_preparation,grouped_slot_layout],
@@ -611,12 +597,11 @@ Self{execution_preparation,grouped_slot_layout} => [execution_preparation,groupe
 // Rebuild prepared metadata from one shared logical plan plus already-lowered
 // access specs. This avoids cloning large cached plans when an aggregate path
 // falls back into scalar materialization with the same access contract.
-pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_shared_lowered_access(
+pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_from_shared_bound_plan(
     authority: &EntityAuthority,
     plan: Rc<AccessPlannedQuery>,
     continuation_identity: AcceptedContinuationIdentity,
-    index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    index_range_specs: Arc<[LoweredIndexRangeSpec]>,
+
     budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
     // Recompute continuation after the logical-shape rewrite so grouped cursor
@@ -634,7 +619,5 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         execution_shape_fingerprint_prefix,
         continuation_identity,
         continuation,
-        index_prefix_specs,
-        index_range_specs,
     ))
 }

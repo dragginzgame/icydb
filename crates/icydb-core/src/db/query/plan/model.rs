@@ -765,7 +765,8 @@ pub(in crate::db) struct ScalarPlan {
     /// Whether the predicate fully covers the scalar filter expression.
     pub(in crate::db) predicate_covers_filter_expr: bool,
 
-    /// Optional residual predicate applied after access.
+    /// Canonical planner predicate; logical assembly receives normalized input.
+    /// Later exact-key pruning may remove it but must not replace it with raw syntax.
     pub(in crate::db) predicate: Option<Predicate>,
 
     /// Optional ordering specification.

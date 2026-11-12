@@ -562,6 +562,8 @@ impl ExecutionContext {
 
         let key = GroupKey::from_value_with_hash(value, hash).map_err(GroupError::from)?;
         self.record_distinct_value(key.canonical_value())?;
+        // The borrowed probe proved absence, and admission has not mutated the
+        // exclusively borrowed set. Reserve/insert without another preflight lookup.
         let inserted = distinct_keys.insert_key(key).map_err(GroupError::from)?;
         debug_assert!(inserted, "new distinct key must insert exactly once");
 

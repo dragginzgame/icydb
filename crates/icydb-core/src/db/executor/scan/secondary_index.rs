@@ -34,7 +34,10 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let Some(details) = path_facts.index_prefix_details() else {
         return Ok(None);
     };
-    let index_prefix_specs = bindings.index_prefix_specs;
+    let index_prefix_specs = executable
+        .index_specs()?
+        .ok_or_else(InternalError::query_executor_invariant)?
+        .prefixes();
     if index_prefix_specs.len() != path_facts.index_prefix_spec_count() {
         return Err(InternalError::query_executor_invariant());
     }

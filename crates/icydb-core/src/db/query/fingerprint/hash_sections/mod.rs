@@ -13,7 +13,7 @@ mod tests;
 use crate::{
     db::{
         codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
-        predicate::{Predicate, hash_predicate as hash_model_predicate},
+        predicate::{Predicate, hash_canonical_predicate as hash_model_predicate},
         query::{
             fingerprint::projection_hash::{admission::admit_expr_hash, hash_expr},
             plan::{OrderDirection, OrderSpec, QueryMode, expr::Expr},

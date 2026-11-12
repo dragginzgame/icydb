@@ -1,4 +1,5 @@
-use super::{prepare_bound_sql_statement, validate_sql_bindings};
+use super::{bind_prepared_where, validate_sql_bindings};
+use crate::db::query::{plan::expr::Expr, preparation::PreparationWork};
 use crate::{
     db::{
         QueryError,
@@ -9,7 +10,7 @@ use crate::{
             SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
             empty_accepted_enum_catalog_for_tests,
         },
-        sql::parser::{SqlExpr, SqlStatement, parse_sql},
+        sql::parser::{SqlStatement, parse_sql},
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
@@ -18,6 +19,21 @@ use crate::{
     value::{InputValue, PublicValue, Value},
 };
 use icydb_diagnostic_code::SqlLoweringCode;
+
+// Exercise the binder's semantic output directly; these fixtures already use
+// normalized identifiers. Session tests qualify preparation and cache entrypoints.
+fn bind_where(
+    statement: &SqlStatement,
+    schema: &SchemaInfo,
+    bindings: &[InputValue],
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    let SqlStatement::Select(select) = statement else {
+        panic!("SELECT fixture");
+    };
+    let predicate = select.predicate.as_ref().expect("WHERE fixture");
+    bind_prepared_where(predicate, schema, bindings, work)
+}
 
 fn schema(kind: AcceptedFieldKind) -> SchemaInfo {
     let fields = [AcceptedFieldKind::Nat64, kind]
@@ -127,20 +143,14 @@ fn typed_scalar_families_keep_runtime_values_and_reusable_syntax() {
             let schema = schema(kind);
             let expected = input.clone().try_into_runtime_non_enum().expect("scalar");
             let prepared =
-                prepare_bound_sql_statement(&syntax, "Bindings", &schema, &[input], work)
-                    .expect("typed scalar admission");
-            let SqlStatement::Select(select) = prepared.into_statement() else {
-                panic!("select");
-            };
-            let Some(SqlExpr::Binary { ref right, .. }) = select.predicate else {
+                bind_where(&syntax, &schema, &[input], work).expect("typed scalar admission");
+            let Expr::Binary { ref right, .. } = prepared else {
                 panic!("comparison");
             };
-            assert_eq!(right.as_ref(), &SqlExpr::Literal(expected));
+            assert_eq!(right.as_ref(), &Expr::Literal(expected));
             assert_eq!(syntax, original);
             let invalid = [InputValue::map(Vec::new())];
-            assert!(
-                prepare_bound_sql_statement(&syntax, "Bindings", &schema, &invalid, work).is_err()
-            );
+            assert!(bind_where(&syntax, &schema, &invalid, work).is_err());
         }
     });
 }
@@ -238,9 +248,8 @@ fn binding_limits_and_placement_are_typed_and_payload_independent() {
 fn binding_uses_query_rules_without_sql_text_identity_coercion() {
     crate::db::query::preparation::with_preparation_work(|work| {
         let syntax = parse_sql("SELECT id FROM Bindings WHERE operand >= ?").expect("syntax");
-        prepare_bound_sql_statement(
+        bind_where(
             &syntax,
-            "Bindings",
             &schema(AcceptedFieldKind::Nat64),
             &[InputValue::int64(-1)],
             work,
@@ -248,9 +257,8 @@ fn binding_uses_query_rules_without_sql_text_identity_coercion() {
         .expect("unsigned query boundary, not stored field input");
         let syntax = parse_sql("SELECT id FROM Bindings WHERE operand = ?").expect("syntax");
         assert!(
-            prepare_bound_sql_statement(
+            bind_where(
                 &syntax,
-                "Bindings",
                 &schema(AcceptedFieldKind::Ulid),
                 &[InputValue::text(Ulid::from_u128(7).to_string())],
                 work
@@ -258,28 +266,23 @@ fn binding_uses_query_rules_without_sql_text_identity_coercion() {
             .is_err()
         );
         assert!(
-            prepare_bound_sql_statement(
+            bind_where(
                 &syntax,
-                "Bindings",
                 &schema(AcceptedFieldKind::Nat64),
                 &[InputValue::from_public(PublicValue::Text("42".to_string()))],
                 work
             )
             .is_err()
         );
-        let prepared = prepare_bound_sql_statement(
+        let prepared = bind_where(
             &syntax,
-            "Bindings",
             &schema(AcceptedFieldKind::Nat64),
             &[InputValue::null()],
             work,
         )
         .expect("SQL null, not write-nullability admission");
-        let SqlStatement::Select(select) = prepared.into_statement() else {
-            panic!("select");
-        };
         assert!(
-            matches!(select.predicate, Some(SqlExpr::Binary { ref right, .. }) if matches!(right.as_ref(), SqlExpr::Literal(Value::Null)))
+            matches!(prepared, Expr::Binary { ref right, .. } if matches!(right.as_ref(), Expr::Literal(Value::Null)))
         );
     });
 }
@@ -296,9 +299,8 @@ fn enclosing_type_checks_preserve_nested_operand_admission() {
         let original = syntax.clone();
         let input = [InputValue::text("PAYLOAD".into())];
         validate_sql_bindings(&syntax, &input).expect("ingress");
-        prepare_bound_sql_statement(
+        bind_where(
             &syntax,
-            "Bindings",
             &schema(AcceptedFieldKind::Text { max_len: None }),
             &input,
             work,
@@ -314,9 +316,8 @@ fn enclosing_type_checks_preserve_nested_operand_admission() {
             let syntax = parse_sql(sql).expect("nested rejection syntax");
             validate_sql_bindings(&syntax, &input).expect("scalar preflight");
             assert!(
-                prepare_bound_sql_statement(
+                bind_where(
                     &syntax,
-                    "Bindings",
                     &schema(AcceptedFieldKind::Text { max_len: None }),
                     &input,
                     work
@@ -329,28 +330,124 @@ fn enclosing_type_checks_preserve_nested_operand_admission() {
             .expect("nested comparison");
         let input = [InputValue::principal(Principal::anonymous())];
         validate_sql_bindings(&syntax, &input).expect("identity preflight");
-        assert!(
-            prepare_bound_sql_statement(
-                &syntax,
-                "Bindings",
-                &schema(AcceptedFieldKind::Ulid),
-                &input,
-                work
-            )
-            .is_err()
-        );
+        assert!(bind_where(&syntax, &schema(AcceptedFieldKind::Ulid), &input, work).is_err());
 
         let syntax = parse_sql("SELECT id FROM Bindings WHERE COALESCE(operand >= ?, FALSE)")
             .expect("query comparison");
         let input = [InputValue::int64(-1)];
         validate_sql_bindings(&syntax, &input).expect("numeric preflight");
-        prepare_bound_sql_statement(
-            &syntax,
-            "Bindings",
-            &schema(AcceptedFieldKind::Nat64),
-            &input,
-            work,
-        )
-        .expect("query boundary is not a write constraint");
+        bind_where(&syntax, &schema(AcceptedFieldKind::Nat64), &input, work)
+            .expect("query boundary is not a write constraint");
+    });
+}
+
+#[test]
+fn membership_admits_bound_targets_and_every_item_before_folding() {
+    crate::db::query::preparation::with_preparation_work(|work| {
+        for (sql, bindings, valid) in [
+            (
+                "SELECT id FROM Bindings WHERE FALSE AND ? IN ('a', 'b')",
+                vec![InputValue::text("a".into())],
+                true,
+            ),
+            (
+                "SELECT id FROM Bindings WHERE TRUE OR ? IN ('a', 17)",
+                vec![InputValue::text("a".into())],
+                false,
+            ),
+            (
+                "SELECT id FROM Bindings WHERE FALSE AND LOWER(?) IN ('a', 'b')",
+                vec![InputValue::text("A".into())],
+                true,
+            ),
+            (
+                "SELECT id FROM Bindings WHERE TRUE OR LOWER(?) IN ('a', 'b')",
+                vec![InputValue::nat64(7)],
+                false,
+            ),
+            (
+                "SELECT id FROM Bindings WHERE FALSE AND operand IN (?, ?)",
+                vec![InputValue::nat64(7), InputValue::nat64(8)],
+                true,
+            ),
+            (
+                "SELECT id FROM Bindings WHERE TRUE OR operand IN (?, ?)",
+                vec![InputValue::nat64(7), InputValue::text("bad".into())],
+                false,
+            ),
+        ] {
+            let syntax = parse_sql(sql).unwrap();
+            validate_sql_bindings(&syntax, &bindings).unwrap();
+            let result = bind_where(&syntax, &schema(AcceptedFieldKind::Nat64), &bindings, work);
+            assert_eq!(result.is_ok(), valid, "{sql}");
+        }
+    });
+}
+
+#[test]
+fn bound_arithmetic_and_scale_literals_keep_typed_admission() {
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let schema = schema(AcceptedFieldKind::Int64);
+        for sql in [
+            "SELECT id FROM Bindings WHERE operand + ? = 3",
+            "SELECT id FROM Bindings WHERE FALSE AND operand + ? = 3",
+        ] {
+            let syntax = parse_sql(sql).expect("arithmetic syntax");
+            let original = syntax.clone();
+            bind_where(&syntax, &schema, &[InputValue::int64(2)], work).expect("numeric operand");
+            let error = bind_where(&syntax, &schema, &[InputValue::text("2".into())], work)
+                .expect_err("text is not an arithmetic literal");
+            assert_eq!(
+                error.diagnostic(),
+                QueryError::unsupported_projection(
+                    icydb_diagnostic_code::QueryProjectionCode::NumericLiteralRequired,
+                )
+                .diagnostic()
+            );
+            assert_eq!(syntax, original);
+        }
+        for function in ["ROUND", "TRUNC"] {
+            let literal = parse_sql(&format!(
+                "SELECT id FROM Bindings WHERE {function}(operand, 2) = 0"
+            ))
+            .expect("literal scale syntax");
+            // SQL text keeps its literal-only scale grammar. Programmatically
+            // authored WHERE syntax still passes through the binding boundary.
+            let mut syntax = literal.clone();
+            let SqlStatement::Select(select) = &mut syntax else {
+                panic!("SELECT");
+            };
+            let Some(crate::db::sql::parser::SqlExpr::Binary { left, .. }) = &mut select.predicate
+            else {
+                panic!("comparison");
+            };
+            let crate::db::sql::parser::SqlExpr::FunctionCall { args, .. } = left.as_mut() else {
+                panic!("scale function");
+            };
+            args[1] = crate::db::sql::parser::SqlExpr::Param { index: 0 };
+            validate_sql_bindings(&syntax, &[InputValue::int64(2)]).expect("WHERE slot");
+            let expected = bind_where(&literal, &schema, &[], work).expect("literal scale");
+            for value in [InputValue::int64(2), InputValue::nat64(2)] {
+                assert_eq!(
+                    bind_where(&syntax, &schema, &[value], work).expect("bound scale"),
+                    expected
+                );
+            }
+            for value in [
+                InputValue::int64(-1),
+                InputValue::nat64(u64::MAX),
+                InputValue::text("2".into()),
+            ] {
+                let error =
+                    bind_where(&syntax, &schema, &[value], work).expect_err("invalid scale");
+                assert_eq!(
+                    error.diagnostic(),
+                    QueryError::unsupported_sql_feature(
+                        icydb_diagnostic_code::SqlFeatureCode::NumericScaleFunctionArguments,
+                    )
+                    .diagnostic()
+                );
+            }
+        }
     });
 }

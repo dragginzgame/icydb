@@ -301,6 +301,10 @@ fn checked_sql_templates_rebind_all_select_lanes_with_bounded_retention() {
         "SELECT MIN(amount) FROM Singleton WHERE label = ?",
         "SELECT MAX(amount) FROM Singleton WHERE label = ?",
         "SELECT SUM(amount) FROM Singleton WHERE label = ?",
+        "SELECT SUM(amount) FILTER (WHERE label = 'singleton') FROM Singleton WHERE label = ?",
+        "SELECT COUNT(*) FROM Singleton WHERE label = ? HAVING COUNT(*) > 0",
+        "SELECT MAX(amount) FROM Singleton WHERE label = ? ORDER BY id LIMIT 0",
+        "SELECT MIN(amount) FROM Singleton WHERE label = ? ORDER BY id OFFSET 1",
         "SELECT COUNT(DISTINCT amount) FROM Singleton WHERE label = ?",
         "SELECT label, SUM(amount) FROM Singleton WHERE label = ? GROUP BY label HAVING COUNT(*) > 0",
     ] {
@@ -367,4 +371,40 @@ fn checked_sql_templates_rebind_all_select_lanes_with_bounded_retention() {
             assert_eq!(session.sql_compiled_cache_usage_for_tests(), before);
         }
     }
+}
+
+#[test]
+fn cached_sql_rebinds_filters_after_same_contract_heap_root_rebuild() {
+    let session = initialize();
+    seed_singleton(&session);
+    let sql = "SELECT label FROM Singleton WHERE label = 'singleton'";
+    session.clear_sql_compiled_cache_for_tests(4 * 1024 * 1024);
+    let before_rows = projection_rows(sql);
+    let before = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    // Recreate the heap stores as the reinstall fixtures do. Merely dropping
+    // the runtime projection preserves the store's admission authority.
+    let session = initialize();
+    session.invalidate_accepted_schema_runtime_root();
+    seed_singleton(&session);
+    let after = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    assert_eq!(
+        before.runtime_root_identity(),
+        after.runtime_root_identity()
+    );
+    assert_ne!(
+        before
+            .accepted_schema_info()
+            .value_catalog_handle()
+            .authority(),
+        after
+            .accepted_schema_info()
+            .value_catalog_handle()
+            .authority()
+    );
+    assert_eq!(projection_rows(sql), before_rows);
+    assert_eq!(session.sql_compiled_cache_len_for_tests(), 1);
 }

@@ -52,7 +52,7 @@ pub(in crate::db) use access_plan::{
     ResidualFilterContract, ResidualFilterShape, ResolvedOrder, ResolvedOrderField,
     ResolvedOrderValueSource, StaticExecutionPlanningContract,
 };
-pub(in crate::db::query) use access_planner::{AccessPlanningInputs, normalize_query_predicate};
+pub(in crate::db::query) use access_planner::AccessPlanningInputs;
 pub(in crate::db) use aggregate_shape::AggregateShape;
 pub(in crate::db) use cardinality_tiebreak::{
     CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence, CardinalityTiebreakFamily,
@@ -174,22 +174,6 @@ pub(in crate::db::query) use validate::{
 #[must_use]
 pub(in crate::db::query) fn is_limit_zero_load_window(mode: QueryMode) -> bool {
     matches!(mode, QueryMode::Load(spec) if spec.limit() == Some(0))
-}
-
-/// Fold canonical constant predicates before access routing.
-///
-/// Contract:
-/// - `Some(Predicate::True)` is elided to `None`
-/// - `Some(Predicate::False)` is preserved so explain semantics remain explicit
-/// - all other predicates are passed through unchanged
-#[must_use]
-pub(in crate::db::query) fn fold_constant_predicate(
-    predicate: Option<Predicate>,
-) -> Option<Predicate> {
-    match predicate {
-        Some(Predicate::True) => None,
-        other => other,
-    }
 }
 
 /// Return true when the normalized predicate is a canonical constant false.
@@ -606,3 +590,8 @@ fn semantic_index_contracts_are_sorted(contracts: &[SemanticIndexAccessContract]
         .windows(2)
         .all(|pair| pair[0].name() <= pair[1].name())
 }
+
+#[cfg(test)]
+mod helper_tests;
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use helper_tests::strict_covering_plan;

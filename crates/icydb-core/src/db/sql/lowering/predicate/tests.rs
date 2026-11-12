@@ -9,7 +9,7 @@ use crate::{
         sql::{
             lowering::predicate::{
                 derive_sql_where_expr_predicate_subset, lower_sql_scalar_where_bool_expr,
-                lower_sql_where_bool_expr, lower_sql_where_expr,
+                lower_sql_where_bool_expr,
             },
             parser::parse_sql,
         },
@@ -153,13 +153,13 @@ fn derive_where_predicate_subset_returns_none_for_admitted_expression_only_shape
 }
 
 #[test]
-fn lower_sql_where_expr_rejects_expression_only_shapes_on_strict_predicate_path() {
+fn required_predicate_where_rejects_expression_only_shapes() {
     crate::db::query::preparation::with_preparation_work(|work| {
         let expr = parse_where_expr(
             "SELECT * FROM users WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
         );
 
-        let err = lower_sql_where_expr(&expr, work).expect_err(
+        let err = crate::db::sql::lowering::select::LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr, work).expect_err(
             "strict predicate-only WHERE lowering should reject expression-only shapes",
         );
 
@@ -171,11 +171,13 @@ fn lower_sql_where_expr_rejects_expression_only_shapes_on_strict_predicate_path(
 }
 
 #[test]
-fn lower_sql_where_expr_recovers_membership_after_bool_lowering() {
+fn predicate_extraction_recovers_membership_after_bool_lowering() {
     crate::db::query::preparation::with_preparation_work(|work| {
         let expr = parse_where_expr("SELECT * FROM users WHERE age IN (10, 20, 10)");
 
-        let predicate = lower_sql_where_expr(&expr, work)
+        let lowered = lower_sql_where_bool_expr(&expr, work).unwrap();
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered, work)
+            .unwrap()
             .expect("strict membership WHERE predicate should lower");
         let Predicate::Compare(compare) = predicate else {
             panic!("membership should extract one compact compare predicate after bool lowering");

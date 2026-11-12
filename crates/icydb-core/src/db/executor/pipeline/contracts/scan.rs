@@ -6,38 +6,29 @@
 use crate::db::{
     cursor::{CursorBoundary, IndexScanContinuationInput},
     direction::Direction,
-    executor::{
-        LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
-        route::IndexPrefixChildExpansionHint,
-    },
+    executor::{LoweredKey, route::IndexPrefixChildExpansionHint},
 };
 
 ///
 /// AccessStreamBindings
 ///
 /// Shared access-stream traversal bindings reused by execution and key-stream
-/// request wrappers so spec + continuation fields stay aligned.
+/// request wrappers so continuation and expansion policy travel together.
 ///
 
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct AccessStreamBindings<'a> {
-    pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
     pub(in crate::db::executor) continuation: AccessScanContinuationInput<'a>,
     pub(in crate::db::executor) index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
 impl<'a> AccessStreamBindings<'a> {
-    /// Build one access-stream binding envelope with explicit lowered-spec slices.
+    /// Build one access-stream binding envelope with explicit continuation policy.
     #[must_use]
     pub(in crate::db::executor) const fn new(
-        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-        index_range_specs: &'a [LoweredIndexRangeSpec],
         continuation: AccessScanContinuationInput<'a>,
     ) -> Self {
         Self {
-            index_prefix_specs,
-            index_range_specs,
             continuation,
             index_prefix_child_expansion: None,
         }
@@ -53,15 +44,6 @@ impl<'a> AccessStreamBindings<'a> {
             index_prefix_child_expansion,
             ..self
         }
-    }
-
-    /// Build one binding envelope for one index-range spec with explicit continuation contract.
-    #[must_use]
-    pub(in crate::db::executor) const fn with_index_range_continuation(
-        index_range_spec: &'a LoweredIndexRangeSpec,
-        continuation: AccessScanContinuationInput<'a>,
-    ) -> Self {
-        Self::new(&[], std::slice::from_ref(index_range_spec), continuation)
     }
 
     /// Borrow continuation scan direction from this binding envelope.

@@ -62,17 +62,19 @@ if [[ "$ordering_only" == false ]]; then
   # Derive distinct same-line versions so a supplier patch never makes a
   # negative example identical to the already qualified selection.
   duplicate_versions="$("$YQ" -p toml -o json '.package' "$fixture/qualified.lock" |
-    jq -er '[.[] | select(.name == "ic-platform-types" or .name == "ic-platform-runtime") |
+    jq -er '[.[] | select(.name == "ic-platform-types" or .name == "ic-platform-runtime" or
+      .name == "sha2" or .name == "digest") |
       .name as $name | .version | split(".") |
       "\($name) \(.[0]).\(.[1]).\((.[2] | tonumber) + 1)"] |
-      if length == 2 then .[] else error("expected one Types and Runtime selection") end')"
+      if length >= 4 then .[] else error("expected Types, Runtime and selected hash families") end')"
   duplicate_patches=()
   while IFS= read -r duplicate; do
     duplicate_patches+=("$duplicate")
   done <<< "$duplicate_versions"
   # Coexisting hash families do not admit another line or duplicate versions
   # within a family, and do not relax other sensitive dependency checks.
-  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'sha2 0.10.0' 'digest 0.11.0' 'ic-storage 0.1.0' "${duplicate_patches[@]}"; do
+  for addition in 'sha2 0.12.0' 'digest 0.12.0' 'ic-storage 0.1.0' \
+      'ic-testkit 0.100.2' 'pocket-ic 16.1.0' "${duplicate_patches[@]}"; do
     cp "$fixture/qualified.lock" Cargo.lock
     read -r package unexpected_version <<< "$addition"
     printf '\n[[package]]\nname = "%s"\nversion = "%s"\n' "$package" "$unexpected_version" >> Cargo.lock

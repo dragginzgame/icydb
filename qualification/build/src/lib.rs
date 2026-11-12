@@ -770,9 +770,7 @@ pub fn build_maintained_canisters_with_options(
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let root = workspace_root();
     let plan = plan_maintained_canister_builds(&root, options)?;
-    let specs = plan
-        .cargo_specs(&root)
-        .map_err(|error| format!("maintained canister build configuration failed: {error}"))?;
+    let specs = plan.cargo_specs(&root);
     let cargo_report = build_cached_cargo_wasm_batch(&specs);
 
     finish_maintained_canister_builds(&root, plan, cargo_report)
@@ -817,9 +815,7 @@ pub fn build_maintained_canister_contract_profiles()
                 let build_profile = plan.options.build_profile;
                 let root = &root;
                 let handle = scope.spawn(move || {
-                    let specs = plan.cargo_specs(root).map_err(|error| {
-                        format!("maintained canister build configuration failed: {error}")
-                    })?;
+                    let specs = plan.cargo_specs(root);
                     let cargo_report = build_cached_cargo_wasm_batch(&specs);
                     finish_maintained_canister_builds(root, plan, cargo_report)
                 });

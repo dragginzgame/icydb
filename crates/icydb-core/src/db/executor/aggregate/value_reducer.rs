@@ -104,61 +104,13 @@ impl ValueReducerState {
         Self::Max { selected: None }
     }
 
-    /// Preserve input ownership when dispatching to the value reducers.
+    /// Ingest one value through the shared NULL, numeric and extrema policy.
+    /// Borrowed extrema are cloned only when selected; owned extrema move.
     pub(in crate::db::executor::aggregate) fn ingest_cow(
         &mut self,
         value: Cow<'_, Value>,
     ) -> Result<(), InternalError> {
-        match value {
-            Cow::Borrowed(value) => self.ingest(value),
-            Cow::Owned(value) => self.ingest_owned(value),
-        }
-    }
-
-    /// Ingest one borrowed aggregate input value.
-    ///
-    /// COUNT ignores NULL, SUM/AVG coerce numeric values, and MIN/MAX compare
-    /// with the same numeric-or-strict ordering used by scalar expression
-    /// aggregates. Values are cloned only when they become the selected extrema.
-    pub(in crate::db::executor::aggregate) fn ingest(
-        &mut self,
-        value: &Value,
-    ) -> Result<(), InternalError> {
-        if matches!(value, Value::Null) {
-            return Ok(());
-        }
-
-        match self {
-            Self::Count { .. } => self.increment_count(),
-            Self::Sum { .. } => self.ingest_sum_value(value),
-            Self::Avg { .. } => {
-                let decimal = coerce_aggregate_decimal(value)?;
-
-                self.ingest_decimal(decimal)
-            }
-            Self::Min { selected } => {
-                if selected_value_should_replace_min(selected.as_ref(), value)? {
-                    *selected = Some(value.clone());
-                }
-
-                Ok(())
-            }
-            Self::Max { selected } => {
-                if selected_value_should_replace_max(selected.as_ref(), value)? {
-                    *selected = Some(value.clone());
-                }
-
-                Ok(())
-            }
-        }
-    }
-
-    /// Ingest one owned aggregate input value without cloning selected extrema.
-    pub(in crate::db::executor::aggregate) fn ingest_owned(
-        &mut self,
-        value: Value,
-    ) -> Result<(), InternalError> {
-        if matches!(value, Value::Null) {
+        if matches!(value.as_ref(), Value::Null) {
             return Ok(());
         }
 
@@ -172,19 +124,27 @@ impl ValueReducerState {
             }
             Self::Min { selected } => {
                 if selected_value_should_replace_min(selected.as_ref(), &value)? {
-                    *selected = Some(value);
+                    *selected = Some(value.into_owned());
                 }
 
                 Ok(())
             }
             Self::Max { selected } => {
                 if selected_value_should_replace_max(selected.as_ref(), &value)? {
-                    *selected = Some(value);
+                    *selected = Some(value.into_owned());
                 }
 
                 Ok(())
             }
         }
+    }
+
+    /// Ingest one borrowed input, cloning only selected extrema.
+    pub(in crate::db::executor::aggregate) fn ingest(
+        &mut self,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        self.ingest_cow(Cow::Borrowed(value))
     }
 
     pub(in crate::db::executor::aggregate) fn increment_count(

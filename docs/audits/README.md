@@ -19,6 +19,12 @@ are `N/A (method change)`.
 
 ## Audit Definitions
 
+### Current one-off investigation
+
+The maintainer-requested [mega-audit](mega-audit/README.md) keeps its original
+brief, source inventory and findings together in one directory. It is a scoped
+architectural reduction investigation, not an additional recurring audit gate.
+
 ### Recurring audits
 
 Recurring audits are stable, repeatable definitions that enforce architectural

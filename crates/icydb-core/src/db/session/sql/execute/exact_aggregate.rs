@@ -110,7 +110,6 @@ fn direct_count_cardinality_prefix_keys_from_planned_query(
     let prefix_plan = exact_count_cardinality_prefixes_for_plan(
         prepared_plan.authority_ref().entity_tag(),
         plan,
-        prepared_plan.index_prefix_specs(),
         true,
     )?;
 
@@ -129,7 +128,7 @@ fn direct_count_cardinality_range_from_planned_query(
     if !semantic.prefix_values().is_empty() || selected.is_filtered() {
         return None;
     }
-    let [lowered] = prepared_plan.index_range_specs() else {
+    let [lowered] = prepared_plan.single_index_range_specs() else {
         return None;
     };
 
@@ -260,6 +259,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
     ) -> Result<ExactTarget, QueryError> {
         let schema_info = authority.accepted_schema_info();
+        command.query().validate_filter_schema(schema_info)?;
         let exact_numeric = command.exact_indexed_numeric_target().is_some();
         if exact_numeric || command.exact_distinct_cardinality_target().is_some() {
             let target = (if exact_numeric {

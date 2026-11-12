@@ -1,6 +1,6 @@
 //! Responsibility: admit typed WHERE operands before SQL boolean simplification.
 //! Does not own: casts, expression types, query execution, or command caching.
-//! Boundary: substitutes into an execution-owned copy of the existing SQL AST.
+//! Boundary: validates bound semantic operands without mutating SQL syntax.
 
 #[cfg(test)]
 mod tests;
@@ -14,7 +14,7 @@ use crate::{
             plan::{
                 PlanError,
                 expr::{
-                    Expr, compile_bool_compare_expr, infer_expr_type,
+                    BinaryOp, Expr, compile_bool_compare_expr, infer_expr_type,
                     scalar_where_truth_condition_is_admitted,
                 },
             },
@@ -24,14 +24,10 @@ use crate::{
         sql::{
             input::validate_sql_statement_input,
             lowering::{
-                PreparedSqlStatement,
-                expr::{SqlExprPhase, lower_sql_expr},
-                prepare::{
-                    first_order_terms_parameter_index, first_projection_parameter_index,
-                    prepare_statement,
-                },
+                expr::{charge_storage, lower_bound_where},
+                prepare::{first_order_terms_parameter_index, first_projection_parameter_index},
             },
-            parser::{SqlExpr, SqlExprBinaryOp, SqlMembershipValue, SqlStatement},
+            parser::{SqlExpr, SqlStatement},
         },
     },
     value::{InputValue, PublicValue, Value},
@@ -134,193 +130,118 @@ fn binding_error(code: SqlLoweringCode) -> QueryError {
     QueryError::sql_lowering(code)
 }
 
-/// Normalize identifiers, then validate every bound context before destructive folds.
-/// Query ingress must first call `validate_sql_bindings` on these same inputs.
-pub(in crate::db) fn prepare_bound_sql_statement(
-    statement: &SqlStatement,
-    entity: &str,
-    schema: &SchemaInfo,
-    bindings: &[InputValue],
-    work: &PreparationWork<'_>,
-) -> Result<PreparedSqlStatement, QueryError> {
-    let mut statement =
-        prepare_statement(statement, entity, work).map_err(QueryError::from_sql_lowering_error)?;
-    let SqlStatement::Select(select) = &mut statement else {
-        return Err(binding_error(SqlLoweringCode::ParameterPlacement));
-    };
-    if let Some(expr) = &mut select.predicate {
-        bind_prepared_where(expr, schema, bindings, work)?;
-    }
-    Ok(PreparedSqlStatement { statement })
-}
-
 pub(in crate::db::sql::lowering) fn bind_prepared_where(
-    expr: &mut SqlExpr,
+    expr: &SqlExpr,
     schema: &SchemaInfo,
     bindings: &[InputValue],
     work: &PreparationWork<'_>,
-) -> Result<(), QueryError> {
-    bind_expr(expr, schema, bindings, true, work)?;
-    let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
+) -> Result<Expr, QueryError> {
+    let lowered = lower_bound_where(expr, schema, bindings, work)
         .map_err(QueryError::from_sql_lowering_error)?;
     if !scalar_where_truth_condition_is_admitted(&lowered) {
         return Err(binding_error(SqlLoweringCode::WhereExpressionShape));
     }
-    Ok(())
+    Ok(lowered)
 }
 
-fn operand(index: usize, bindings: &[InputValue]) -> Result<Value, QueryError> {
-    bindings
+pub(in crate::db::sql::lowering) fn operand(
+    index: usize,
+    bindings: &[InputValue],
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    let input = bindings
         .get(index)
-        .ok_or_else(|| binding_error(SqlLoweringCode::BindingCount))?
+        .ok_or_else(|| binding_error(SqlLoweringCode::BindingCount))?;
+    // Ingress admits only scalars. Charge their variable backing before cloning;
+    // fixed representations need no separately allocated payload.
+    let (_, payload) = scalar_input_sizes(input.as_public())?;
+    work.charge(
+        icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes,
+        payload as u64,
+    )?;
+    work.charge(
+        icydb_diagnostic_code::DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        payload as u64,
+    )?;
+    work.charge(
+        icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
+        1,
+    )?;
+    input
         .clone()
         .try_into_runtime_non_enum()
         .ok_or_else(|| binding_error(SqlLoweringCode::BindingFamily))
 }
 
-// Returns whether the original subtree carried any slot. Never short-circuit
-// sibling traversal: even values in an unreachable branch require admission.
-// `infer_here` is false only when an enclosing typed expression will infer this
-// complete subtree before folding. Comparison normalization still runs here.
-fn bind_expr(
-    expr: &mut SqlExpr,
+pub(in crate::db::sql::lowering) fn admit_bound_membership_item(
+    target: &Expr,
+    value: &Value,
     schema: &SchemaInfo,
-    bindings: &[InputValue],
-    infer_here: bool,
     work: &PreparationWork<'_>,
-) -> Result<bool, QueryError> {
-    let bound = match expr {
-        SqlExpr::Param { index } => {
-            *expr = SqlExpr::Literal(operand(*index, bindings)?);
-            return Ok(true);
-        }
-        SqlExpr::Field(_) | SqlExpr::FieldPath { .. } | SqlExpr::Literal(_) => false,
-        SqlExpr::Aggregate(_) => return Err(binding_error(SqlLoweringCode::ParameterPlacement)),
-        SqlExpr::Binary { op, left, right } => {
-            let boolean = matches!(op, SqlExprBinaryOp::And | SqlExprBinaryOp::Or);
-            let left_bound = bind_expr(left, schema, bindings, infer_here && boolean, work)?;
-            let right_bound = bind_expr(right, schema, bindings, infer_here && boolean, work)?;
-            let bound = left_bound | right_bound;
-            let comparison = matches!(
-                op,
-                SqlExprBinaryOp::Eq
-                    | SqlExprBinaryOp::Ne
-                    | SqlExprBinaryOp::Lt
-                    | SqlExprBinaryOp::Lte
-                    | SqlExprBinaryOp::Gt
-                    | SqlExprBinaryOp::Gte
-            );
-            if bound && !boolean && (infer_here || comparison) {
-                admit_compare_or_expression(expr, schema, infer_here, work)?;
-            }
-            return Ok(bound);
-        }
-        SqlExpr::Membership { expr, values, .. } => {
-            let target_bound = bind_expr(expr, schema, bindings, infer_here, work)?;
-            let mut bound = target_bound;
-            for value in values {
-                let value_bound = matches!(value, SqlMembershipValue::Param { .. });
-                if let SqlMembershipValue::Param { index } = value {
-                    *value = SqlMembershipValue::Literal(operand(*index, bindings)?);
-                }
-                bound |= value_bound;
-                if target_bound || value_bound {
-                    let SqlMembershipValue::Literal(value) = value else {
-                        return Err(QueryError::invariant());
-                    };
-                    let mut compare = SqlExpr::Binary {
-                        op: SqlExprBinaryOp::Eq,
-                        left: expr.clone(),
-                        right: Box::new(SqlExpr::Literal(value.clone())),
-                    };
-                    admit_compare_or_expression(&mut compare, schema, true, work)?;
-                    if let SqlExpr::Binary { right, .. } = &mut compare
-                        && let SqlExpr::Literal(normalized) = right.as_mut()
-                    {
-                        *value = std::mem::replace(normalized, Value::Null);
-                    }
-                }
-            }
-            return Ok(bound);
-        }
-        // Boolean wrappers use the shared WHERE truth-shape owner above. Broad
-        // expression inference would narrow maintained predicate/null semantics.
-        SqlExpr::Unary { expr, .. } => return bind_expr(expr, schema, bindings, infer_here, work),
-        SqlExpr::BooleanTest { expr, .. }
-        | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Like { expr, .. } => bind_expr(expr, schema, bindings, false, work)?,
-        SqlExpr::FunctionCall { args, .. } => {
-            let mut bound = false;
-            for arg in args {
-                bound |= bind_expr(arg, schema, bindings, false, work)?;
-            }
-            bound
-        }
-        SqlExpr::Case { arms, else_expr } => {
-            let mut bound = false;
-            for arm in arms {
-                bound |= bind_expr(&mut arm.condition, schema, bindings, false, work)?;
-                bound |= bind_expr(&mut arm.result, schema, bindings, false, work)?;
-            }
-            if let Some(expr) = else_expr {
-                bound |= bind_expr(expr, schema, bindings, false, work)?;
-            }
-            bound
-        }
-    };
-    if bound && infer_here {
-        admit_compare_or_expression(expr, schema, true, work)?;
+) -> Result<(), QueryError> {
+    let right = Expr::Literal(work.copy_value(value)?);
+    if !admit_lowered_compare(BinaryOp::Eq, target, &right, schema, work)? {
+        charge_storage::<Expr>(2, work).map_err(QueryError::from_sql_lowering_error)?;
+        let compare = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(work.copy_expr(target)?),
+            right: Box::new(right),
+        };
+        infer_expr_type(&compare, schema, work)
+            .map_err(|error| error.attach_query_field(QueryFieldRole::Predicate))?;
     }
-    Ok(bound)
+    Ok(())
 }
 
-// The planner's existing leaf compiler chooses coercion. Its query normalizer
-// and validator own meaning; inference owns expressions outside that leaf subset.
-fn admit_compare_or_expression(
-    expr: &mut SqlExpr,
+pub(in crate::db::sql::lowering) fn admit_bound_expression(
+    lowered: &Expr,
     schema: &SchemaInfo,
     infer_here: bool,
     work: &PreparationWork<'_>,
 ) -> Result<(), QueryError> {
-    let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
-        .map_err(QueryError::from_sql_lowering_error)?;
-    if let Expr::Binary { op, left, right } = &lowered
-        && let Some(predicate) = compile_bool_compare_expr(*op, left, right, work)?
+    if let Expr::Binary { op, left, right } = lowered
+        && admit_lowered_compare(*op, left, right, schema, work)?
     {
-        let predicate =
-            normalize_enum_literals(schema, &predicate, work).map_err(|error| match error {
-                QueryError::Validate(error) => query_operand_error(*error),
-                error => error,
-            })?;
-        if let Predicate::Compare(compare) = &predicate
-            && matches!(compare.value(), Value::Null)
-        {
-            validate_predicate(
-                schema,
-                &Predicate::IsNull {
-                    field: compare.field().to_string(),
-                },
-            )
-            .map_err(query_operand_error)?;
-        } else {
-            validate_predicate(schema, &predicate).map_err(query_operand_error)?;
-        }
-        if let Predicate::Compare(compare) = predicate
-            && let SqlExpr::Binary { left, right, .. } = expr
-        {
-            if matches!(right.as_ref(), SqlExpr::Literal(_)) {
-                **right = SqlExpr::Literal(compare.value);
-            } else if matches!(left.as_ref(), SqlExpr::Literal(_)) {
-                **left = SqlExpr::Literal(compare.value);
-            }
-        }
         return Ok(());
     }
     if infer_here {
-        infer_expr_type(&lowered, schema, work)
+        infer_expr_type(lowered, schema, work)
             .map_err(|error| error.attach_query_field(QueryFieldRole::Predicate))?;
     }
     Ok(())
+}
+
+// Admit comparison operands without writing canonical values back into syntax.
+// Final schema-bound lowering owns the executable representation.
+fn admit_lowered_compare(
+    op: BinaryOp,
+    left: &Expr,
+    right: &Expr,
+    schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
+) -> Result<bool, QueryError> {
+    let Some(predicate) = compile_bool_compare_expr(op, left, right, work)? else {
+        return Ok(false);
+    };
+    let predicate =
+        normalize_enum_literals(schema, &predicate, work).map_err(|error| match error {
+            QueryError::Validate(error) => query_operand_error(*error),
+            error => error,
+        })?;
+    if let Predicate::Compare(compare) = &predicate
+        && matches!(compare.value(), Value::Null)
+    {
+        validate_predicate(
+            schema,
+            &Predicate::IsNull {
+                field: compare.field().to_string(),
+            },
+        )
+        .map_err(query_operand_error)?;
+    } else {
+        validate_predicate(schema, &predicate).map_err(query_operand_error)?;
+    }
+    Ok(true)
 }
 
 fn query_operand_error(error: ValidateError) -> QueryError {

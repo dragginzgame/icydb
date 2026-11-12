@@ -66,6 +66,9 @@ BEGIN {
   banned_set["canic-macros"] = 1
   banned_set["canic-cdk"] = 1
   banned_set["ic-agent"] = 1
+  # Native simulator qualification resolves in its independent workspace.
+  banned_set["ic-testkit"] = 1
+  banned_set["pocket-ic"] = 1
   # Keep the resolved release aligned with the workspace dependency authority.
   required_exact["time"] = required_time
 }

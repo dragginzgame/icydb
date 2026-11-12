@@ -12,6 +12,19 @@ use crate::db::{
 };
 
 #[test]
+fn constraint_program_corruption_preserves_typed_diagnostics() {
+    let error = InternalError::accepted_row_constraint_program_corrupt();
+    assert_eq!(error.class, ErrorClass::Corruption);
+    assert_eq!(error.origin, ErrorOrigin::Executor);
+    let detail = diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+        boundary: diagnostic_code::RuntimeBoundaryCode::AcceptedRowConstraintProgramCorrupt,
+    };
+    assert_eq!(error.diagnostic_code(), detail.diagnostic_code());
+    assert_eq!(error.diagnostic().detail(), Some(&detail));
+    assert!(error.diagnostic_facts().is_empty());
+}
+
+#[test]
 fn internal_error_taxonomy_axes_remain_one_byte() {
     assert_eq!(size_of::<ErrorClass>(), 1);
     assert_eq!(size_of::<ErrorOrigin>(), 1);

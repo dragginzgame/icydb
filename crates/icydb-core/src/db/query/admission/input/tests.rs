@@ -35,7 +35,7 @@ fn input_nodes_include_cumulative_fields_and_membership_values() {
         DynamicQuery::new("E").filter(FilterExpr::Set {
             operator: SetOperator::In,
             field: "id".into(),
-            values: vec![FilterValue::Null; count],
+            values: vec![InputValue::null(); count],
         })
     };
     // Entity, filter and field consume three nodes before the membership values.
@@ -92,9 +92,9 @@ fn admission_inspects_branches_that_simplification_would_discard() {
 
 #[test]
 fn nested_filter_values_share_expression_depth() {
-    let mut value = FilterValue::Null;
+    let mut value = InputValue::null();
     for _ in 1..MAX_QUERY_INPUT_DEPTH {
-        value = FilterValue::List(vec![value]);
+        value = InputValue::list(vec![value]);
     }
     let request = DynamicQuery::new("E").filter(FilterExpr::Compare {
         operator: CompareOperator::Eq,
@@ -159,9 +159,9 @@ fn rejected_owned_requests_drop_without_recursive_stack_growth() {
             );
             drop(request);
 
-            let mut value = FilterValue::Null;
+            let mut value = InputValue::null();
             for _ in 0..20_000 {
-                value = FilterValue::List(vec![value]);
+                value = InputValue::list(vec![value]);
             }
             let request = DynamicQuery::new("E").filter(FilterExpr::Compare {
                 operator: CompareOperator::Eq,
@@ -213,4 +213,34 @@ fn rejected_owned_requests_drop_without_recursive_stack_growth() {
         .expect("spawn small-stack rejection probe")
         .join()
         .expect("bounded rejection and owned cleanup");
+}
+
+#[test]
+fn recursive_public_filter_values_share_limits_and_cleanup() {
+    for enum_payload in [false, true] {
+        let mut value = InputValue::null();
+        for _ in 0..MAX_QUERY_INPUT_DEPTH + 8 {
+            value = if enum_payload {
+                InputValue::loose_enum("Node")
+                    .with_enum_payload(value)
+                    .unwrap()
+            } else {
+                InputValue::map(vec![(InputValue::text("next".to_string()), value)])
+            };
+        }
+        let query = DynamicQuery::new("E").filter(FilterExpr::eq("id", value));
+        assert_eq!(
+            validate_dynamic_query_input(&query),
+            Err(QueryReadAdmissionCode::InputDepthExceeded)
+        );
+        drop(query);
+    }
+    let query = DynamicQuery::new("E").filter(FilterExpr::eq(
+        "id",
+        InputValue::from(vec![0_u8; MAX_QUERY_INPUT_BYTES + 1]),
+    ));
+    assert_eq!(
+        validate_dynamic_query_input(&query),
+        Err(QueryReadAdmissionCode::InputBytesExceeded)
+    );
 }

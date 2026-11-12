@@ -8,7 +8,7 @@ use crate::wasm_optimizer::{
     pinned_wasm_optimizer,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env,
     ffi::{OsStr, OsString},
     fmt::Write as _,
@@ -20,10 +20,10 @@ use std::{
 use ic_build::artifacts::{
     ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCacheSpec,
     CacheRetentionLimits, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
-    SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildError, WasmBuildOutcome,
-    WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
-    build_wasm_canisters_cached_batch, build_wasm_canisters_cached_with_progress,
+    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressEvent,
+    WasmBuildSpec, build_artifact_caches_batch, build_wasm_canisters_cached_batch,
+    build_wasm_canisters_cached_with_progress, maintain_shared_incremental_target,
+    prune_artifact_cache, prune_wasm_build_cache,
 };
 use ic_build::cargo::{environment::ConfigurationLimits, selection::CargoSelection};
 use ic_host_artifacts::batch::BatchLabelError;
@@ -44,7 +44,6 @@ const POST_LINK_CACHE_NAMESPACE: &str = "icydb-canister-wasm";
 const POST_LINK_CACHE_RECIPE: &str = "icydb/post-link/v1";
 const CACHE_MAX_AGE: Duration = Duration::from_hours(336);
 const CACHE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
-const CACHE_MAINTENANCE_INTERVAL: Duration = Duration::from_hours(24);
 const BUILD_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const SHARED_INCREMENTAL_TARGET_MAX_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 
@@ -87,18 +86,17 @@ pub(crate) fn build_cached_cargo_wasm(
         request.packages,
         request.selection,
         request.encoded_rustflags,
-    )
-    .map_err(|error| format!("cached Cargo Wasm configuration failed: {error}"))?;
+    );
 
+    maintain_cargo_wasm_cache(request.context, &spec);
     let outcome = build_wasm_canisters_cached_with_progress(
         &spec,
-        wasm_build_progress_config(),
+        BUILD_PROGRESS_HEARTBEAT_INTERVAL,
         |event| report_wasm_build_progress(request.context, event),
         // Observed Cargo builds own their group through observer unwind.
         |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )
     .map_err(|error| format!("cached Cargo Wasm build failed: {error}"))?;
-    report_shared_target_maintenance_failure(request.context, &outcome);
     Ok(outcome)
 }
 
@@ -106,11 +104,11 @@ pub(crate) fn cargo_wasm_batch_specs(
     workspace_root: &Path,
     target_dir: &Path,
     entries: &[CargoWasmBatchEntry<'_>],
-) -> Result<Vec<LabeledWasmBuildSpec>, WasmBuildError> {
+) -> Vec<LabeledWasmBuildSpec> {
     entries
         .iter()
         .map(|entry| {
-            Ok(LabeledWasmBuildSpec::new(
+            LabeledWasmBuildSpec::new(
                 entry.context,
                 cargo_wasm_spec(
                     workspace_root,
@@ -118,8 +116,8 @@ pub(crate) fn cargo_wasm_batch_specs(
                     &[entry.package],
                     entry.selection,
                     entry.encoded_rustflags,
-                )?,
-            ))
+                ),
+            )
         })
         .collect()
 }
@@ -127,16 +125,26 @@ pub(crate) fn cargo_wasm_batch_specs(
 pub(crate) fn build_cached_cargo_wasm_batch(
     specs: &[LabeledWasmBuildSpec],
 ) -> Result<WasmBuildBatchReport, BatchLabelError> {
-    let mut observer = report_wasm_build_batch_progress;
+    // Maintain each target once before acquisition; failures remain best effort.
+    let mut maintained_targets = BTreeSet::new();
+    for entry in specs {
+        if maintained_targets.insert(entry.spec().target_dir()) {
+            maintain_cargo_wasm_cache(entry.label(), entry.spec());
+        }
+    }
+    let mut observer = |event: WasmBuildBatchProgressEvent| {
+        if let Some(entry) = specs.get(event.index) {
+            report_wasm_build_progress(entry.label(), event.event);
+        }
+    };
     let report = build_wasm_canisters_cached_batch(
         specs,
-        Some((wasm_build_progress_config(), &mut observer)),
+        Some((BUILD_PROGRESS_HEARTBEAT_INTERVAL, &mut observer)),
         |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )?;
     for entry in report.batch.outcomes() {
         if let Some(outcome) = entry.outcome() {
             trace_wasm_build(entry.label(), outcome);
-            report_shared_target_maintenance_failure(entry.label(), outcome);
         }
     }
     eprintln!("maintained canister cargo_wasm_batch={report}");
@@ -149,7 +157,7 @@ pub(crate) fn cargo_wasm_spec(
     packages: &[&str],
     selection: &CargoSelection,
     encoded_rustflags: Option<&str>,
-) -> Result<WasmBuildSpec, WasmBuildError> {
+) -> WasmBuildSpec {
     // Build clears child inheritance. Select the caller's environment once so
     // probes, compilation and the retained fingerprint observe the same inputs.
     let mut environment: BTreeMap<_, _> = env::vars_os().collect();
@@ -171,10 +179,6 @@ pub(crate) fn cargo_wasm_spec(
     )
     .with_cargo_selection(selection.clone())
     .with_shared_incremental_target(target_dir)
-    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL)
-    // One specification policy serves standalone and batch execution. Build
-    // coalesces maintenance once per canonical target in a batch.
-    .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config())
 }
 
 pub(crate) fn cache_post_link_wasm(
@@ -237,6 +241,16 @@ fn cache_post_link_wasm_entries(
     entries: &[PostLinkBatchEntry<'_>],
 ) -> Result<ArtifactCacheBatchReport<String>, String> {
     let optimizer = pinned_wasm_optimizer()?;
+    if let Err(error) = prune_artifact_cache(
+        cache_root,
+        POST_LINK_CACHE_NAMESPACE,
+        artifact_cache_prune_policy(),
+    ) {
+        let _ = writeln!(
+            io::stderr().lock(),
+            "post-link: ic_build_prune_warning error={error}"
+        );
+    }
     let requests = entries
         .iter()
         .map(|entry| PostLinkCacheRequest {
@@ -292,7 +306,6 @@ fn post_link_cache_spec(request: &PostLinkCacheRequest<'_>, optimizer: &Path) ->
         POST_LINK_PIPELINE_IDENTITY.as_bytes(),
     )
     .with_output("final-deployable", request.final_deployable)
-    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL)
 }
 
 pub(crate) fn trace_wasm_build(context: &str, outcome: &WasmBuildOutcome) {
@@ -311,38 +324,30 @@ pub(crate) fn trace_post_link(context: &str, outcome: &ArtifactCacheOutcome) {
 }
 
 fn report_wasm_build_progress(context: &str, event: WasmBuildProgressEvent) {
-    let WasmBuildProgressEvent::Heartbeat { phase, elapsed } = event else {
-        return;
-    };
+    let WasmBuildProgressEvent { phase, elapsed } = event;
     let _ = writeln!(
         io::stderr().lock(),
         "{context}: ic_build_progress phase={phase} elapsed={elapsed:?}",
     );
 }
 
-fn report_wasm_build_batch_progress(event: WasmBuildBatchProgressEvent) {
-    let WasmBuildBatchProgressEvent::BuildProgress { label, event, .. } = event else {
-        return;
-    };
-    report_wasm_build_progress(&label, event);
-}
-
-fn report_shared_target_maintenance_failure(context: &str, outcome: &WasmBuildOutcome) {
-    let Some(message) = outcome
-        .record()
-        .shared_incremental_maintenance()
-        .and_then(|maintenance| maintenance.failure_message())
-    else {
-        return;
-    };
-    let _ = writeln!(
-        io::stderr().lock(),
-        "{context}: ic_build_maintenance_warning error={message}",
-    );
-}
-
-fn wasm_build_progress_config() -> WasmBuildProgressConfig {
-    WasmBuildProgressConfig::new().with_heartbeat_interval(BUILD_PROGRESS_HEARTBEAT_INTERVAL)
+// IC Build owns locking and source safeguards. The consumer selects a simple
+// per-acquisition cadence and preserves nonfatal maintenance diagnostics.
+fn maintain_cargo_wasm_cache(context: &str, spec: &WasmBuildSpec) {
+    if let Err(error) =
+        maintain_shared_incremental_target(spec, shared_incremental_target_prune_policy())
+    {
+        let _ = writeln!(
+            io::stderr().lock(),
+            "{context}: ic_build_maintenance_warning error={error}"
+        );
+    }
+    if let Err(error) = prune_wasm_build_cache(spec.target_dir(), artifact_cache_prune_policy()) {
+        let _ = writeln!(
+            io::stderr().lock(),
+            "{context}: ic_build_prune_warning error={error}"
+        );
+    }
 }
 
 const fn artifact_cache_prune_policy() -> CacheRetentionLimits {
@@ -355,15 +360,6 @@ const fn shared_incremental_target_prune_policy() -> CacheRetentionLimits {
     CacheRetentionLimits::new()
         .with_max_age(CACHE_MAX_AGE)
         .with_max_size_bytes(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
-}
-
-const fn shared_incremental_target_maintenance_config() -> SharedIncrementalTargetMaintenanceConfig
-{
-    SharedIncrementalTargetMaintenanceConfig::new(
-        shared_incremental_target_prune_policy(),
-        CACHE_MAINTENANCE_INTERVAL,
-    )
-    .with_failure_mode(SharedIncrementalTargetMaintenanceFailureMode::BestEffort)
 }
 
 ///

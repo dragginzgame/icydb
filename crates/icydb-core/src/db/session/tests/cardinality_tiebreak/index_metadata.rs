@@ -2,22 +2,31 @@
 
 use super::*;
 use crate::db::{
-    predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate},
+    predicate::{IndexCompileTarget, IndexCompileTargetKind},
     query::{plan::ResolvedOrderField, preparation::PreparationWork},
     tests::support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
-fn indexed_query() -> StructuralQuery {
-    StructuralQuery::new(MissingRowPolicy::Ignore)
-        .filter_normalized_predicate(Predicate::eq(
-            "rare".to_string(),
-            crate::value::Value::Text("group-a".into()),
-        ))
-        .order_spec(OrderSpec {
-            fields: vec![asc("id").lower()],
-        })
-        .limit(10)
+fn indexed_query(schema: &crate::db::schema::SchemaInfo) -> StructuralQuery {
+    crate::db::query::preparation::with_preparation_work(|work| {
+        StructuralQuery::new(MissingRowPolicy::Ignore).filter_expr(
+            schema,
+            crate::db::query::plan::expr::Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(crate::db::query::plan::expr::Expr::Field("rare".into())),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(
+                    crate::value::Value::Text("group-a".into()),
+                )),
+            },
+            work,
+        )
+    })
+    .unwrap()
+    .order_spec(OrderSpec {
+        fields: vec![asc("id").lower()],
+    })
+    .limit(10)
 }
 
 #[test]
@@ -30,7 +39,7 @@ fn static_index_metadata_preserves_layout_at_exact_construction_limits() {
         .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
             catalog.accepted_entity_authority(),
             &catalog,
-            &indexed_query(),
+            &indexed_query(catalog.accepted_schema_info()),
             DiagnosticExecutionLane::PublicRead,
         )
         .unwrap();
@@ -121,7 +130,7 @@ fn exhausted_index_metadata_does_not_publish_a_plan() {
     let catalog = setup
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
-    let query = indexed_query();
+    let query = indexed_query(catalog.accepted_schema_info());
     for lane in [
         DiagnosticExecutionLane::PublicRead,
         DiagnosticExecutionLane::TrustedRead,

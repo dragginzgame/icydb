@@ -142,8 +142,8 @@ pub use query::{
         ExplainResidualSummary, ExplainSelectedAccess,
     },
     expr::{
-        CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
-        JunctionOperator, OrderExpr, OrderTerm, SetOperator, StateOperator, asc, desc, field,
+        CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, JunctionOperator,
+        OrderExpr, OrderTerm, SetOperator, StateOperator, asc, desc, field,
     },
     intent::{IntentError, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},

@@ -1594,11 +1594,9 @@ pub(in crate::db::session) fn ranking_candidates_for_tests() -> (
     crate::db::executor::EntityAuthority,
     Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
-    use crate::{db::predicate::Predicate, value::Value};
-
-    candidate_fixture_for_tests(Predicate::And(vec![
-        Predicate::eq("common".into(), Value::Text("everyone".into())),
-        Predicate::eq("rare".into(), Value::Text("group-a".into())),
+    candidate_fixture_for_tests(crate::db::FilterExpr::and(vec![
+        crate::db::FilterExpr::eq("common", "everyone"),
+        crate::db::FilterExpr::eq("rare", "group-a"),
     ]))
 }
 
@@ -1609,16 +1607,14 @@ pub(in crate::db::session) fn probe_candidates_for_tests(
     crate::db::executor::EntityAuthority,
     Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
-    candidate_fixture_for_tests(crate::db::predicate::Predicate::in_(
-        "common".into(),
-        (0..value_count)
-            .map(|value| crate::value::Value::Text(format!("probe-{value:04}")))
-            .collect(),
+    candidate_fixture_for_tests(crate::db::FilterExpr::in_list(
+        "common",
+        (0..value_count).map(|value| format!("probe-{value:04}")),
     ))
 }
 
 fn candidate_fixture_for_tests(
-    predicate: crate::db::predicate::Predicate,
+    predicate: crate::db::FilterExpr,
 ) -> (
     DbSession<TestCanister>,
     crate::db::executor::EntityAuthority,
@@ -1628,12 +1624,18 @@ fn candidate_fixture_for_tests(
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
-    let query = StructuralQuery::new(MissingRowPolicy::Ignore)
-        .filter_normalized_predicate(predicate)
-        .order_spec(OrderSpec {
-            fields: vec![asc("id").lower()],
-        })
-        .limit(3);
+    let query = crate::db::query::preparation::with_preparation_work(|work| {
+        StructuralQuery::new(MissingRowPolicy::Ignore).filter_for_schema(
+            catalog.accepted_schema_info(),
+            &predicate,
+            work,
+        )
+    })
+    .unwrap()
+    .order_spec(OrderSpec {
+        fields: vec![asc("id").lower()],
+    })
+    .limit(3);
     let (prepared, _) = session
         .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
             catalog.accepted_entity_authority(),

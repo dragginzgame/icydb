@@ -211,14 +211,10 @@ impl SharedPreparedExecutionPlan {
         self.authority.clone()
     }
 
-    pub(in crate::db) fn index_prefix_specs(
+    pub(in crate::db) fn single_index_range_specs(
         &self,
-    ) -> &[crate::db::executor::LoweredIndexPrefixSpec] {
-        self.core.residents.index_prefix_specs.as_ref()
-    }
-
-    pub(in crate::db) fn index_range_specs(&self) -> &[crate::db::executor::LoweredIndexRangeSpec] {
-        self.core.residents.index_range_specs.as_ref()
+    ) -> &[crate::db::executor::LoweredIndexRangeSpec] {
+        self.core.residents.plan.access.single_index_range_specs()
     }
 
     #[must_use]

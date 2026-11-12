@@ -278,51 +278,6 @@ impl SqlGlobalAggregateCommand {
     }
 }
 
-impl LoweredSqlGlobalAggregateCommand {
-    /// Bind this lowered aggregate command onto the accepted schema surface
-    /// used by aggregate explain and dynamic SQL execution.
-    fn into_command_with_schema(
-        self,
-        consistency: MissingRowPolicy,
-        schema: &SchemaInfo,
-        work: &PreparationWork<'_>,
-    ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
-        let Self {
-            query,
-            terminals,
-            projection,
-            having,
-            authored_order_by,
-        } = self;
-
-        let strategies = terminals
-            .into_iter()
-            .map(|terminal| {
-                PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_schema(
-                    schema, terminal,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let (query, facts) = bind_global_query(
-            query,
-            consistency,
-            &strategies,
-            &projection,
-            having.as_ref(),
-            authored_order_by,
-            schema,
-            work,
-        )?;
-        Ok(SqlGlobalAggregateCommand {
-            query,
-            strategies,
-            projection,
-            having,
-            facts,
-        })
-    }
-}
-
 // Both ordinary compilation and parameter binding derive current filter-sensitive
 // extrema order and metadata eligibility here. Cached shape facts are never reused
 // after a WHERE operand has been supplied.
@@ -362,43 +317,67 @@ fn bind_global_query(
     Ok((query, facts))
 }
 
-/// Checked aggregate operands and projection, with an unbound WHERE slot.
+/// Checked aggregate shape; filter-sensitive query/facts exist only in a command.
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct SqlGlobalAggregateTemplate {
     base: LoweredBaseQueryShape,
-    command: SqlGlobalAggregateCommand,
+    strategies: Vec<PreparedSqlScalarAggregateStrategy>,
+    projection: ProjectionSpec,
+    having: Option<Expr>,
     authored_order_by: bool,
 }
 
 impl SqlGlobalAggregateTemplate {
     pub(in crate::db::sql::lowering) fn bind(
         &self,
-        predicate: &crate::db::sql::parser::SqlExpr,
+        predicate: crate::db::query::plan::expr::Expr,
         schema: &SchemaInfo,
         work: &PreparationWork<'_>,
     ) -> Result<SqlGlobalAggregateCommand, QueryError> {
-        let mut base = self.base.clone();
-        base.filter = Some(
-            crate::db::sql::lowering::LoweredSqlFilter::from_where_expr_requiring_predicate_subset(
+        let mut shape = self.clone();
+        shape.base.filter = Some(
+            crate::db::sql::lowering::LoweredSqlFilter::from_lowered_where_expr_requiring_predicate_subset(
                 predicate, work,
             )
             .map_err(QueryError::from_sql_lowering_error)?,
         );
-        let mut command = self.command.clone();
+        shape
+            .into_command(MissingRowPolicy::Ignore, schema, work)
+            .map_err(QueryError::from_sql_lowering_error)
+    }
+
+    // Construct filter-sensitive query/facts only once, after current operands
+    // are known. Templates retain reusable shape, never a discarded command.
+    fn into_command(
+        self,
+        consistency: MissingRowPolicy,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
+        let Self {
+            base,
+            strategies,
+            projection,
+            having,
+            authored_order_by,
+        } = self;
         let (query, facts) = bind_global_query(
             base,
-            MissingRowPolicy::Ignore,
-            &command.strategies,
-            &command.projection,
-            command.having.as_ref(),
-            self.authored_order_by,
+            consistency,
+            &strategies,
+            &projection,
+            having.as_ref(),
+            authored_order_by,
             schema,
             work,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
-        command.query = query;
-        command.facts = facts;
-        Ok(command)
+        )?;
+        Ok(SqlGlobalAggregateCommand {
+            query,
+            strategies,
+            projection,
+            having,
+            facts,
+        })
     }
 }
 
@@ -406,21 +385,36 @@ impl LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering) fn into_parameter_template(
         self,
         schema: &SchemaInfo,
-        work: &PreparationWork<'_>,
     ) -> Result<SqlGlobalAggregateTemplate, SqlLoweringError> {
-        let base = self.query.clone();
-        let authored_order_by = self.authored_order_by;
-        let command = self.into_command_with_schema(MissingRowPolicy::Ignore, schema, work)?;
+        let Self {
+            query: base,
+            terminals,
+            projection,
+            having,
+            authored_order_by,
+        } = self;
+        let strategies = terminals
+            .into_iter()
+            .map(|terminal| {
+                PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_schema(
+                    schema, terminal,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // Preserve shape-admission precedence before binding the WHERE slot.
+        validate_base_query_sql_capabilities(schema, &base)?;
         Ok(SqlGlobalAggregateTemplate {
             base,
-            command,
+            strategies,
+            projection,
+            having,
             authored_order_by,
         })
     }
 }
 
 crate::retained::retained_fields!(SqlGlobalAggregateTemplate {
-    Self { base, command, authored_order_by: _ } => [base, command],
+    Self { base, strategies, projection, having, authored_order_by: _ } => [base, strategies, projection, having],
 });
 
 // Project one internal, order-insensitive extrema access intent only when the
@@ -520,7 +514,9 @@ pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate
     schema: &SchemaInfo,
     work: &PreparationWork<'_>,
 ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
-    lowered.into_command_with_schema(consistency, schema, work)
+    lowered
+        .into_parameter_template(schema)?
+        .into_command(consistency, schema, work)
 }
 
 crate::retained::retained_fields!(SqlGlobalAggregateCommand {

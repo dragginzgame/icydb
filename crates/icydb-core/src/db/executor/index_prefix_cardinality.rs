@@ -298,12 +298,11 @@ fn user_index_prefix_cardinality_key_from_lowered_spec(
     ))
 }
 
-pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
+pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan(
     entity_tag: crate::types::EntityTag,
     plan: &AccessPlannedQuery,
-    index_prefix_specs: &'specs [LoweredIndexPrefixSpec],
     allow_ordered_plan: bool,
-) -> Option<LoweredIndexPrefixCardinalityPlan<'specs>> {
+) -> Option<LoweredIndexPrefixCardinalityPlan<'_>> {
     // COUNT page windows only need exact candidate cardinality. ORDER BY
     // affects row identity, but not COUNT window size once residual filtering
     // and DISTINCT are already ruled out. EXISTS keeps ordered plans on the
@@ -321,7 +320,7 @@ pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
 
     exact_cardinality_plan_from_lowered_specs(
         entity_tag,
-        index_prefix_specs,
+        plan.access.single_index_prefix_specs(),
         contract.index_ordinal,
         contract.physical_generation,
         contract.expected_prefix_specs,

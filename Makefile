@@ -39,6 +39,7 @@ RELEASE_SETUP_TARGET := release-candidate-setup
 export RELEASE_GROUP
 TOKO_TOOLING_RELEASE := 1
 include $(ROOT_DIR)/make/consumer.mk
+include $(ROOT_DIR)/make/cargo-dependencies.mk
 
 # Consumer-owned entrypoints need the same execution-mode admission as shared
 # recipes, including direct calls that bypass the generic CI/release targets.
@@ -84,6 +85,8 @@ QUALIFICATION_MANIFEST_FLAG := --manifest-path "$(QUALIFICATION_MANIFEST)"
 ADAPTER_MANIFEST := $(ROOT_DIR)/testing/canic-adapter/Cargo.toml
 ADAPTER_MANIFEST_FLAG := --manifest-path "$(ADAPTER_MANIFEST)"
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
+deps-update: export CARGO_HOME := $(CARGO_WORK_HOME)
+deps-update: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)" RELEASE_METADATA_CARGO_HOME="$(CARGO_WORK_HOME)"
 TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
 RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(QUALIFICATION_MANIFEST_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug --features cli
@@ -145,6 +148,7 @@ help:
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
 	@echo "  toko-tooling-check Verify the reviewed shared snapshot offline"
+	@echo "  deps-update      Update root and qualification Cargo locks (optional DEPENDENCY_PACKAGE/PRECISE)"
 	@echo "  check-adapter-tooling Admit the independent Canic tooling selection"
 	@echo "  install-testkit  Prepare the explicit adapter Testkit CLI/server after make fetch-adapter"
 	@echo "  testkit-check    Verify Testkit offline and print its admitted server path"
@@ -301,7 +305,7 @@ _test-core-no-default:
 # its own independent consumer and no-default-feature checks above.
 _test-workspace:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --features icydb-model/build,icydb/testing
-	# Qualification owns model/fixture tests; root above owns facade testing.
+	# Root owns readiness semantics; qualification owns model/fixture and simulator tests.
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(QUALIFICATION_MANIFEST_FLAG) --locked --no-fail-fast --workspace --all-targets --features icydb-model/build
 
 # Focused development stages for the CLI package. Release verification retains

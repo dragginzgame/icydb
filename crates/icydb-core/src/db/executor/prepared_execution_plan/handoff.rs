@@ -1,11 +1,10 @@
-use super::contracts::AccessPlannedQuery;
-use crate::db::executor::prepared_execution_plan::build_prepared_execution_plan_core_with_lowered_access;
+use crate::db::executor::prepared_execution_plan::build_prepared_execution_plan_core_from_bound_plan;
 use crate::db::executor::{
-    EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-    PreparedScalarPlanCore, projection::PreparedProjectionContract, terminal::RetainedSlotLayout,
+    EntityAuthority, ExecutionPreparation, PreparedScalarPlanCore,
+    projection::PreparedProjectionContract, terminal::RetainedSlotLayout,
 };
 use crate::error::InternalError;
-use std::{rc::Rc, sync::Arc};
+use std::rc::Rc;
 
 ///
 /// PreparedScalarRuntimeHandoff
@@ -45,12 +44,10 @@ impl PreparedScalarRuntimeHandoff {
         // Rebuild from the access inputs without copying unused cached preparation.
         let residents = &plan_core.core.residents;
         let execution_plan = residents.plan.clone_without_scalar_page();
-        let core = build_prepared_execution_plan_core_with_lowered_access(
+        let core = build_prepared_execution_plan_core_from_bound_plan(
             &authority,
             execution_plan,
             residents.continuation_identity,
-            Arc::clone(&residents.index_prefix_specs),
-            Arc::clone(&residents.index_range_specs),
             &crate::db::resource::budget::ExecutionConstructionBudget,
         )?;
 
@@ -62,21 +59,6 @@ impl PreparedScalarRuntimeHandoff {
             plan_core: PreparedScalarPlanCore { core },
         })
     }
-}
-
-///
-/// PreparedAccessPlanHandoff
-///
-/// Structural prepared-plan payload consumed by grouped route assembly.
-/// It keeps the logical plan and lowered access specs
-/// together so consumers do not peel the same immutable residents back out
-/// through parallel wrappers.
-///
-
-pub(in crate::db::executor) struct PreparedAccessPlanHandoff {
-    pub(in crate::db::executor) plan: Rc<AccessPlannedQuery>,
-    pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
 }
 
 ///

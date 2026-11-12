@@ -5,13 +5,8 @@
 mod tests;
 
 use crate::{
-    db::query::{
-        DynamicQuery,
-        builder::AggregateExpr,
-        expr::{FilterExpr, FilterValue},
-        plan::expr::Expr,
-    },
-    value::Value,
+    db::query::{DynamicQuery, builder::AggregateExpr, expr::FilterExpr, plan::expr::Expr},
+    value::{InputValue, PublicValue, Value},
 };
 use icydb_diagnostic_code::QueryReadAdmissionCode;
 
@@ -99,19 +94,42 @@ impl QueryInputBudget {
 
     fn filter_value(
         &mut self,
-        value: &FilterValue,
+        value: &InputValue,
+        depth: usize,
+    ) -> Result<(), QueryReadAdmissionCode> {
+        self.public_value(value.as_public(), depth)
+    }
+
+    fn public_value(
+        &mut self,
+        value: &PublicValue,
         depth: usize,
     ) -> Result<(), QueryReadAdmissionCode> {
         self.node(depth)?;
         match value {
-            FilterValue::String(text) => self.payload(text.len()),
-            FilterValue::List(values) => {
+            PublicValue::Text(text) => self.payload(text.len()),
+            PublicValue::Blob(bytes) => self.payload(bytes.len()),
+            PublicValue::List(values) => {
                 for value in values {
-                    self.filter_value(value, depth + 1)?;
+                    self.public_value(value, depth + 1)?;
                 }
                 Ok(())
             }
-            FilterValue::Bool(_) | FilterValue::Null => Ok(()),
+            PublicValue::Map(entries) => {
+                for (key, value) in entries {
+                    self.public_value(key, depth + 1)?;
+                    self.public_value(value, depth + 1)?;
+                }
+                Ok(())
+            }
+            PublicValue::Enum(value) => {
+                self.payload(value.variant().len() + value.path().map_or(0, str::len))?;
+                if let Some(payload) = value.payload() {
+                    self.public_value(payload, depth + 1)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 

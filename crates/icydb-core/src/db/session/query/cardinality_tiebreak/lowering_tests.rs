@@ -502,3 +502,153 @@ fn cardinality_bounds_exhaustion_is_not_unavailable_evidence() {
             .is_some()
     );
 }
+
+#[test]
+fn prepared_leaf_bindings_follow_reordered_children_and_share_cloned_bounds() {
+    use crate::{db::access::lowering::bind_access_with_schema_info, retained::RetainedBytes};
+    let (_, authority, candidates) = ranking_candidates_for_tests();
+    let index = candidates
+        .iter()
+        .map(CardinalityTiebreakCandidate::index)
+        .find(|index| index.name() == "a_common_idx")
+        .unwrap();
+    let first = AccessPlan::<Value>::index_prefix_from_contract(
+        index.clone(),
+        vec![Value::Text("a".into())],
+    );
+    let second = AccessPlan::index_multi_lookup_from_contract(
+        index.clone(),
+        vec![Value::Text("b".into()), Value::Text("c".into())],
+    );
+    let range = AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
+        index.clone(),
+        vec![
+            authority
+                .accepted_schema_info()
+                .field_slot_index("common")
+                .unwrap(),
+        ],
+        Vec::new(),
+        Bound::Included(Value::Text("d".into())),
+        Bound::Excluded(Value::Text("z".into())),
+    ));
+    let mut tree = AccessPlan::Union(vec![first, AccessPlan::Intersection(vec![second, range])]);
+    let semantic = tree.clone();
+    let before = RetainedBytes::measure(&tree, usize::MAX).unwrap();
+    with_preparation_work(|work| {
+        bind_access_with_schema_info(
+            authority.entity_tag(),
+            &mut tree,
+            authority.accepted_schema_info(),
+            work,
+        )
+        .unwrap();
+        assert_eq!(
+            tree, semantic,
+            "physical admission cannot change semantic identity"
+        );
+        assert!(RetainedBytes::measure(&tree, usize::MAX).unwrap() > before);
+        let mut cloned = tree.clone();
+        let AccessPlan::Union(children) = &mut cloned else {
+            panic!("union fixture")
+        };
+        children.reverse();
+        let AccessPlan::Intersection(nested) = &mut children[0] else {
+            panic!("nested fixture")
+        };
+        nested.reverse();
+        let AccessPlan::Intersection(nested) = &children[0] else {
+            panic!("nested fixture")
+        };
+        let AccessPlan::Union(original) = &tree else {
+            panic!("original fixture")
+        };
+        let AccessPlan::Intersection(original_nested) = &original[1] else {
+            panic!("original nested fixture")
+        };
+        for (leaf, source) in [
+            (&nested[0], &original_nested[1]),
+            (&nested[1], &original_nested[0]),
+            (&children[1], &original[0]),
+        ] {
+            let executable = leaf.executable_contract();
+            let actual = executable.index_specs().unwrap().unwrap();
+            let expected = lower_access_with_schema_info(
+                authority.entity_tag(),
+                leaf,
+                authority.accepted_schema_info(),
+                work,
+            )
+            .unwrap()
+            .into_index_specs();
+            assert_eq!(actual.prefixes(), expected.0);
+            assert_eq!(actual.ranges(), expected.1);
+            assert!(
+                std::ptr::eq(actual, source.single_index_specs().unwrap()),
+                "clone must share physical bounds rather than re-encode or copy them"
+            );
+        }
+    });
+}
+
+#[test]
+fn unprepared_index_leaf_is_rejected_but_primary_access_needs_no_binding() {
+    let (_, _, candidates) = ranking_candidates_for_tests();
+    let access = AccessPlan::path(candidates[0].access().as_path().unwrap().clone());
+    let executable = access.executable_contract();
+    assert!(executable.index_specs().is_err());
+    let primary = AccessPlan::<Value>::full_scan();
+    assert!(
+        primary
+            .executable_contract()
+            .index_specs()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn prepared_binding_backing_exhaustion_does_not_publish_the_leaf() {
+    use crate::db::access::lowering::bind_access_with_schema_info;
+    let (_, authority, candidates) = ranking_candidates_for_tests();
+    let mut access = AccessPlan::path(candidates[0].access().as_path().unwrap().clone());
+    let root = |limit| {
+        RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, limit),
+        )
+    };
+    let encoding = root(16_000_000);
+    PreparationWork::run(&encoding.scope(), Lane::PublicRead, |work| {
+        lower_access_with_schema_info(
+            authority.entity_tag(),
+            &access,
+            authority.accepted_schema_info(),
+            work,
+        )
+        .map(|_| ())
+        .map_err(|error| QueryError::execute(error.into_internal_error()))
+    })
+    .unwrap();
+    // Admit all the existing encoding work, but no additional retained owner.
+    let rejected = root(encoding.observed(Resource::TemporaryBytes));
+    let error = PreparationWork::run(&rejected.scope(), Lane::PublicRead, |work| {
+        bind_access_with_schema_info(
+            authority.entity_tag(),
+            &mut access,
+            authority.accepted_schema_info(),
+            work,
+        )
+        .map_err(|error| QueryError::execute(error.into_internal_error()))
+    })
+    .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw()
+    )));
+    assert!(access.single_index_specs().is_none());
+    assert!(access.executable_contract().index_specs().is_err());
+}

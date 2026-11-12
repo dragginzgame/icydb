@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             GroupedContinuationContext, PreparedLoadPlan,
-            pipeline::contracts::{GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle},
+            pipeline::contracts::{GroupedPlannerPayload, GroupedRouteStage},
             route::{
                 GroupedExecutionMode, RouteExecutionMode, RoutePlanRequest,
                 build_execution_route_plan,
@@ -90,11 +90,11 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     );
     let (grouped_aggregate_execution_specs, projection_layout, grouped_distinct_execution_strategy) =
         grouped_handoff.into_route_stage_residents();
-    let prepared = plan.into_access_plan_handoff();
+    let prepared = plan.into_bound_plan();
 
     Ok(GroupedRouteStage {
         planner_payload: GroupedPlannerPayload {
-            plan: prepared.plan,
+            plan: prepared,
             grouped_execution,
             grouped_execution_route,
             group_fields,
@@ -104,10 +104,6 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             grouped_distinct_execution_strategy,
         },
         grouped_route_plan,
-        index_specs: IndexSpecBundle {
-            index_prefix_specs: prepared.index_prefix_specs,
-            index_range_specs: prepared.index_range_specs,
-        },
         continuation,
         resume_anchor,
     })
@@ -122,7 +118,7 @@ fn lower_grouped_resume_anchor(
     boundary: &Value,
     direction: Direction,
 ) -> Result<LoweredKey, InternalError> {
-    let AccessPlan::Path(path) = &plan.logical_plan().access else {
+    let AccessPlan::Path(path, _) = &plan.logical_plan().access else {
         return Err(InternalError::query_executor_invariant());
     };
     let (index, fixed) = path

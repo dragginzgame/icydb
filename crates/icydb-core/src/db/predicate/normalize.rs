@@ -324,7 +324,10 @@ fn normalize_accepted_predicate_value(
         .map_err(|error| QueryError::from(predicate_admission_error(field, error)))
 }
 
-fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> ValidateError {
+pub(in crate::db) fn predicate_admission_error(
+    field: &str,
+    error: ValueAdmissionError,
+) -> ValidateError {
     let reason = match error {
         ValueAdmissionError::EnumPathMismatch => SchemaLiteralValidationReason::EnumPathMismatch,
         ValueAdmissionError::UnknownEnumVariant => {

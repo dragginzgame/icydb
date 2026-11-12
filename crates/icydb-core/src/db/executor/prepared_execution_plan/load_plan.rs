@@ -5,13 +5,12 @@ use crate::{
         executor::{
             EntityAuthority, GroupedPaginationWindow, PreparedGroupedRuntimeResidents,
             PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
-            prepared_execution_plan::{PreparedAccessPlanHandoff, PreparedExecutionPlanCore},
-            terminal::RetainedSlotLayout,
+            prepared_execution_plan::PreparedExecutionPlanCore, terminal::RetainedSlotLayout,
         },
     },
     error::InternalError,
 };
-use std::{rc::Rc, sync::Arc};
+use std::rc::Rc;
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -122,15 +121,11 @@ impl PreparedLoadPlan {
             .get_or_init_grouped_runtime_residents(&self.authority)
     }
 
-    pub(in crate::db::executor) fn into_access_plan_handoff(self) -> PreparedAccessPlanHandoff {
+    pub(in crate::db::executor) fn into_bound_plan(self) -> Rc<AccessPlannedQuery> {
         let Self { authority: _, core } = self;
         // Share only the access inputs; cached runtime residents stay with the core.
         let residents = &core.residents;
 
-        PreparedAccessPlanHandoff {
-            plan: Rc::clone(&residents.plan),
-            index_prefix_specs: Arc::clone(&residents.index_prefix_specs),
-            index_range_specs: Arc::clone(&residents.index_range_specs),
-        }
+        Rc::clone(&residents.plan)
     }
 }
