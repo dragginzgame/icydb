@@ -2,7 +2,7 @@
 name = "icydb-cli"
 edition = { workspace = true }
 rust-version = { workspace = true }
-version = "0.296.10"
+version = "0.296.11"
 license-file = { workspace = true }
 description = "Developer CLI tools for IcyDB"
 repository = { workspace = true }

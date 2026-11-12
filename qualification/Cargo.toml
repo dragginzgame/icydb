@@ -57,7 +57,7 @@ runtime_api = { version = "0.310.0", package = "icydb", path = "../crates/icydb"
 
 # CLI release group
 # Changelog : releases/cli/CHANGELOG.md
-icydb-cli = { path = "../crates/icydb-cli", version = "0.296.10" }
+icydb-cli = { path = "../crates/icydb-cli", version = "0.296.11" }
 
 # Production dependencies
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
