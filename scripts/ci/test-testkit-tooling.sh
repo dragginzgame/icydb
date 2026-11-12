@@ -11,7 +11,7 @@ fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Testkit tooling fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/make" "$fixture/bin" "$fixture/.tools/host/bin"
 cp "$ROOT/Makefile" "$fixture/"
-cp "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/make/"
+cp "$ROOT/make/cargo-dependencies.mk" "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/make/"
 cp "$ROOT/scripts/ci/check-make-execution.sh" "$ROOT/scripts/ci/run-formatting.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/testkit-runner.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/scripts/ci/"

@@ -37,7 +37,7 @@ while IFS= read -r -d '' path; do
   esac
 done < "$fixture/working-inputs"
 bash scripts/ci/check-formatting-hooks.sh "$ROOT" crates/icydb-diagnostic-code/src/lib.rs \
-  Cargo.toml "$fixture/unsorted.toml" make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk "${overlays[@]}"
+  Cargo.toml "$fixture/unsorted.toml" make/cargo-dependencies.mk make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk "${overlays[@]}"
 
 # A dependency-free disposable workspace runs IcyDB's same Makefile formatters
 # against derive ordering and filenames Cargo can select as explicit targets.
@@ -48,7 +48,7 @@ cp "$ROOT/Makefile" "$ROOT/rust-toolchain.toml" "$fixture/product/"
 # above and the tooling-adapter fixture cover native multi-workspace dispatch.
 printf '\nFORMAT_RUST_ARGS := --sort-derives\n' >> "$fixture/product/Makefile"
 mkdir -p "$fixture/product/make"
-cp "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/product/make/"
+cp "$ROOT/make/cargo-dependencies.mk" "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/product/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
 bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/product" make/rust-format.mk
 cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"

@@ -62,28 +62,23 @@ BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
 # physical_polling_tests and branch_distinct own bounded branch execution.
 # Pipeline runtime tests own fast-path spec arity. Do not duplicate those
 # contracts by requiring particular call expressions or local variable names.
+# Leaf-owned bindings replace positional consumption/alignment checks; access
+# lowering and prepared execution tests qualify missing bindings and leaf identity.
 REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
   "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
   "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, fixed_values, self\\.budget\\):::branch-set fingerprint identity must include fixed prefix values"
   "crates/icydb-core/src/db/query/fingerprint/hash_sections/access.rs:::write_values\\(self\\.hasher, branch_values, self\\.budget\\):::branch-set fingerprint identity must include branch values"
-  "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::prefix_offset < self.prefixes.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_prefix_spec_alignment:::missing invariant error for misaligned index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/scan/secondary_index.rs:::return Err\\(InternalError::query_executor_invariant\\(\\)\\):::missing invariant error for unresolved secondary index prefix specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-prefix physical execution must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::spec.scan_contract\\(\\).name\\(\\) != details.name\\(\\):::missing invariant error for misaligned IndexPrefixSpec consumption"
-  "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::IndexRangeTraversalContract::validate_specs_consumed:::missing invariant check for unused IndexRangeSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::IndexRangeTraversalContract::require_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
   "crates/icydb-core/src/db/index/key/build.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::fn validate_index_prefix_count:::prefix-family stream execution must centralize lowered prefix count validation"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::validate_index_prefix_count\\(index_prefix_specs, value_count\\):::multi-lookup execution must validate lowered prefix count before materialized or expanded execution"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
-  "crates/icydb-core/src/db/executor/traversal.rs:::validate_spec_alignment:::missing invariant error for misaligned index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/scan/index_range_limit.rs:::return Err\\(InternalError::query_executor_invariant\\(\\)\\):::missing invariant error for unresolved index-range pushdown specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-range physical execution must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::IndexRangeTraversalContract::validate_spec_alignment:::missing invariant check for misaligned IndexRangeSpec consumption"
 )
 
 status=0

@@ -98,7 +98,7 @@ chdir $root or die 'restore root';
 my $dispatch_root="$fixture/dispatch";
 make_path($dispatch_root);
 run('bash', "$root/scripts/ci/prepare-script-fixture.sh", $root, $dispatch_root,
-    'Makefile', 'make/consumer.mk', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
+    'Makefile', 'make/consumer.mk', 'make/cargo-dependencies.mk', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
     'qualification/Cargo.toml', 'qualification/Cargo.lock',
     'scripts/ci/actionlint-checksums.tsv', 'scripts/ci/run-icydb-validation-targets.sh',
     'scripts/ci/run-validation-targets.sh', 'scripts/ci/check-rust-compiler.sh',

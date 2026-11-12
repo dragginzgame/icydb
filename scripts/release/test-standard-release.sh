@@ -25,7 +25,7 @@ export TMPDIR="${fixture%/*}"
 # The actual release prerequisites admit the current Git root before cleanup.
 # Own that root here so dispatch controls cannot resolve the parent checkout.
 git -C "$fixture" init --quiet
-release_inputs=(scripts/release/group.sh scripts/release/verify.sh scripts/ci/release-receipts.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
+release_inputs=(scripts/release/group.sh scripts/release/verify.sh scripts/ci/release-receipts.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/cargo-dependencies.mk make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
 # Dispatch qualification substitutes both native admission owners; their real
 # metadata/snapshot admission is qualified separately against this checkout.
 routing_source="$fixture/routing-source"
