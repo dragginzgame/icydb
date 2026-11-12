@@ -194,6 +194,9 @@ jobs:
     env:
       RUSTC_WRAPPER: ""
       RUST_TEST_THREADS: "2"
+      SCCACHE_GHA_ENABLED: "false"
+      SCCACHE_DIR: ${{ github.workspace }}/.cache/native-compiler
+      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -237,7 +240,27 @@ jobs:
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           make tools-check
           shellcheck -x --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
+      # Cache compiler outputs only; every native qualification still executes.
+      - name: Select compiler cache version
+        id: compiler-cache-version
+        run: |
+          source ci/tool-versions.env
+          echo "version=v$TOKO_TOOLING_SCCACHE_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: ${{ steps.compiler-cache-version.outputs.version }}
+      - name: Restore bounded native compiler outputs
+        id: compiler-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: native-compiler-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-${{ hashFiles('Cargo.lock', 'qualification/Cargo.lock', '**/Cargo.toml', '.cargo/config*', 'ci/tool-versions.env') }}
       - name: Qualify native library and CLI builds
+        env:
+          RUSTC_WRAPPER: sccache
         run: |
           cargo clippy --locked --manifest-path qualification/Cargo.toml -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
@@ -265,6 +288,16 @@ jobs:
           make fmt-check
           icp --version
           ic-wasm --version
+      - name: Flush native compiler outputs
+        continue-on-error: true
+        run: sccache --stop-server
+      - name: Save bounded native compiler outputs
+        if: success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
       - name: Retain failed CLI process call traces
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

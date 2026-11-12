@@ -3,6 +3,22 @@
 Last coordinated release: [0.294.0](../history.md). Independent database releases
 begin with 0.295.0 below.
 
+## [0.310.2]
+
+### 🔧 Changed
+
+- Qualify current Linux database/CLI selections for eligible source changes,
+  report deployment automation time per fixture and restore bounded macOS
+  compiler outputs without skipping native checks
+  ([#636 — Deployment validation cost](https://github.com/dragginzgame/icydb/issues/636)).
+- Align product and qualification locks on Entropy 0.1.10, Metrics 0.29.12,
+  Storage 0.73.6 and Wire 0.21.5.
+- Avoid fetching canonical row and journal chunk payloads when only keys are
+  needed, and bound schema namespace existence probes to one key
+  ([#635 — Key-only Storage scans](https://github.com/dragginzgame/icydb/issues/635)).
+
+[Detailed changes](0.310.md).
+
 ## [0.310.1] - 2026-11-12
 
 ### 🔧 Changed

@@ -18,7 +18,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_storage::adapter::{MapEntry, StableBTreeMap};
+use ic_storage::adapter::StableBTreeMap;
 use ic_storage::{DefaultMemoryImpl, RuntimeMemory};
 #[cfg(test)]
 use std::cell::Cell;
@@ -838,8 +838,20 @@ impl DataStore {
                     }
                 }
             }
-            DataStoreBackend::Journaled { .. } => {
-                Self::visit_journaled_keys_in_bounds(&self.backend, bounds, reverse, &mut visitor)?;
+            DataStoreBackend::Journaled {
+                canonical,
+                live,
+                tombstones,
+                ..
+            } => {
+                Self::visit_journaled_keys_in_bounds(
+                    canonical,
+                    live,
+                    tombstones,
+                    bounds,
+                    reverse,
+                    &mut visitor,
+                )?;
             }
         }
 
@@ -848,26 +860,16 @@ impl DataStore {
 
     // Share journaled traversal across callback types while retaining typed
     // caller errors. Key-only traversal must never materialize row payloads.
-    fn visit_journaled_keys_in_bounds<E: From<InternalError>>(
-        backend: &DataStoreBackend,
+    fn visit_journaled_keys_in_bounds<E: From<InternalError>, M: ic_storage::Memory>(
+        canonical: &StableBTreeMap<RawDataStoreKey, RawRow, M>,
+        live: &HeapBTreeMap<RawDataStoreKey, RawRow>,
+        tombstones: &BTreeSet<RawDataStoreKey>,
         bounds: (Bound<&RawDataStoreKey>, Bound<&RawDataStoreKey>),
         reverse: bool,
         visitor: &mut dyn FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        type VisitEntry<'a> = OrderedOverlayEntry<
-            MapEntry<RawDataStoreKey, RawRow>,
-            (&'a RawDataStoreKey, &'a RawRow),
-        >;
-
-        let DataStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-            ..
-        } = backend
-        else {
-            return Ok(());
-        };
+        type VisitEntry<'a> =
+            OrderedOverlayEntry<RawDataStoreKey, (&'a RawDataStoreKey, &'a RawRow)>;
 
         if canonical.is_empty() {
             if reverse {
@@ -888,14 +890,14 @@ impl DataStore {
 
         if live.is_empty() && tombstones.is_empty() {
             if reverse {
-                for entry in canonical.range(bounds).rev() {
-                    if visitor(entry.key())?.should_stop() {
+                for entry in canonical.keys_range(bounds).rev() {
+                    if visitor(&entry)?.should_stop() {
                         return Ok(());
                     }
                 }
             } else {
-                for entry in canonical.range(bounds) {
-                    if visitor(entry.key())?.should_stop() {
+                for entry in canonical.keys_range(bounds) {
+                    if visitor(&entry)?.should_stop() {
                         return Ok(());
                     }
                 }
@@ -913,7 +915,7 @@ impl DataStore {
 
         let mut visit_entry = |entry: VisitEntry<'_>| {
             let result = match entry {
-                OrderedOverlayEntry::Canonical(entry) => visitor(entry.key()),
+                OrderedOverlayEntry::Canonical(entry) => visitor(&entry),
                 OrderedOverlayEntry::Live((key, _row)) => visitor(key),
             };
             match result {
@@ -923,19 +925,19 @@ impl DataStore {
         };
         match direction {
             Direction::Asc => ordered_overlay_entries(
-                canonical.range(bounds),
+                canonical.keys_range(bounds),
                 live.range(bounds),
                 direction,
-                |entry| entry.key(),
+                |key| key,
                 |entry| entry.0,
                 tombstones,
             )
             .try_for_each(&mut visit_entry),
             Direction::Desc => ordered_overlay_entries(
-                canonical.range(bounds).rev(),
+                canonical.keys_range(bounds).rev(),
                 live.range(bounds).rev(),
                 direction,
-                |entry| entry.key(),
+                |key| key,
                 |entry| entry.0,
                 tombstones,
             )

@@ -896,14 +896,7 @@ impl JournalTailStore {
             return Err(journal_tail_corruption());
         }
         let next_control = self.prepare_retired_tail_control(current_control, header, batch)?;
-        let batch_keys = self
-            .map
-            .range((
-                Included(JournalTailKey::new(batch.journal_sequence(), 0)),
-                Included(JournalTailKey::new(batch.journal_sequence(), u32::MAX)),
-            ))
-            .map(|entry| *entry.key())
-            .collect::<Vec<_>>();
+        let batch_keys = Self::retirement_keys(&self.map, batch.journal_sequence());
         Ok(PreparedJournalBatchRetirement {
             next_watermark,
             next_control,
@@ -914,6 +907,19 @@ impl JournalTailStore {
             ),
             batch_keys,
         })
+    }
+
+    // The batch and header have already been validated. Collect only physical
+    // keys here so retirement does not fetch every encoded chunk a second time.
+    fn retirement_keys<M: ic_storage::Memory>(
+        map: &StableBTreeMap<JournalTailKey, RawJournalChunk, M>,
+        sequence: JournalSequence,
+    ) -> Vec<JournalTailKey> {
+        map.keys_range((
+            Included(JournalTailKey::new(sequence, 0)),
+            Included(JournalTailKey::new(sequence, u32::MAX)),
+        ))
+        .collect()
     }
 
     /// Mechanically publish one already-preflighted watermark/control/retirement boundary.

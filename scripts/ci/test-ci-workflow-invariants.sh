@@ -5,8 +5,8 @@ set -euo pipefail
 
 selected_case=all
 if [[ $# != 0 ]]; then
-  [[ $# == 2 && "$1" == --case && ( "$2" == static-fixtures || "$2" == adapter-tooling ) ]] || {
-    echo 'usage: test-ci-workflow-invariants.sh [--case static-fixtures|adapter-tooling]' >&2
+  [[ $# == 2 && "$1" == --case && ( "$2" == static-fixtures || "$2" == adapter-tooling || "$2" == native-cache ) ]] || {
+    echo 'usage: test-ci-workflow-invariants.sh [--case static-fixtures|adapter-tooling|native-cache]' >&2
     exit 2
   }
   selected_case="$2"
@@ -54,6 +54,25 @@ mutate() { "$YQ" -i "$1" "$subject"; }
 
 reset
 check pass baseline
+if [[ "$selected_case" == native-cache || "$selected_case" == all ]]; then
+  for mutation in \
+    '.jobs.macos_host.env.SCCACHE_CACHE_SIZE = "20G"' \
+    '.jobs.macos_host.env.SCCACHE_GHA_ENABLED = "true"' \
+    '(.jobs.macos_host.steps[] | select(.id == "compiler-cache")).continue-on-error = false' \
+    '(.jobs.macos_host.steps[] | select(.id == "compiler-cache")).with.key = "shared-cache"' \
+    '(.jobs.macos_host.steps[] | select(.id == "compiler-cache")).with.restore-keys = "native-"' \
+    '(.jobs.macos_host.steps[] | select(.name == "Qualify native library and CLI builds")).if = "false"'; do
+    reset
+    mutate "$mutation"
+    check fail "native-cache-$count"
+  done
+  reset
+  if [[ "$selected_case" == native-cache ]]; then
+    fixture_complete=true
+    printf '[OK] native cache workflow fixtures passed: %s cases\n' "$count"
+    exit 0
+  fi
+fi
 if [[ "$selected_case" == adapter-tooling || "$selected_case" == all ]]; then
   subject="$adapter_subject"
   for job in static rust macos_host wire_browser wasm_size_report; do

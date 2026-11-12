@@ -28,7 +28,21 @@ my $admission=$json->decode($raw);
 $raw eq $json->encode($admission)."\n" && $admission->{schema}==1
     or die "invalid reviewed qualification\n";
 my ($host,$rustc,$cargo)=(capture('uname','-sm'),capture('rustc','-vV'),capture('cargo','-V'));
+my %mismatches;
 for my $record (@{$admission->{comparisons}}) {
+    # Explain ineligible native records without exposing configuration values.
+    # Comparison and proof admission below remain the authority for selection.
+    if ($record->{group} eq $group) {
+        my @different;
+        push @different, 'host' if $record->{host} ne $host;
+        push @different, 'rustc' if $record->{rustc} ne $rustc;
+        push @different, 'cargo' if $record->{cargo} ne $cargo;
+        for my $field (qw(mapping_inputs configuration)) {
+            push @different, $field if $json->encode($record->{$field}) ne $json->encode($fingerprint->{$field});
+        }
+        push @different, 'mapping_digest' if !@different && $record->{mapping_sha256} ne $fingerprint->{mapping_sha256};
+        $mismatches{join(',', @different)}=1 if @different;
+    }
     next unless $record->{host} eq $host && $record->{rustc} eq $rustc && $record->{cargo} eq $cargo;
     next unless $record->{group} eq $group && $record->{mapping_sha256} eq $fingerprint->{mapping_sha256};
     $record->{contract} eq 'icydb-release-mapping-comparison/1' && $record->{group} eq $group
@@ -45,4 +59,5 @@ for my $record (@{$admission->{comparisons}}) {
     print $json->encode({source=>$ARGV[0],group=>$group,mapping_sha256=>$fingerprint->{mapping_sha256},host=>$host}),"\n";
     exit 0;
 }
+print STDERR "Qualification mismatch ($group): $_\n" for sort keys %mismatches;
 die "no matching native mapping qualification; use full validation\n";

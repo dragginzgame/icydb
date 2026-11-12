@@ -96,6 +96,63 @@ native host qualification and integration with release receipt recovery. These b
 selected database release mapping retains whole-workspace product coverage and
 omits only unchanged automation regression execution.
 
+## Deployment cost evidence
+
+[#636](https://github.com/dragginzgame/icydb/issues/636) tracks deployment cost
+and qualified reuse. The completed `batch-wi9lgHE5` delivered database 0.310.1
+and CLI 0.296.12 from source `c848d145fc9411ba7c03e8e256a61673d83bb1cc`.
+Its retained console log is `/tmp/icydb-deploy-03101-029612.log` on the
+maintainer host; durable intent and delivery records remain beneath
+`.git/release-state/frozen/batch-wi9lgHE5/`. These are local evidence locations,
+not portable qualification certificates.
+
+Both release groups executed the full gate because the current mapping had no
+matching reviewed qualification. Every retained native certificate binds older
+automation bytes, including the product CI workflow; the host/compiler match
+alone cannot admit that drift. Selection diagnostics now distinguish host,
+compiler, mapping inputs and configuration mismatches without logging values.
+The automation gate took 468 seconds for database and 458 seconds for CLI.
+Feature/test stages took 56/528 seconds and 54/495 seconds respectively.
+These are logged operational stage durations; nested test summaries overlap
+and must not be added again. Preparation, packaging, Git delivery, upload and
+registry availability completed, but their individual durations and the total
+request-to-availability duration are not recoverable from this untimestamped
+console log. No after-deployment timing or speedup has been measured.
+
+`check-automation` now dispatches the same ordered fixtures through the installed
+Shared runner, with fail-fast behavior and input checkpoints. Each fixture has
+its own summary duration and failure log. The consumer release-roster fixture
+executes the shared dispatcher and its input checkpoints, substituting only
+the fixture leaves so it still checks ordered coverage and failure propagation. Set `VALIDATION_LOG_DIR` to retain
+successful logs and the runner's `timings.tsv` as well. The mapping contract
+readmits this Makefile change without renewing native comparison certificates.
+
+The macOS product lane restores a separate, 2 GiB local sccache compiler-output
+cache, keyed by host architecture/image, compiler and root/qualification graph
+and configuration. Restore/save failures are optional, misses compile normally,
+and every native check still executes. This CI cache is not validation-proof
+reuse and makes no claim about local deployment savings. Hosted macOS acceptance
+and before/after CI measurements remain unmeasured.
+
+Fresh Linux x86-64 comparisons now qualify the current mapping for eligible
+database source and CLI-private changes. Both groups executed sixteen full and
+eleven selected stages, with zero reused passes; final source custody and CLI
+archive checks passed. Reviewed records bind mapping
+`481754ab60286940f7f91c8b0ac3bffec628093d98994c4f6bccf024bf700df5`.
+Database evidence is retained at `target/release-validation-native.55LJcC/evidence/`
+and CLI evidence at `target/release-validation-native.V81Hx6/evidence/`.
+The earlier failed/interrupted attempts remain retained and grant no authority.
+Actual record admission passed in
+`target/release-validation-admission.0Qwxl4/`: eligible source selects eleven
+stages, this mixed batch expands to sixteen, and changed compiler configuration
+or automation bytes refuse. These controls execute no product stages or delivery.
+
+This mixed automation/dependency batch still requires the full gate. Exact-input
+stage reuse and macOS release narrowing are not admitted by these comparisons.
+Preserve source, archive, registry and recovery admission; neither a digest
+refresh nor a compiler cache hit supplies a pass. Follow-up and deployment
+measurements stay in #636, not a local task queue.
+
 ## Mapping and selection
 
 The 0.308 layout separates native qualification resolution. The existing full

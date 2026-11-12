@@ -47,6 +47,7 @@ serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 ic-platform-types = { workspace = true }
+ic-storage = { workspace = true, features = ["test-support"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 proptest = { workspace = true }

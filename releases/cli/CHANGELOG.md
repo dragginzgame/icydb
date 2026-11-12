@@ -3,6 +3,17 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.13]
+
+### 🔧 Changed
+
+- Qualify current Linux database/CLI selections for eligible source changes,
+  report deployment automation time per fixture and restore bounded macOS
+  compiler outputs without skipping native checks
+  ([#636 — Deployment validation cost](https://github.com/dragginzgame/icydb/issues/636)).
+
+[Detailed changes](0.296.md).
+
 ## [0.296.12] - 2026-11-12
 
 ### 🔧 Changed

@@ -15,6 +15,79 @@ use std::ops::Bound;
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
 #[test]
+fn key_only_scans_do_not_read_canonical_payloads() {
+    use ic_storage::{StorageConfig, testing::MeteredMemory};
+
+    const PAYLOAD_BYTES: usize = 64 * 1024;
+
+    let backing = MeteredMemory::new(VectorMemory::default());
+    let runtime = crate::testing::test_memory_runtime(backing.clone(), StorageConfig::default());
+    let memory = runtime
+        .open_memory(&ic_storage::StableKey::parse("icydb.core_tests.slot_229.v1").unwrap())
+        .unwrap();
+    let mut canonical = StableBTreeMap::create(memory).unwrap();
+    for id in 1..=8 {
+        canonical.insert(
+            raw_key(1, id),
+            RawRow::try_new(vec![17; PAYLOAD_BYTES]).unwrap(),
+        );
+    }
+    for mixed in [false, true] {
+        let mut live = HeapBTreeMap::new();
+        let mut tombstones = BTreeSet::new();
+        let mut expected: Vec<_> = (1..=8).map(|id| raw_key(1, id)).collect();
+        if mixed {
+            live.insert(raw_key(1, 0), raw_row(22));
+            live.insert(raw_key(1, 4), raw_row(44));
+            tombstones.insert(raw_key(1, 2));
+            expected.retain(|key| key != &raw_key(1, 2));
+            expected.insert(0, raw_key(1, 0));
+        }
+        for reverse in [false, true] {
+            let mut ordered = expected.clone();
+            if reverse {
+                ordered.reverse();
+            }
+            for limit in [1, 3, usize::MAX] {
+                backing.reset();
+                let mut visited = Vec::new();
+                DataStore::visit_journaled_keys_in_bounds(
+                    &canonical,
+                    &live,
+                    &tombstones,
+                    (Bound::Unbounded, Bound::Unbounded),
+                    reverse,
+                    &mut |key| {
+                        visited.push(key.clone());
+                        Ok::<_, InternalError>(if visited.len() == limit {
+                            StoreVisit::Stop
+                        } else {
+                            StoreVisit::Continue
+                        })
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    visited,
+                    ordered.iter().take(limit).cloned().collect::<Vec<_>>()
+                );
+                let counts = backing.counts();
+                assert!(!counts.overflowed);
+                // Even a complete key traversal must read less than one row.
+                // Entry iteration would fetch at least one full payload.
+                assert!(counts.read_bytes < PAYLOAD_BYTES as u64, "{counts:?}");
+                assert_eq!(counts.writes, 0);
+                assert_eq!(counts.grows, 0);
+            }
+        }
+    }
+    // Prove the backing meter observes the payload path we are excluding.
+    backing.reset();
+    assert!(canonical.range(..).next().is_some());
+    assert!(backing.counts().read_bytes >= PAYLOAD_BYTES as u64);
+}
+
+#[test]
 fn previous_rows_move_out_of_live_storage_without_changing_presence() {
     for (journaled, canonical) in [(false, false), (true, false), (true, true)] {
         let mut store = if journaled {

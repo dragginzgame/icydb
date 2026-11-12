@@ -128,6 +128,19 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
   require(.jobs.static | has_run("(?m)^\\s*make ci-static\\s*$"); "static must use its local product authority"),
   require(.jobs.wire_browser | has_run("^\\s*make check-wire-browser\\s*$"); "product browser gate must exercise native codec contracts"),
   require(any(.jobs.macos_host.steps[]?; run_text|contains("make check-portable-automation")); "native host must execute portable product fixtures"),
+  (.jobs.macos_host as $host |
+    require($host.env.SCCACHE_CACHE_SIZE == "2G" and $host.env.SCCACHE_GHA_ENABLED == "false"
+      and $host.env.RUSTC_WRAPPER == ""; "native cache must be bounded and isolated from automation fixtures"),
+    require(any($host.steps[]; .id == "compiler-cache" and .if == null
+      and .["continue-on-error"] == true and .with.path == "${{ env.SCCACHE_DIR }}"
+      and .with["restore-keys"] == null
+      and (.with.key | contains("matrix.os") and contains("runner.arch") and contains("env.RUST_CURRENT")
+        and contains("Cargo.lock") and contains("qualification/Cargo.lock") and contains("**/Cargo.toml")
+        and contains(".cargo/config*") and contains("ci/tool-versions.env")));
+      "native compiler cache needs host/compiler/graph isolation and cold-cache fallback"),
+    require(any($host.steps[]; .name == "Qualify native library and CLI builds" and .if == null
+      and (.["continue-on-error"] // false) == false and .env.RUSTC_WRAPPER == "sccache");
+      "native qualification must execute independently of compiler cache hits")),
   (.jobs | to_entries[] | .key as $job | .value.steps[]? |
     require(run_text|test("testing/canic-adapter|fetch-adapter|install-testkit|testkit-check|check-canic-adapter-compiler|icydb-testing-integration|test-wire-browser|build-canister-production")|not;
       "product job \($job) dispatches adapter qualification")),

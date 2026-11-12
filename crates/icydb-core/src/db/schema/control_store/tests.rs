@@ -163,16 +163,22 @@ fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing(
         let mut view =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
-        let mut key = [0; 33];
-        key[0] = tag;
-        key[32] = 1;
-        view.map
-            .insert(key, SchemaControlBytes(vec![0]))
-            .expect("fixture insert");
+        // Admission only needs one witness, even across a populated invalid
+        // namespace. Namespace zero must exclude the valid header itself.
+        for suffix in 1..=128 {
+            let mut key = [0; 33];
+            key[0] = tag;
+            key[32] = suffix;
+            view.map
+                .insert(key, SchemaControlBytes(vec![0]))
+                .expect("fixture insert");
+        }
+        let before = view.map.len().unwrap();
         assert!(
             SchemaControlMap::<[u8; 32]>::open_existing(memory, ControlRecordFamily::Application)
                 .is_err()
         );
+        assert_eq!(view.map.len().unwrap(), before);
     }
     let memory = Rc::new(test_memory(243));
     let mut view =

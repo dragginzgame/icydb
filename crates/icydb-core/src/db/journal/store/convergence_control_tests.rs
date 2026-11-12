@@ -208,6 +208,44 @@ fn retirement_uses_next_header_but_consumption_validates_all_chunks() {
 }
 
 #[test]
+fn retirement_key_collection_skips_chunk_payloads_and_other_sequences() {
+    use ic_storage::{StorageConfig, VectorMemory, testing::MeteredMemory};
+
+    let backing = MeteredMemory::new(VectorMemory::default());
+    let runtime = crate::testing::test_memory_runtime(backing.clone(), StorageConfig::default());
+    let memory = runtime
+        .open_memory(&ic_storage::StableKey::parse("icydb.core_tests.slot_174.v1").unwrap())
+        .unwrap();
+    let mut map = StableBTreeMap::create(memory).unwrap();
+    for sequence in 1..=3 {
+        for chunk in [0, 1, u32::MAX] {
+            map.insert(
+                JournalTailKey::new(JournalSequence::new(sequence), chunk),
+                RawJournalChunk::from_bytes(vec![31; JOURNAL_TAIL_CHUNK_BYTES as usize]),
+            );
+        }
+    }
+    backing.reset();
+    let sequence = JournalSequence::new(2);
+    assert_eq!(
+        JournalTailStore::retirement_keys(&map, sequence),
+        [0, 1, u32::MAX].map(|chunk| JournalTailKey::new(sequence, chunk))
+    );
+    let counts = backing.counts();
+    assert!(!counts.overflowed);
+    assert!(
+        counts.read_bytes < u64::from(JOURNAL_TAIL_CHUNK_BYTES),
+        "{counts:?}"
+    );
+    assert_eq!(counts.writes, 0);
+    assert_eq!(counts.grows, 0);
+    assert!(JournalTailStore::retirement_keys(&map, JournalSequence::new(4)).is_empty());
+    backing.reset();
+    assert!(map.range(..).next().is_some());
+    assert!(backing.counts().read_bytes >= u64::from(JOURNAL_TAIL_CHUNK_BYTES));
+}
+
+#[test]
 fn retirement_rejects_missing_malformed_or_miskeyed_next_headers_without_effects() {
     for invalid_header in [0, 1, 2] {
         let mut store =

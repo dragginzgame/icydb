@@ -177,9 +177,16 @@ mkdir "$fixture/roster-bin"
 printf '#!%s\n' "$real_bash" > "$fixture/roster-bin/bash"
 cat >> "$fixture/roster-bin/bash" <<'ROSTER'
 set -euo pipefail
-if [[ "$1" == */scripts/ci/check-make-execution.sh || "$1" == */scripts/release/group.sh ]]; then
-    exec "$RELEASE_FIXTURE_BASH" "$@"
-fi
+# Exercise the real timing/dispatch owner; substitute only fixture leaves.
+# Its snapshot and input-checkpoint helpers must run under their real interpreters.
+case "$0:$1" in
+    */perl:-e|*/perl:*/validation-input-checkpoint.pl|*/perl:*/release-validation-plan.pl)
+        exec "$RELEASE_FIXTURE_PERL" "$@" ;;
+esac
+case "$1" in
+    -n|*/check-make-execution.sh|*/scripts/release/group.sh|*/run-icydb-validation-targets.sh|*/run-validation-targets.sh|*/verify-file-checksum.sh)
+        exec "$RELEASE_FIXTURE_BASH" "$@" ;;
+esac
 script="${1#"$ROSTER_ROOT/"}"
 [[ -f "$ROSTER_ROOT/$script" ]]
 printf '%s\n' "$script" >> "$EVENTS"

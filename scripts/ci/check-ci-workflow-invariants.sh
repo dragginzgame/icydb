@@ -298,6 +298,8 @@ if [[ ! -x scripts/ci/run-icydb-validation-targets.sh ]] ||
    ! rg -q 'VALIDATION_RUNNER := .*run-icydb-validation-targets.sh' Makefile ||
    ! rg -q '^check-portable-automation: toko-tooling-check$' Makefile ||
    ! make_target_recipe check-automation | rg -q --fixed-strings \
+     '$(VALIDATION_RUNNER) --fail-fast $(AUTOMATION_TARGETS)' ||
+   ! make_target_recipe _automation-tooling-adapters | rg -q --fixed-strings \
      'bash scripts/ci/test-toko-tooling-adapters.sh' ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||

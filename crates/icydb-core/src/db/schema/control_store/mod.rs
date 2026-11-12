@@ -118,11 +118,18 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         let mut after_families = [0; 33];
         after_families[0] = 4;
         if map
-            .keys_range(HEADER_KEY..first_family)
+            .keys_range_limited(
+                (
+                    std::ops::Bound::Excluded(HEADER_KEY),
+                    std::ops::Bound::Excluded(first_family),
+                ),
+                1,
+            )
             .map_err(InternalError::from)?
-            .any(|key| key != HEADER_KEY)
+            .next()
+            .is_some()
             || map
-                .keys_range(after_families..)
+                .keys_range_limited(after_families.., 1)
                 .map_err(InternalError::from)?
                 .next()
                 .is_some()

@@ -573,21 +573,71 @@ check-portable-automation: toko-tooling-check
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	perl scripts/ci/check-documentation.pl
 
+# Keep the ordered fixture roster visible to the shared timing/failure runner.
+AUTOMATION_TARGETS := _automation-tooling-adapters \
+    _automation-workstation-setup \
+    _automation-cargo-metadata \
+    _automation-workflow-invariants \
+    _automation-compiler-policy \
+    _automation-standard-release \
+    _automation-release-validation \
+    _automation-database-validation \
+    _automation-release-groups \
+    _automation-fixture-completion \
+    _automation-publication \
+    _automation-tag-preview \
+    _automation-pre-commit \
+    _automation-finalize-notes \
+    _automation-dispatch
+
+.PHONY: $(AUTOMATION_TARGETS)
 check-automation:
+	+$(VALIDATION_RUNNER) --fail-fast $(AUTOMATION_TARGETS)
+
+_automation-tooling-adapters:
 	bash scripts/ci/test-toko-tooling-adapters.sh
+
+_automation-workstation-setup:
 	bash scripts/ci/test-workstation-setup.sh
+
+_automation-cargo-metadata:
 	bash scripts/ci/test-cargo-metadata-adoption.sh
+
+_automation-workflow-invariants:
 	bash scripts/ci/test-ci-workflow-invariants.sh
+
+_automation-compiler-policy:
 	bash scripts/ci/test-rust-compiler-policy.sh
+
+_automation-standard-release:
 	bash scripts/release/test-standard-release.sh
+
+_automation-release-validation:
 	bash scripts/ci/test-release-validation-plan.sh
+
+_automation-database-validation:
 	perl scripts/ci/test-database-validation.pl
+
+_automation-release-groups:
 	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-release-groups.sh
+
+_automation-fixture-completion:
 	bash scripts/ci/test-tooling-fixture-completion.sh
+
+_automation-publication:
 	bash scripts/ci/test-publish-workspace.sh
+
+_automation-tag-preview:
 	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
+
+_automation-pre-commit:
 	bash scripts/ci/test-pre-commit.sh
+
+_automation-finalize-notes:
 	bash scripts/release/test-finalize-notes.sh
+
+_automation-dispatch:
+	bash scripts/ci/test-automation-dispatch.sh
 
 .PHONY: check-qualification-tooling check-adapter-tooling
 # Every dispatch admits the independent native workspace against the one installed snapshot.
