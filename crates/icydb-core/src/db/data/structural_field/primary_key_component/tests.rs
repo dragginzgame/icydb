@@ -153,7 +153,7 @@ fn integer_relation_keys_enforce_declared_width_in_every_shape() {
             ),
             (
                 AcceptedFieldKind::Set(Box::new(relation)),
-                encode_list(&[bytes.clone(), vec![0]]),
+                encode_list(&[bytes, vec![0]]),
             ),
         ] {
             let keys = decode_accepted_relation_target_primary_key_components_binary_bytes(

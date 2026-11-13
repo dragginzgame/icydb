@@ -11,7 +11,7 @@ use Cwd qw(abs_path);
 use FindBin;
 use lib $FindBin::Bin;
 use ValidationScope qw(cli_private database_product exclusions);
-use lib "$FindBin::Bin/../ci";
+use lib "$FindBin::Bin/../../vendor/toko-tooling/scripts/ci";
 use ValidationPlan ();
 my $json=JSON::PP->new->canonical->utf8;
 my $root=abs_path('.');
@@ -101,15 +101,15 @@ ValidationPlan::plan($view,$gate->{plan},$argument,$group);
 sha256_hex(regular("$directory/logs.json")) eq $gate->{logs_sha256}
     && $json->encode($receipt->{evidence}) eq $json->encode($proof)
     or die "retained Shared admission differs\n";
-command('perl',"$root/scripts/ci/validation-input-checkpoint.pl",$view,
-    "$view/$gate->{run}/plan-inputs.json",'/dev/stdout',"$root/scripts/ci/verify-file-checksum.sh");
-command('perl',"$root/scripts/ci/validation-input-checkpoint.pl",$view,
-    "$directory/logs.json",'/dev/stdout',"$root/scripts/ci/verify-file-checksum.sh");
+command('perl',"$root/vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl",$view,
+    "$view/$gate->{run}/plan-inputs.json",'/dev/stdout',"$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh");
+command('perl',"$root/vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl",$view,
+    "$directory/logs.json",'/dev/stdout',"$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh");
 $receipt->{source} eq $argument && $receipt->{group} eq $group && $receipt->{scope} eq 'group'
     && $receipt->{counts}{executed}==scalar(grep {$_->{required}} @{$plan->{stages}}) && $receipt->{counts}{reused}==0
     && $receipt->{evidence_sha256} eq $gate->{proof_sha256}
     or die "wrong retained consumer receipt\n";
-my $baseline=$json->decode(command('perl',"$root/scripts/ci/validation-evidence.pl",'baseline',
+my $baseline=$json->decode(command('perl',"$root/vendor/toko-tooling/scripts/ci/validation-evidence.pl",'baseline',
     $root,$argument,"refs/tags/$context->{baseline_tag}"));
 $baseline->{available} && $baseline->{baseline} eq $context->{baseline}
     && $baseline->{object} eq $context->{baseline_tag_object}

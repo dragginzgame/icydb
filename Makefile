@@ -25,7 +25,6 @@
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-override TOKO_TOOLING_ROOT := $(ROOT_DIR)
 LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-release-editor
 LOCAL_TOOL_CHECK_TARGETS := ic-tools-check release-editor-check
 # IC executables are an explicit IcyDB selection under the shared baseline.
@@ -38,8 +37,8 @@ FORMAT_RUST_ARGS := --sort-derives --extra-workspace "$(ROOT_DIR)/qualification"
 RELEASE_SETUP_TARGET := release-candidate-setup
 export RELEASE_GROUP
 TOKO_TOOLING_RELEASE := 1
-include $(ROOT_DIR)/make/consumer.mk
-include $(ROOT_DIR)/make/cargo-dependencies.mk
+include $(ROOT_DIR)/vendor/toko-tooling/make/consumer.mk
+include $(ROOT_DIR)/vendor/toko-tooling/make/cargo-dependencies.mk
 
 # Consumer-owned entrypoints need the same execution-mode admission as shared
 # recipes, including direct calls that bypass the generic CI/release targets.
@@ -85,11 +84,11 @@ QUALIFICATION_MANIFEST_FLAG := --manifest-path "$(QUALIFICATION_MANIFEST)"
 ADAPTER_MANIFEST := $(ROOT_DIR)/testing/canic-adapter/Cargo.toml
 ADAPTER_MANIFEST_FLAG := --manifest-path "$(ADAPTER_MANIFEST)"
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
-deps-update: export CARGO_HOME := $(CARGO_WORK_HOME)
-deps-update: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
+deps-update deps-list: export CARGO_HOME := $(CARGO_WORK_HOME)
+deps-update deps-list: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)" RELEASE_METADATA_CARGO_HOME="$(CARGO_WORK_HOME)"
 TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
-RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(QUALIFICATION_MANIFEST_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug --features cli
+RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/vendor/toko-tooling/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(QUALIFICATION_MANIFEST_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug --features cli
 RELEASE_EDITOR_CHECK = $(RELEASE_EDITOR_TOOL) --check
 # Admit the locked editor before invoking a release consumer. A failed producer
 # cannot supply its path; recovery/verification only check prepared tools.
@@ -148,6 +147,7 @@ help:
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
 	@echo "  toko-tooling-check Verify the reviewed shared snapshot offline"
+	@echo "  deps-list        List local package versions and release groups offline"
 	@echo "  deps-update      Update root and qualification Cargo locks (optional DEPENDENCY_PACKAGE/PRECISE)"
 	@echo "  check-adapter-tooling Admit the independent Canic tooling selection"
 	@echo "  install-testkit  Prepare the explicit adapter Testkit CLI/server after make fetch-adapter"
@@ -455,14 +455,14 @@ check:
 	+$(CARGO_WORK_ENV) cargo check $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace
 
 clippy:
-	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --all-targets -- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing -- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build -- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --all-targets
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql
 
 clippy-cli:
-	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-cli --all-targets -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked -p icydb-cli --all-targets
 
 # Supplemental group-plan qualification; the authoritative release gate below
 # remains `validate` until source, archive and native-host mappings are qualified.
@@ -480,8 +480,8 @@ clippy-adapter:
 	+$(ADAPTER_VALIDATION_RUNNER) _ci-adapter-workspace-clippy _ci-workspace-integration-clippy _ci-adapter-feature-clippy
 
 _ci-adapter-feature-clippy:
-	+$(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
-		--all-targets --all-features -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
+		--all-targets --all-features
 
 # Formatting has the same ownership boundary as compiler/test qualification.
 fmt-adapter:
@@ -558,7 +558,7 @@ check-rust-compiler:
 	+$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-rust-compiler.sh
 
 check-dependency-pins:
-	+$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
+	+$(CARGO_WORK_ENV) YQ="$(YQ)" bash vendor/toko-tooling/scripts/ci/check-dependency-pins.sh --cargo-inheritance
 
 # The static gate and native host qualification execute this same portable
 # fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
@@ -628,7 +628,7 @@ _automation-publication:
 	bash scripts/ci/test-publish-workspace.sh
 
 _automation-tag-preview:
-	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
+	perl vendor/toko-tooling/scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
 
 _automation-pre-commit:
 	bash scripts/ci/test-pre-commit.sh
@@ -652,7 +652,7 @@ check-adapter-automation:
 	bash scripts/ci/test-adapter-tooling.sh
 	bash scripts/ci/test-testkit-tooling.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
-	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)/testing/canic-adapter" --external-ic
+	+$(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)/testing/canic-adapter" --external-ic
 
 check-invariants:
 	+$(MAKE) --no-print-directory check-product-invariants
@@ -665,8 +665,8 @@ check-product-invariants: toko-tooling-check
 	perl scripts/ci/check-documentation.pl
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
-	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)" --external-ic
-	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(QUALIFICATION_MANIFEST_DIR)" --external-ic
+	+$(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)" --external-ic
+	+$(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(QUALIFICATION_MANIFEST_DIR)" --external-ic
 	+$(MAKE) --no-print-directory check-candid-boundary
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
@@ -684,7 +684,7 @@ check-product-invariants: toko-tooling-check
 
 .PHONY: check-candid-boundary
 check-candid-boundary:
-	perl scripts/ci/check-candid-boundary.pl --cbor "$(ROOT_DIR)" ci/candid-boundary.json crates canisters schema testing qualification
+	perl vendor/toko-tooling/scripts/ci/check-candid-boundary.pl --cbor "$(ROOT_DIR)" ci/candid-boundary.json crates canisters schema testing qualification
 
 check-feature-matrix:
 	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features
@@ -708,8 +708,8 @@ lint-workflows:
 	"$(ACTIONLINT_BIN)"
 
 shellcheck:
-	shellcheck --exclude=SC2001,SC2016 \
-		scripts/app/*.sh scripts/ci/*.sh scripts/dev/*.sh scripts/release/*.sh .githooks/pre-commit
+	shellcheck --external-sources --exclude=SC2001,SC2016 \
+		scripts/app/*.sh scripts/ci/*.sh scripts/dev/*.sh scripts/release/*.sh vendor/toko-tooling/.githooks/pre-commit
 
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job aggregates these lanes and native macOS host checks.
@@ -744,8 +744,8 @@ _ci-core-sql-check:
 		-p icydb -p icydb-core --no-default-features --features sql
 
 _ci-core-sql-clippy:
-	+$(CARGO_WORK_ENV) cargo clippy --locked \
-		-p icydb-core --no-default-features --features sql -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked \
+		-p icydb-core --no-default-features --features sql
 
 ci-workspace:
 	+$(VALIDATION_RUNNER) \
@@ -766,15 +766,14 @@ ci-adapter:
 		_test-durability-integration
 
 _ci-workspace-clippy:
-	+$(CARGO_WORK_ENV) cargo clippy $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --all-targets -- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \
-		-- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing -- -D warnings
-	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy $(QUALIFICATION_MANIFEST_FLAG) --locked --workspace --all-targets
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked -p icydb --all-targets --features testing
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy --locked -p icydb-model --all-targets --features build
 
 _ci-workspace-integration-clippy:
-	+$(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked -p icydb-testing-integration \
-		--tests -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked -p icydb-testing-integration \
+		--tests
 
 _ci-workspace-tests:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
@@ -801,27 +800,27 @@ ci-database-query:
 	+$(VALIDATION_RUNNER) --fail-fast check-rust-compiler _ci-core-sql-clippy _test-database-parser _test-database-planner $(DATABASE_ACCEPTANCE)
 
 _test-database-parser:
-	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::sql::parser::
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::sql::parser::
 
 _test-database-planner:
-	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::query::plan::
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::query::plan::
 
 _test-database-lowering:
-	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::sql::lowering::
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::sql::lowering::
 
 _test-database-session:
-	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::session::tests::cardinality_tiebreak::
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --no-default-features --features sql db::session::tests::cardinality_tiebreak::
 
 _test-database-facade:
-	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb --lib --no-default-features --features sql db::sql::
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb --lib --no-default-features --features sql db::sql::
 
 _ci-tier-a-sqlite:
-	+$(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
+	+$(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
 		--no-default-features --features sql \
 		db::session::tests::tier_c_reference::tier_a_native_sqlite_reference --verbose
 
 _ci-tier-a-mutation:
-	+$(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
+	+$(CARGO_WORK_ENV) bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
 		--no-default-features --features sql \
 		db::session::tests::tier_c_reference::tier_a_native_mutation_reference --verbose
 
@@ -850,7 +849,7 @@ all: ensure-clean
 	$(MAKE) --no-print-directory build
 
 # IcyDB owns metadata preparation, validation and receipt checks. Shared
-# make/release.mk owns the standard entrypoints and conflicting-goal admission.
+# vendor/toko-tooling/make/release.mk owns the standard entrypoints and conflicting-goal admission.
 .PHONY: release-version release-preflight release-prepare-version release-prepared-check release-files release-commit-check release-committed-check release-tagged-check release-push-check
 # Cargo metadata/receipt children share the selected repository cache and live
 # jobserver even when the callback reaches Cargo through multiple shell owners.
@@ -879,7 +878,7 @@ release-version:
 	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/release/version.sh
 release-preflight:
 	@awk -v version="$(RELEASE_VERSION)" -v date="$(RELEASE_DATE)" \
-		-f scripts/ci/finalize-release-changelog.awk "releases/$(RELEASE_GROUP)/CHANGELOG.md" >/dev/null
+		-f vendor/toko-tooling/scripts/ci/finalize-release-changelog.awk "releases/$(RELEASE_GROUP)/CHANGELOG.md" >/dev/null
 	+@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 	@$(MAKE) --no-print-directory fetch
@@ -901,7 +900,7 @@ release-commit-check:
 release-committed-check:
 	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/release-candidate-receipt.sh verify-commit
 	+@$(RELEASE_EDITOR_ENV) RELEASE_COMMIT="$${RELEASE_COMMIT:-$$(git rev-parse --verify HEAD)}" \
-		YQ="$(YQ)" bash scripts/ci/cargo-release-group.sh check "$(RELEASE_GROUP)"
+		YQ="$(YQ)" bash vendor/toko-tooling/scripts/ci/cargo-release-group.sh check "$(RELEASE_GROUP)"
 release-tagged-check:
 	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:
@@ -912,7 +911,7 @@ release-push-check:
 
 # Canic qualification retains its full actor/test coverage outside package resolution.
 _ci-adapter-workspace-clippy:
-	+$(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked --workspace --all-targets --exclude icydb-testing-integration -- -D warnings
+	+CARGO_BUILD_WARNINGS=deny $(CARGO_WORK_ENV) cargo clippy $(ADAPTER_MANIFEST_FLAG) --locked --workspace --all-targets --exclude icydb-testing-integration
 
 _ci-adapter-workspace-tests:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test $(ADAPTER_MANIFEST_FLAG) --locked --no-fail-fast --workspace --all-targets --exclude icydb-testing-integration --verbose

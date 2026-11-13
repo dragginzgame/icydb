@@ -130,7 +130,7 @@ fn expansion_preserves_lazy_cases_with_fallible_conditions_and_results() {
             for (condition, result, otherwise) in [
                 (operand.clone(), field("yes"), field("no")),
                 (field("condition"), operand.clone(), field("no")),
-                (field("condition"), field("yes"), operand.clone()),
+                (field("condition"), field("yes"), operand),
             ] {
                 let original = case(vec![CaseWhenArm::new(condition, result)], otherwise);
                 let Expr::Case {

@@ -16,13 +16,13 @@ use crate::{
 use ic_host_text::escape::terminal_text;
 
 /// Read and print the generated accepted-schema endpoint.
-pub(super) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
+pub(super) fn run_schema_show_command(target: &CanisterTarget) -> Result<(), String> {
     let report = load_schema_report(target.environment(), target.canister_name())?;
     print!("{}", render_schema_report(report.as_slice()));
     Ok(())
 }
 
-pub(super) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> Result<(), String> {
+pub(super) fn run_diagnostic_artifact_command(args: &DiagnosticArtifactArgs) -> Result<(), String> {
     let target = args.target();
     let report = load_schema_report(target.environment(), target.canister_name())?;
     let artifact = DiagnosticSchemaArtifact::from_report(
@@ -39,7 +39,7 @@ pub(super) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> R
 }
 
 pub(super) fn run_diagnostic_source_metadata_command(
-    args: DiagnosticSourceMetadataArgs,
+    args: &DiagnosticSourceMetadataArgs,
 ) -> Result<(), String> {
     let metadata = DiagnosticSchemaArtifact::read_deployment(args.artifact())?
         .bind_to_source(args.source())?;

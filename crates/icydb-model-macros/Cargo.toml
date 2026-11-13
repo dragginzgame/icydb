@@ -25,8 +25,8 @@ remain = { workspace = true }
 serde = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 
-[dev-dependencies]
-toko-tooling.workspace = true
-
 [lints]
 workspace = true
+
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true

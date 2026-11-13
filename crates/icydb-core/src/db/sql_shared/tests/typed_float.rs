@@ -166,7 +166,7 @@ fn full_sql_retains_float_atoms_in_select_insert_update_and_expression_positions
         };
         assert_eq!(
             insert.source,
-            SqlInsertSource::Values(vec![vec![SqlWriteValue::Literal(value.clone())]])
+            SqlInsertSource::Values(vec![vec![SqlWriteValue::Literal(value)]])
         );
         for sql in [
             format!("UPDATE Measurement SET score = {literal}"),

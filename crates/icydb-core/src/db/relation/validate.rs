@@ -67,8 +67,8 @@ where
 
     validate_delete_relations_structural(
         db,
-        source_info,
-        source_row_contract,
+        &source_info,
+        &source_row_contract,
         accepted_schema_fingerprint,
         relations,
         deleted_target_keys,
@@ -115,8 +115,8 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
 )]
 fn validate_delete_relations_structural<C>(
     db: &Db<C>,
-    source_info: ReverseRelationSourceInfo,
-    source_row_contract: StructuralRowContract,
+    source_info: &ReverseRelationSourceInfo,
+    source_row_contract: &StructuralRowContract,
     accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     relations: Vec<AcceptedRelationInfo>,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
@@ -128,7 +128,7 @@ where
 {
     // Phase 1: resolve reverse-index candidates for each relevant relation field.
     for relation in relations {
-        let target_index_store = relation_target_store(db, &source_info, &relation)?;
+        let target_index_store = relation_target_store(db, source_info, &relation)?;
 
         for target_raw_key in deleted_target_keys {
             let Some(target_data_key) = decode_relation_target_data_key(&relation, target_raw_key)?
@@ -139,7 +139,7 @@ where
 
             let Some((reverse_start, reverse_end)) =
                 reverse_index_key_bounds_for_target_primary_key_value(
-                    &source_info,
+                    source_info,
                     &relation,
                     &target_primary_key,
                 )?

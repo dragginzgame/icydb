@@ -55,7 +55,7 @@ pub(in crate::db) fn decode_runtime_value_from_row_contract(
     if accepted_field.uses_canonical_value_wire() {
         let persistence = contract.required_accepted_field_persistence_contract(slot)?;
         let admitted = super::canonical::decode_admitted_value_from_accepted_field_contract(
-            persistence,
+            &persistence,
             raw_value,
         )?;
         return Ok(admitted.into_value());
@@ -138,7 +138,7 @@ where
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
 
         super::canonical::encode_canonical_value_for_accepted_field_contract(
-            encoding,
+            &encoding,
             value.as_ref(),
         )
     })
@@ -253,7 +253,7 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
     if accepted_field.uses_canonical_value_wire() {
         let persistence = contract.required_accepted_field_persistence_contract(slot)?;
         super::canonical::decode_admitted_value_from_accepted_field_contract(
-            persistence,
+            &persistence,
             raw_value,
         )?;
         return Ok(());

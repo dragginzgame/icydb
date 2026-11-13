@@ -1,3 +1,5 @@
+//! Hierarchical validation errors with field-path context.
+
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
@@ -6,6 +8,7 @@ use std::{collections::HashMap, fmt};
 // Hierarchical error aggregator used by validation to keep nested context.
 //
 
+/// Validation messages grouped by nested field or route keys.
 #[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErrorTree {
     /// Errors at the current level.
@@ -23,8 +26,8 @@ impl ErrorTree {
     }
 
     /// Add an error message to the current level.
-    pub fn add<M: ToString>(&mut self, message: M) {
-        self.messages.push(message.to_string());
+    pub fn add<M: Into<String>>(&mut self, message: M) {
+        self.messages.push(message.into());
     }
 
     /// Format and append an error message.
@@ -41,11 +44,8 @@ impl ErrorTree {
     }
 
     /// Merge another `ErrorTree` under one child route key.
-    pub fn merge_for<K: ToString>(&mut self, key: K, other: Self) {
-        self.children
-            .entry(key.to_string())
-            .or_default()
-            .merge(other);
+    pub fn merge_for<K: Into<String>>(&mut self, key: K, other: Self) {
+        self.children.entry(key.into()).or_default().merge(other);
     }
 
     /// Check if there are any errors.
@@ -70,14 +70,14 @@ impl ErrorTree {
     #[must_use]
     pub fn flatten_ref(&self) -> Vec<(String, String)> {
         let mut result = Vec::new();
-        self.flatten_helper_ref(String::new(), &mut result);
+        self.flatten_helper_ref("", &mut result);
         result
     }
 
-    fn flatten_helper_ref(&self, prefix: String, result: &mut Vec<(String, String)>) {
+    fn flatten_helper_ref(&self, prefix: &str, result: &mut Vec<(String, String)>) {
         // Add messages at the current level.
         for msg in &self.messages {
-            result.push((prefix.clone(), msg.clone()));
+            result.push((prefix.to_owned(), msg.clone()));
         }
         // Process child errors recursively.
         for (key, child) in &self.children {
@@ -86,7 +86,7 @@ impl ErrorTree {
             } else {
                 format!("{prefix}.{key}")
             };
-            child.flatten_helper_ref(new_prefix, result);
+            child.flatten_helper_ref(&new_prefix, result);
         }
     }
 
@@ -96,6 +96,7 @@ impl ErrorTree {
     }
 }
 
+/// Append a formatted message to an error tree without an intermediate string.
 #[macro_export]
 macro_rules! err {
     ($errs:expr, $($arg:tt)*) => {{
@@ -120,7 +121,7 @@ impl fmt::Display for ErrorTree {
 impl From<&str> for ErrorTree {
     fn from(err: &str) -> Self {
         let mut tree = Self::new();
-        tree.add(err.to_string());
+        tree.add(err);
 
         tree
     }

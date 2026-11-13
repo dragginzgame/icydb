@@ -20,6 +20,8 @@ use crate::{
 };
 
 pub(crate) use reverse_index::ReverseRelationSourceInfo;
+#[cfg(feature = "migration")]
+pub(in crate::db) use reverse_index::migration_relation_domain;
 pub(in crate::db) use reverse_index::{
     RelationCommitBudget, RelationConstraintProjection, RelationProjectionBudget,
     prove_empty_reverse_relation_domain,

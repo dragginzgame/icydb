@@ -297,7 +297,11 @@ fn row_local_constraint_descriptions_preserve_meaning_across_activation() {
         ),
     ] {
         assert_constraint_description_lifecycle(
-            &snapshot, &values, accepted, activating, semantics,
+            &snapshot,
+            &values,
+            accepted,
+            &activating,
+            semantics,
         );
     }
 }
@@ -306,7 +310,7 @@ fn assert_constraint_description_lifecycle(
     snapshot: &PersistedSchemaSnapshot,
     values: &AcceptedValueCatalogHandle,
     accepted: AcceptedConstraintKind,
-    activating: ConstraintActivationKind,
+    activating: &ConstraintActivationKind,
     semantics: &str,
 ) {
     let id = ConstraintId::new(10).unwrap();

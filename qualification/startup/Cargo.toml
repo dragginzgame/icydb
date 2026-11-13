@@ -15,13 +15,13 @@ ignored = ["toko-tooling"]
 [package.metadata.toko-tooling.loc]
 category = "tests"
 
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true
+
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 ic-testkit = { workspace = true }
 icydb = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["macros", "net", "rt", "time"] }
-
-[dev-dependencies]
-toko-tooling.workspace = true
 
 [lints]
 workspace = true

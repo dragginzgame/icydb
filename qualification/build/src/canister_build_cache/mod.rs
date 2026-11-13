@@ -92,7 +92,7 @@ pub(crate) fn build_cached_cargo_wasm(
     let outcome = build_wasm_canisters_cached_with_progress(
         &spec,
         BUILD_PROGRESS_HEARTBEAT_INTERVAL,
-        |event| report_wasm_build_progress(request.context, event),
+        |event| report_wasm_build_progress(request.context, &event),
         // Observed Cargo builds own their group through observer unwind.
         |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )
@@ -134,7 +134,7 @@ pub(crate) fn build_cached_cargo_wasm_batch(
     }
     let mut observer = |event: WasmBuildBatchProgressEvent| {
         if let Some(entry) = specs.get(event.index) {
-            report_wasm_build_progress(entry.label(), event.event);
+            report_wasm_build_progress(entry.label(), &event.event);
         }
     };
     let report = build_wasm_canisters_cached_batch(
@@ -323,7 +323,7 @@ pub(crate) fn trace_post_link(context: &str, outcome: &ArtifactCacheOutcome) {
     }
 }
 
-fn report_wasm_build_progress(context: &str, event: WasmBuildProgressEvent) {
+fn report_wasm_build_progress(context: &str, event: &WasmBuildProgressEvent) {
     let WasmBuildProgressEvent { phase, elapsed } = event;
     let _ = writeln!(
         io::stderr().lock(),

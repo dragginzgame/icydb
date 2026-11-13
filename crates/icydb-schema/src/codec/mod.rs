@@ -36,7 +36,7 @@ pub fn encode_schema_fragment(fragment: &SchemaFragment) -> Result<Vec<u8>, Sche
 pub fn decode_schema_fragment(bytes: &[u8]) -> Result<SchemaFragment, SchemaContractError> {
     let fragment: SchemaFragment = decode(FRAGMENT_HEADER, bytes, MAX_SCHEMA_FRAGMENT_BYTES)?;
     fragment.validate()?;
-    ensure_canonical(bytes, encode_schema_fragment(&fragment)?)?;
+    ensure_canonical(bytes, &encode_schema_fragment(&fragment)?)?;
     Ok(fragment)
 }
 
@@ -58,7 +58,7 @@ pub fn encode_schema_proposal(proposal: &SchemaProposal) -> Result<Vec<u8>, Sche
 pub fn decode_schema_proposal(bytes: &[u8]) -> Result<SchemaProposal, SchemaContractError> {
     let proposal: SchemaProposal = decode(PROPOSAL_HEADER, bytes, MAX_SCHEMA_PROPOSAL_BYTES)?;
     proposal.validate_current()?;
-    ensure_canonical(bytes, encode_schema_proposal(&proposal)?)?;
+    ensure_canonical(bytes, &encode_schema_proposal(&proposal)?)?;
     Ok(proposal)
 }
 
@@ -85,7 +85,7 @@ pub fn decode_schema_migration_plan(
     let plan: SchemaMigrationPlan =
         decode(MIGRATION_HEADER, bytes, MAX_SCHEMA_MIGRATION_PLAN_BYTES)?;
     plan.validate()?;
-    ensure_canonical(bytes, encode_schema_migration_plan(&plan)?)?;
+    ensure_canonical(bytes, &encode_schema_migration_plan(&plan)?)?;
     Ok(plan)
 }
 
@@ -151,7 +151,7 @@ const fn ensure_input_bound(len: usize, max: usize) -> Result<(), SchemaContract
     }
 }
 
-fn ensure_canonical(bytes: &[u8], canonical: Vec<u8>) -> Result<(), SchemaContractError> {
+fn ensure_canonical(bytes: &[u8], canonical: &[u8]) -> Result<(), SchemaContractError> {
     if canonical == bytes {
         Ok(())
     } else {

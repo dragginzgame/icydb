@@ -83,10 +83,6 @@ pub(in crate::db) fn bind_check_expr_v1(
 
 /// Bind one immutable-source-key expression through the same accepted
 /// frontend-neutral compiler used by generated and SQL declarations.
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the bounded postfix instruction dispatch and its subtree admission in one flow"
-)]
 pub(in crate::db::schema) fn bind_source_check_expr(
     expression: &SourceCheckExpr,
     entity: EntityTag,
@@ -482,7 +478,7 @@ fn bind_expression(
             AcceptedCheckExprV1::canonicalized_and(vec![lower, upper])
         }
         CheckExprV1Input::EnumIn { field, members } => {
-            bind_enum_membership(field, members, snapshot, enum_catalog, composite_catalog)
+            bind_enum_membership(&field, members, snapshot, enum_catalog, composite_catalog)
         }
     }
 }
@@ -669,7 +665,7 @@ fn bind_literal(
 }
 
 fn bind_enum_membership(
-    field_name: String,
+    field_name: &str,
     members: Vec<InputValue>,
     snapshot: &PersistedSchemaSnapshot,
     enum_catalog: &AcceptedEnumCatalog,

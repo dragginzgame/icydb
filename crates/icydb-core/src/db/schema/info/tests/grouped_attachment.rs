@@ -40,7 +40,7 @@ fn filtered_min() -> GroupedAggregateExecutionSpec {
     )
 }
 
-fn assert_budget_error(error: QueryError, resource: Resource) {
+fn assert_budget_error(error: &QueryError, resource: Resource) {
     assert!(
         error
             .diagnostic_facts()
@@ -100,7 +100,7 @@ fn attachment_compilation_keeps_owned_syntax_and_charges_only_compiled_payloads(
         grouped_aggregate_execution_specs(&schema, specs, work).map_err(QueryError::execute)
     })
     .unwrap_err();
-    assert_budget_error(error, Resource::TemporaryBytes);
+    assert_budget_error(&error, Resource::TemporaryBytes);
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn failed_filter_compilation_does_not_publish_partial_attachments() {
             .map_err(QueryError::execute)
     })
     .unwrap_err();
-    assert_budget_error(error, Resource::PredicateExpressionSteps);
+    assert_budget_error(&error, Resource::PredicateExpressionSteps);
     assert_eq!(spec, original);
     assert_eq!(request.observed(Resource::TemporaryBytes), 3);
 }
@@ -138,7 +138,7 @@ fn attachment_visits_are_cumulative_and_empty_lists_are_free() {
                 .map_err(QueryError::execute)
         })
         .unwrap_err();
-        assert_budget_error(error, Resource::PredicateExpressionSteps);
+        assert_budget_error(&error, Resource::PredicateExpressionSteps);
         assert_eq!(request.observed(Resource::PredicateExpressionSteps), 2);
     }
 }

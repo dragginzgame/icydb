@@ -506,13 +506,13 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
         .ok_or(SqlDdlLoweringError::UnsupportedStatement)?;
     let derivation = match request.statement() {
         BoundSqlDdlStatement::AddColumn(add) => {
-            derive_sql_ddl_field_addition_accepted_after(accepted_before, add.field().clone())
+            derive_sql_ddl_field_addition_accepted_after(accepted_before, add.field())
         }
         BoundSqlDdlStatement::AlterColumnDefault(alter) => {
             derive_sql_ddl_field_default_accepted_after(
                 accepted_before,
                 alter.field_name(),
-                alter.default().clone(),
+                alter.default(),
             )
         }
         BoundSqlDdlStatement::AlterColumnNullability(alter) => {
@@ -542,7 +542,7 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
             } else {
                 derive_sql_ddl_expression_index_accepted_after(
                     accepted_before,
-                    create.candidate_index().clone(),
+                    create.candidate_index(),
                 )
             }
         }

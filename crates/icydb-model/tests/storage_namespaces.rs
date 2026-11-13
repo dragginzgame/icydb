@@ -3,6 +3,7 @@
 use icydb_model::{build::get_schema, canister, node::Canister};
 
 #[canister(memory_namespace = "storage_namespace")]
+/// Canister declaration with an explicit durable memory namespace.
 pub struct StorageCanister;
 
 #[test]

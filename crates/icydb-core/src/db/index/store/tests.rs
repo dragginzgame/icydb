@@ -33,7 +33,7 @@ fn overlay_position(sequence: u64) -> JournalOverlayPosition {
 
 fn indexed_raw_key(
     index_id: &IndexId,
-    components: Vec<Vec<u8>>,
+    components: &[Vec<u8>],
     primary_key: u64,
 ) -> RawIndexStoreKey {
     indexed_raw_key_with_kind(index_id, IndexKeyKind::User, components, primary_key)
@@ -42,13 +42,13 @@ fn indexed_raw_key(
 fn indexed_raw_key_with_kind(
     index_id: &IndexId,
     key_kind: IndexKeyKind,
-    components: Vec<Vec<u8>>,
+    components: &[Vec<u8>],
     primary_key: u64,
 ) -> RawIndexStoreKey {
     IndexKey::new_from_components_with_primary_key_value(
         index_id,
         key_kind,
-        components.as_slice(),
+        components,
         &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary_key)),
     )
     .expect("test index key should build")
@@ -74,7 +74,7 @@ fn index_rows_survive_optional_prefix_metadata_eviction() {
         IndexStore::init_journaled(test_memory(94)).expect("fixture storage should initialize"),
     ] {
         for value in 0_u64..5_000 {
-            let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
+            let key = indexed_raw_key(&id, &[value.to_be_bytes().to_vec()], value);
             store.insert(key, IndexEntryValue::presence());
         }
         store.mark_prefix_cardinality_data_generation(7);
@@ -84,7 +84,7 @@ fn index_rows_survive_optional_prefix_metadata_eviction() {
             None
         );
         for value in [0_u64, 4_095, 4_096, 4_999] {
-            let key = indexed_raw_key(&id, vec![value.to_be_bytes().to_vec()], value);
+            let key = indexed_raw_key(&id, &[value.to_be_bytes().to_vec()], value);
             assert_eq!((store.get(&key)), Some(IndexEntryValue::presence()));
         }
     }
@@ -94,7 +94,7 @@ fn index_rows_survive_optional_prefix_metadata_eviction() {
 fn index_insert_paths_preserve_previous_values_and_prefix_counts() {
     let id = IndexId::new(EntityTag::new(42), 7);
     let components = vec![b"collection".to_vec(), b"draft".to_vec()];
-    let key = indexed_raw_key(&id, components.clone(), 1);
+    let key = indexed_raw_key(&id, &components, 1);
     for mut store in [
         IndexStore::init_heap(),
         IndexStore::init_journaled(test_memory(94)).expect("fixture storage should initialize"),
@@ -174,15 +174,15 @@ fn index_prefix_cardinality_requires_explicit_data_generation_sync() {
     let mut store = IndexStore::init_heap();
 
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 1),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+        indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 2),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+        indexed_raw_key(&index_id, &[collection.clone(), review.clone()], 3),
         IndexEntryValue::presence(),
     );
 
@@ -229,9 +229,9 @@ fn first_component_range_cardinality_is_exact_bounded_and_generation_matched() {
     let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
     let alpha = b"alpha".to_vec();
     let beta = b"beta".to_vec();
-    let alpha_one = indexed_raw_key(&index_id, vec![alpha.clone()], 1);
-    let alpha_two = indexed_raw_key(&index_id, vec![alpha], 2);
-    let beta_one = indexed_raw_key(&index_id, vec![beta], 3);
+    let alpha_one = indexed_raw_key(&index_id, std::slice::from_ref(&alpha), 1);
+    let alpha_two = indexed_raw_key(&index_id, &[alpha], 2);
+    let beta_one = indexed_raw_key(&index_id, &[beta], 3);
     let mut store = IndexStore::init_heap();
     let bound = Bound::Unbounded;
 
@@ -307,7 +307,7 @@ fn index_prefix_cardinality_seeks_parents_and_charges_examined_metadata() {
             store.insert(
                 indexed_raw_key(
                     &index_id,
-                    vec![vec![prefix], vec![child], vec![0]],
+                    &[vec![prefix], vec![child], vec![0]],
                     u64::from(prefix) * 2 + u64::from(child),
                 ),
                 IndexEntryValue::presence(),
@@ -379,23 +379,19 @@ fn index_prefix_cardinality_enumerates_bounded_child_prefixes() {
     let mut store = IndexStore::init_heap();
 
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 1),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2),
+        indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 2),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 3),
+        indexed_raw_key(&index_id, &[collection.clone(), review.clone()], 3),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(
-            &index_id,
-            vec![other_collection.clone(), published.clone()],
-            4,
-        ),
+        indexed_raw_key(&index_id, &[other_collection.clone(), published.clone()], 4),
         IndexEntryValue::presence(),
     );
     store.mark_prefix_cardinality_data_generation(7);
@@ -470,19 +466,15 @@ fn index_prefix_cardinality_batches_sparse_child_prefixes() {
     let mut store = IndexStore::init_heap();
 
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 1),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), review.clone()], 2),
+        indexed_raw_key(&index_id, &[collection.clone(), review.clone()], 2),
         IndexEntryValue::presence(),
     );
     store.insert(
-        indexed_raw_key(
-            &index_id,
-            vec![other_collection.clone(), published.clone()],
-            3,
-        ),
+        indexed_raw_key(&index_id, &[other_collection.clone(), published.clone()], 3),
         IndexEntryValue::presence(),
     );
     store.mark_prefix_cardinality_data_generation(7);
@@ -562,7 +554,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
     let mut store = IndexStore::init_heap();
 
     store.insert(
-        indexed_raw_key(&user_index_id, vec![collection.clone(), draft.clone()], 1),
+        indexed_raw_key(&user_index_id, &[collection.clone(), draft.clone()], 1),
         IndexEntryValue::presence(),
     );
     store.mark_prefix_cardinality_data_generation(7);
@@ -580,7 +572,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
     let system_key = indexed_raw_key_with_kind(
         &system_index_id,
         IndexKeyKind::System,
-        vec![system_component],
+        &[system_component],
         1,
     );
     store.insert(system_key.clone(), IndexEntryValue::presence());
@@ -610,7 +602,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
     let malformed_system_key = indexed_raw_key_with_kind(
         &system_index_id,
         IndexKeyKind::System,
-        vec![b"malformed-reverse-edge".to_vec()],
+        &[b"malformed-reverse-edge".to_vec()],
         2,
     );
     store.insert(malformed_system_key.clone(), malformed_index_entry_value());
@@ -639,7 +631,7 @@ fn index_prefix_cardinality_ignores_system_index_mutations() {
 
     let review = b"Review".to_vec();
     store.insert(
-        indexed_raw_key(&user_index_id, vec![collection.clone(), review.clone()], 2),
+        indexed_raw_key(&user_index_id, &[collection.clone(), review.clone()], 2),
         IndexEntryValue::presence(),
     );
     assert_eq!(
@@ -657,12 +649,12 @@ fn index_prefix_cardinality_refuses_invalid_user_index_mutations() {
     let mut store = IndexStore::init_heap();
 
     store.insert(
-        indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 1),
+        indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 1),
         IndexEntryValue::presence(),
     );
     store.mark_prefix_cardinality_data_generation(7);
 
-    let stale_key = indexed_raw_key(&index_id, vec![collection.clone(), draft.clone()], 2);
+    let stale_key = indexed_raw_key(&index_id, &[collection.clone(), draft.clone()], 2);
     store.insert(stale_key.clone(), invalid_index_entry_value());
     assert_eq!(
         store.exact_prefix_cardinality(
@@ -689,7 +681,7 @@ fn journaled_mixed_index_range_traversal_preserves_order_and_early_stop() {
         IndexStore::init_journaled(test_memory(93)).expect("fixture storage should initialize");
     for value in [1_u8, 3, 5] {
         store
-            .apply_canonical_entry(raw_key(value), Some(IndexEntryValue::presence()))
+            .apply_canonical_entry(raw_key(value), Some(&IndexEntryValue::presence()))
             .expect("canonical index seed should apply");
     }
 
@@ -737,7 +729,7 @@ fn journaled_index_range_preserves_typed_failure_and_stops_immediately() {
         if backend != 1 {
             for value in [1, 3, 5] {
                 store
-                    .apply_canonical_entry(raw_key(value), Some(IndexEntryValue::presence()))
+                    .apply_canonical_entry(raw_key(value), Some(&IndexEntryValue::presence()))
                     .expect("canonical seed should apply");
             }
         }
@@ -779,9 +771,9 @@ fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
     let collection = b"collection-a".to_vec();
     let mut store =
         IndexStore::init_journaled(memory.open()).expect("fixture storage should initialize");
-    let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
+    let key = indexed_raw_key(&index_id, std::slice::from_ref(&collection), 1);
     store
-        .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+        .apply_canonical_entry(key.clone(), Some(&IndexEntryValue::presence()))
         .expect("canonical index seed should apply");
     drop(store);
 
@@ -815,7 +807,7 @@ fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
         ),
         Some(0),
     );
-    let second = indexed_raw_key(&index_id, vec![collection.clone()], 2);
+    let second = indexed_raw_key(&index_id, std::slice::from_ref(&collection), 2);
     reopened.insert(second.clone(), IndexEntryValue::presence());
     assert_eq!(
         reopened.exact_prefix_cardinality_delta(
@@ -826,7 +818,7 @@ fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
         Some(1),
     );
     reopened
-        .apply_canonical_entry(second, Some(IndexEntryValue::presence()))
+        .apply_canonical_entry(second, Some(&IndexEntryValue::presence()))
         .expect("matching canonical index entry should fold");
     assert_eq!(
         reopened.exact_prefix_cardinality_delta(
@@ -847,7 +839,7 @@ fn journaled_reset_preserves_only_live_source_system_entries() {
     let live_source = EntityTag::new(101);
     let durable_source = EntityTag::new(102);
     let key = |source, kind, pk| {
-        indexed_raw_key_with_kind(&IndexId::new(source, u16::MAX), kind, vec![vec![1]], pk)
+        indexed_raw_key_with_kind(&IndexId::new(source, u16::MAX), kind, &[vec![1]], pk)
     };
     let retained = key(live_source, IndexKeyKind::System, 1);
     let removed = key(live_source, IndexKeyKind::System, 2);
@@ -884,7 +876,7 @@ fn journaled_reset_refuses_unclassifiable_live_keys_before_removal() {
     let valid = indexed_raw_key_with_kind(
         &IndexId::new(source, u16::MAX),
         IndexKeyKind::System,
-        vec![vec![1]],
+        &[vec![1]],
         1,
     );
     let invalid = RawIndexStoreKey::from_persisted_bytes(vec![0xff]);
@@ -977,12 +969,12 @@ fn journaled_prefix_delta_binds_and_advances_its_canonical_watermark() {
 fn recovered_index_fold_maintains_available_prefix_cardinality() {
     let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
     let collection = b"collection-a".to_vec();
-    let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
+    let key = indexed_raw_key(&index_id, std::slice::from_ref(&collection), 1);
     let mut store =
         IndexStore::init_journaled(test_memory(96)).expect("fixture storage should initialize");
 
     store
-        .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+        .apply_canonical_entry(key.clone(), Some(&IndexEntryValue::presence()))
         .expect("recovered index put should fold");
     store.mark_prefix_cardinality_data_generation(1);
     assert_eq!(
@@ -1016,7 +1008,7 @@ fn positioned_index_overlay_preserves_later_membership_until_exact_retirement() 
     let mut store =
         IndexStore::init_journaled(test_memory(97)).expect("fixture storage should initialize");
     store
-        .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+        .apply_canonical_entry(key.clone(), Some(&IndexEntryValue::presence()))
         .expect("canonical membership should seed");
 
     store
@@ -1050,7 +1042,7 @@ fn positioned_index_overlay_preserves_later_membership_until_exact_retirement() 
         [(key.clone(), PositionedOverlayRetirement::Exact)]
     );
     store
-        .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+        .apply_canonical_entry(key.clone(), Some(&IndexEntryValue::presence()))
         .expect("membership batch should become canonical");
     store.apply_prepared_position_retirement(prepared);
     assert_eq!((store.get(&key)), Some(IndexEntryValue::presence()));

@@ -19,9 +19,9 @@ use crate::{
 pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
     match args.into_command() {
         CliCommand::Sql(args) => run_sql_command(args),
-        CliCommand::Snapshot(target) => run_snapshot_command(target),
-        CliCommand::Metrics(args) => run_metrics_command(args),
-        CliCommand::Diagnostic(args) => run_diagnostic_command(args),
+        CliCommand::Snapshot(target) => run_snapshot_command(&target),
+        CliCommand::Metrics(args) => run_metrics_command(&args),
+        CliCommand::Diagnostic(args) => run_diagnostic_command(&args),
         CliCommand::Schema(args) => run_schema_command(args),
         CliCommand::Canister(args) => run_canister_command(args),
     }
@@ -29,12 +29,12 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
 
 fn run_schema_command(command: SchemaCommand) -> Result<(), String> {
     match command {
-        SchemaCommand::Show(target) => run_schema_show_command(target),
-        SchemaCommand::DiagnosticArtifact(args) => run_diagnostic_artifact_command(args),
+        SchemaCommand::Show(target) => run_schema_show_command(&target),
+        SchemaCommand::DiagnosticArtifact(args) => run_diagnostic_artifact_command(&args),
         SchemaCommand::DiagnosticSourceMetadata(args) => {
-            run_diagnostic_source_metadata_command(args)
+            run_diagnostic_source_metadata_command(&args)
         }
-        SchemaCommand::Migration(command) => run_schema_migration_command(command),
+        SchemaCommand::Migration(command) => run_schema_migration_command(&command),
     }
 }
 

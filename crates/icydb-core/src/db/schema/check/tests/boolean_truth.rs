@@ -1,6 +1,7 @@
 //! Qualify SQL and source Boolean tests at accepted checks and index membership.
 
 use super::*;
+use crate::db::schema::AcceptedConstraintKind;
 use crate::{
     db::{
         predicate::PredicateProgram,
@@ -69,10 +70,12 @@ fn boolean_tests_are_total_in_accepted_checks_and_index_membership() {
         let constraints = snapshot
             .constraint_catalog()
             .clone()
-            .with_added_check(
+            .with_added_row_constraint(
                 "truth_policy".into(),
                 ConstraintOrigin::SqlDdl,
-                expression.clone(),
+                AcceptedConstraintKind::Check {
+                    expression: Box::new(expression.clone()),
+                },
             )
             .unwrap();
         let constraint_id = constraints
@@ -192,7 +195,13 @@ fn source_boolean_guards_converge_with_sql_without_changing_unknown_check_policy
     let constraints = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check("ordinary".into(), ConstraintOrigin::SqlDdl, ordinary)
+        .with_added_row_constraint(
+            "ordinary".into(),
+            ConstraintOrigin::SqlDdl,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(ordinary),
+            },
+        )
         .unwrap();
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints)).unwrap();

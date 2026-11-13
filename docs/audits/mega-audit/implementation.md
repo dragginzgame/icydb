@@ -424,3 +424,315 @@ retained-cache accounting, bound-SQL reuse, verbose Hit/Miss and cardinality
 lifecycle checks. Formatting, documentation and diff checks pass. Broad
 workspace/release gates remain skipped user-owned validation. No dependency,
 package-version or delivery changes are made by this cleanup.
+
+## DDL admission handoff reduction — 2026-11-12
+
+Following the [schema lifecycle removal investigation](schema-lifecycle-removal.md),
+SQL DDL publication consumes the admitted operation instead of deriving another
+operation from snapshot differences. The delta and additive transition-plan enums
+are removed. The surviving catalog mutation request admits supported additions
+and historical fills once; index targets are constructed once per classification.
+The version/fingerprint admission policy remains separate and intact.
+
+Each derivation now retains its source schema version and existing runtime
+fingerprint. Publication checks the supplied before snapshot and identity against
+that proof before staging, and retains the live catalog identity check at commit.
+Required-field addition retains the exact-empty-entity check. Persisted decoding,
+physical index staging and interrupted publication recovery are unchanged.
+
+Transition behavior tests moved to the mutation admission owner. New regressions
+reject mismatched source shapes/versions and prove a rejected publication leaves
+rows, indexes and accepted identity unchanged. The change removes **67 production
+code lines** and adds **82 test code lines** (net **+15**), counted with the installed
+cloc over all affected Rust files, including moved/untracked files, against the
+pre-edit HEAD. Production Rust was clean at task start. The reduction is two
+intermediate operation representations, one publication reclassification pass and
+an unused exact-match request variant; no new framework or cache is added.
+
+The 139 selected mutation, publication/recovery, SQL field, activation and historical
+row tests, strict Core library Clippy with SQL/migration/metrics, formatting and
+diff checks pass. Wasm total/code-section bytes and IC instructions/cycles are
+unmeasured; fingerprint binding is additional work, so no runtime saving is claimed.
+Broader tests, release gates and macOS qualification remain unselected user-owned
+validation. No package version, commit or deployment is performed by this slice.
+
+## Immutable candidate preparation reduction — 2026-11-12
+
+Candidate preparation now trusts the immutable bundle admitted by its constructor
+or bounded persisted decoder. The bundle fields are private, the two production
+construction paths validate, and no mutable catalog/snapshot access escapes.
+Encoding no longer invokes whole-bundle validation again. Preparation no longer
+decodes and compares its freshly encoded bundle and root. Bounded encoding,
+semantic and wire hashes, root validation, persisted reconstruction, live identity
+checks and publication/recovery behavior remain in place.
+
+Component encode/decode checks in the bundle constructor remain: this slice does
+not establish that each can be removed without losing a component-level admission
+rule. Candidate resource accounting drops the deleted decoder byte visits while
+retaining the hash visit and operation-wide construction allowance. No cache,
+new proof type, unchecked production constructor or format change is introduced.
+
+Tests now feed invalid construction data through the maintained bundle constructor,
+rather than mutating private fields and pretending the result is already accepted.
+Malformed persisted inputs still reach the independent decoder. Projection expansion,
+constructor/recovery equivalence, exact encoding and shared-budget refusal remain
+covered. The 154 focused catalog, store, entity-creation and publication/recovery
+tests pass. Strict Core library/test Clippy with SQL/migration/metrics and
+formatting checks also pass.
+
+Task-relative delta: **-16 production / +11 test code lines (net -5)**, measured
+with installed cloc against `/tmp/icydb-candidate-before` and all three changed
+Rust files. Complexity reduction: one repeated whole-bundle validation invocation
+and two self-decoding passes removed, with no replacement mechanism. Wasm total
+and code-section bytes and IC instruction/cycle effects remain unmeasured.
+Broad workspace/release gates and macOS qualification are unselected user-owned
+validation; no package version or delivery action is included.
+
+## Borrowed migration reconciliation — 2026-11-12
+
+Migration reconciliation no longer constructs temporary accepted bundles from
+its unpublished working catalogs. A concrete borrowed `SchemaCatalogView` supplies
+read-only input to ordinary lowering; accepted bundles lend the same view on the
+ordinary path. It is neither runtime authority nor a mutable overlay/cache.
+Final candidate construction and publication still require accepted bundles.
+
+Catalog validation and semantic fingerprinting have one implementation over these
+borrowed parts. Both immutable bundle construction and migration reconciliation
+retain their validation boundary, and persisted decoding retains its component
+and cross-component checks. The migration failure remains `RekeyedCatalogInvalid`
+when rekeyed input is not closed. A regression removes a working snapshot while
+retaining its source binding and verifies rejection before ordinary lowering.
+
+Source-lineage planning now consumes source bindings directly. Migration passes
+rekeyed bindings, preserving identity when a new entity reuses a predecessor's
+name; installation passes an empty iterator. No intermediate owning bundle vector
+or optional-bundle vector is needed for this handoff.
+
+This slice adds **32 production / 17 test code lines (net +49)**, counted with
+installed cloc against `/tmp/icydb-migration-before` across all 11 affected Rust
+files. The explicit borrowed input adds one small type but removes a full owning
+catalog-copy stage: enum catalog, composite catalog, source bindings, entity
+snapshots and store-path ownership no longer have to be duplicated merely to
+enter reconciliation. There is no new policy owner, durable state or persisted
+format. This is a reduction in ownership/transformation work, not a LOC reduction.
+
+The 258 selected migration, application, ordinary-lowering, catalog-publication
+and interrupted-publication tests pass. Strict Core library/test Clippy with
+SQL/migration/metrics, no-default-feature library compilation, formatting and diff
+checks pass. The exercised application cases include predecessor-name reuse,
+shared-type renames, staged activations, physical transforms and terminal replay.
+
+Migration-specific target rebuilding, ordinary candidate assembly and their final
+candidate selection remain distinct. This slice does not claim that those larger
+mechanisms have been consolidated. Wasm total/code-section bytes and IC
+instructions/cycles remain unmeasured. Broad workspace/release gates and macOS
+qualification remain user-owned; no package version or delivery is selected.
+
+## Migration finalization bookkeeping reduction — 2026-11-12
+
+Migration finalization now consumes the ordinary lowerer's store-ordered candidates
+directly. Both streams originate from store-path `BTreeMap` traversal, so rebuilding
+a second map with copied path strings adds no ordering or lookup authority. The
+ordered iterator preserves reconciled-candidate precedence, fallback finalization
+and rejection of unmatched candidates.
+
+Working stores now retain a `has_transitions` flag instead of a set of transitioned
+entity IDs: its only consumer needs to distinguish an unchanged store from one
+requiring a candidate. This does not change migration record/progress state.
+
+The shared-type migration fixture now also creates a fresh entity in one store,
+leaving the other on fallback finalization. Reversed input order must still produce
+one candidate per store in canonical order with preserved type identities and
+correct entity counts. The slice removes **1 production code line** and adds
+**24 test code lines** (net +23), measured with installed cloc against
+`/tmp/icydb-finalization-before`. The useful reduction is two owning bookkeeping
+collections; no new helper, policy type or cache is introduced.
+
+The 190 selected migration-planner and schema-application tests pass, including
+the mixed-store regression. Strict Core library/test Clippy with SQL/migration/
+metrics, no-default-feature library compilation, formatting and diff checks pass.
+
+The two finalization paths remain because they retain distinct failure
+classifications. Merging them without carrying that distinction would silently
+change migration diagnostics; this cleanup does not add an error abstraction
+merely to eliminate the branch. Wasm total/code-section bytes and IC
+instructions/cycles remain unmeasured. Broad/release gates and macOS validation
+remain unselected; package versions and delivery are unchanged.
+
+## Shared schema draft rewrite — 2026-11-12
+
+The maintainer authorized replacing the parallel construction paths in this
+session. `SchemaDraft` now owns the only mutable store-local snapshots, value
+catalogs and source bindings. Migration transforms and ordinary reconciliation
+modify that same draft; one consuming finalizer creates the accepted candidate.
+`WorkingStore`, `ExistingStoreCandidateState`, their second whole snapshot-map
+copy and reconciled-versus-fallback candidate selection are removed.
+
+Reconciliation first resolves immutable proposal routing, entity identities,
+relation targets and activation provenance against the complete input catalog.
+These inputs contain neither snapshots nor owned value catalogs. Named-type
+validation now checks exact definitions without returning cloned catalogs.
+Unchanged stores and stores changed only by migration still participate in
+namespace validation and canonical publication order. Generated ingress keeps
+explicit-removal code statically unreachable; explicit application and migration
+retain that preparation step.
+
+The two old finalizers' semantic error classifications are preserved using the
+draft's ordinary-change flag, rather than keeping competing candidate builders.
+Rekeyed catalog closure remains checked before reconciliation. Source-lineage
+planning captures existing proposal source keys before an addition can reuse a
+renamed predecessor's key. Activation fingerprints are pinned before mutation
+for existing constraint-bearing declarations. Physical rewrite programs,
+forward-reference passes, durable migration phases, publication and recovery
+contracts are unchanged.
+
+This supersedes the retained intermediate mechanisms described in the preceding
+two implementation entries. Measured against the pre-rewrite source, installed
+cloc reports **+107 production code lines and +9 test code lines (net +116)**.
+This is not a net source deletion. The structural reduction is two mutable
+construction representations to one, two finalizer implementations to one, and
+one fewer whole snapshot/catalog copy in migration reconciliation. The added code
+makes immutable reconciliation inputs explicit; it introduces no persisted state,
+cache, compatibility fallback or general-purpose mutation framework.
+
+Qualification: 237 selected tests pass across migration planning (13), schema
+application (177), ordinary lowering (27), physical transform compilation (2),
+catalog publication (12) and interrupted schema publication (6). Assertions now
+also pin activation source fingerprints/epochs and mixed-store candidate revision
+and persisted round-trip equality. Strict Core library/test Clippy with
+SQL/migration/metrics, no-default-feature library compilation and formatting
+checks pass. Full workspace/release gates
+and macOS qualification were not selected. Wasm total/code-section bytes and IC
+instructions/cycles remain unmeasured; no runtime improvement is claimed.
+Package versions and deployment remain untouched.
+
+
+## Replacement-boundary review against Toko Tooling 0.39.19
+
+The [published replacement guide](https://github.com/dragginzgame/toko-tooling/blob/a6f3c63b9cf7a2547d3302369bce855676544722/docs/principles/subsystem-replacement.md)
+clarifies completion of the preceding work. Its bounded responsibility was
+store-local draft ownership and candidate finalization: both callers now use
+`SchemaDraft`, and the two old mutable owners and candidate fallback are deleted.
+The 237 focused tests qualify that boundary, not a wholesale schema-lifecycle
+replacement. The +116 code-line result is not evidence of code reduction.
+
+The original migration-target finding is broader. `rebuild_transitioned_snapshots`
+still builds migration snapshots in field/index, relation and constraint passes;
+ordinary `lower_existing_entity` still performs its own reconciliation assembly.
+The shared draft removes duplicated ownership, but does not itself prove these
+remaining constructors can be collapsed. A further replacement should establish
+one target-snapshot construction responsibility and retire demonstrably equivalent
+assembly paths together. Identity reservation and forward-reference resolution
+remain required; migration policy, row-program compilation and durable recovery
+are distinct responsibilities, not reasons to rewrite the entire schema directory.
+
+This review adds guidance only. It does not initiate another rewrite, promise a
+line/size reduction, or fold the persisted migration-phase hard cut into the
+completed internal change. Any continued replacement should use the existing
+finding's protected behavior and explicit deletion criteria, with one integrated
+handoff rather than another sequence of helper extractions.
+
+## Target-snapshot construction replacement — 2026-11-13
+
+The maintainer authorized the next replacement after the 0.39.19 boundary review.
+The coherent responsibility is materializing target entity snapshots from already
+resolved field/object identities and source-bound constraint semantics. Its callers
+are initial creation, existing-schema reconciliation and migration target planning.
+Physical transformation admission, ordinary rejection of unexplained differences,
+staged activation, row-program compilation and durable recovery remain distinct
+policy owners. Merging those policies would change the protected contract.
+
+The replacement uses the existing `PersistedSchemaSnapshot` payload owner for
+structure changes and consumes snapshots through completion. Its structure update
+copies only retained components when the accepted payload is shared; uniquely
+owned drafts update in place. Reconciliation retains its accepted comparison but
+constructs no detached snapshot for unchanged fields/names, no replacement field
+or index vectors for unchanged facts, and no second index projection when fields
+are unchanged. The mandatory accepted-index comparison remains.
+
+Initial creation now completes its single snapshot map after reserving all field
+identities. Migration establishes all renamed paths, field/index contracts and
+relation identities first, then completes relations and row constraints together.
+Row constraints depend on their own completed edges and shared value catalogs,
+not on another entity's row constraints. This removes the third traversal while
+retaining cross-entity forward references and canonical ordering.
+
+Initial creation and physical migration also share row-constraint binding and the
+catalog's active-row insertion boundary. The former migration-only compiler and
+active check/targeted-rule constructors are deleted; their direct test callers now
+use the maintained constructor with the same origins, kinds and error assertions.
+SQL/generated ownership and allocator checks remain catalog-owned. Staged
+activation constructors remain separate because their publication contract differs.
+
+Deleted mechanisms: `rebuild_existing_entity_snapshot`, `rebuild_snapshot_shell`,
+`RebuiltMigrationFields`, `install_reserved_migration_relation_ids`,
+`compile_migration_constraint_kind`, `with_added_check`, `with_added_targeted_rule`,
+the second initial snapshot map, and the standalone migration constraint pass.
+There is no compatibility path, replacement framework or additional persistent
+state. Remaining migration and reconciliation loops implement different admission
+policies; the equivalent field/index/relation binders and row-constraint builder
+are shared. This completes the bounded construction replacement, rather than
+claiming that all schema-lifecycle policy or the deferred persisted migration
+phase can disappear.
+
+Installed cloc against the pre-replacement file snapshots reports **83 production
+code lines removed and 180 test code lines added (net +97)**. Test growth includes
+mechanical migration of the retired constructor callers, preservation of pending
+owners/bytes for shared and uniquely owned snapshots, and mutual cross-store
+references between renamed entities. No feature or behavioral assertion was
+removed to obtain the reduction.
+
+**Qualification:** 399 focused tests pass: migration planning (13), ordinary
+lowering (27), schema application (177), snapshot behavior (33), constraint catalog
+(7), check evaluation (79), schema codecs (41), targeted-rule writes (2), physical
+transform compilation (2), catalog publication (12), and interrupted schema
+publication (6). Strict Core library/test Clippy with SQL/migration/metrics,
+no-default-feature library compilation, formatting and diff checks pass. The
+expanded cross-store fixture initially reversed the migration API's current/prior
+source keys; it was corrected without changing production admission or weakening
+assertions. All listed results are from the final source.
+
+Broad workspace/release gates and macOS qualification were not selected. Wasm
+uncompressed/code-section bytes and IC cycles/instructions remain unmeasured;
+structural copy/pass removal is not a measured runtime-performance claim. Package
+versions, commits and deployment remain untouched.
+
+
+## Direct physical-migration completion — 2026-11-13
+
+The authorized 0.311 hard cut removes the accounting-only rebuild phase. Final
+rewrite effects, completion counts and the cursor reset enter final validation
+through one journaled record replacement. Update the public phase API, Core/CLI
+callers and current record envelope together; no compatibility branch remains.
+Keep pre-rewrite abortability, bounded cleanup and final proof distinct.
+
+Net Rust source delta for this slice: non-test **-12**, test **+60** (net **+48**,
+including comments/blank lines). Complexity falls by one public/persisted state,
+one dispatch arm and one continuation/plan recompilation. No replacement type,
+cache or stored representation is added. Counting still uses existing bounded
+projection preparation; this is a state-machine simplification, not a large
+source deletion. Wasm total/code-section bytes and IC cycles/instructions are
+unmeasured. Focused qualification is recorded in the
+[0.311 tracker](../../design/0.311-migration-completion/status.md).
+
+
+## Metadata-only migration domains — 2026-11-13
+
+The authorized second 0.311 slice shares candidate-generation selection between
+row projection, completion counting and abort cleanup. A single domain visitor
+streams logical counts or feeds cleanup's existing ordered maps/sets. It removes
+the owned domain-record/vector representation and duplicate sorting/deduplication;
+logical counts still precede physical namespace coalescing.
+
+Counting and cleanup no longer construct row contracts, compiled constraints,
+user-index projections or relation-row projections. Keep exact candidate/head
+recompilation, snapshot admission, generation guards, live target/source authority,
+capability checks and all-binding resolution before storage deletion. Row paths
+retain full semantic projection. Remove the now-unused index identity field and
+projection identity accessors. No public or persisted contract changes here.
+
+This slice adds 16 non-test and 38 test Rust source lines (including comments and
+blank lines), net +54. It reduces construction dependencies and temporary
+representations rather than total source. No Wasm/IC performance benefit is claimed:
+uncompressed total/code-section bytes, cycles and instructions are unmeasured.
+Qualification is recorded in the [0.311 tracker](../../design/0.311-migration-completion/status.md).

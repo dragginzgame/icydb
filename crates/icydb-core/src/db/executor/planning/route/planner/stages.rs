@@ -164,9 +164,9 @@ fn debug_assert_grouped_route_plan_alignment(
 /// This owner only wires the decided stage contracts together; it does not
 /// select execution modes or route variants.
 pub(super) fn assemble_execution_route_plan(
-    intent_stage: RouteIntentStage<'_>,
+    intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
-    execution_stage: RouteExecutionStage,
+    execution_stage: &RouteExecutionStage,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> ExecutionRoutePlan {
     let RouteFeasibilityStage {
@@ -174,7 +174,7 @@ pub(super) fn assemble_execution_route_plan(
         derivation,
         index_range_limit_spec: _,
     } = feasibility_stage;
-    debug_assert_grouped_route_plan_alignment(&intent_stage, &derivation);
+    debug_assert_grouped_route_plan_alignment(intent_stage, &derivation);
 
     #[cfg(feature = "sql")]
     let explain = RouteExplainFacts::new(
@@ -209,16 +209,16 @@ pub(super) fn assemble_execution_route_plan(
 /// Execution-stage selection remains execution-owned; this helper only
 /// sequences that stage handoff and then assembles the final route contract.
 pub(super) fn build_execution_route_plan_from_stages(
-    intent_stage: RouteIntentStage<'_>,
+    intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> ExecutionRoutePlan {
-    let execution_stage = derive_route_execution_stage(&intent_stage, &feasibility_stage);
+    let execution_stage = derive_route_execution_stage(intent_stage, &feasibility_stage);
 
     assemble_execution_route_plan(
         intent_stage,
         feasibility_stage,
-        execution_stage,
+        &execution_stage,
         load_terminal_fast_path,
     )
 }

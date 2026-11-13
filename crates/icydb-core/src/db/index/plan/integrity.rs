@@ -129,7 +129,7 @@ impl AcceptedIndexInspectionPlan {
     /// Compile every active accepted index in persisted catalog order.
     pub(in crate::db) fn compile(
         schema: &AcceptedSchemaSnapshot,
-        value_catalog: AcceptedValueCatalogHandle,
+        value_catalog: &AcceptedValueCatalogHandle,
         row_contract: &StructuralRowContract,
         work: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
@@ -142,9 +142,8 @@ impl AcceptedIndexInspectionPlan {
             work.charge(Resource::PredicateExpressionSteps, 1)?;
             let predicate = compile_predicate(accepted.predicate(), row_contract, work)?;
             let entry = if accepted.key().is_field_path_only() {
-                let info =
-                    schema_index_info_from_accepted_index(accepted, snapshot, &value_catalog)
-                        .ok_or_else(InternalError::store_corruption)?;
+                let info = schema_index_info_from_accepted_index(accepted, snapshot, value_catalog)
+                    .ok_or_else(InternalError::store_corruption)?;
                 validate_projection_identity(
                     info.ordinal(),
                     info.physical_generation(),
@@ -162,7 +161,7 @@ impl AcceptedIndexInspectionPlan {
                 let info = schema_expression_index_info_from_accepted_index(
                     accepted,
                     snapshot,
-                    &value_catalog,
+                    value_catalog,
                 )
                 .ok_or_else(InternalError::store_corruption)?;
                 validate_projection_identity(

@@ -1864,7 +1864,7 @@ fn journal_tail_store_rejects_incomplete_existing_batches_without_changing_bytes
         let mut store = JournalTailStore::init(test_memory_with_backing(221, backing.clone()))
             .expect("fixture storage should initialize");
         store
-            .insert_raw_batch_for_tests(JournalSequence::new(1), encoded[..prefix_len].to_vec())
+            .insert_raw_batch_for_tests(JournalSequence::new(1), &encoded[..prefix_len])
             .expect("truncated raw bytes should insert as a corruption fixture");
         let before = backing.borrow().clone();
 
@@ -1960,7 +1960,7 @@ fn journal_tail_store_rejects_sequence_gap_above_watermark() {
     store
         .insert_raw_batch_for_tests(
             gap_batch.journal_sequence(),
-            encode_journal_batch(&gap_batch).expect("gap batch should encode"),
+            &encode_journal_batch(&gap_batch).expect("gap batch should encode"),
         )
         .expect("gap fixture should insert");
 
@@ -1979,7 +1979,7 @@ fn journal_tail_store_rejects_corrupt_raw_batch_bytes_during_visit() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded[0] = b'X';
     store
-        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .insert_raw_batch_for_tests(JournalSequence::new(1), &encoded)
         .expect("corrupt raw journal bytes should insert as a raw persisted fixture");
 
     let err = store
@@ -1999,7 +1999,7 @@ fn journal_tail_store_rejects_header_declared_trailing_bytes_during_visit() {
         .expect("shortened payload length should fit the current header");
     encoded[5..9].copy_from_slice(&declared_payload_len.to_le_bytes());
     store
-        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .insert_raw_batch_for_tests(JournalSequence::new(1), &encoded)
         .expect("trailing raw journal bytes should insert as a raw persisted fixture");
 
     let err = store
@@ -2016,7 +2016,7 @@ fn journal_tail_store_rejects_header_sequence_mismatch_during_visit() {
         JournalTailStore::init(test_memory(231)).expect("fixture storage should initialize");
     let encoded = encode_journal_batch(&batch(2)).expect("journal batch should encode");
     store
-        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .insert_raw_batch_for_tests(JournalSequence::new(1), &encoded)
         .expect("sequence-mismatched raw journal bytes should insert as a raw persisted fixture");
 
     let err = store
@@ -2034,7 +2034,7 @@ fn journal_tail_store_rejects_truncated_raw_batch_bytes_during_visit() {
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded.truncate(encoded.len().saturating_sub(1));
     store
-        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .insert_raw_batch_for_tests(JournalSequence::new(1), &encoded)
         .expect("truncated raw journal bytes should insert as a raw persisted fixture");
 
     let err = store
@@ -2084,7 +2084,7 @@ fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set(
     let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
 
     let first = store
-        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .inspect_page(&JournalInspectionCheckpoint::BeforeFirst, limits)
         .expect("first journal page should inspect");
     assert_eq!(
         first.checkpoint(),
@@ -2093,7 +2093,7 @@ fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set(
     assert!(!first.exhausted());
 
     let second = store
-        .inspect_page(first.checkpoint().clone(), limits)
+        .inspect_page(&first.checkpoint().clone(), limits)
         .expect("second journal page should inspect");
     assert_eq!(
         second.checkpoint(),
@@ -2102,7 +2102,7 @@ fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set(
     assert!(!second.exhausted());
 
     let third = store
-        .inspect_page(second.checkpoint().clone(), limits)
+        .inspect_page(&second.checkpoint().clone(), limits)
         .expect("third journal page should stop inside duplicate-ID proof");
     assert!(matches!(
         third.checkpoint(),
@@ -2115,7 +2115,7 @@ fn journal_inspection_resumes_exact_duplicate_identity_proof_without_a_seen_set(
     assert!(!third.exhausted());
 
     let fourth = store
-        .inspect_page(third.checkpoint().clone(), limits)
+        .inspect_page(&third.checkpoint().clone(), limits)
         .expect("fourth journal page should finish the tail");
     assert_eq!(
         fourth.checkpoint(),
@@ -2148,13 +2148,13 @@ fn journal_inspection_reports_a_nonadjacent_duplicate_batch_identity() {
     let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
 
     let first_page = store
-        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .inspect_page(&JournalInspectionCheckpoint::BeforeFirst, limits)
         .expect("first page should inspect");
     let second_page = store
-        .inspect_page(first_page.checkpoint().clone(), limits)
+        .inspect_page(&first_page.checkpoint().clone(), limits)
         .expect("second page should inspect");
     let third_page = store
-        .inspect_page(second_page.checkpoint().clone(), limits)
+        .inspect_page(&second_page.checkpoint().clone(), limits)
         .expect("nonadjacent duplicate ID should be a progressable finding");
 
     assert_eq!(
@@ -2180,13 +2180,13 @@ fn journal_inspection_reports_a_sequence_gap_and_resumes_at_the_next_physical_ba
     store
         .insert_raw_batch_for_tests(
             gap_batch.journal_sequence(),
-            encode_journal_batch(&gap_batch).expect("gap batch should encode"),
+            &encode_journal_batch(&gap_batch).expect("gap batch should encode"),
         )
         .expect("gap fixture should insert");
     let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
 
     let gap = store
-        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .inspect_page(&JournalInspectionCheckpoint::BeforeFirst, limits)
         .expect("sequence gap should be a progressable finding");
     assert_eq!(
         gap.issue(),
@@ -2203,7 +2203,7 @@ fn journal_inspection_reports_a_sequence_gap_and_resumes_at_the_next_physical_ba
     assert!(gap.batch_identity_blocked());
 
     let resumed = store
-        .inspect_page(gap.checkpoint().clone(), limits)
+        .inspect_page(&gap.checkpoint().clone(), limits)
         .expect("inspection should resume at the physical batch after the gap");
     assert_eq!(
         resumed.checkpoint(),
@@ -2221,12 +2221,12 @@ fn journal_inspection_reports_a_malformed_batch_without_hiding_tail_exhaustion()
     let mut encoded = encode_journal_batch(&batch(1)).expect("journal batch should encode");
     encoded[0] = b'X';
     store
-        .insert_raw_batch_for_tests(JournalSequence::new(1), encoded)
+        .insert_raw_batch_for_tests(JournalSequence::new(1), &encoded)
         .expect("malformed raw bytes should insert as a persisted fixture");
     let limits = JournalInspectionLimits::for_tests(2, (MAX_JOURNAL_BATCH_BYTES as usize) * 2);
 
     let page = store
-        .inspect_page(JournalInspectionCheckpoint::BeforeFirst, limits)
+        .inspect_page(&JournalInspectionCheckpoint::BeforeFirst, limits)
         .expect("malformed batch should be a progressable finding");
 
     assert!(matches!(

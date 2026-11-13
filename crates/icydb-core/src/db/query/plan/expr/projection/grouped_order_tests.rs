@@ -49,7 +49,7 @@ fn grouped_order_canonical_proof_keeps_field_and_offset_rejections_distinct() {
         "profile",
         vec!["key".into()],
         1,
-        AcceptedFieldKind::Text { max_len: Some(64) },
+        &AcceptedFieldKind::Text { max_len: Some(64) },
     )]);
     for (fields, field, other) in [
         (

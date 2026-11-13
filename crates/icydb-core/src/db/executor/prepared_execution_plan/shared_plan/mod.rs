@@ -165,7 +165,7 @@ impl SharedPreparedExecutionPlan {
             .plan()
             .grouped_plan()
             .ok_or_else(CursorPlanError::continuation_cursor_invariant)?;
-        let invalid = || CursorPlanError::from_token_wire_error(TokenWireError::Decode);
+        let invalid = || CursorPlanError::from_token_wire_error(&TokenWireError::Decode);
         if values.len() != grouped.group.group_fields.len() {
             return Err(invalid());
         }

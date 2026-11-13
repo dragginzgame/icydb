@@ -107,7 +107,10 @@ impl RequestExecutionRoot {
     /// async suspension point.
     #[doc(hidden)]
     pub fn __with_current_scope<T>(&self, run: impl FnOnce() -> T) -> T {
-        let _guard = CurrentRequestScopeGuard::enter(self.scope());
+        let previous = CURRENT_REQUEST_SCOPE.with(|current| current.replace(Some(self.scope())));
+        let _guard = core::mem::DropGuard::new(previous, |previous| {
+            CURRENT_REQUEST_SCOPE.with(|current| current.replace(previous));
+        });
         run()
     }
 
@@ -151,25 +154,6 @@ impl RequestExecutionRoot {
 
 pub(in crate::db) fn current_request_scope() -> Option<RequestExecutionScope> {
     CURRENT_REQUEST_SCOPE.with(|current| current.borrow().clone())
-}
-
-struct CurrentRequestScopeGuard {
-    previous: Option<RequestExecutionScope>,
-}
-
-impl CurrentRequestScopeGuard {
-    fn enter(scope: RequestExecutionScope) -> Self {
-        let previous = CURRENT_REQUEST_SCOPE.with(|current| current.replace(Some(scope)));
-        Self { previous }
-    }
-}
-
-impl Drop for CurrentRequestScopeGuard {
-    fn drop(&mut self) {
-        CURRENT_REQUEST_SCOPE.with(|current| {
-            current.replace(self.previous.take());
-        });
-    }
 }
 
 /// Shared internal handle retained by every session derived from one root.

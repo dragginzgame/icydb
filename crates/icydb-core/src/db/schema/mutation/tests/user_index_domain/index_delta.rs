@@ -3,12 +3,12 @@
 use super::*;
 
 fn qualify_delta(
-    before_indexes: Vec<PersistedIndexSnapshot>,
-    after_indexes: Vec<PersistedIndexSnapshot>,
+    before_indexes: &[PersistedIndexSnapshot],
+    after_indexes: &[PersistedIndexSnapshot],
     expected_effects: (usize, usize),
 ) {
-    let before = snapshot_with_indexes(&base_snapshot(), before_indexes.clone());
-    let after = snapshot_with_indexes(&before, after_indexes.clone());
+    let before = snapshot_with_indexes(&base_snapshot(), before_indexes.to_vec());
+    let after = snapshot_with_indexes(&before, after_indexes.to_vec());
     let contract = accepted_row_contract(&before);
     let slots = ["a", "Ada", "UPPER", "z"].map(|text| RebuildSlotReader {
         values: vec![None, Some(Value::Text(text.into()))],
@@ -20,10 +20,10 @@ fn qualify_delta(
         .collect::<Vec<_>>();
     let mut actual = IndexStore::init_heap();
     let mut expected = IndexStore::init_heap();
-    insert_projection_entries(&mut actual, &before_indexes, &rows, EntityTag::new(7));
+    insert_projection_entries(&mut actual, before_indexes, &rows, EntityTag::new(7));
     // The oracle constructs the complete accepted-after domain, independent of
     // how staging chooses the physical delta from its complete before proof.
-    insert_projection_entries(&mut expected, &after_indexes, &rows, EntityTag::new(7));
+    insert_projection_entries(&mut expected, after_indexes, &rows, EntityTag::new(7));
     for key in [
         unrelated_key(EntityTag::new(7), IndexKeyKind::System, 9, 91),
         unrelated_key(EntityTag::new(8), IndexKeyKind::User, 1, 92),
@@ -83,7 +83,7 @@ fn unchanged_field_expression_and_unique_domains_emit_no_index_effects() {
             domain_field_index(1, "by_name", unique),
             domain_expression_index(2, "by_lower_name", unique, None),
         ];
-        qualify_delta(indexes.clone(), indexes, (0, 0));
+        qualify_delta(&indexes, &indexes, (0, 0));
     }
 }
 
@@ -91,27 +91,28 @@ fn unchanged_field_expression_and_unique_domains_emit_no_index_effects() {
 fn create_and_drop_leave_the_unmodified_index_in_place() {
     let field = domain_field_index(1, "by_name", false);
     let expression = domain_expression_index(2, "by_lower_name", false, None);
-    qualify_delta(
-        vec![field.clone()],
-        vec![field.clone(), expression.clone()],
-        (0, 4),
-    );
-    qualify_delta(vec![field.clone(), expression], vec![field], (4, 0));
+    let indexes = [field, expression];
+    let field_only = std::slice::from_ref(&indexes[0]);
+    qualify_delta(field_only, &indexes, (0, 4));
+    qualify_delta(&indexes, field_only, (4, 0));
 }
 
 #[test]
 fn changed_keys_and_common_keys_merge_in_both_directions() {
     let field = domain_field_index(1, "by_name", false);
     let lower = domain_expression_index(1, "by_lower_name", false, None);
-    qualify_delta(vec![field.clone()], vec![lower.clone()], (2, 2));
-    qualify_delta(vec![lower], vec![field], (2, 2));
+    let field_only = std::slice::from_ref(&field);
+    let lower_only = std::slice::from_ref(&lower);
+    qualify_delta(field_only, lower_only, (2, 2));
+    qualify_delta(lower_only, field_only, (2, 2));
 }
 
 #[test]
 fn wholly_added_or_removed_domains_keep_the_full_required_effects() {
     let field = domain_field_index(1, "by_name", false);
-    qualify_delta(Vec::new(), vec![field.clone()], (0, 4));
-    qualify_delta(vec![field], Vec::new(), (4, 0));
+    let indexes = std::slice::from_ref(&field);
+    qualify_delta(&[], indexes, (0, 4));
+    qualify_delta(indexes, &[], (4, 0));
 }
 
 #[test]

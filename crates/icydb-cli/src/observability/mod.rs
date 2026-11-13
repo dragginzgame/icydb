@@ -19,20 +19,20 @@ use ic_host_text::escape::terminal_text;
 use icydb::__macro::RpcMethod;
 use serde::de::DeserializeOwned;
 
-pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
+pub(crate) fn run_metrics_command(args: &MetricsArgs) -> Result<(), String> {
     metrics::run_metrics_command(args)
 }
 
-pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
+pub(crate) fn run_schema_show_command(target: &CanisterTarget) -> Result<(), String> {
     schema::run_schema_show_command(target)
 }
 
-pub(crate) fn run_diagnostic_artifact_command(args: DiagnosticArtifactArgs) -> Result<(), String> {
+pub(crate) fn run_diagnostic_artifact_command(args: &DiagnosticArtifactArgs) -> Result<(), String> {
     schema::run_diagnostic_artifact_command(args)
 }
 
 pub(crate) fn run_diagnostic_source_metadata_command(
-    args: DiagnosticSourceMetadataArgs,
+    args: &DiagnosticSourceMetadataArgs,
 ) -> Result<(), String> {
     schema::run_diagnostic_source_metadata_command(args)
 }
@@ -44,11 +44,11 @@ pub(crate) fn load_schema_report(
     schema::load_schema_report(environment, canister)
 }
 
-pub(crate) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {
+pub(crate) fn run_schema_migration_command(command: &SchemaMigrationCommand) -> Result<(), String> {
     migration::run_schema_migration_command(command)
 }
 
-pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
+pub(crate) fn run_snapshot_command(target: &CanisterTarget) -> Result<(), String> {
     snapshot::run_snapshot_command(target)
 }
 

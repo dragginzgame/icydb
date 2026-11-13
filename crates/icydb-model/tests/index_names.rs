@@ -5,8 +5,10 @@ use icydb_model::{build::get_schema, node::Entity, prelude::*};
 use icydb_schema::canonical_index_name;
 
 #[canister(memory_namespace = "index_names")]
+/// Canister containing automatic and explicit index-label fixtures.
 pub struct NamesCanister;
 #[store(canister = "NamesCanister", storage(heap()))]
+/// Heap store for index-label resolution.
 pub struct NamesStore;
 #[entity(
     store = "NamesStore", version = 1, pk(field = "id"),
@@ -29,6 +31,7 @@ pub struct NamesStore;
     index(field = "a_b"),
     index(fields = ["a", "b"])
 )]
+/// Row with distinct index definitions whose readable labels may overlap.
 pub struct NamesRow;
 
 #[test]

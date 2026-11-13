@@ -234,7 +234,7 @@ contracts remain responsible for their narrower value bounds.
 
 ## Text Expression Indexes
 
-`LOWER`, `UPPER`, `TRIM` and `LOWER(TRIM(...))` use Unicode 17.0.0 data for
+`LOWER`, `UPPER`, `TRIM` and `LOWER(TRIM(...))` use Unicode 18.0.0 data for
 persisted keys and query bounds. Core checks the standard library's Unicode
 version at compile time, including in downstream canisters. Upgrading a compiler
 to different Unicode data therefore requires an explicit retained-index

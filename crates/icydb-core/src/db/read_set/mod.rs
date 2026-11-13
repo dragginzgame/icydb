@@ -251,15 +251,28 @@ pub enum ReadSetRevisionError {
     /// No participating physical store was supplied.
     Empty,
     /// The proof exceeds the bounded participating-store count.
-    TooManyStores { limit: u32, actual: u32 },
+    TooManyStores {
+        /// Maximum admitted value for this bound.
+        limit: u32,
+        /// Observed value that does not meet the contract.
+        actual: u32,
+    },
     /// The canonical proof encoding exceeds its byte ceiling.
-    EncodedBytesExceeded { limit: u32, actual: u32 },
+    EncodedBytesExceeded {
+        /// Maximum admitted value for this bound.
+        limit: u32,
+        /// Observed value that does not meet the contract.
+        actual: u32,
+    },
     /// Proof authority, revisions, or store ordering are not canonical.
     NonCanonical,
     /// One requested entity is absent from accepted runtime authority.
     UnknownEntity,
     /// The page's physical source was not declared in the initial proof.
-    StoreMissingFromProof { store: ReadSetStoreIdentity },
+    StoreMissingFromProof {
+        /// Physical store whose revision or durability failed admission.
+        store: ReadSetStoreIdentity,
+    },
     /// A continuation was supplied without its associated source proof.
     ResumeProofRequired,
     /// The database was recreated after the proof was captured.
@@ -267,11 +280,20 @@ pub enum ReadSetRevisionError {
     /// Accepted runtime authority changed after the proof was captured.
     AcceptedRootChanged,
     /// Rows in one participating physical store changed.
-    StoreDataChanged { store: ReadSetStoreIdentity },
+    StoreDataChanged {
+        /// Physical store whose revision or durability failed admission.
+        store: ReadSetStoreIdentity,
+    },
     /// Physical access readiness in one participating store changed.
-    StoreAccessChanged { store: ReadSetStoreIdentity },
+    StoreAccessChanged {
+        /// Physical store whose revision or durability failed admission.
+        store: ReadSetStoreIdentity,
+    },
     /// A cross-call job attempted to use a volatile source store.
-    DurableStoreRequired { store: ReadSetStoreIdentity },
+    DurableStoreRequired {
+        /// Physical store whose revision or durability failed admission.
+        store: ReadSetStoreIdentity,
+    },
 }
 
 impl fmt::Display for ReadSetRevisionError {

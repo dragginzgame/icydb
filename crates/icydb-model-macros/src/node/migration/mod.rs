@@ -260,9 +260,9 @@ impl Rename {
             },
         )?;
         if list.path.is_ident("field") {
-            reject_present(named_type, &list.path).map(|()| Self::Field { from, to })
+            reject_present(named_type.as_ref(), &list.path).map(|()| Self::Field { from, to })
         } else if list.path.is_ident("named_type") {
-            reject_present(named_type, &list.path).map(|()| Self::NamedType { from, to })
+            reject_present(named_type.as_ref(), &list.path).map(|()| Self::NamedType { from, to })
         } else if list.path.is_ident("variant") {
             Ok(Self::Variant {
                 named_type: required_string(&items, "named_type")?,
@@ -276,9 +276,9 @@ impl Rename {
                 to,
             })
         } else if list.path.is_ident("relation") {
-            reject_present(named_type, &list.path).map(|()| Self::Relation { from, to })
+            reject_present(named_type.as_ref(), &list.path).map(|()| Self::Relation { from, to })
         } else if list.path.is_ident("constraint") {
-            reject_present(named_type, &list.path).map(|()| Self::Constraint { from, to })
+            reject_present(named_type.as_ref(), &list.path).map(|()| Self::Constraint { from, to })
         } else if list.path.is_ident("rule") {
             Ok(Self::Rule {
                 named_type: required_string(&items, "named_type")?,
@@ -688,7 +688,7 @@ fn set_once<T>(slot: &mut Option<T>, value: T, path: &syn::Path) -> Result<(), D
     Ok(())
 }
 
-fn reject_present<T>(value: Option<T>, path: &syn::Path) -> Result<(), DarlingError> {
+fn reject_present<T>(value: Option<&T>, path: &syn::Path) -> Result<(), DarlingError> {
     if value.is_some() {
         return Err(
             DarlingError::custom("rename declaration does not accept named_type").with_span(path),

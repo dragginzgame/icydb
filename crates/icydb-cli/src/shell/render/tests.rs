@@ -202,10 +202,6 @@ fn dossier_field(
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the named golden keeps the complete current dossier visible in one fixture"
-)]
 fn verbose_dossier_fixture() -> EntitySchemaDescriptionContract {
     let mut fields = vec![
         EntityFieldDescription::new(
@@ -785,21 +781,21 @@ fn render_show_entities_lines_output_contract_vector_is_stable() {
             "schema.public.ExampleEntity".to_string(),
             "stores::main".to_string(),
             "stable".to_string(),
-            EntityCatalogCounts::new(2, 1, 0, 1),
+            &EntityCatalogCounts::new(2, 1, 0, 1),
         ),
         EntityCatalogDescription::new(
             "Order".to_string(),
             "schema.public.Order".to_string(),
             "stores::sales".to_string(),
             "stable".to_string(),
-            EntityCatalogCounts::new(5, 2, 1, 3),
+            &EntityCatalogCounts::new(5, 2, 1, 3),
         ),
         EntityCatalogDescription::new(
             "User".to_string(),
             "schema.public.User".to_string(),
             "stores::main".to_string(),
             "journaled".to_string(),
-            EntityCatalogCounts::new(4, 0, 2, 4),
+            &EntityCatalogCounts::new(4, 0, 2, 4),
         ),
     ];
 
@@ -827,7 +823,7 @@ fn render_show_entities_verbose_lines_output_contract_vector_is_stable() {
         "schema.public.ExampleEntity".to_string(),
         "stores::main".to_string(),
         "stable".to_string(),
-        EntityCatalogCounts::new(2, 1, 0, 1),
+        &EntityCatalogCounts::new(2, 1, 0, 1),
     )];
 
     assert_eq!(

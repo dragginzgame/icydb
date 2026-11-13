@@ -1,3 +1,5 @@
+//! Compile-time contract for the migration capability.
+
 #![expect(clippy::missing_const_for_fn, clippy::no_effect_underscore_binding)]
 
 icydb::__icydb_require_migration_capability!();

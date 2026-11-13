@@ -273,27 +273,27 @@ fn job_envelopes_preserve_family_rejections() {
         encoded: &[u8],
         max_bytes: usize,
         decode: impl Fn(&[u8]) -> Result<(), E>,
-        incompatible: E,
-        corrupt: E,
+        incompatible: &E,
+        corrupt: &E,
     ) {
         assert_eq!(decode(encoded), Ok(()));
         for end in 0..encoded.len() {
             let expected = if end < PROGRESS_JOB_RECORD_HEADER_BYTES {
-                &incompatible
+                incompatible
             } else {
-                &corrupt
+                corrupt
             };
             assert_eq!(&decode(&encoded[..end]).unwrap_err(), expected);
         }
         for offset in [0, 8, 9, 13, encoded.len() - 1] {
             let mut invalid = encoded.to_vec();
             invalid[offset] ^= 0xff;
-            let expected = if offset < 9 { &incompatible } else { &corrupt };
+            let expected = if offset < 9 { incompatible } else { corrupt };
             assert_eq!(&decode(&invalid).unwrap_err(), expected);
         }
         let mut trailing = encoded.to_vec();
         trailing.push(0);
-        assert_eq!(decode(&trailing).unwrap_err(), corrupt);
+        assert_eq!(&decode(&trailing).unwrap_err(), corrupt);
         // A consistent length and checksum cannot bypass the family ceiling.
         let mut oversized = encoded.to_vec();
         oversized.resize(max_bytes + 1, 0);
@@ -302,7 +302,7 @@ fn job_envelopes_preserve_family_rejections() {
         let checksum = crc32c(payload);
         oversized[9..13].copy_from_slice(&len.to_be_bytes());
         oversized[13..17].copy_from_slice(&checksum.to_be_bytes());
-        assert_eq!(decode(&oversized).unwrap_err(), corrupt);
+        assert_eq!(&decode(&oversized).unwrap_err(), corrupt);
     }
 
     let integrity = current_job_codec_fixture();
@@ -310,24 +310,24 @@ fn job_envelopes_preserve_family_rejections() {
         &encode_job_record(&integrity).unwrap(),
         MAX_PROGRESS_RECORD_BYTES as usize,
         |bytes| decode_job_record(bytes, integrity.id).map(|_| ()),
-        IntegrityJobError::IncompatibleProgressFormat,
-        IntegrityJobError::CorruptProgressRecord,
+        &IntegrityJobError::IncompatibleProgressFormat,
+        &IntegrityJobError::CorruptProgressRecord,
     );
     let resumable = current_resumable_record();
     check(
         &encode_resumable_job_record(&resumable).unwrap(),
         MAX_PROGRESS_RECORD_BYTES as usize,
         |bytes| decode_resumable_job_record(bytes, resumable.state().job_id).map(|_| ()),
-        ResumableJobError::IncompatibleProgressFormat,
-        ResumableJobError::CorruptProgressStore,
+        &ResumableJobError::IncompatibleProgressFormat,
+        &ResumableJobError::CorruptProgressStore,
     );
     let mutation = current_mutation_record(7);
     check(
         &encode_mutation_job_record(&mutation).unwrap(),
         MAX_MUTATION_JOB_RECORD_BYTES,
         |bytes| decode_mutation_job_record(bytes, mutation.state().job_id).map(|_| ()),
-        MutationJobError::IncompatibleProgressFormat,
-        MutationJobError::CorruptProgressStore,
+        &MutationJobError::IncompatibleProgressFormat,
+        &MutationJobError::CorruptProgressStore,
     );
 }
 

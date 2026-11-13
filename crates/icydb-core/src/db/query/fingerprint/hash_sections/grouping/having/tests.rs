@@ -534,7 +534,7 @@ fn group_field_lookup_admits_candidates_and_preserves_first_match_and_missing_id
             "profile",
             vec!["tag".into()],
             3,
-            AcceptedFieldKind::Text { max_len: None },
+            &AcceptedFieldKind::Text { max_len: None },
         ),
         GroupField::Direct(FieldSlot::from_test_accepted_kind(
             9,

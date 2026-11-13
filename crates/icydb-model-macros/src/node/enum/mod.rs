@@ -4,7 +4,10 @@
 //! Boundary: macro metadata to node models.
 
 use crate::case::{Case, Casing};
-use crate::{imp::*, prelude::*};
+use crate::{
+    imp::{DefaultTrait, NormalizeAutoTrait, ValidateAutoTrait, VisitableTrait},
+    prelude::*,
+};
 
 ///
 /// Enum
@@ -230,6 +233,7 @@ impl HasTypeExpr for EnumVariant {
     fn type_expr(&self, paths: &CratePaths) -> TokenStream {
         let name = &self.name;
 
+        let doc = format!("The `{name}` alternative of this schema enum.");
         let body = if let Some(value) = &self.value {
             let value = value.type_expr(paths);
             quote!(#name(#value))
@@ -238,6 +242,7 @@ impl HasTypeExpr for EnumVariant {
         };
 
         quote! {
+            #[doc = #doc]
             #body
         }
     }

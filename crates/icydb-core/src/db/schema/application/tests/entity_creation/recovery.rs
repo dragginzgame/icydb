@@ -48,7 +48,7 @@ pub(super) fn interrupt_publication(
         lowered.current_bundles[0].as_ref().unwrap(),
         candidate,
         controls,
-        application,
+        &application,
         receipt_first,
     );
 }
@@ -58,7 +58,7 @@ pub(super) fn interrupt_candidate_publication(
     before: &AcceptedSchemaRevisionBundle,
     candidate: &CandidateSchemaRevision,
     controls: Vec<DatabaseControlOp>,
-    application: SchemaApplicationRecordOp,
+    application: &SchemaApplicationRecordOp,
     receipt_first: bool,
 ) {
     let store = db.store_handle(EVOLUTION_STORE_PATH).unwrap();
@@ -89,7 +89,7 @@ pub(super) fn interrupt_candidate_publication(
     let guard = begin_commit(&marker).unwrap();
     finish_commit(guard, |_| {
         if receipt_first {
-            crate::db::schema::apply_schema_application_record_op(&application)?;
+            crate::db::schema::apply_schema_application_record_op(application)?;
         }
         Err(InternalError::executor_invariant())
     })

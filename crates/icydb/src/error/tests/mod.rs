@@ -99,7 +99,7 @@ fn public_error_from_diagnostic_collapses_detail_to_leaf_code() {
             },
         ),
     );
-    let facade = Error::from_diagnostic(diagnostic);
+    let facade = Error::from_diagnostic(&diagnostic);
 
     assert_eq!(
         facade.code(),
@@ -215,7 +215,7 @@ fn public_error_sql_write_boundary_collapses_detail_to_leaf_code() {
             boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::MissingPrimaryKey,
         }),
     );
-    let facade = Error::from_diagnostic(diagnostic);
+    let facade = Error::from_diagnostic(&diagnostic);
 
     assert_eq!(
         facade.code(),
@@ -292,7 +292,7 @@ fn grouped_limit_facts_survive_public_wire_round_trip() {
 fn exact_count_metadata_diagnostic_survives_public_wire_round_trip() {
     use icydb_diagnostic_code::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode};
 
-    let error = Error::from_diagnostic(Diagnostic::from_code(
+    let error = Error::from_diagnostic(&Diagnostic::from_code(
         DiagnosticCode::QueryExactCountMetadataUnavailable,
     ));
     let wire = icydb_schema::wire::encode_one(&error).expect("public error should encode");
@@ -524,7 +524,7 @@ fn public_query_field_context_is_typed_bounded_and_validated() {
         }),
     );
     let error = Error::from_diagnostic_facts_and_query_field(
-        diagnostic,
+        &diagnostic,
         Vec::new(),
         Some((icydb_diagnostic_code::QueryFieldRole::OrderBy, "missing")),
     );
@@ -557,7 +557,7 @@ fn server_side_disallowed_query_field_context_becomes_invariant() {
         }),
     );
     let error = Error::from_diagnostic_facts_and_query_field(
-        diagnostic,
+        &diagnostic,
         Vec::new(),
         Some((icydb_diagnostic_code::QueryFieldRole::Predicate, "missing")),
     );
@@ -601,7 +601,7 @@ fn core_numeric_facts_cross_the_public_facade_once_in_order() {
         None,
     );
     let error = Error::from_diagnostic_and_facts(
-        diagnostic,
+        &diagnostic,
         vec![
             (icydb_diagnostic_code::DiagnosticFactTag::ExpectedOffset, 4),
             (icydb_diagnostic_code::DiagnosticFactTag::ActualOffset, 2),
@@ -633,7 +633,7 @@ fn malformed_numeric_facts_fail_compactly_at_the_public_facade() {
         }),
     );
     let error = Error::from_diagnostic_and_facts(
-        diagnostic,
+        &diagnostic,
         vec![(icydb_diagnostic_code::DiagnosticFactTag::Limit, 1)],
     );
 
@@ -655,7 +655,7 @@ fn grouped_cursor_policy_facts_survive_public_wire_projection() {
     ] {
         let facts = vec![(DiagnosticFactTag::DecodeReason, reason.raw())];
         let error = Error::from_diagnostic_and_facts(
-            icydb_diagnostic_code::Diagnostic::new(
+            &icydb_diagnostic_code::Diagnostic::new(
                 icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
                 icydb_diagnostic_code::ErrorOrigin::Cursor,
                 None,
@@ -697,7 +697,7 @@ fn mutation_schema_identity_survives_facade_and_wire() {
         (Tag::BatchPosition, 3),
     ];
     for length in [6, 7] {
-        let error = Error::from_diagnostic_and_facts(diagnostic.clone(), facts[..length].to_vec());
+        let error = Error::from_diagnostic_and_facts(&diagnostic, facts[..length].to_vec());
         assert_eq!(error.code(), diagnostic.error_code());
         let bytes = icydb_schema::wire::encode_one(&error).unwrap();
         let decoded = icydb_schema::wire::decode_one::<Error>(&bytes).unwrap();
@@ -728,7 +728,7 @@ fn relation_contract_identity_survives_facade_and_wire() {
         None,
     );
     for length in [2, 5] {
-        let error = Error::from_diagnostic_and_facts(diagnostic.clone(), facts[..length].to_vec());
+        let error = Error::from_diagnostic_and_facts(&diagnostic, facts[..length].to_vec());
         assert_eq!(
             error.code(),
             icydb_diagnostic_code::ErrorCode::RUNTIME_INTERNAL
@@ -744,7 +744,7 @@ fn relation_contract_identity_survives_facade_and_wire() {
             facts[..length]
         );
     }
-    let incomplete = Error::from_diagnostic_and_facts(diagnostic, facts[..4].to_vec());
+    let incomplete = Error::from_diagnostic_and_facts(&diagnostic, facts[..4].to_vec());
     assert_eq!(
         incomplete.code(),
         icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION
@@ -822,7 +822,7 @@ fn exhaustive_question_mark_preserves_database_diagnostics() {
     .unwrap();
     let fact_error: Error = icydb_schema::wire::decode_one(&fact_bytes).unwrap();
     let field_error = Error::from_diagnostic_facts_and_query_field(
-        Diagnostic::from_code(DiagnosticCode::QueryPlan),
+        &Diagnostic::from_code(DiagnosticCode::QueryPlan),
         Vec::new(),
         Some((QueryFieldRole::OrderBy, "missing")),
     );

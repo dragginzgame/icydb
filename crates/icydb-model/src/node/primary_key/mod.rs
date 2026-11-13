@@ -52,8 +52,10 @@ impl PrimaryKey {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub enum PrimaryKeySource {
     #[default]
+    /// Primary-key values originate within the application.
     Internal,
 
+    /// Primary-key values originate outside the application.
     External,
 }
 

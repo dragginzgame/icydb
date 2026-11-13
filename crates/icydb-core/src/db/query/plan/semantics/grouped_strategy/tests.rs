@@ -106,7 +106,7 @@ fn cases() -> Vec<AccessPlannedQuery> {
                         "profile",
                         vec!["key".into()],
                         0,
-                        AcceptedFieldKind::Int32,
+                        &AcceptedFieldKind::Int32,
                     )]);
                 grouped.scalar.order = Some(OrderSpec {
                     fields: vec![OrderTerm::new(

@@ -248,7 +248,7 @@ fn deployment_store_bound_is_canonical_and_rejects_seventeenth_store() {
         &registry,
     )
     .unwrap();
-    apply_prepared_commit_control_replacement(replacement);
+    replacement.apply();
     let PersistedCommitControlObservation::Current {
         registry: reopened, ..
     } = inspect_persisted_commit_control(memory).unwrap()
@@ -516,7 +516,7 @@ fn unsupported_registry_is_observed_until_boot_reset_without_control_writes() {
             &dormant,
         )
         .unwrap();
-        apply_prepared_commit_control_replacement(replacement);
+        replacement.apply();
         let byte_len = usize::try_from(
             control
                 .size()

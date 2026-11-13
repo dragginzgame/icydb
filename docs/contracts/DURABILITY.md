@@ -234,8 +234,9 @@ pages reserved for bounded commit control. A fixed key prefix separates
 application, checkpoint and identity records; lineage and migration retain their
 reserved checkpoint keys. One checksummed version-1 `ICYSCMID` header owns
 the tree, with no fixed partition between record families. The current
-`ICYDBID\0` version-1 boot identity requires fresh installations for split
-identity checkpoints and Storage 0.68 collection images. Earlier boot identities refuse before collection or
+`ICYDBU18` version-1 boot identity requires fresh installations for split
+identity checkpoints, Storage 0.68 collection images and Unicode 18 text transforms.
+Earlier boot identities refuse before collection or
 recovery decoding, without rewriting retained bytes; there is no conversion,
 automatic reset or compatibility reader. Current images retain interruption
 recovery. Storage engine/codec failures trap; a native mutation panic poisons

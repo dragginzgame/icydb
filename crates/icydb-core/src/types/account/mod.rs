@@ -153,17 +153,20 @@ impl EntityKeyBytes for Account {
 
     fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
         validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
-        let bytes = self.to_stored_bytes().map_err(account_key_bytes_error)?;
+        let bytes = self
+            .to_stored_bytes()
+            .map_err(|error| account_key_bytes_error(&error))?;
         out.copy_from_slice(&bytes);
         Ok(())
     }
 }
 
-const fn account_key_bytes_error(error: AccountEncodeError) -> EntityKeyBytesError {
+const fn account_key_bytes_error(error: &AccountEncodeError) -> EntityKeyBytesError {
     match error {
         AccountEncodeError::OwnerEncode(PrincipalEncodeError::TooLarge { len, max })
-        | AccountEncodeError::OwnerTooLarge { len, max } => {
-            EntityKeyBytesError::ValueTooLong { len, max }
-        }
+        | AccountEncodeError::OwnerTooLarge { len, max } => EntityKeyBytesError::ValueTooLong {
+            len: *len,
+            max: *max,
+        },
     }
 }

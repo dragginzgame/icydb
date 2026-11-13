@@ -13,7 +13,10 @@ finish() {
 }
 trap finish EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/bin"
-cp "$ROOT/scripts/ci/"{read-cargo-workspace-rust-version.sh,check-rust-compiler.sh} "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci/"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/read-cargo-workspace-rust-version.sh" "$fixture/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture/scripts/ci/"
+cp "$ROOT/scripts/ci/check-rust-compiler.sh" "$fixture/scripts/ci/"
 for tool in cargo rustc; do
   cat > "$fixture/bin/$tool" <<'STUB'
 #!/usr/bin/env bash

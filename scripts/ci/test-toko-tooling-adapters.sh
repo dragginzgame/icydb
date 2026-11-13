@@ -22,21 +22,56 @@ unset GITHUB_STEP_SUMMARY
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
 fixture_complete=false
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$FIXTURE" "Shared adapter fixture retained"' EXIT
 # Assertions often suppress child logs; retain their exact source location in CI.
 trap 'printf "Shared adapter fixture failed at %s:%s\n" "${BASH_SOURCE[0]}" "$LINENO" >&2 || :' ERR
 if [[ "$deployment_only" == false ]]; then
+# Qualify Cargo warning denial independently of product lint debt. The second
+# invocation must reuse its artifact and still reject the retained warning.
+warning_probe="$FIXTURE/warning-probe"
+mkdir -p "$warning_probe/src"
+printf '[package]\nname = "icydb-warning-probe"\nversion = "0.0.0"\nedition = "2024"\n[workspace]\n' > "$warning_probe/Cargo.toml"
+printf 'pub fn answer() -> u32 { return 42; }\n' > "$warning_probe/src/lib.rs"
+for phase in cold warm; do
+  if CARGO_TARGET_DIR="$warning_probe/target" CARGO_BUILD_WARNINGS=deny \
+      cargo clippy --offline --manifest-path "$warning_probe/Cargo.toml" \
+      --message-format=json-render-diagnostics > "$warning_probe/$phase.jsonl" 2> "$warning_probe/$phase.log"; then
+    echo "Cargo admitted a $phase Clippy warning" >&2
+    exit 1
+  fi
+  jq -e -s 'any(.[]; .reason == "build-finished" and .success == false)' "$warning_probe/$phase.jsonl" > /dev/null
+  expected_fresh=false
+  [[ "$phase" != warm ]] || expected_fresh=true
+  jq -e -s --argjson fresh "$expected_fresh" \
+    'any(.[]; .reason == "compiler-artifact" and .fresh == $fresh)' "$warning_probe/$phase.jsonl" > /dev/null
+  # The default human-output mode used by Make must refuse fresh and warm inputs.
+  if CARGO_TARGET_DIR="$warning_probe/plain-target" CARGO_BUILD_WARNINGS=deny \
+      cargo clippy --offline --manifest-path "$warning_probe/Cargo.toml" > "$warning_probe/plain-$phase.log" 2>&1; then
+    echo 'Cargo admitted a plain-output Clippy warning' >&2
+    exit 1
+  fi
+done
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
-for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm \
-  run-icydb-validation-targets.sh \
-  install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
-  cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
+for script in vendor/toko-tooling/scripts/ci/check-make-execution.sh \
+  vendor/toko-tooling/scripts/ci/run-validation-targets.sh \
+  vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl \
+  vendor/toko-tooling/scripts/ci/release-validation-plan.pl \
+  vendor/toko-tooling/scripts/ci/ValidationPlan.pm \
+  scripts/ci/run-icydb-validation-targets.sh \
+  vendor/toko-tooling/scripts/ci/install-ci-tool.sh \
+  scripts/ci/install-icydb-actionlint.sh \
+  vendor/toko-tooling/scripts/ci/verify-file-checksum.sh; do
+  mkdir -p "$FIXTURE/${script%/*}"
+  cp "$ROOT/$script" "$FIXTURE/$script"
 done
 # The shared CI installer owns platform observation and bounded downloading.
 mkdir -p "$FIXTURE/scripts/dev"
-cp "$ROOT/scripts/dev/"{host-platform.sh,tool-store.sh} "$FIXTURE/scripts/dev/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/dev/"
+cp "$ROOT/vendor/toko-tooling/scripts/dev/host-platform.sh" "$FIXTURE/vendor/toko-tooling/scripts/dev/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/dev/"
+cp "$ROOT/vendor/toko-tooling/scripts/dev/tool-store.sh" "$FIXTURE/vendor/toko-tooling/scripts/dev/"
 
 cat > "$FIXTURE/Makefile" <<'MAKE'
 .PHONY: pass fail-one fail-two nested
@@ -140,11 +175,17 @@ native="$FIXTURE/native"
 mkdir -p "$native/make" "$native/scripts/ci" "$native/scripts/release" "$native/ci" "$native/bin"
 cp "$ROOT/Makefile" "$native/"
 cp "$ROOT/scripts/release/validation-stages.pl" "$native/scripts/release/"
-cp "$ROOT/ci/"{release-validation.json,release-validation-contract.json,cargo-release-groups.json} "$native/ci/"
-cp "$ROOT/make/"*.mk "$native/make/"
+mkdir -p "$native/ci/"
+cp "$ROOT/ci/release-validation.json" "$native/ci/"
+mkdir -p "$native/ci/"
+cp "$ROOT/ci/release-validation-contract.json" "$native/ci/"
+mkdir -p "$native/ci/"
+cp "$ROOT/ci/cargo-release-groups.json" "$native/ci/"
+mkdir -p "$native/vendor/toko-tooling/make"
+cp "$ROOT/vendor/toko-tooling/make/"*.mk "$native/vendor/toko-tooling/make/"
 # Formatting now consumes the canonical catalog reader. Copy its declared
 # companion closure so fixture setup follows the selected shared Make contract.
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" make/consumer.mk
+bash "$ROOT/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" vendor/toko-tooling/make/consumer.mk
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
 mkdir -p "$native/qualification/build/src" "$native/testing/canic-adapter"
 cp "$ROOT/qualification/build/src/wasm_measurement_subjects.tsv" "$native/qualification/build/src/"
@@ -153,11 +194,20 @@ printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
 printf '[workspace]\n' > "$native/testing/canic-adapter/Cargo.toml"
 printf 'version = 4\n' > "$native/testing/canic-adapter/Cargo.lock"
-for script in check-make-execution.sh run-validation-targets.sh validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm \
-  run-icydb-validation-targets.sh \
-  run-nonempty-cargo-test.sh wasm-size-report.sh wasm-audit-report.sh \
-  wasm-report-common.sh verify-file-checksum.sh fixture-lifecycle.sh; do
-  cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
+for script in vendor/toko-tooling/scripts/ci/check-make-execution.sh \
+  vendor/toko-tooling/scripts/ci/run-validation-targets.sh \
+  vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl \
+  vendor/toko-tooling/scripts/ci/release-validation-plan.pl \
+  vendor/toko-tooling/scripts/ci/ValidationPlan.pm \
+  scripts/ci/run-icydb-validation-targets.sh \
+  vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh \
+  scripts/ci/wasm-size-report.sh \
+  scripts/ci/wasm-audit-report.sh \
+  scripts/ci/wasm-report-common.sh \
+  vendor/toko-tooling/scripts/ci/verify-file-checksum.sh \
+  vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh; do
+  mkdir -p "$native/${script%/*}"
+  cp "$ROOT/$script" "$native/$script"
 done
 export CI_CARGO_ROOT="$native" CI_CARGO_TRACE="$native/cargo-trace"
 export CI_CARGO_SERVER_TRACE="$native/server-trace"
@@ -178,6 +228,7 @@ if [[ "${CI_CARGO_FAIL_ADAPTER:-0}" == 1 && " $* " == *" --manifest-path $CI_CAR
   echo 'fixture composition dependency mismatch' >&2
   exit 23
 fi
+[[ "$1" != clippy || "${CARGO_BUILD_WARNINGS:-}" == deny ]]
 printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_TRACE"
 printf '%s\n' "$*" >> "$CI_CARGO_ARGUMENT_TRACE"
 if [[ "$1" == clippy && " $* " == *' -p icydb-testing-integration '* ]]; then
@@ -242,7 +293,8 @@ chmod +x "$native/bin/cargo"
 # This fixture substitutes product effects and shared tooling admission; the
 # real root declaration/lock/snapshot is checked separately by the owning gate.
 mkdir -p "$native/scripts/dev"
-cat > "$native/scripts/dev/toko-tooling.sh" <<'TOOLING'
+mkdir -p "$native/vendor/toko-tooling/scripts/dev"
+cat > "$native/vendor/toko-tooling/scripts/dev/toko-tooling.sh" <<'TOOLING'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$*" == "check --consumer $CI_CARGO_ROOT --manifest .toko-tooling.snapshot" ]]
@@ -342,9 +394,9 @@ printf '%s\n' 'check default' 'check default' 'check default' 'check default' 'c
   'test 2' 'test 2' 'test 2' 'test default' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 # The native workspace keeps explicit testing and generation feature lint lanes.
-grep -Fx -- 'clippy --locked -p icydb --all-targets --features testing -- -D warnings' \
+grep -Fx -- 'clippy --locked -p icydb --all-targets --features testing' \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
-grep -Fx -- 'clippy --locked -p icydb-model --all-targets --features build -- -D warnings' \
+grep -Fx -- 'clippy --locked -p icydb-model --all-targets --features build' \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 # Adapter CI must select the complete artifact binary, including the fleet test.
 grep -Fx -- "test --manifest-path $native/testing/canic-adapter/Cargo.toml --locked -p icydb-testing-integration --test canister_artifact_contract -- --include-ignored --nocapture" \
@@ -600,7 +652,8 @@ cmp "$native/expected-trace" "$CI_CARGO_SERVER_TRACE"
 # transport. The separate group matrix owns metadata/receipt semantics.
 mkdir -p "$native/scripts/release" "$native/ci"
 cp "$ROOT/scripts/release/group.sh" "$native/scripts/release/"
-cp "$ROOT/scripts/ci/cargo-release-groups.jq" "$native/scripts/ci/"
+mkdir -p "$native/vendor/toko-tooling/scripts/ci/"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/cargo-release-groups.jq" "$native/vendor/toko-tooling/scripts/ci/"
 cp "$ROOT/ci/cargo-release-groups.json" "$native/ci/"
 export RELEASE_GROUP=database
 for callback in prepare check-metadata version; do
@@ -610,7 +663,7 @@ set -euo pipefail
 cargo metadata --locked --offline --format-version 1 >/dev/null
 CALLBACK
 done
-cp "$native/scripts/release/check-metadata.sh" "$native/scripts/ci/cargo-release-group.sh"
+cp "$native/scripts/release/check-metadata.sh" "$native/vendor/toko-tooling/scripts/ci/cargo-release-group.sh"
 cp "$native/scripts/release/check-metadata.sh" "$native/scripts/ci/release-candidate-receipt.sh"
 cp "$native/scripts/release/check-metadata.sh" "$native/scripts/ci/record-release-gate-receipt.sh"
 for lane in release-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-prepare-version; do
@@ -667,9 +720,10 @@ cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cleanup="$FIXTURE/cleanup"
 mkdir -p "$cleanup/make" "$cleanup/scripts/ci" "$cleanup/src" "$cleanup/.cache"
 cp "$ROOT/Makefile" "$cleanup/"
-cp "$ROOT/make/"*.mk "$cleanup/make/"
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$cleanup" \
-  scripts/ci/check-make-execution.sh ci/tool-versions.env
+mkdir -p "$cleanup/vendor/toko-tooling/make"
+cp "$ROOT/vendor/toko-tooling/make/"*.mk "$cleanup/vendor/toko-tooling/make/"
+bash "$ROOT/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$cleanup" \
+  vendor/toko-tooling/scripts/ci/check-make-execution.sh vendor/toko-tooling/ci/tool-versions.env
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$cleanup/scripts/ci/"
 # Release scratch can be inside the checkout; stop Cargo's ancestor workspace
 # discovery at this disposable fixture rather than inheriting the product root.
@@ -747,7 +801,7 @@ printf '%s\n' 1.7.12
 TOOL
 chmod +x "$FIXTURE/bin/"*
 tar -czf "$FIXTURE/artifact.tar.gz" -C "$FIXTURE/bin" actionlint
-digest="$(bash "$FIXTURE/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/artifact.tar.gz")"
+digest="$(bash "$FIXTURE/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/artifact.tar.gz")"
 printf 'version\t1.7.12\n' > "$FIXTURE/scripts/ci/actionlint-checksums.tsv"
 for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
   printf '%s\tactionlint_1.7.12_%s.tar.gz\n' "$digest" "$platform" \
@@ -774,22 +828,27 @@ done
 # Exercise compiled invariant transport through the actual aggregate recipes.
 # Other fixtures/static checks are substitutes; selected Cargo failures stop
 # before any product gate or commit-producing receipt body can execute.
-for script in "$ROOT/scripts/ci/"{check-,test-}*.sh "$ROOT/scripts/release/test-"*.sh \
-  "$ROOT/scripts/ci/verify-toko-tooling-snapshot.sh"; do
+for script in "$ROOT/vendor/toko-tooling/scripts/ci/check-"*.sh "$ROOT/scripts/ci/"{check-,test-}*.sh "$ROOT/scripts/release/test-"*.sh \
+  "$ROOT/vendor/toko-tooling/scripts/ci/verify-toko-tooling-snapshot.sh"; do
   relative="${script#"$ROOT/"}"
   mkdir -p "$native/${relative%/*}"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$native/$relative"
 done
 mkdir -p "$native/scripts/dev"
-for script in scripts/dev/delete-github-tags-up-to.pl \
+for script in vendor/toko-tooling/scripts/dev/delete-github-tags-up-to.pl \
   scripts/ci/test-documentation.pl scripts/ci/check-documentation.pl \
-  scripts/ci/test-database-validation.pl scripts/ci/check-candid-boundary.pl; do
+  scripts/ci/test-database-validation.pl vendor/toko-tooling/scripts/ci/check-candid-boundary.pl; do
   printf 'exit 0;\n' > "$native/$script"
 done
-for script in check-make-execution.sh invariant-common.sh check-dependency-graph-invariants.sh \
-  check-executor-no-production-panics.sh test-invariant-scanners.sh \
-  check-generated-endpoint-invariants.sh check-schema-model-boundary-invariants.sh; do
-  cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
+for script in vendor/toko-tooling/scripts/ci/check-make-execution.sh \
+  scripts/ci/invariant-common.sh \
+  scripts/ci/check-dependency-graph-invariants.sh \
+  scripts/ci/check-executor-no-production-panics.sh \
+  scripts/ci/test-invariant-scanners.sh \
+  scripts/ci/check-generated-endpoint-invariants.sh \
+  scripts/ci/check-schema-model-boundary-invariants.sh; do
+  mkdir -p "$native/${script%/*}"
+  cp "$ROOT/$script" "$native/$script"
 done
 cp "$ROOT/"{Cargo.toml,Cargo.lock,.toko-tooling.snapshot} "$native/"
 for owner in executor commit journal startup; do
@@ -860,7 +919,7 @@ check-invariants check check-feature-matrix test:
 MAKE
 # Admit only the explicitly substituted fixture recipes. Product fingerprint
 # drift must still stop the real validate entry point before Cargo dispatch.
-fixture_make_sha="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$native/Makefile")"
+fixture_make_sha="$(bash "$ROOT/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$native/Makefile")"
 jq -cS --arg hash "$fixture_make_sha" '.files.Makefile = $hash' \
   "$native/ci/release-validation-contract.json" > "$native/fixture-contract.json"
 mv "$native/fixture-contract.json" "$native/ci/release-validation-contract.json"

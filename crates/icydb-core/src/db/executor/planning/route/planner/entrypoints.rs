@@ -51,7 +51,7 @@ pub(in crate::db::executor) fn build_execution_route_plan(
             authority,
             load_terminal_fast_path,
         } => {
-            build_load_execution_route_plan(plan, continuation, authority, load_terminal_fast_path)
+            build_load_execution_route_plan(plan, &continuation, authority, load_terminal_fast_path)
         }
         RoutePlanRequest::Grouped {
             grouped_plan_strategy,
@@ -62,7 +62,7 @@ pub(in crate::db::executor) fn build_execution_route_plan(
 /// Build canonical execution routing while borrowing accepted entity authority.
 fn build_load_execution_route_plan(
     plan: &AccessPlannedQuery,
-    continuation: ScalarContinuationContext,
+    continuation: &ScalarContinuationContext,
     authority: Option<&EntityAuthority>,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
@@ -84,7 +84,7 @@ fn build_load_execution_route_plan(
     )?;
 
     Ok(build_execution_route_plan_from_stages(
-        intent_stage,
+        &intent_stage,
         feasibility_stage,
         load_terminal_fast_path,
     ))
@@ -101,13 +101,13 @@ pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
     let intent_stage = derive_aggregate_route_intent_stage(aggregate, execution_preparation);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
-        ScalarContinuationContext::initial(),
+        &ScalarContinuationContext::initial(),
         planner_route_profile,
         &intent_stage,
     )?;
 
     Ok(build_execution_route_plan_from_stages(
-        intent_stage,
+        &intent_stage,
         feasibility_stage,
         None,
     ))
@@ -121,13 +121,13 @@ fn build_grouped_execution_route_plan(
     let intent_stage = derive_grouped_route_intent_stage(grouped_plan_strategy);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
-        ScalarContinuationContext::initial(),
+        &ScalarContinuationContext::initial(),
         planner_route_profile,
         &intent_stage,
     )?;
 
     Ok(build_execution_route_plan_from_stages(
-        intent_stage,
+        &intent_stage,
         feasibility_stage,
         None,
     ))

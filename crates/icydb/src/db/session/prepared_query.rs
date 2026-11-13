@@ -156,7 +156,7 @@ where
         } = prepare_live_page_step(page, continuation)?.into_page();
         let rows = self
             .session
-            .prepare_typed_output_rows(&self.binding, entity, columns, rows)?;
+            .prepare_typed_output_rows(&self.binding, entity, &columns, rows)?;
         Ok(PreparedLivePageOutput {
             rows,
             continuation,

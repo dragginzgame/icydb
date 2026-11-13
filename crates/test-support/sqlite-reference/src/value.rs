@@ -58,7 +58,12 @@ pub enum SqliteReferenceValue {
     /// A strict boolean value.
     Boolean(bool),
     /// An exact decimal coefficient and scale.
-    Decimal { mantissa: i128, scale: u32 },
+    Decimal {
+        /// Signed integer coefficient before applying the decimal scale.
+        mantissa: i128,
+        /// Number of fractional decimal digits.
+        scale: u32,
+    },
     /// A signed 64-bit integer.
     Integer(i64),
     /// SQL `NULL`.

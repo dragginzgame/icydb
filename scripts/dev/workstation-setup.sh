@@ -20,7 +20,7 @@ esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=/dev/null
-source "$ROOT/ci/tool-versions.env"
+source "$ROOT/vendor/toko-tooling/ci/tool-versions.env"
 # shellcheck source=/dev/null
 source "$ROOT/ci/icydb-tools.env"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"

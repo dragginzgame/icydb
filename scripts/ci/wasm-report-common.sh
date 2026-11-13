@@ -2,7 +2,7 @@
 
 # Shared Tooling owns portable file hashing; report subjects and schema stay local.
 wasm_report_sha256() {
-    bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$1"
+    bash "$ROOT/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$1"
 }
 
 # One product-owned roster serves Rust admission and portable shell selection.

@@ -47,15 +47,25 @@ pub(crate) use ulid::generate_ulid_at;
 // - Ulid uses exactly 16 bytes in Wire/binary Serde and canonical text in
 //   human-readable Serde.
 
+/// Schema-facing alias for a boolean.
 pub type Bool = bool;
+/// Schema-facing alias for a signed 8-bit integer.
 pub type Int8 = i8;
+/// Schema-facing alias for a signed 16-bit integer.
 pub type Int16 = i16;
+/// Schema-facing alias for a signed 32-bit integer.
 pub type Int32 = i32;
+/// Schema-facing alias for a signed 64-bit integer.
 pub type Int64 = i64;
+/// Schema-facing alias for an unsigned 8-bit integer.
 pub type Nat8 = u8;
+/// Schema-facing alias for an unsigned 16-bit integer.
 pub type Nat16 = u16;
+/// Schema-facing alias for an unsigned 32-bit integer.
 pub type Nat32 = u32;
+/// Schema-facing alias for an unsigned 64-bit integer.
 pub type Nat64 = u64;
+/// Schema-facing alias for an owned UTF-8 string.
 pub type Text = String;
 
 #[cfg(test)]

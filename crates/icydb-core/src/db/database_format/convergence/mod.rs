@@ -10,8 +10,7 @@ use crate::{
         Db,
         commit::{
             MAX_PERSISTED_STORE_ALLOCATIONS, PersistedCommitControlObservation,
-            PersistedStoreAllocation, PersistedStoreAllocationState,
-            apply_prepared_commit_control_replacement, canonicalize_store_registry,
+            PersistedStoreAllocation, PersistedStoreAllocationState, canonicalize_store_registry,
             inspect_persisted_commit_control, prepare_commit_control_replacement,
             replace_persisted_cursor_authentication_key,
         },
@@ -236,7 +235,7 @@ fn publish_control_replacement(
     for tail in tails {
         tail.with_borrow_mut(JournalTailStore::apply_current_tail_control_initialization);
     }
-    apply_prepared_commit_control_replacement(replacement);
+    replacement.apply();
     Ok(())
 }
 

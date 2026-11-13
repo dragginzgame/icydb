@@ -724,7 +724,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         returning: _,
     } = statement;
 
-    lower_delete_query_modifiers(predicate, order_by, limit, offset, work)
+    lower_delete_query_modifiers(predicate.as_ref(), order_by, limit, offset, work)
 }
 
 /// Lower one full DELETE statement into the narrowed prepared execution shape.
@@ -741,7 +741,8 @@ pub(in crate::db::sql::lowering) fn lower_delete_statement_shape(
         entity: _,
         table_alias: _,
     } = statement;
-    let base_query = lower_delete_query_modifiers(predicate, order_by, limit, offset, work)?;
+    let base_query =
+        lower_delete_query_modifiers(predicate.as_ref(), order_by, limit, offset, work)?;
 
     Ok(LoweredDeleteShape {
         base_query,
@@ -752,7 +753,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_statement_shape(
 // Lower the executable DELETE query modifiers once for both generic base-query
 // callers and the narrowed prepared DELETE artifact.
 fn lower_delete_query_modifiers(
-    predicate: Option<SqlExpr>,
+    predicate: Option<&SqlExpr>,
     order_by: Vec<SqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,

@@ -22,6 +22,7 @@ use crate::db::allocation_id;
 ///
 
 pub trait Path {
+    /// Fully qualified schema path of the implementing type.
     const PATH: &'static str;
 }
 
@@ -74,8 +75,11 @@ pub trait CanisterKind: Path + 'static {
 ///
 
 pub trait Repr {
+    /// Primitive representation carried by the scalar wrapper.
     type Inner;
 
+    /// Return the wrapper's primitive representation.
     fn repr(&self) -> Self::Inner;
+    /// Construct the wrapper from its primitive representation.
     fn from_repr(inner: Self::Inner) -> Self;
 }

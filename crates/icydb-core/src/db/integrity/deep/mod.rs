@@ -68,12 +68,12 @@ pub(in crate::db) fn start_deep_integrity_job<C: CanisterKind>(
     plan: &AcceptedInspectionPlan,
     owner: IntegrityJobOwner,
     submission_key: IntegritySubmissionKey,
-    proof_a: crate::db::integrity::IntegrityProofVector,
+    proof_a: &crate::db::integrity::IntegrityProofVector,
     proof_b: crate::db::integrity::IntegrityProofVector,
 ) -> Result<IntegrityJobReceipt, IntegrityDeepError> {
     owner.validate()?;
     submission_key.validate()?;
-    if proof_a != proof_b {
+    if *proof_a != proof_b {
         return Err(IntegrityJobError::StartInvalidated.into());
     }
     let incarnation = proof_b.database_incarnation_id();
@@ -583,7 +583,7 @@ fn execute_journal_candidate<C: CanisterKind>(
         .journal_tail_store()
         .ok_or_else(InternalError::store_unsupported)?;
     let page = journal.with_borrow(|journal| {
-        journal.inspect_page(checkpoint.clone(), JournalInspectionLimits::standard())
+        journal.inspect_page(checkpoint, JournalInspectionLimits::standard())
     })?;
     let next = if page.exhausted() {
         checkpoint_after_journal(job, ordinal)?

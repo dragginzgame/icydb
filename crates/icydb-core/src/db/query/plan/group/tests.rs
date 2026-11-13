@@ -120,7 +120,7 @@ fn grouped_layout_only_direct_outputs_preserve_identity() {
                 "profile",
                 vec!["key".into()],
                 0,
-                AcceptedFieldKind::Int64,
+                &AcceptedFieldKind::Int64,
             )]),
             Expr::FieldPath(FieldPath::new("profile", vec!["key".into()])),
         ),

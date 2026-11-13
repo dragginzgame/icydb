@@ -19,7 +19,7 @@ icydb-model = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

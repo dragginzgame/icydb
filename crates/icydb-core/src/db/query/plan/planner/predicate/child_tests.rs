@@ -16,7 +16,7 @@ use icydb_diagnostic_code::{
 
 fn check_admission(
     children: &[AccessPlan<Value>],
-    expected: Option<(AccessPlan<Value>, Reason)>,
+    expected: Option<&(AccessPlan<Value>, Reason)>,
     bytes: u64,
     steps: u64,
     copies: u64,
@@ -38,7 +38,7 @@ fn check_admission(
                                 let (access, reason) = selection.into_access_and_non_index_reason();
                                 (access, reason.unwrap())
                             });
-                            assert_eq!(result, expected);
+                            assert_eq!(result.as_ref(), expected);
                             assert_eq!(root.observed(resource), attempt * exact);
                         } else {
                             assert_budget_resource(
@@ -71,7 +71,7 @@ fn child_key_reduction_admits_views_and_only_copies_surviving_keys() {
             AccessPlan::by_keys(vec![b.clone(), a.clone(), b.clone(), c.clone()]),
             AccessPlan::by_keys(vec![c.clone(), b.clone(), d]),
         ],
-        Some((
+        Some(&(
             AccessPlan::by_keys(vec![b.clone(), c]),
             Reason::PlannerKeySetAccess,
         )),
@@ -84,7 +84,7 @@ fn child_key_reduction_admits_views_and_only_copies_surviving_keys() {
             AccessPlan::by_keys(vec![b.clone(), a.clone(), b.clone()]),
             AccessPlan::by_key(b.clone()),
         ],
-        Some((
+        Some(&(
             AccessPlan::by_key(b.clone()),
             Reason::SingletonPrimaryKeyChildAccessPreferred,
         )),
@@ -94,7 +94,7 @@ fn child_key_reduction_admits_views_and_only_copies_surviving_keys() {
     );
     check_admission(
         &[AccessPlan::by_key(a.clone()), AccessPlan::by_key(b.clone())],
-        Some((
+        Some(&(
             AccessPlan::by_keys(Vec::new()),
             Reason::ConflictingPrimaryKeyChildrenAccessPreferred,
         )),
@@ -108,7 +108,7 @@ fn child_key_reduction_admits_views_and_only_copies_surviving_keys() {
             AccessPlan::by_key(b),
             AccessPlan::by_keys(Vec::new()),
         ],
-        Some((
+        Some(&(
             AccessPlan::by_keys(Vec::new()),
             Reason::EmptyChildAccessPreferred,
         )),

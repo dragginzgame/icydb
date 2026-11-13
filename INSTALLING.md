@@ -269,7 +269,7 @@ Cargo helper tools, ICP tooling, and repository hooks.
 tool selections are installed (apart from installing `gh` if missing), ensures
 the repository's formatting hook is installed, and leaves repository dependencies
 unchanged. The reviewed Shared snapshot owns common executable selections in
-[ci/ic-tools.tsv](ci/ic-tools.tsv) and [ci/tool-versions.env](ci/tool-versions.env);
+[vendor/toko-tooling/ci/ic-tools.tsv](vendor/toko-tooling/ci/ic-tools.tsv) and [vendor/toko-tooling/ci/tool-versions.env](vendor/toko-tooling/ci/tool-versions.env);
 IcyDB Cargo utilities are selected
 by [ci/icydb-tools.env](ci/icydb-tools.env). Changing selections is an explicit
 snapshot adoption or a documented, explicitly selected consumer exception.
@@ -384,7 +384,7 @@ Formatting and lint-oriented Make targets expect the Cargo helper binaries used
 by the repository:
 
 ```bash
-source ci/tool-versions.env
+source vendor/toko-tooling/ci/tool-versions.env
 source ci/icydb-tools.env
 cargo install cargo-sort --version "$TOKO_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
@@ -693,7 +693,7 @@ gate for release readiness and other hook bypasses.
 Use the shared Perl command with an explicit reviewed cutoff:
 
 ```bash
-perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210
+perl vendor/toko-tooling/scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210
 ```
 
 This previews local stable tags through every patch of that minor line, including
@@ -763,7 +763,7 @@ manually and use `make update-dev` to install user-local tools.
 Install the repository's formatting helper binaries:
 
 ```bash
-source ci/tool-versions.env
+source vendor/toko-tooling/ci/tool-versions.env
 source ci/icydb-tools.env
 cargo install cargo-sort --version "$TOKO_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked

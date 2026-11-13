@@ -1,7 +1,11 @@
 //! SQL `DELETE` policy parsing, shape classification, and admission planning.
 //! Does not own: public DTO definitions or delete execution.
 
-use super::model::*;
+use crate::db::session::sql::delete_policy::model::{
+    SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlDeletePolicyRejection,
+    SqlDeletePolicyResult, SqlPublicBoundedDeletePlan, SqlPublicPrimaryKeyDeletePlan,
+    SqlValidatedDeletePlan,
+};
 #[cfg(test)]
 use crate::db::{QueryError, sql::parser::parse_sql};
 use crate::db::{
@@ -82,7 +86,7 @@ fn classify_write_shape(
     statement: &SqlDeleteStatement,
     context: SqlDeletePolicyContext<'_>,
 ) -> SqlWriteStatementShape {
-    classify_write_statement_shape(SqlWriteStatementShapeInput {
+    classify_write_statement_shape(&SqlWriteStatementShapeInput {
         predicate: statement.predicate.as_ref(),
         entity: statement.entity.as_str(),
         table_alias: statement.table_alias.as_deref(),

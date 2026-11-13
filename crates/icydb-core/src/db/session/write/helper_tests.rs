@@ -27,7 +27,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }))
             },
             operation_timestamp,
-            AcceptedStructuralMutationCommitOptions::with_mutation_progress(),
+            &AcceptedStructuralMutationCommitOptions::with_mutation_progress(),
             |rows, _report| {
                 Ok((
                     rows.len(),

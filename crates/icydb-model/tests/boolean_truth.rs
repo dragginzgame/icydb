@@ -4,9 +4,11 @@ use icydb_model::{build::get_schema, node::Entity, prelude::*};
 use icydb_schema::{ScalarLiteral, SourceCheckExpr, SourceCheckInstruction};
 
 #[canister(memory_namespace = "boolean_truth")]
+/// Canister containing total Boolean-test fixtures.
 pub struct TruthCanister;
 
 #[store(canister = "TruthCanister", storage(journaled(key = "main")))]
+/// Journaled store for Boolean checks and filtered indexes.
 pub struct TruthStore;
 
 #[entity(
@@ -30,6 +32,7 @@ pub struct TruthStore;
         field(name = "d", value(item(prim = "Nat64")))
     )
 )]
+/// Row declaring equivalent Boolean checks and filtered-index predicates.
 pub struct TruthRow;
 
 // Interpret the documented public Boolean instruction semantics independently

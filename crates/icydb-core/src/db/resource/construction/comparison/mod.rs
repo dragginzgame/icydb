@@ -68,7 +68,7 @@ struct ComparisonExtent {
 }
 
 impl ComparisonExtent {
-    const fn include(&mut self, other: Self) {
+    const fn include(&mut self, other: &Self) {
         self.nodes = self.nodes.saturating_add(other.nodes);
         self.bytes = self.bytes.saturating_add(other.bytes);
     }
@@ -118,21 +118,21 @@ fn comparison_extent<E>(
         Value::Blob(blob) => blob.len() as u64,
         Value::List(values) => {
             for value in values {
-                extent.include(comparison_extent(value, charge)?);
+                extent.include(&comparison_extent(value, charge)?);
             }
             0
         }
         Value::Map(entries) => {
             // Structural equality compares stored entries; it does not sort.
             for (key, value) in entries {
-                extent.include(comparison_extent(key, charge)?);
-                extent.include(comparison_extent(value, charge)?);
+                extent.include(&comparison_extent(key, charge)?);
+                extent.include(&comparison_extent(value, charge)?);
             }
             0
         }
         Value::Enum(value) => {
             if let Some(payload) = value.payload() {
-                extent.include(comparison_extent(payload, charge)?);
+                extent.include(&comparison_extent(payload, charge)?);
             }
             0
         }

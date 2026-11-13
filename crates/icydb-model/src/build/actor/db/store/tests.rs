@@ -3,7 +3,7 @@ use crate::node::StoreJournaledMemoryConfig;
 use crate::node::{Canister, Def, Schema};
 use std::sync::Arc;
 
-fn compact_tokens(tokens: TokenStream) -> String {
+fn compact_tokens(tokens: &TokenStream) -> String {
     tokens
         .to_string()
         .chars()
@@ -31,7 +31,7 @@ fn actor_builder() -> ActorBuilder {
     ActorBuilder::new(
         Arc::new(Schema::new()),
         Canister::new(Def::new("test", "Canister"), "test", None),
-        icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
+        &icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
             .expect("empty test fragment should admit"),
         None,
         quote::quote!(::icydb),
@@ -40,7 +40,7 @@ fn actor_builder() -> ActorBuilder {
 
 #[test]
 fn generated_bootstrap_uses_current_storage_grants() {
-    let rendered = compact_tokens(generate_store_wiring(&actor_builder(), quote!()));
+    let rendered = compact_tokens(&generate_store_wiring(&actor_builder(), &quote!()));
     assert!(rendered.contains("ensure_default_storage_runtime"));
     assert!(rendered.contains("::icydb::db::StorageConfig::default()"));
     assert!(rendered.contains("crate::icydb_storage_grants"));
@@ -48,7 +48,7 @@ fn generated_bootstrap_uses_current_storage_grants() {
 
 #[test]
 fn ordinary_admission_checks_startup_state() {
-    let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
+    let rendered = compact_tokens(&schema_bootstrap_tokens(&actor_builder()));
 
     assert!(rendered.contains("fnadmit_ordinary_database_work("));
     assert!(rendered.contains("DatabaseStartupState::Ready"));
@@ -57,7 +57,7 @@ fn ordinary_admission_checks_startup_state() {
 
 #[test]
 fn native_startup_driver_advances_bounded_database_work() {
-    let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
+    let rendered = compact_tokens(&schema_bootstrap_tokens(&actor_builder()));
     for required in [
         "pub(crate)fnstartup_driver_attempt(",
         "__drive_generated_startup_recovery_page",
@@ -73,7 +73,7 @@ fn native_startup_driver_advances_bounded_database_work() {
 
 #[test]
 fn startup_observation_is_ungated_and_never_becomes_an_automatic_endpoint() {
-    let rendered = compact_tokens(startup_observation_tokens(&quote!(::icydb)));
+    let rendered = compact_tokens(&startup_observation_tokens(&quote!(::icydb)));
 
     assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));
     assert!(rendered.contains("ensure_memory_bootstrap()"));
@@ -196,12 +196,12 @@ fn store_registry_wiring_preserves_startup_admission() {
         store_inits,
     };
 
-    let rendered = compact_tokens(store_wiring_tokens(
+    let rendered = compact_tokens(&store_wiring_tokens(
         &quote!(::icydb),
         registry,
-        quote!(),
-        quote!(),
-        CanisterMemoryWiring {
+        &quote!(),
+        &quote!(),
+        &CanisterMemoryWiring {
             commit: "icydb.demo.commit.control.v1",
             startup: "icydb.demo.startup.control.v1",
             integrity_progress: "icydb.demo.integrity.progress.v1",

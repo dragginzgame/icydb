@@ -47,13 +47,13 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: IntegrityCheckRequest,
         owner: IntegrityJobOwner,
-        quick_catalog: Option<AcceptedSchemaCatalogContext>,
+        quick_catalog: Option<&AcceptedSchemaCatalogContext>,
     ) -> Result<IntegrityCheckResult, IntegrityDeepError> {
         self.db.ensure_recovered_control_state()?;
         owner.validate()?;
         let result = match request {
             IntegrityCheckRequest::Quick { entity } => self
-                .execute_quick_integrity_for_identity(&entity, quick_catalog.as_ref())
+                .execute_quick_integrity_for_identity(&entity, quick_catalog)
                 .map(IntegrityCheckResult::Quick),
             IntegrityCheckRequest::DeepStart {
                 entity,
@@ -87,7 +87,7 @@ impl<C: CanisterKind> DbSession<C> {
             return self.execute_quick_integrity_with_catalog(entity, catalog);
         }
         let (runtime_entity, store) = self.integrity_target(entity)?;
-        match self.accepted_integrity_catalog_context_for_runtime_entity(runtime_entity, store) {
+        match self.accepted_integrity_catalog_context_for_runtime_entity(&runtime_entity, store) {
             Ok(catalog) => self.execute_quick_integrity_with_catalog(entity, &catalog),
             Err(AcceptedInspectionPlanLoadError::Selected { identity, error }) => {
                 let accepted = IntegrityEntityIdentity::from_accepted_identity(&identity);
@@ -97,7 +97,7 @@ impl<C: CanisterKind> DbSession<C> {
                 match IntegrityDeepError::from_plan_load(error) {
                     IntegrityDeepError::Uninspectable(diagnostic) => {
                         Ok(uninspectable_quick_integrity(
-                            identity,
+                            &identity,
                             database_incarnation_id()?,
                             diagnostic,
                         ))
@@ -166,7 +166,7 @@ impl<C: CanisterKind> DbSession<C> {
             owner,
             submission_key,
             |runtime_entity, store| {
-                self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
+                self.accepted_inspection_plan_for_runtime_entity(&runtime_entity, store)
             },
         )
     }
@@ -194,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &second_plan)?;
         let proof_b = capture_integrity_proof_vector(&self.db, &second_plan)?;
-        start_deep_integrity_job::<C>(&second_plan, owner, submission_key, proof_a, proof_b)
+        start_deep_integrity_job::<C>(&second_plan, owner, submission_key, &proof_a, proof_b)
     }
 
     fn deep_start_plan_load_error(
@@ -228,7 +228,7 @@ impl<C: CanisterKind> DbSession<C> {
             |entity_path| {
                 let runtime_entity = self.db.accepted_runtime_entity_for_path(entity_path)?;
                 let store = self.db.store_handle(runtime_entity.store_path())?;
-                self.accepted_inspection_plan_for_runtime_entity(runtime_entity, store)
+                self.accepted_inspection_plan_for_runtime_entity(&runtime_entity, store)
                     .map_err(AcceptedInspectionPlanLoadError::into_internal)
             },
         )

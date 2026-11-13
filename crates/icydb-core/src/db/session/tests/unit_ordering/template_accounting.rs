@@ -151,10 +151,6 @@ fn cache_preparation_failure_does_not_publish_or_replace_cached_plans() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the template matrix verifies construction refusal, publication and subsequent warm reuse together"
-)]
 fn template_candidate_construction_rejects_before_publication_and_shares_warm_authority() {
     let setup = initialize();
     seed_singleton(&setup);
@@ -202,7 +198,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             for _ in 0..2 {
                 let error = session
                     .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
-                        catalog.accepted_entity_authority().clone(),
+                        catalog.accepted_entity_authority(),
                         &catalog,
                         &queries[0],
                         lane,
@@ -233,7 +229,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             let session = new_request_session_with_root(&admitted);
             let (_, reuse) = session
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
-                    catalog.accepted_entity_authority().clone(),
+                    catalog.accepted_entity_authority(),
                     &catalog,
                     &queries[0],
                     lane,
@@ -251,7 +247,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             for (position, query) in queries.iter().enumerate() {
                 let (_, reuse) = session
                     .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
-                        catalog.accepted_entity_authority().clone(),
+                        catalog.accepted_entity_authority(),
                         &catalog,
                         query,
                         lane,

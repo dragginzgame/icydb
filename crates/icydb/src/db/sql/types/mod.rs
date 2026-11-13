@@ -49,27 +49,28 @@ impl SqlQueryPageResult {
     }
 }
 
-#[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
+#[doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
     derive(ic_wire::Wire)
 )]
 pub struct SqlGroupedRowsOutput {
+    /// Accepted entity name.
     pub entity: String,
+    /// Output column labels in row-cell order.
     pub columns: Vec<String>,
     /// SQL display cells: NULL is uppercase and marker-like text is quoted.
     /// Values are formatted before conversion; consumers must not infer types
     /// from these strings or rewrite them.
     pub rows: Vec<Vec<String>>,
+    /// Number of rows represented by this result.
     pub row_count: u32,
+    /// Opaque grouped continuation token, absent after exhaustion.
     pub next_cursor: Option<String>,
 }
 
-#[cfg_attr(
-    doc,
-    doc = "SqlConstraintValidationOutput\n\nTyped progress from one bounded constraint-validation step."
-)]
+#[doc = "SqlConstraintValidationOutput\n\nTyped progress from one bounded constraint-validation step."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -94,53 +95,87 @@ pub struct SqlConstraintValidationOutput {
     pub complete: bool,
 }
 
-#[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
+#[doc = "SqlQueryResult\n\nUnified SQL endpoint result."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
     derive(ic_wire::Wire)
 )]
 pub enum SqlQueryResult {
+    /// Number of rows selected by a count statement.
     Count {
+        /// Accepted entity name.
         entity: String,
+        /// Number of rows represented by this result.
         row_count: u32,
     },
+    /// Projected scalar rows.
     Projection(RowProjectionOutput),
+    /// Grouped aggregate rows and continuation.
     Grouped(SqlGroupedRowsOutput),
+    /// Rendered query plan.
     Explain {
+        /// Accepted entity name.
         entity: String,
+        /// Human-readable plan produced by the engine.
         explain: String,
     },
+    /// Accepted entity description.
     Describe(SqlDescribeOutput),
+    /// Accepted constraints for an entity.
     ShowConstraints {
+        /// Accepted entity name.
         entity: String,
+        /// Accepted constraint descriptions.
         constraints: Vec<EntityConstraintDescription>,
     },
+    /// Index names for an entity.
     ShowIndexes {
+        /// Accepted entity name.
         entity: String,
+        /// Accepted index names.
         indexes: Vec<String>,
     },
+    /// Accepted column metadata.
     ShowColumns(SqlShowColumnsOutput),
+    /// Accepted relationship metadata.
     ShowRelations(SqlShowRelationsOutput),
+    /// Database entity catalog.
     ShowEntities {
+        /// Entity catalog entries.
         entities: Vec<EntityCatalogDescription>,
+        /// Whether detailed catalog output was requested.
         verbose: bool,
     },
+    /// Database store catalog.
     ShowStores {
+        /// Store catalog entries.
         stores: Vec<StoreCatalogDescription>,
+        /// Whether detailed catalog output was requested.
         verbose: bool,
     },
+    /// Database memory catalog.
     ShowMemory {
+        /// Memory catalog entries.
         memory: Vec<MemoryCatalogDescription>,
     },
+    /// Result or bounded progress of a schema mutation.
     Ddl {
+        /// Accepted entity name.
         entity: String,
+        /// Kind of schema mutation performed.
         mutation_kind: String,
+        /// Index targeted by this mutation, when applicable.
         target_index: String,
+        /// Store targeted by this mutation, when applicable.
         target_store: String,
+        /// Field segments targeted by this mutation, when applicable.
         field_path: Vec<String>,
+        /// Engine-reported mutation status.
         status: String,
+        /// Cumulative rows scanned by this mutation.
         rows_scanned: u64,
+        /// Cumulative index keys written by this mutation.
         index_keys_written: u64,
         /// Typed progress when this statement advances constraint validation.
         constraint_validation: Option<SqlConstraintValidationOutput>,

@@ -24,9 +24,9 @@ use crate::{
 use proptest::prelude::*;
 use std::cmp::Ordering;
 
-fn assert_encoded_order(left: Value, right: Value, expected: Ordering) {
-    let left_bytes = encode_canonical_index_component(&left).expect("left should encode");
-    let right_bytes = encode_canonical_index_component(&right).expect("right should encode");
+fn assert_encoded_order(left: &Value, right: &Value, expected: Ordering) {
+    let left_bytes = encode_canonical_index_component(left).expect("left should encode");
+    let right_bytes = encode_canonical_index_component(right).expect("right should encode");
 
     assert_eq!(left_bytes.cmp(&right_bytes), expected);
 }
@@ -139,13 +139,17 @@ fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants(
 
 #[test]
 fn canonical_encoder_respects_numeric_order_for_scalars() {
-    assert_encoded_order(Value::Int64(-2), Value::Int64(7), Ordering::Less);
-    assert_encoded_order(Value::Int128(-2i128), Value::Int128(7i128), Ordering::Less);
-    assert_encoded_order(Value::Nat64(2), Value::Nat64(7), Ordering::Less);
-    assert_encoded_order(Value::Nat128(2u128), Value::Nat128(7u128), Ordering::Less);
+    assert_encoded_order(&Value::Int64(-2), &Value::Int64(7), Ordering::Less);
     assert_encoded_order(
-        Value::U256(U256::ZERO),
-        Value::U256(U256::MAX),
+        &Value::Int128(-2i128),
+        &Value::Int128(7i128),
+        Ordering::Less,
+    );
+    assert_encoded_order(&Value::Nat64(2), &Value::Nat64(7), Ordering::Less);
+    assert_encoded_order(&Value::Nat128(2u128), &Value::Nat128(7u128), Ordering::Less);
+    assert_encoded_order(
+        &Value::U256(U256::ZERO),
+        &Value::U256(U256::MAX),
         Ordering::Less,
     );
 }
@@ -199,34 +203,34 @@ fn canonical_encoder_respects_float_order() {
     let zero = Value::Float64(Float64::try_new(0.0).expect("finite"));
     let pos = Value::Float64(Float64::try_new(1.5).expect("finite"));
 
-    assert_encoded_order(neg, zero.clone(), Ordering::Less);
-    assert_encoded_order(zero, pos, Ordering::Less);
+    assert_encoded_order(&neg, &zero, Ordering::Less);
+    assert_encoded_order(&zero, &pos, Ordering::Less);
 
     let neg32 = Value::Float32(Float32::try_new(-1.5).expect("finite"));
     let zero32 = Value::Float32(Float32::try_new(0.0).expect("finite"));
     let pos32 = Value::Float32(Float32::try_new(1.5).expect("finite"));
 
-    assert_encoded_order(neg32, zero32.clone(), Ordering::Less);
-    assert_encoded_order(zero32, pos32, Ordering::Less);
+    assert_encoded_order(&neg32, &zero32, Ordering::Less);
+    assert_encoded_order(&zero32, &pos32, Ordering::Less);
 }
 
 #[test]
 fn canonical_encoder_respects_text_and_identifier_order() {
     assert_encoded_order(
-        Value::Text("a".to_string()),
-        Value::Text("b".to_string()),
+        &Value::Text("a".to_string()),
+        &Value::Text("b".to_string()),
         Ordering::Less,
     );
 
     assert_encoded_order(
-        Value::Principal(Principal::from_slice(&[1u8])),
-        Value::Principal(Principal::from_slice(&[2u8])),
+        &Value::Principal(Principal::from_slice(&[1u8])),
+        &Value::Principal(Principal::from_slice(&[2u8])),
         Ordering::Less,
     );
 
     assert_encoded_order(
-        Value::Ulid(Ulid::from_u128(1)),
-        Value::Ulid(Ulid::from_u128(2)),
+        &Value::Ulid(Ulid::from_u128(1)),
+        &Value::Ulid(Ulid::from_u128(2)),
         Ordering::Less,
     );
 }
@@ -438,7 +442,6 @@ fn timestamp_ordered_encoding_preserves_signed_millisecond_order() {
 // Deterministic property-style check: for each primitive family fixture,
 // canonical value ordering must match canonical encoded-byte ordering.
 #[test]
-#[expect(clippy::too_many_lines)]
 fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
     let families: Vec<(&str, Vec<Value>)> = vec![
         ("Bool", vec![Value::Bool(false), Value::Bool(true)]),

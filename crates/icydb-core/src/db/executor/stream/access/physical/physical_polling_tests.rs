@@ -300,7 +300,7 @@ fn drained_primary_chunk_does_not_reopen_first_pull_admission() {
         PrimaryRangeKeyStream::new_full_scan(STORE, ENTITY, Direction::Asc, None).unwrap();
     stream.chunk_entries = 1;
     assert_eq!(stream.next_key().unwrap(), Some(data_key(1)));
-    assert!(stream.resume_strictly_after(data_key(50)).is_err());
+    assert!(stream.resume_strictly_after(&data_key(50)).is_err());
     let visits = Cell::new(0);
     assert_eq!(
         stream
@@ -403,7 +403,7 @@ fn physical_polling_preserves_sparse_cursor_suffixes_and_limits() {
                         limit,
                     )
                     .unwrap();
-                    primary.resume_strictly_after(data_key(boundary)).unwrap();
+                    primary.resume_strictly_after(&data_key(boundary)).unwrap();
                     let anchor = index_key(&index_id, b"lane", boundary).to_raw().unwrap();
                     let mut index = ordered_index_stream(direction, limit, Some(anchor));
                     assert_eq!(collect_keys(&mut primary), expected);
@@ -586,7 +586,7 @@ fn limited_primary_leaf_applies_page_fetch_hint_after_resume_boundary() {
             PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), direction, Some(3))
                 .expect("limited primary stream should build");
         stream
-            .resume_strictly_after(data_key(50))
+            .resume_strictly_after(&data_key(50))
             .expect("primary continuation boundary should apply");
 
         for expected_key in expected {

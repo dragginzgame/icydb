@@ -721,10 +721,6 @@ pub enum TierCEvidenceError {
 }
 
 impl Display for TierCEvidenceError {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the closed Tier C evidence error vocabulary has one exhaustive display owner"
-    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AggregateScenarioCountMismatch {

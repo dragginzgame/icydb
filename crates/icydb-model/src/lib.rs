@@ -9,6 +9,7 @@ extern crate self as icydb_model;
 pub mod application;
 pub mod base;
 #[cfg(all(feature = "build", not(target_arch = "wasm32")))]
+/// Build-time schema registration, validation and actor generation.
 pub mod build;
 pub mod error;
 #[cfg(all(feature = "build", not(target_arch = "wasm32")))]
@@ -125,9 +126,11 @@ pub mod __reexports {
 #[derive(Debug, ThisError)]
 pub enum Error {
     #[error(transparent)]
+    /// Build-time schema collection, validation or sealing failed.
     BuildError(#[from] BuildError),
 
     #[error(transparent)]
+    /// A schema-node lookup or type check failed.
     NodeError(#[from] NodeError),
 }
 

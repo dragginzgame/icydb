@@ -180,11 +180,7 @@ fn retained_output_preserves_null_empty_and_scalar_length_modes() {
                 RowDecoder::decode_indexed_slot_values_from_reader(reader, &slots).unwrap();
             assert_eq!(
                 output,
-                vec![
-                    Some(value.clone()),
-                    Some(Value::Nat64(7)),
-                    Some(length.clone())
-                ]
+                vec![Some(value), Some(Value::Nat64(7)), Some(length.clone())]
             );
             let after = match output[0].as_ref().unwrap() {
                 Value::Blob(v) => Some(v.as_ptr()),

@@ -1,6 +1,6 @@
 use super::*;
 
-fn args(tokens: TokenStream) -> Vec<NestedMeta> {
+fn args(tokens: &TokenStream) -> Vec<NestedMeta> {
     NestedMeta::parse_meta_list(quote!(
         #tokens
     ))
@@ -44,7 +44,7 @@ fn optional_field(ident: &str) -> Field {
 
 #[test]
 fn from_list_accepts_scalar_field_shorthand() {
-    let relation = Relation::from_list(&args(quote!(
+    let relation = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         field = "author_id"
@@ -58,7 +58,7 @@ fn from_list_accepts_scalar_field_shorthand() {
 
 #[test]
 fn from_list_accepts_ordered_field_list() {
-    let relation = Relation::from_list(&args(quote!(
+    let relation = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         fields = ["tenant_id", "author_id"]
@@ -77,7 +77,7 @@ fn from_list_accepts_ordered_field_list() {
 
 #[test]
 fn from_list_rejects_duplicate_field_and_fields() {
-    let err = Relation::from_list(&args(quote!(
+    let err = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         field = "author_id",
@@ -93,7 +93,7 @@ fn from_list_rejects_duplicate_field_and_fields() {
 
 #[test]
 fn from_list_rejects_comma_string_fields() {
-    let err = Relation::from_list(&args(quote!(
+    let err = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         fields = "tenant_id, author_id"
@@ -108,7 +108,7 @@ fn from_list_rejects_comma_string_fields() {
 
 #[test]
 fn validate_rejects_missing_local_field() {
-    let relation = Relation::from_list(&args(quote!(
+    let relation = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         field = "author_id"
@@ -131,7 +131,7 @@ fn validate_rejects_missing_local_field() {
 
 #[test]
 fn validate_rejects_mixed_local_field_cardinality() {
-    let relation = Relation::from_list(&args(quote!(
+    let relation = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         fields = ["tenant_id", "author_id"]
@@ -153,7 +153,7 @@ fn validate_rejects_mixed_local_field_cardinality() {
 
 #[test]
 fn schema_part_lowers_to_relation_edge() {
-    let relation = Relation::from_list(&args(quote!(
+    let relation = Relation::from_list(&args(&quote!(
         name = "author",
         rel = "User",
         fields = ["tenant_id", "author_id"]

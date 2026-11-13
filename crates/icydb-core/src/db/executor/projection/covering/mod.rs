@@ -66,7 +66,7 @@ impl<'a> PreparedCoveringProjectionRuntime<'a> {
 
 pub(in crate::db::executor) fn try_execute_prepared_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     runtime: PreparedCoveringProjectionRuntime<'_>,
     covering: Option<Rc<CoveringReadExecutionPlan>>,
     hybrid: impl FnOnce() -> Option<Rc<CoveringHybridReadExecutionPlan>>,
@@ -77,7 +77,7 @@ where
     if let Some(covering) = covering
         && let Some(projected) = pure::try_execute_covering_projection_rows_with_plan_for_canister(
             db,
-            authority.clone(),
+            authority,
             runtime.plan,
             runtime.plan.access.single_index_prefix_specs(),
             runtime.plan.access.single_index_range_specs(),
@@ -101,7 +101,7 @@ where
 /// Visit one representative per component-zero group under a planner proof.
 pub(in crate::db::executor) fn try_execute_ordered_distinct_group_seek_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     index_range_specs: &[LoweredIndexRangeSpec],
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Option<Vec<Value>>, InternalError>

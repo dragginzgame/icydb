@@ -91,8 +91,8 @@ fn load_error_json(path: &Path) -> Result<icydb::Error, String> {
 }
 
 /// Resolve and print one compact diagnostic entirely from host-side authority.
-pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
-    println!("{}", diagnostic_command_report(&args)?);
+pub(crate) fn run_diagnostic_command(args: &DiagnosticArgs) -> Result<(), String> {
+    println!("{}", diagnostic_command_report(args)?);
     Ok(())
 }
 
@@ -1196,10 +1196,6 @@ const fn runtime_kind_text(kind: RuntimeErrorKind) -> &'static str {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the exhaustive public runtime-boundary vocabulary is clearer in one match"
-)]
 const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
     match boundary {
         RuntimeBoundaryCode::SqlSurfaceControllerRequired => {
@@ -1515,10 +1511,6 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the exhaustive governed SQL write-code map is clearer as one typed lookup"
-)]
 const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str {
     match boundary {
         SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible => {

@@ -158,6 +158,25 @@ pub(in crate::db) struct PreparedCommitControlReplacement {
     encoded_len: u32,
 }
 
+impl PreparedCommitControlReplacement {
+    /// Publish the preflighted replacement exactly once, consuming its capability.
+    pub(in crate::db) fn apply(self) {
+        let checksum = crc32c(&self.encoded);
+        self.memory.write(COMMIT_CONTROL_SLOT_OFFSET, &self.encoded);
+        let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
+        header[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()]
+            .copy_from_slice(DATABASE_CONTROL_SLOT_FRAME_MAGIC);
+        header[DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] = DATABASE_CONTROL_SLOT_FRAME_VERSION;
+        header[DATABASE_CONTROL_SLOT_FRAME_LENGTH_OFFSET
+            ..DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET]
+            .copy_from_slice(&self.encoded_len.to_be_bytes());
+        header[DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET..]
+            .copy_from_slice(&checksum.to_be_bytes());
+        self.memory
+            .write(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &header);
+    }
+}
+
 impl CommitStore {
     /// Open the database control store after format admission.
     fn open(memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>) -> Result<Self, InternalError> {
@@ -497,25 +516,6 @@ pub(in crate::db) fn replace_persisted_cursor_authentication_key(
         store.write_control_slot(&bytes)?;
     }
     Ok(())
-}
-
-pub(in crate::db) fn apply_prepared_commit_control_replacement(
-    replacement: PreparedCommitControlReplacement,
-) {
-    let checksum = crc32c(&replacement.encoded);
-    replacement
-        .memory
-        .write(COMMIT_CONTROL_SLOT_OFFSET, &replacement.encoded);
-    let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
-    header[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()]
-        .copy_from_slice(DATABASE_CONTROL_SLOT_FRAME_MAGIC);
-    header[DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()] = DATABASE_CONTROL_SLOT_FRAME_VERSION;
-    header[DATABASE_CONTROL_SLOT_FRAME_LENGTH_OFFSET..DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET]
-        .copy_from_slice(&replacement.encoded_len.to_be_bytes());
-    header[DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_be_bytes());
-    replacement
-        .memory
-        .write(DATABASE_CONTROL_SLOT_FRAME_OFFSET, &header);
 }
 
 pub(in crate::db) fn observe_commit_control() -> Result<CommitControlObservation, InternalError> {

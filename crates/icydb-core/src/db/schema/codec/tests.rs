@@ -574,10 +574,12 @@ fn snapshot_with_true_check() -> PersistedSchemaSnapshot {
     let catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "score_policy".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::True,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::True),
+            },
         )
         .expect("test check should allocate");
     snapshot.with_constraint_catalog(catalog)
@@ -602,14 +604,16 @@ fn snapshot_with_targeted_rule() -> PersistedSchemaSnapshot {
     let catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_targeted_rule(
+        .with_added_row_constraint(
             "nested_cardinality".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedRuleTarget::new(
-                FieldId::new(2),
-                AcceptedNamedTypeIdentity::Composite(target_type),
-            ),
-            AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 8 },
+            AcceptedConstraintKind::TargetedRule {
+                target: AcceptedRuleTarget::new(
+                    FieldId::new(2),
+                    AcceptedNamedTypeIdentity::Composite(target_type),
+                ),
+                operation: Box::new(AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 8 }),
+            },
         )
         .expect("test targeted rule should allocate");
     snapshot.with_constraint_catalog(catalog)

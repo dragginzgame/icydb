@@ -131,7 +131,7 @@ fn index_contract_predicate_implied_by_query(
 }
 
 pub(in crate::db) fn residual_query_predicate_after_filtered_access_contract(
-    index: SemanticIndexAccessContract,
+    index: &SemanticIndexAccessContract,
     query_predicate: Predicate,
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<Predicate>, InternalError> {

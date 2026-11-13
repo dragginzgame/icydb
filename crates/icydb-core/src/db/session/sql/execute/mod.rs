@@ -59,7 +59,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
             lowered,
-            authority.clone(),
+            &authority,
             catalog,
             schema_info,
         )? {
@@ -159,19 +159,5 @@ impl<C: CanisterKind> DbSession<C> {
                 InternalError::query_executor_invariant(),
             )),
         }
-    }
-
-    pub(in crate::db) fn execute_compiled_sql_context_owned(
-        &self,
-        context: SqlCompiledCommandExecutionContext,
-    ) -> Result<SqlStatementResult, QueryError> {
-        self.execute_compiled_sql_context(&context)
-    }
-
-    pub(in crate::db) fn execute_compiled_sql_query_context_owned(
-        &self,
-        context: SqlCompiledCommandExecutionContext,
-    ) -> Result<SqlStatementResult, QueryError> {
-        self.execute_compiled_sql_query_context(&context)
     }
 }

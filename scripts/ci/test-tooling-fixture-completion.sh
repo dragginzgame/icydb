@@ -6,10 +6,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-fixture-completion.XXXXXX")"
 fixture_complete=false
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
-# shellcheck source=scripts/ci/fixture-retention-probes.sh
-source "$ROOT/scripts/ci/fixture-retention-probes.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-retention-probes.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-retention-probes.sh"
 trap 'fixture_finish "$?" "$fixture" "Fixture completion checks retained"' EXIT
 # Darwin's implicit mktemp template can choose its per-user temporary directory
 # instead of TMPDIR. Exercise that behavior on every host: a fixture must select

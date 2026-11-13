@@ -82,11 +82,7 @@ impl IndexEntryValue {
     ) -> Result<bool, E> {
         let row_witness = self.decode_row_witness(raw_key).map_err(map_corruption)?;
         out.push(*row_witness.primary_key_value());
-        if out.len() >= limit {
-            return Ok(true);
-        }
-
-        Ok(false)
+        Ok(out.len() >= limit)
     }
 
     // Validate the complete key frame without materialising unused components,

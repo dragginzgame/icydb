@@ -45,14 +45,14 @@ fn group_field_hash_preserves_direct_and_segmented_path_framing() {
             "meta",
             vec!["国家".into()],
             3,
-            AcceptedFieldKind::Text { max_len: None },
+            &AcceptedFieldKind::Text { max_len: None },
         ),
         GroupField::scalar_path_for_test(
             "meta.a.b",
             "meta",
             vec!["a".into(), "b".into()],
             3,
-            AcceptedFieldKind::Text { max_len: None },
+            &AcceptedFieldKind::Text { max_len: None },
         ),
     ]);
     let mut expected = new_hash_sha256();
@@ -125,7 +125,7 @@ fn group_field_hash_preserves_direct_and_segmented_path_framing() {
             "meta",
             segments,
             3,
-            AcceptedFieldKind::Text { max_len: None },
+            &AcceptedFieldKind::Text { max_len: None },
         )])
     };
     assert_ne!(

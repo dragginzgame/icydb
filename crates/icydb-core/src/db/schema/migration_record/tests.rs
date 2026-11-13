@@ -363,3 +363,39 @@ fn migration_record_operation_round_trips_inside_current_marker() {
     assert_eq!(decoded.before_bytes(), operation.before_bytes());
     assert_eq!(decoded.after_bytes(), operation.after_bytes());
 }
+
+#[test]
+fn migration_record_rejects_superseded_envelope_without_changing_retained_bytes() {
+    let current = encode_schema_migration_record(&record()).unwrap();
+    let mut old = current[..current.len() - MIGRATION_CHECKSUM_BYTES].to_vec();
+    old[..8].copy_from_slice(b"ICYSMIG1");
+    old.extend_from_slice(&crc32c(&old).to_be_bytes());
+    let retained = old.clone();
+    assert!(verify_crc32c_trailer(&old).is_some());
+    assert!(decode_schema_migration_record(&old).is_err());
+    assert_eq!(old, retained);
+    assert_eq!(decode_schema_migration_record(&current).unwrap(), record());
+}
+
+#[test]
+fn completed_rewrite_roundtrips_directly_into_final_validation() {
+    let mut current = record();
+    for phase in [
+        PersistedSchemaMigrationPhase::Validating,
+        PersistedSchemaMigrationPhase::ReadyToRewrite,
+        PersistedSchemaMigrationPhase::RewritingRows,
+        PersistedSchemaMigrationPhase::FinalValidation,
+        PersistedSchemaMigrationPhase::Publishing,
+        PersistedSchemaMigrationPhase::Applied,
+    ] {
+        current = current
+            .transition(phase, current.progress().clone())
+            .unwrap();
+        let encoded = encode_schema_migration_record(&current).unwrap();
+        assert_eq!(decode_schema_migration_record(&encoded).unwrap(), current);
+        assert_eq!(
+            PersistedSchemaMigrationPhase::from_tag(phase.tag()).unwrap(),
+            phase
+        );
+    }
+}

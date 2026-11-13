@@ -124,7 +124,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db::session) fn accepted_schema_catalog_context_for_runtime_entity(
         &self,
-        runtime_entity: AcceptedRuntimeEntity,
+        runtime_entity: &AcceptedRuntimeEntity,
         store: StoreHandle,
     ) -> Result<AcceptedSchemaCatalogContext, InternalError> {
         self.accepted_integrity_catalog_context_for_runtime_entity(runtime_entity, store)
@@ -133,7 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db::session) fn accepted_integrity_catalog_context_for_runtime_entity(
         &self,
-        runtime_entity: AcceptedRuntimeEntity,
+        runtime_entity: &AcceptedRuntimeEntity,
         store: StoreHandle,
     ) -> Result<AcceptedSchemaCatalogContext, AcceptedInspectionPlanLoadError> {
         let expected_store = runtime_entity
@@ -146,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let root = self.accepted_schema_runtime_root()?;
         let entity = root
-            .entity_for_runtime_entity(&runtime_entity)
+            .entity_for_runtime_entity(runtime_entity)
             .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
 
         Ok(AcceptedSchemaCatalogContext::new(root, entity))
@@ -208,7 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db::session) fn accepted_inspection_plan_for_runtime_entity(
         &self,
-        runtime_entity: AcceptedRuntimeEntity,
+        runtime_entity: &AcceptedRuntimeEntity,
         store: StoreHandle,
     ) -> Result<AcceptedInspectionPlan, AcceptedInspectionPlanLoadError> {
         self.accepted_integrity_catalog_context_for_runtime_entity(runtime_entity, store)

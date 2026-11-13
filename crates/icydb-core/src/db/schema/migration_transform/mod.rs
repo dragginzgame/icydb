@@ -356,7 +356,7 @@ fn resolve_predecessor<'a>(
     let mut matching = stores.iter().filter_map(|store| {
         store
             .bundle
-            .source_bindings()
+            .source_bindings
             .entity(source)
             .map(|entity| (store, entity))
     });
@@ -375,7 +375,7 @@ fn compile_entity_program(
 ) -> Result<CompiledMigrationEntityProgram, InternalError> {
     let before_snapshot = store
         .bundle
-        .entity_snapshots()
+        .entity_snapshots
         .get(&entity)
         .ok_or_else(InternalError::store_invariant)?;
     let candidate_snapshot = candidate
@@ -430,7 +430,7 @@ fn compile_entity_program(
             let predecessor = inverse_field_source(transition, current);
             let source_id = store
                 .bundle
-                .source_bindings()
+                .source_bindings
                 .field(entity, &predecessor)
                 .ok_or_else(InternalError::store_invariant)?;
             before_snapshot
@@ -562,7 +562,7 @@ fn source_field<'a>(
 ) -> Result<(FieldId, &'a crate::db::schema::PersistedFieldSnapshot), InternalError> {
     let id = store
         .bundle
-        .source_bindings()
+        .source_bindings
         .field(entity, source)
         .ok_or_else(InternalError::store_invariant)?;
     let field = snapshot

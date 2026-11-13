@@ -83,13 +83,21 @@ impl ParseDecimalError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum ParseDecimalErrorReason {
+    /// The input contains no decimal text.
     Empty,
+    /// Exponent notation is not accepted.
     ExponentNotationUnsupported,
+    /// The fractional digit count cannot be represented.
     FractionalLengthOverflow,
+    /// Computing the decimal scale overflowed.
     ScaleOverflow,
+    /// The significand exceeds the mantissa range.
     MantissaOverflow,
+    /// The scale exceeds the supported maximum.
     ScaleExceedsSupportedRange,
+    /// The significand is not valid decimal syntax.
     InvalidSignificand,
+    /// The input contains invalid decimal digits.
     InvalidDigits,
 }
 
@@ -111,6 +119,7 @@ pub struct Decimal {
 }
 
 impl Decimal {
+    /// Zero with a scale of zero.
     pub const ZERO: Self = Self {
         mantissa: 0,
         scale: 0,
@@ -169,6 +178,10 @@ impl Decimal {
     /// This path is lossy for float inputs and may lose precision for large values.
     /// Prefer exact integer constructors (`from_i64`, `from_u64`) or explicit
     /// float constructors (`from_f32_lossy`, `from_f64_lossy`) when possible.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the public numeric conversion API accepts owned scalar inputs"
+    )]
     pub fn from_num<N: NumericValue>(n: N) -> Option<Self> {
         n.try_to_decimal()
     }

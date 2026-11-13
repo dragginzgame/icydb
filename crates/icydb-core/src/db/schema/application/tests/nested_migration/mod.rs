@@ -40,10 +40,6 @@ fn proposal(
 
 // A copied repeated root changes targets without changing relation identity.
 // Renaming that root also proves the planner uses resolved field IDs.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the predecessor and candidate fixture share one exact relation contract"
-)]
 fn proposal_for_version(
     version: u32,
     head: ExpectedAcceptedHead,
@@ -375,10 +371,6 @@ fn assert_hidden(
 // Three one-row interruptions exercise the whole nested row/edge batch at each
 // existing rewrite checkpoint; the uninterrupted case also proves publication
 // cannot depend on recovery rebuilding an omitted domain.
-#[expect(
-    clippy::too_many_lines,
-    reason = "validation, rewrite, publication and replay form one migration scenario"
-)]
 fn run_copy(interrupted: bool) {
     let (db, session, proposal) = initialize(2);
     let before = accepted_relations(&db);
@@ -607,7 +599,6 @@ fn nested_relation_copy_final_validation_requires_the_candidate_reverse_edge() {
         SchemaMigrationPhase::Validating,
         SchemaMigrationPhase::ReadyToRewrite,
         SchemaMigrationPhase::RewritingRows,
-        SchemaMigrationPhase::RebuildingIndexes,
         SchemaMigrationPhase::FinalValidation,
     ] {
         assert_eq!(
@@ -657,4 +648,34 @@ fn nested_relation_copy_final_validation_requires_the_candidate_reverse_edge() {
     assert_hidden(&db, &proposal, &before);
     ensure_schema_migration_ready_for_ordinary_operations()
         .expect_err("failed final proof must retain the migration gate");
+}
+
+#[test]
+fn migration_reverse_domain_retains_generation_and_live_store_authority() {
+    use crate::{
+        db::{index::IndexId, relation::migration_relation_domain},
+        types::EntityTag,
+    };
+
+    let (db, _, _) = initialize(2);
+    let source = db.accepted_runtime_entity_for_path("Source").unwrap();
+    let edges = accepted_relations(&db);
+    for generation in [0, 7, u64::MAX] {
+        let edge = edges[0].clone_with_physical_generation(generation);
+        let (path, store, index) =
+            migration_relation_domain(&db, source.entity_tag(), &edge).unwrap();
+        assert_eq!(path, MIGRATION_EXECUTION_STORE_PATH);
+        assert_eq!(
+            index,
+            IndexId::new_with_generation(source.entity_tag(), u16::MAX, generation)
+        );
+        assert!(std::ptr::eq(
+            store.index_store(),
+            db.store_handle(path).unwrap().index_store()
+        ));
+    }
+    let missing = edges[0].clone_with_metadata(edges[0].name().to_string(), "MissingTarget".into());
+    assert!(migration_relation_domain(&db, source.entity_tag(), &missing).is_err());
+    assert!(migration_relation_domain(&db, EntityTag::new(u64::MAX), &edges[0]).is_err());
+    assert_eq!(accepted_relations(&db), edges);
 }

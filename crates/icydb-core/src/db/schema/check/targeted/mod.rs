@@ -439,10 +439,6 @@ impl CompiledAcceptedTargetedRules {
         Ok(first_violation)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the iterative DFS state machine stays exhaustive and auditable in one owner"
-    )]
     fn evaluate_root<'a>(
         &'a self,
         root: &'a CompiledAcceptedTargetedRoot,
@@ -651,10 +647,6 @@ impl CompiledAcceptedTargetedRules {
         Ok(violations)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one exhaustive accepted-kind match makes every structural traversal edge explicit"
-    )]
     fn push_children<'a>(
         &'a self,
         kind: &'a AcceptedFieldKind,

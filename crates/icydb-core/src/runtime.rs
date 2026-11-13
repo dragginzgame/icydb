@@ -58,16 +58,10 @@ pub(crate) fn with_instruction_counter_for_tests<R>(
     initial: u64,
     run: impl FnOnce(&std::cell::Cell<u64>) -> R,
 ) -> R {
-    struct RestoreCounter<'a>(&'a std::cell::Cell<u64>, u64);
-
-    impl Drop for RestoreCounter<'_> {
-        fn drop(&mut self) {
-            self.0.set(self.1);
-        }
-    }
-
     TEST_INSTRUCTIONS.with(|counter| {
-        let _restore = RestoreCounter(counter, counter.replace(initial));
+        let _restore = core::mem::DropGuard::new(counter.replace(initial), |previous| {
+            counter.set(previous);
+        });
         run(counter)
     })
 }

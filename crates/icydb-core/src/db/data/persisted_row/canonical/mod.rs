@@ -36,7 +36,7 @@ use crate::{
 
 /// Normalize and encode one authored input through an accepted field contract.
 pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
-    encoding: AcceptedFieldPersistenceContract<'_>,
+    encoding: &AcceptedFieldPersistenceContract<'_>,
     input: InputValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<Vec<u8>, InternalError> {
@@ -73,7 +73,7 @@ pub(in crate::db) fn encode_input_value_for_candidate_field_contract(
 
 /// Strictly validate and encode one canonical value through an accepted field contract.
 pub(in crate::db) fn encode_canonical_value_for_accepted_field_contract(
-    encoding: AcceptedFieldPersistenceContract<'_>,
+    encoding: &AcceptedFieldPersistenceContract<'_>,
     value: &CanonicalValue,
 ) -> Result<Vec<u8>, InternalError> {
     let field = encoding.field();
@@ -174,7 +174,7 @@ pub(in crate::db::data::persisted_row) const fn scalar_slot_value_ref_from_accep
 /// Decode one slot through the current canonical value format and strict
 /// accepted schema validation.
 pub(in crate::db) fn decode_admitted_value_from_accepted_field_contract(
-    persistence: AcceptedFieldPersistenceContract<'_>,
+    persistence: &AcceptedFieldPersistenceContract<'_>,
     raw_value: &[u8],
 ) -> Result<AdmittedOwnedValue, InternalError> {
     let field = persistence.field();

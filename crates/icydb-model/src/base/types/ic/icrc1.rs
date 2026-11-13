@@ -33,6 +33,7 @@ pub struct TokenAmount {}
 
 impl TokenAmount {
     #[must_use]
+    /// Return the stored raw token units without decimal scaling.
     pub fn units(&self) -> u64 {
         self.tokens.units()
     }
@@ -48,6 +49,7 @@ pub struct Tokens {}
 
 impl Tokens {
     #[must_use]
+    /// Return the stored raw token units without decimal scaling.
     pub fn units(&self) -> u64 {
         *self.inner()
     }

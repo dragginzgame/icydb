@@ -80,7 +80,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(SqlStatementResult, String), QueryError> {
         let (compiled, entity) = self.compile_sql_query_text_execution_context(sql)?;
-        let result = self.execute_compiled_sql_query_context_owned(compiled)?;
+        let result = self.execute_compiled_sql_query_context(&compiled)?;
         Ok((result, entity))
     }
 
@@ -93,7 +93,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SqlStatementResult, String), QueryError> {
         let (compiled, entity_name) =
             self.compile_sql_query_with_dispatch_execution_context(dispatch, bindings)?;
-        let result = self.execute_compiled_sql_query_context_owned(compiled)?;
+        let result = self.execute_compiled_sql_query_context(&compiled)?;
 
         Ok((result, entity_name))
     }
@@ -120,7 +120,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlStatementResult, QueryError> {
         let compiled = self.compile_sql_mutation_with_execution_context(dispatch)?;
 
-        self.execute_compiled_sql_context_owned(compiled)
+        self.execute_compiled_sql_context(&compiled)
     }
 }
 

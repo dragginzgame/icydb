@@ -43,7 +43,9 @@ pub enum MutationSqliteEvidence {
 pub fn execute_generated_mutation_sequence(
     sequence: &GeneratedMutationSequence,
 ) -> Result<Vec<MutationSqliteEvidence>, SqliteAdapterError> {
-    sequence.validate().map_err(generated_case_error)?;
+    sequence
+        .validate()
+        .map_err(|error| generated_case_error(&error))?;
     let mut connection = open_checked_connection()?;
     let transaction = connection.transaction().map_err(|source| {
         SqliteAdapterError::with_source(
@@ -665,7 +667,7 @@ fn nullable_text_sql(value: Option<&str>) -> String {
 }
 
 fn generated_case_error(
-    error: icydb_testing_sql_generator::SqlGeneratorError,
+    error: &icydb_testing_sql_generator::SqlGeneratorError,
 ) -> SqliteAdapterError {
     SqliteAdapterError::new(
         SqliteAdapterErrorKind::GeneratedCase,

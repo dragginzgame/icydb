@@ -13,13 +13,13 @@ runs:
     - name: Prepare policy readers
       shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       run: |
-        bash scripts/dev/install-host-tools.sh --consumer "$GITHUB_WORKSPACE"
+        bash vendor/toko-tooling/scripts/dev/install-host-tools.sh --consumer "$GITHUB_WORKSPACE"
         echo "$GITHUB_WORKSPACE/.tools/host/bin" >> "$GITHUB_PATH"
     - name: Read the workspace compiler policy
       id: policy
       shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       run: |
-        version="$(bash scripts/ci/read-cargo-workspace-rust-version.sh Cargo.toml)"
+        version="$(bash vendor/toko-tooling/scripts/ci/read-cargo-workspace-rust-version.sh Cargo.toml)"
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
         echo "RUST_CURRENT=$version" >> "$GITHUB_ENV"

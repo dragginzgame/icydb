@@ -16,25 +16,45 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ScalarKind {
+    /// Account identifier.
     Account,
+    /// Arbitrary binary bytes.
     Blob,
+    /// Boolean value.
     Bool,
+    /// Calendar date at day precision.
     Date,
+    /// Fixed-point decimal value.
     Decimal,
+    /// Duration value.
     Duration,
+    /// Named enumeration value.
     Enum,
+    /// 32-bit floating-point value.
     Float32,
+    /// 64-bit floating-point value.
     Float64,
+    /// Signed integer value.
     Int,
+    /// 128-bit signed integer value.
     Int128,
+    /// Internet Computer principal identifier.
     Principal,
+    /// Account subaccount identifier.
     Subaccount,
+    /// Unicode text.
     Text,
+    /// Timestamp value.
     Timestamp,
+    /// Unsigned integer value.
     Nat,
+    /// 128-bit unsigned integer value.
     Nat128,
+    /// 256-bit unsigned integer value.
     U256,
+    /// ULID identifier.
     Ulid,
+    /// Unit value with no payload.
     Unit,
 }
 
@@ -171,12 +191,19 @@ impl ScalarMetadata {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScalarCoercionFamily {
+    /// Numeric scalar coercions.
     Numeric,
+    /// Text scalar coercions.
     Textual,
+    /// Identifier scalar coercions.
     Identifier,
+    /// Named enumeration value.
     Enum,
+    /// Arbitrary binary bytes.
     Blob,
+    /// Boolean value.
     Bool,
+    /// Unit value with no payload.
     Unit,
 }
 

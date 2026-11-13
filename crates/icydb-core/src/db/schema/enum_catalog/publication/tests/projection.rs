@@ -180,24 +180,34 @@ fn component_bytes(bundle: &AcceptedSchemaRevisionBundle) -> Vec<u8> {
 #[test]
 fn candidate_and_reload_admit_small_shared_types_and_reject_expansion() {
     for nested in [false, true] {
-        assert_projection_admission(projection_bundle(8, &[usize::from(nested)]), true);
-        assert_projection_admission(projection_bundle(30, &[usize::from(nested)]), false);
+        assert_projection_admission(&projection_bundle(8, &[usize::from(nested)]), true);
+        assert_projection_admission(&projection_bundle(30, &[usize::from(nested)]), false);
     }
 }
 
-fn assert_projection_admission(bundle: AcceptedSchemaRevisionBundle, admitted: bool) {
-    let bytes = component_bytes(&bundle);
-    let candidate = CandidateSchemaRevision::new(bundle.clone());
+fn assert_projection_admission(bundle: &AcceptedSchemaRevisionBundle, admitted: bool) {
+    let bytes = component_bytes(bundle);
+    // Fixtures deliberately bypass construction to supply malformed input to both
+    // maintained trust boundaries. Production candidates receive only admitted bundles.
+    let candidate = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        bundle.revision,
+        bundle.store_path.clone(),
+        bundle.enum_catalog.clone(),
+        bundle.composite_catalog.clone(),
+        bundle.source_bindings.clone(),
+        bundle.entity_snapshots.clone(),
+    )
+    .and_then(CandidateSchemaRevision::new);
     let decoded = decode_accepted_schema_revision_bundle(&bytes);
     if admitted {
         let candidate = candidate.unwrap();
         assert_eq!(candidate.encoded_bundle(), bytes);
-        assert_eq!(decoded.unwrap(), bundle);
+        assert_eq!(&decoded.unwrap(), bundle);
         assert_eq!(
             CandidateSchemaRevision::from_encoded(bytes, candidate.encoded_root().to_vec())
                 .unwrap()
                 .bundle(),
-            &bundle,
+            bundle,
         );
     } else {
         assert_eq!(candidate.unwrap_err().class(), ErrorClass::Unsupported);
@@ -220,12 +230,12 @@ fn entity_projection_allowance_accumulates_direct_nested_and_mixed_fields() {
         (vec![0, 2], false),
         (vec![2, 0], false),
     ] {
-        assert_projection_admission(projection_bundle(9, &fields), admitted);
+        assert_projection_admission(&projection_bundle(9, &fields), admitted);
     }
     // 4094 expanded visits, one opaque record and one primary key hit the
     // exact entity ceiling; a second direct field must not get a fresh allowance.
-    assert_projection_admission(projection_bundle(10, &[1]), true);
-    assert_projection_admission(projection_bundle(10, &[1, 0]), false);
+    assert_projection_admission(&projection_bundle(10, &[1]), true);
+    assert_projection_admission(&projection_bundle(10, &[1, 0]), false);
 }
 
 #[test]
@@ -235,7 +245,7 @@ fn ordinary_wide_scalar_schema_stays_admitted() {
     // constraint-count limit without approaching query expansion's allowance.
     let snapshot = projection_snapshot(vec![(AcceptedFieldKind::Nat64, Vec::new()); 254]);
     bundle.entity_snapshots.insert(EntityTag::new(1), snapshot);
-    assert_projection_admission(bundle, true);
+    assert_projection_admission(&bundle, true);
 }
 
 #[test]
@@ -269,5 +279,5 @@ fn projection_allowance_resets_between_entities_not_between_fields() {
     );
     // Each entity exactly fits. Their sum exceeds one allowance, intentionally:
     // this contract is not a database-wide construction or instruction bound.
-    assert_projection_admission(bundle, true);
+    assert_projection_admission(&bundle, true);
 }

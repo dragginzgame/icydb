@@ -475,10 +475,6 @@ fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservatio
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly() {
     const fn unavailable_fallback_ceiling(predecessor: u64) -> u64 {
         predecessor.saturating_add(predecessor / 20)
@@ -594,10 +590,6 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one causal IC proof keeps unavailable fallback, upgrade, Ready publication, cursor expiry, and exact selection comparable"
-)]
 fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     const READY_PAGE_INSTRUCTION_CEILING: u64 = 75_000_000;
     const SELECTIVE_SQL: &str = "SELECT id FROM PerfAuditCardinalityTie \
@@ -901,10 +893,6 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one cross-owner closeout keeps population independence, online retry, upgrade recovery, and final quiescence in causal order"
-)]
 fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     let cold = install_fixture_canister("sql_perf");
     let populated = install_fixture_canister("sql_perf");
@@ -1155,10 +1143,6 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep rollback, retry, instruction and retained-data proofs together for this installed recovery scenario"
-)]
 fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() {
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<ScaleFixtureFacts, Error> = fixture

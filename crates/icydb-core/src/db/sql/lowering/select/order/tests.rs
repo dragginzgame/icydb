@@ -6,7 +6,7 @@ use super::lower_order_term;
 fn lowered_order_term_carries_expression_analysis_for_distinct_projection_proof() {
     crate::db::query::preparation::with_preparation_work(|work| {
         let lowered = lower_order_term(
-            SqlOrderTerm {
+            &SqlOrderTerm {
                 field: SqlExpr::FunctionCall {
                     function: SqlScalarFunction::Lower,
                     args: vec![SqlExpr::Field("name".to_string())],
@@ -27,7 +27,7 @@ fn lowered_order_term_carries_expression_analysis_for_distinct_projection_proof(
         );
 
         let field_path = lower_order_term(
-            SqlOrderTerm {
+            &SqlOrderTerm {
                 field: SqlExpr::FieldPath {
                     root: "profile".to_string(),
                     segments: vec!["name".to_string()],

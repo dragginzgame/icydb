@@ -586,7 +586,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }))
             },
             Timestamp::now(),
-            AcceptedStructuralMutationCommitOptions::standard(capture_output_values),
+            &AcceptedStructuralMutationCommitOptions::standard(capture_output_values),
             |rows, _report| {
                 let rows = rows
                     .into_iter()
@@ -645,7 +645,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }))
             },
             operation_timestamp,
-            AcceptedStructuralMutationCommitOptions::standard(capture_output_values),
+            &AcceptedStructuralMutationCommitOptions::standard(capture_output_values),
             |rows, _report| {
                 precommit_preparation(rows).map(|prepared| {
                     (
@@ -743,7 +743,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         anchor_catalog: &AcceptedSchemaCatalogContext,
         items: Vec<AcceptedStructuralMutationBatchItem>,
-        result_catalogs: Vec<AcceptedSchemaCatalogContext>,
+        result_catalogs: &[AcceptedSchemaCatalogContext],
         identity_candidate_count: usize,
         admission: &TypedBatchAdmission,
     ) -> Result<Vec<DynamicMutationResult>, InternalError> {
@@ -759,7 +759,7 @@ impl<C: CanisterKind> DbSession<C> {
             identity_candidate_count,
             || Ok(items.next()),
             Timestamp::now(),
-            AcceptedStructuralMutationCommitOptions::standard(true),
+            &AcceptedStructuralMutationCommitOptions::standard(true),
             |rows, report| {
                 if report.staged_bytes() > admission.staged_bytes {
                     return Err(InternalError::mutation_batch_staged_bytes_exceeded(
@@ -1073,7 +1073,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_lowered_mixed_mutation_batch(
             &catalog,
             items,
-            result_catalogs,
+            &result_catalogs,
             identity_candidate_count,
             admission,
         )

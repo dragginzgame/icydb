@@ -50,7 +50,7 @@ fn hybrid_row_projection_preserves_mixed_sources_and_repeated_values() {
         &projection_key(),
         &fields,
         &[2],
-        vec![encoded].into(),
+        &[encoded],
         vec![(3, Value::Text("row".into()))],
         &ownership,
     )
@@ -85,7 +85,7 @@ fn hybrid_row_projection_preserves_decode_fallback_and_error_priority() {
             &projection_key(),
             &fields,
             &[0],
-            vec![unsupported].into(),
+            &[unsupported],
             Vec::new(),
             &ownership,
         )
@@ -96,7 +96,7 @@ fn hybrid_row_projection_preserves_decode_fallback_and_error_priority() {
         &projection_key(),
         &fields,
         &[0],
-        vec![Vec::new()].into(),
+        &[Vec::new()],
         Vec::new(),
         &ownership,
     )

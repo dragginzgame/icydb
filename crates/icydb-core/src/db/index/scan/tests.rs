@@ -40,7 +40,7 @@ fn raw_key(value: u8) -> RawIndexStoreKey {
 fn seed_entry(store: &mut IndexStore, key: RawIndexStoreKey, canonical: bool) {
     if canonical {
         store
-            .apply_canonical_entry(key, Some(IndexEntryValue::presence()))
+            .apply_canonical_entry(key, Some(&IndexEntryValue::presence()))
             .unwrap();
     } else {
         store.insert(key, IndexEntryValue::presence());
@@ -79,7 +79,7 @@ fn empty_envelopes_skip_populated_store_traversal() {
         let cases = [
             ("ASC endpoint resume", asc_empty, 0, 0),
             ("DESC endpoint resume", desc_empty, 0, 0),
-            ("inverted", (upper.clone(), lower.clone()), 0, 0),
+            ("inverted", (upper, lower.clone()), 0, 0),
             (
                 "equal lower excluded",
                 (Bound::Excluded(low.clone()), lower.clone()),
@@ -181,7 +181,7 @@ fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
         assert!(probe(&store));
         if journaled {
             store
-                .apply_canonical_entry(conflicting.clone(), Some(IndexEntryValue::presence()))
+                .apply_canonical_entry(conflicting.clone(), Some(&IndexEntryValue::presence()))
                 .unwrap();
             store
                 .reset_journaled_live_projection(

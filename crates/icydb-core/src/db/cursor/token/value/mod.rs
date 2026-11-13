@@ -123,7 +123,6 @@ pub(in crate::db::cursor::token) fn write_value(
 }
 
 // One recursive dispatcher owns every token-supported value variant.
-#[expect(clippy::too_many_lines)]
 fn write_value_at_depth(
     out: &mut Vec<u8>,
     value: &Value,

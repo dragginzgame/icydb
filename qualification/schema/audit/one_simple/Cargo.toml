@@ -22,7 +22,7 @@ u256-audit = []
 icydb = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

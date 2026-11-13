@@ -5,7 +5,7 @@ use proc_macro2::TokenStream;
 
 use super::ActorBuilder;
 
-fn compact_tokens(tokens: TokenStream) -> String {
+fn compact_tokens(tokens: &TokenStream) -> String {
     tokens
         .to_string()
         .chars()
@@ -17,7 +17,7 @@ fn actor_builder() -> ActorBuilder {
     ActorBuilder::new(
         Arc::new(Schema::new()),
         Canister::new(Def::new("test", "Canister"), "test", None),
-        icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
+        &icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
             .expect("empty test fragment should admit"),
         None,
         quote::quote!(::icydb),
@@ -81,15 +81,15 @@ fn actor_builder_with_migration() -> ActorBuilder {
     ActorBuilder::new(
         Arc::new(Schema::new()),
         Canister::new(Def::new("test", "Canister"), "test", None),
-        migration_target_fragment(2),
-        Some(migration),
+        &migration_target_fragment(2),
+        Some(&migration),
         quote::quote!(::icydb),
     )
 }
 
 #[test]
 fn generated_endpoint_runtime_is_private_and_contains_no_export_attributes() {
-    let surface = compact_tokens(super::generate_endpoint_runtime(&quote::quote!(::icydb)));
+    let surface = compact_tokens(&super::generate_endpoint_runtime(&quote::quote!(::icydb)));
 
     for handler in [
         "metrics",
@@ -115,7 +115,7 @@ fn generated_endpoint_runtime_is_private_and_contains_no_export_attributes() {
 
 #[test]
 fn complete_generated_actor_cannot_create_a_public_endpoint() {
-    let surface = compact_tokens(actor_builder().generate());
+    let surface = compact_tokens(&actor_builder().generate());
 
     assert!(surface.contains("pub(crate)modendpoint_handlers"));
     for forbidden in [
@@ -152,8 +152,8 @@ fn actor_generation_checks_migration_target_before_emitting_bootstrap() {
         std::panic::catch_unwind(|| ActorBuilder::new(
             Arc::new(Schema::new()),
             Canister::new(Def::new("test", "Canister"), "test", None),
-            migration_target_fragment(3),
-            Some(plan),
+            &migration_target_fragment(3),
+            Some(&plan),
             quote::quote!(::icydb),
         ))
         .is_err()
@@ -208,7 +208,7 @@ fn generated_readiness_binds_assignments_and_modes_but_not_unused_stores() {
         ActorBuilder::new(
             Arc::new(schema),
             Canister::new(Def::new("test", "Canister"), "test", None),
-            migration_target_fragment(1),
+            &migration_target_fragment(1),
             None,
             quote::quote!(::icydb),
         )
@@ -226,11 +226,12 @@ fn migration_attempt_changes_only_generated_submission_identity() {
     let next = ActorBuilder::new(
         original.schema.clone(),
         original.canister.clone().with_migration_attempt(1),
-        icydb_schema::decode_schema_fragment(&original.schema_fragment_bytes).unwrap(),
+        &icydb_schema::decode_schema_fragment(&original.schema_fragment_bytes).unwrap(),
         original
             .schema_migration_plan_bytes
             .as_ref()
-            .map(|bytes| icydb_schema::decode_schema_migration_plan(bytes).unwrap()),
+            .map(|bytes| icydb_schema::decode_schema_migration_plan(bytes).unwrap())
+            .as_ref(),
         original.icydb.clone(),
     );
     assert_ne!(original.schema_submission_key, next.schema_submission_key);
@@ -240,17 +241,17 @@ fn migration_attempt_changes_only_generated_submission_identity() {
         next.schema_migration_plan_bytes
     );
     let expected = next.schema_submission_key.clone();
-    assert!(compact_tokens(next.generate()).contains(&expected));
+    assert!(compact_tokens(&next.generate()).contains(&expected));
 }
 
 #[test]
 fn source_migration_plan_is_bound_into_private_actor_bootstrap_and_submission_identity() {
     let without = actor_builder();
     let without_key = without.schema_submission_key.clone();
-    let without_surface = compact_tokens(without.generate());
+    let without_surface = compact_tokens(&without.generate());
     let with = actor_builder_with_migration();
     let with_key = with.schema_submission_key.clone();
-    let with_surface = compact_tokens(with.generate());
+    let with_surface = compact_tokens(&with.generate());
 
     assert_ne!(with_key, without_key);
     assert!(!without_surface.contains("__icydb_require_migration_capability"));
@@ -266,7 +267,7 @@ fn renamed_runtime_path_is_used_by_every_actor_surface() {
     builder.icydb = super::crate_path::resolve_path(Some("::runtime_api"));
     let tokens = builder.generate();
     syn::parse2::<syn::File>(tokens.clone()).expect("renamed actor remains valid Rust");
-    let tokens = compact_tokens(tokens);
+    let tokens = compact_tokens(&tokens);
     for surface in [
         "::runtime_api::Error",
         "::runtime_api::db::DbSession",

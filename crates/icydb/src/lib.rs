@@ -75,6 +75,7 @@ pub mod model {
     pub use icydb_model_macros::{runtime_entity as entity, runtime_record as record};
 
     /// Application declarations with runtime entity adapters and field references.
+    /// Common query builders, scalar types and serialization traits for applications.
     pub mod prelude {
         pub use icydb_model::prelude::*;
         pub use icydb_model_macros::{runtime_entity as entity, runtime_record as record};
@@ -86,6 +87,7 @@ pub use icydb_model_macros::{request_execution, test};
 #[doc(inline)]
 pub use icydb_core::types;
 
+/// Dynamic values accepted and returned by public database operations.
 pub mod value {
     pub use icydb_core::value::{InputValue, OutputValue, PublicEnumValue, PublicValue, ValueTag};
 }
@@ -219,6 +221,7 @@ pub mod __macro {
 
 pub mod wire;
 
+/// Common query builders, scalar types and serialization traits for applications.
 pub mod prelude {
     pub use crate::db::{
         query,
@@ -246,7 +249,7 @@ pub mod prelude {
 // Consts
 //
 
-// Workspace version re-export for downstream tooling/tests.
+/// Workspace version re-export for downstream tooling/tests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //

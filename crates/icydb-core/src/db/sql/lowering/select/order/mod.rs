@@ -32,7 +32,7 @@ pub(super) fn lower_order_terms(
 ) -> Result<Vec<LoweredSqlOrderTerm>, SqlLoweringError> {
     order_by
         .into_iter()
-        .map(|term| lower_order_term(term, work))
+        .map(|term| lower_order_term(&term, work))
         .collect()
 }
 
@@ -63,7 +63,7 @@ pub(super) fn apply_order_terms_structural(
 // ORDER BY lowering now carries only the lowered semantic expression through
 // the SQL boundary so planner ordering stays expression-first too.
 fn lower_order_term(
-    term: SqlOrderTerm,
+    term: &SqlOrderTerm,
     work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlOrderTerm, SqlLoweringError> {
     let phase = if term.field.contains_aggregate() {

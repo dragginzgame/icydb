@@ -70,7 +70,7 @@ fn mixed_slots_preserve_lazy_refusal_and_cached_value_handoffs() {
             .enumerate()
             .map(|(slot, value)| {
                 encode_canonical_value_for_accepted_field_contract(
-                    contract
+                    &contract
                         .required_accepted_field_persistence_contract(slot)
                         .unwrap(),
                     value,
@@ -363,7 +363,7 @@ fn by_kind_full_row_corruption_keeps_eager_refusal_order_and_empty_output() {
             .enumerate()
             .map(|(slot, value)| {
                 encode_canonical_value_for_accepted_field_contract(
-                    contract
+                    &contract
                         .required_accepted_field_persistence_contract(slot)
                         .unwrap(),
                     value,

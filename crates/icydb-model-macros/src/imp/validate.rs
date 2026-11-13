@@ -77,7 +77,7 @@ impl Imp<Record> for ValidateAutoTrait {
 impl ValidateAutoFn for Enum {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
         let type_rules =
-            generate_validators_inner(&node.ty.validators, quote!(self), quote!(ctx), paths);
+            generate_validators_inner(&node.ty.validators, &quote!(self), &quote!(ctx), paths);
         let payload_rules = node
             .variants
             .iter()
@@ -97,8 +97,8 @@ impl ValidateAutoFn for Enum {
                     let name = ident.to_string();
                     if let Some(rules) = generate_field_value_validation_inner(
                         value,
-                        quote!(value),
-                        quote!(#model::visitor::PathSegment::Field(#name)),
+                        &quote!(value),
+                        &quote!(#model::visitor::PathSegment::Field(#name)),
                         paths,
                     ) {
                         quote! { Self::#ident(value) => { #rules } }
@@ -116,14 +116,14 @@ impl ValidateAutoFn for Tuple {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
         let model = &paths.model;
         let mut rules =
-            generate_validators_inner(&node.ty.validators, quote!(self), quote!(ctx), paths);
+            generate_validators_inner(&node.ty.validators, &quote!(self), &quote!(ctx), paths);
         for (index, value) in node.values.iter().enumerate() {
             let name = index.to_string();
             let index = syn::Index::from(index);
             let item_rules = generate_field_value_validation_inner(
                 value,
-                quote!(&self.#index),
-                quote!(#model::visitor::PathSegment::Field(#name)),
+                &quote!(&self.#index),
+                &quote!(#model::visitor::PathSegment::Field(#name)),
                 paths,
             );
             rules = merge_rules(rules, item_rules);
@@ -154,17 +154,21 @@ impl ValidateAutoFn for Map {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
         let model = &paths.model;
         let map_rules =
-            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx), paths);
+            generate_validators_inner(&node.ty.validators, &quote!(&self.0), &quote!(ctx), paths);
 
         let key_rules = generate_validators_inner(
             &node.key.validators,
-            quote!(k),
-            quote!(&mut entry_ctx),
+            &quote!(k),
+            &quote!(&mut entry_ctx),
             paths,
         );
 
-        let value_rules =
-            generate_value_validation_inner(&node.value, quote!(v), quote!(&mut entry_ctx), paths);
+        let value_rules = generate_value_validation_inner(
+            &node.value,
+            &quote!(v),
+            &quote!(&mut entry_ctx),
+            paths,
+        );
 
         let entry_rules = match (key_rules, value_rules) {
             (None, None) => None,
@@ -239,7 +243,7 @@ fn field_list_validate_strategy(
 }
 
 // List and set item validators share the same indexed traversal shape.
-fn indexed_collection_item_rules(block: TokenStream, paths: &CratePaths) -> TokenStream {
+fn indexed_collection_item_rules(block: &TokenStream, paths: &CratePaths) -> TokenStream {
     let model = &paths.model;
     let item_ident = format_ident!("__item");
 
@@ -261,10 +265,14 @@ fn collection_validate_self_tokens(
     paths: &CratePaths,
 ) -> TokenStream {
     let container_rules =
-        generate_validators_inner(container_validators, quote!(&self.0), quote!(ctx), paths);
-    let item_rules =
-        generate_validators_inner(item_validators, quote!(item), quote!(&mut item_ctx), paths)
-            .map(|value| indexed_collection_item_rules(value, paths));
+        generate_validators_inner(container_validators, &quote!(&self.0), &quote!(ctx), paths);
+    let item_rules = generate_validators_inner(
+        item_validators,
+        &quote!(item),
+        &quote!(&mut item_ctx),
+        paths,
+    )
+    .map(|value| indexed_collection_item_rules(&value, paths));
 
     wrap_validate_self_fn(merge_rules(container_rules, item_rules), paths)
 }
@@ -281,8 +289,8 @@ fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> T
         .filter_map(|(field, binding)| {
             let validation = generate_field_value_validation_inner(
                 &field.value,
-                binding.member_ref_from(quote!(node)),
-                binding.path_segment(paths),
+                &binding.member_ref_from(&quote!(node)),
+                &binding.path_segment(paths),
                 paths,
             )?;
             let fn_ident = binding.validate_fn_ident();
@@ -321,7 +329,7 @@ fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> T
         })
         .impl_tokens(paths);
 
-    let type_rules = generate_validators_inner(&ty.validators, quote!(self), quote!(ctx), paths);
+    let type_rules = generate_validators_inner(&ty.validators, &quote!(self), &quote!(ctx), paths);
     let trait_tokens = Implementor::new(def, TraitKind::ValidateAuto)
         .set_tokens(wrap_validate_self_fn(
             Some(quote! {
@@ -342,8 +350,8 @@ fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> T
 /// Validators emit issues directly via `VisitorContext`.
 fn generate_validators_inner(
     validators: &[TypeValidator],
-    var_expr: TokenStream,
-    ctx_expr: TokenStream,
+    var_expr: &TokenStream,
+    ctx_expr: &TokenStream,
     paths: &CratePaths,
 ) -> Option<TokenStream> {
     if validators.is_empty() {
@@ -352,7 +360,7 @@ fn generate_validators_inner(
 
     let exprs: Vec<TokenStream> = validators
         .iter()
-        .map(|validator| validator_call(validator, var_expr.clone(), ctx_expr.clone(), paths))
+        .map(|validator| validator_call(validator, var_expr, ctx_expr, paths))
         .collect();
 
     Some(quote!(#(#exprs)*))
@@ -360,9 +368,9 @@ fn generate_validators_inner(
 
 fn newtype_validate_self_tokens(node: &Newtype, paths: &CratePaths) -> TokenStream {
     let type_rules =
-        generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx), paths);
+        generate_validators_inner(&node.ty.validators, &quote!(&self.0), &quote!(ctx), paths);
     let item_rules =
-        generate_validators_inner(&node.item.validators, quote!(&self.0), quote!(ctx), paths);
+        generate_validators_inner(&node.item.validators, &quote!(&self.0), &quote!(ctx), paths);
 
     wrap_validate_self_fn(merge_rules(type_rules, item_rules), paths)
 }
@@ -383,25 +391,25 @@ fn wrap_validate_self_fn(inner: Option<TokenStream>, paths: &CratePaths) -> Toke
 /// Value-level validation (no path manipulation)
 fn generate_value_validation_inner(
     value: &Value,
-    var_expr: TokenStream,
-    ctx_expr: TokenStream,
+    var_expr: &TokenStream,
+    ctx_expr: &TokenStream,
     paths: &CratePaths,
 ) -> Option<TokenStream> {
     let rules: Vec<TokenStream> = value
         .item
         .validators
         .iter()
-        .map(|validator| validator_call(validator, quote!(v), ctx_expr.clone(), paths))
+        .map(|validator| validator_call(validator, &quote!(v), ctx_expr, paths))
         .collect();
 
-    cardinality_wrapper(value.cardinality(), rules, var_expr)
+    cardinality_wrapper(value.cardinality(), &rules, var_expr)
 }
 
 /// Field-level value validation
 fn generate_field_value_validation_inner(
     value: &Value,
-    var_expr: TokenStream,
-    seg: TokenStream,
+    var_expr: &TokenStream,
+    seg: &TokenStream,
     paths: &CratePaths,
 ) -> Option<TokenStream> {
     let model = &paths.model;
@@ -409,10 +417,10 @@ fn generate_field_value_validation_inner(
         .item
         .validators
         .iter()
-        .map(|validator| validator_call(validator, quote!(v), quote!(&mut __field_ctx), paths))
+        .map(|validator| validator_call(validator, &quote!(v), &quote!(&mut __field_ctx), paths))
         .collect();
 
-    let body = cardinality_wrapper(value.cardinality(), rules, var_expr)?;
+    let body = cardinality_wrapper(value.cardinality(), &rules, var_expr)?;
 
     Some(quote! {{
         let mut __field_ctx =
@@ -423,8 +431,8 @@ fn generate_field_value_validation_inner(
 
 fn validator_call(
     validator: &TypeValidator,
-    value: TokenStream,
-    context: TokenStream,
+    value: &TokenStream,
+    context: &TokenStream,
     paths: &CratePaths,
 ) -> TokenStream {
     let model = &paths.model;

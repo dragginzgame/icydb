@@ -13,10 +13,10 @@ function run(command, args) {
   assert.equal(result.status, 0, `${command} failed`);
 }
 // Shared Tooling owns declaration/import policy; this harness owns wire qualification.
-run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', here]);
+run(process.execPath, ['vendor/toko-tooling/scripts/ci/check-ic-sdk-boundary.mjs', here]);
 assert.equal(process.version, 'v24.21.0', 'select the declared Node runtime');
 run('cargo', ['run', '--manifest-path', resolve(root, 'qualification/Cargo.toml'), '--locked', '--offline', '-p', 'icydb-testing-build', '--example', 'wire_bindings', '--', out]);
-run(process.execPath, ['scripts/ci/check-ic-sdk-boundary.mjs', out]);
+run(process.execPath, ['vendor/toko-tooling/scripts/ci/check-ic-sdk-boundary.mjs', out]);
 mkdirSync(resolve(out, 'compiled'), { recursive: true });
 writeFileSync(resolve(out, 'compiled/package.json'), '{"type":"module"}\n');
 run(resolve(here, 'node_modules/.bin/tsc'), ['--ignoreConfig', '--strict', '--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'Bundler', '--skipLibCheck', '--outDir', resolve(out, 'compiled'), resolve(out, 'icydb.ts'), resolve(out, 'consumer.ts'), resolve(out, 'native-runtime.ts'), resolve(out, 'wire-runtime.ts')]);

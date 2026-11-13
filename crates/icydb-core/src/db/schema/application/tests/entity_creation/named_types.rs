@@ -480,7 +480,7 @@ fn allocation_preserves_unbound_accepted_ids_and_checks_exhaustion() {
             &[ExistingProposalStore {
                 path: EVOLUTION_STORE_PATH,
                 identity: target.stores()[0].identity(),
-                bundle,
+                bundle: bundle.catalog(),
             }],
         )
     };
@@ -541,7 +541,7 @@ fn new_named_source_cannot_collide_with_an_unbound_accepted_path() {
             &[ExistingProposalStore {
                 path: EVOLUTION_STORE_PATH,
                 identity: target.stores()[0].identity(),
-                bundle: &occupied,
+                bundle: occupied.catalog(),
             }]
         )
         .is_err()
@@ -637,12 +637,12 @@ fn shared_new_definition_allocates_independently_in_existing_stores() {
             ExistingProposalStore {
                 path: "test::A",
                 identity: a,
-                bundle: &before_a,
+                bundle: before_a.catalog(),
             },
             ExistingProposalStore {
                 path: "test::B",
                 identity: b,
-                bundle: before_b,
+                bundle: before_b.catalog(),
             },
         ],
     )

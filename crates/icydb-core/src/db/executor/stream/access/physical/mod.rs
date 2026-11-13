@@ -223,8 +223,8 @@ impl KeyAccessRuntime {
     // Resolve one primary-key range scan as a dynamic ordered stream.
     fn resolve_key_range_stream(
         &self,
-        start: Option<Value>,
-        end: Option<Value>,
+        start: Option<&Value>,
+        end: Option<&Value>,
         continuation: AccessScanContinuationInput<'_>,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
@@ -245,8 +245,10 @@ impl KeyAccessRuntime {
             primary_scan_fetch_hint,
         )?;
         if let Some(boundary) = continuation.primary_key_boundary() {
-            stream
-                .resume_strictly_after(primary_key_boundary_data_key(self.entity_tag, boundary)?)?;
+            stream.resume_strictly_after(&primary_key_boundary_data_key(
+                self.entity_tag,
+                boundary,
+            )?)?;
         }
 
         Ok(OrderedKeyStreamBox::primary_range(stream))
@@ -265,8 +267,10 @@ impl KeyAccessRuntime {
             primary_scan_fetch_hint,
         )?;
         if let Some(boundary) = continuation.primary_key_boundary() {
-            stream
-                .resume_strictly_after(primary_key_boundary_data_key(self.entity_tag, boundary)?)?;
+            stream.resume_strictly_after(&primary_key_boundary_data_key(
+                self.entity_tag,
+                boundary,
+            )?)?;
         }
 
         Ok(OrderedKeyStreamBox::primary_range(stream))
@@ -569,7 +573,7 @@ impl KeyAccessRuntime {
             self.entity_tag,
             spec,
             request.continuation.direction(),
-            resume_anchor,
+            resume_anchor.as_ref(),
             request.index_fetch_hint,
             branch_chunk_entries,
         )?;
@@ -960,7 +964,7 @@ impl PrimaryRangeKeyStream {
     // page-local rather than being consumed while replaying earlier pages.
     fn resume_strictly_after(
         &mut self,
-        boundary: DecodedDataStoreKey,
+        boundary: &DecodedDataStoreKey,
     ) -> Result<(), InternalError> {
         if boundary.entity_tag() != self.entity_tag
             || self.buffer_pos != 0
@@ -1215,13 +1219,12 @@ impl IndexRangeKeyStream {
         entity_tag: EntityTag,
         spec: &LoweredIndexPrefixSpec,
         direction: Direction,
-        anchor: Option<RawIndexStoreKey>,
+        anchor: Option<&RawIndexStoreKey>,
         limit: Option<usize>,
         chunk_entries: usize,
     ) -> Result<Self, InternalError> {
         let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
-        let bounds =
-            resume_prefix_bounds_for_continuation(direction, anchor.as_ref(), lower, upper)?;
+        let bounds = resume_prefix_bounds_for_continuation(direction, anchor, lower, upper)?;
         Ok(Self::new(
             store,
             entity_tag,
@@ -1686,8 +1689,8 @@ fn resolve_physical_key_stream(
         ExecutionPathPayload::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
         ExecutionPathPayload::KeyRange { start, end } => {
             return runtime.resolve_key_range_stream(
-                start.cloned(),
-                end.cloned(),
+                start.cloned().as_ref(),
+                end.cloned().as_ref(),
                 request.continuation,
                 primary_scan_fetch_hint,
             );

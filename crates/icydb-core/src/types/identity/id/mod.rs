@@ -58,6 +58,7 @@ use serde_json::Value as SchemaValue;
 //
 
 #[repr(transparent)]
+/// Typed entity key; it does not prove existence, ownership or authorization.
 pub struct Id<E: EntityKey> {
     key: E::Key,
 }
@@ -66,6 +67,7 @@ impl<E> Id<E>
 where
     E: EntityKey,
 {
+    /// Fixed byte width of the entity key encoding.
     pub const KEY_BYTES: usize = E::Key::BYTE_LEN;
 
     // ------------------------------------------------------------------
@@ -108,6 +110,7 @@ where
     }
 
     #[must_use]
+    /// Consume the typed identity and return its primitive key.
     pub const fn into_key(self) -> E::Key {
         self.key
     }

@@ -44,7 +44,7 @@ pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregat
 pub(in crate::db) fn execute_structural_aggregate_rows_for_canister<C>(
     db: &Db<C>,
     shared_plan: SharedPreparedExecutionPlan,
-    request: StructuralAggregateRequest,
+    request: &StructuralAggregateRequest,
 ) -> Result<Vec<Vec<Value>>, InternalError>
 where
     C: CanisterKind,
@@ -59,14 +59,14 @@ where
 fn execute_structural_aggregate_rows_inner<C>(
     db: &Db<C>,
     shared_plan: SharedPreparedExecutionPlan,
-    request: StructuralAggregateRequest,
+    request: &StructuralAggregateRequest,
 ) -> Result<Vec<Vec<Value>>, InternalError>
 where
     C: CanisterKind,
 {
     let entity_path = shared_plan.authority_ref().entity_path_handle();
     let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
-    let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
+    let compiled = CompiledStructuralAggregateRequest::compile(request)?;
     let terminal_count = request.terminals().len();
     let terminals = request
         .terminals()

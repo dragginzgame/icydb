@@ -3,7 +3,7 @@ use crate::{
         Db,
         data::{DataStore, DecodedDataStoreKey},
         executor::{
-            EntityAuthority, IndexComponentRows, IndexComponentValues,
+            EntityAuthority, IndexComponentRows,
             projection::covering::{
                 PreparedCoveringProjectionRuntime,
                 contracts::{
@@ -29,7 +29,7 @@ use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 pub(super) fn try_execute_hybrid_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     runtime: PreparedCoveringProjectionRuntime<'_>,
     hybrid: &CoveringHybridReadExecutionPlan,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
@@ -54,7 +54,7 @@ where
         ..
     }) = resolve_index_backed_covering_scan(
         db,
-        &authority,
+        authority,
         CoveringIndexScanRequest {
             plan: runtime.plan,
             index_prefix_specs: runtime.plan.access.single_index_prefix_specs(),
@@ -147,7 +147,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             &data_key,
             hybrid.fields.as_slice(),
             component_indices,
-            components,
+            &components,
             sparse_row_fields,
             ownership,
         )?
@@ -199,7 +199,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             &data_key,
             hybrid.fields.as_slice(),
             component_indices,
-            components,
+            &components,
             sparse_row_fields,
             ownership,
         )?
@@ -312,7 +312,7 @@ fn project_hybrid_covering_row(
     data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
     component_indices: &[usize],
-    components: IndexComponentValues,
+    components: &[Vec<u8>],
     mut row_fields: Vec<(usize, Value)>,
     ownership: &HybridProjectionOwnership,
 ) -> Result<Option<Vec<Value>>, InternalError> {

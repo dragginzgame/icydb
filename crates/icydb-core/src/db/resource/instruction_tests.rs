@@ -31,7 +31,7 @@ const MUTATION_CONTEXT: HardExecutionContext = HardExecutionContext::new(
     2,
 );
 
-fn assert_message_exhaustion(error: InternalError, actual: u64) {
+fn assert_message_exhaustion(error: &InternalError, actual: u64) {
     let facts = error.diagnostic_facts();
     for fact in [
         (
@@ -78,7 +78,7 @@ fn mutation_message_ceiling_is_not_reset_by_a_second_advance() {
         )
         .unwrap_err();
         assert!(!entered);
-        assert_message_exhaustion(error, limit + 1);
+        assert_message_exhaustion(&error, limit + 1);
     });
 }
 
@@ -99,7 +99,7 @@ fn mutation_message_ceiling_checks_prior_work_at_publication() {
         )
         .unwrap_err();
         assert!(!published);
-        assert_message_exhaustion(error, limit + 1);
+        assert_message_exhaustion(&error, limit + 1);
     });
 }
 
@@ -131,7 +131,7 @@ fn maintenance_message_ceiling_is_not_reset_by_a_fresh_budget() {
             )
             .unwrap_err();
         assert!(!entered);
-        assert_message_exhaustion(error, limit + 1);
+        assert_message_exhaustion(&error, limit + 1);
     });
 }
 
@@ -169,7 +169,7 @@ fn maintenance_message_ceiling_refuses_completed_work_before_handoff() {
                 std::convert::identity,
             )
             .unwrap_err();
-        assert_message_exhaustion(error, limit + 1);
+        assert_message_exhaustion(&error, limit + 1);
         let mut entered = false;
         let error = budget
             .run(
@@ -181,7 +181,7 @@ fn maintenance_message_ceiling_refuses_completed_work_before_handoff() {
             )
             .unwrap_err();
         assert!(!entered);
-        assert_message_exhaustion(error, limit + 1);
+        assert_message_exhaustion(&error, limit + 1);
     });
 }
 

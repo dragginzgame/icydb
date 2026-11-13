@@ -2,15 +2,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 scratch="$(fixture_create "${TMPDIR:-/tmp}/icydb-invariant-scanners.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$scratch" "Invariant scanner fixture retained at"' EXIT
 mkdir -p "$scratch/scripts/ci"
-for script in invariant-common.sh check-executor-no-production-panics.sh \
-  check-sql-branch-ownership-invariants.sh; do
-  cp "$ROOT/scripts/ci/$script" "$scratch/scripts/ci/"
+for script in scripts/ci/invariant-common.sh \
+  scripts/ci/check-executor-no-production-panics.sh \
+  scripts/ci/check-sql-branch-ownership-invariants.sh; do
+  mkdir -p "$scratch/${script%/*}"
+  cp "$ROOT/$script" "$scratch/$script"
 done
 
 # Source-input admission is independently selectable without building the Rust scanner.
@@ -33,7 +35,7 @@ post_link_call_cases() {
   mkdir -p "$fixture/scripts/ci"
   for path in scripts/ci/check-wasm-post-link-invariants.sh qualification/build/src/lib.rs \
     qualification/build/src/canister_build_cache/mod.rs qualification/build/src/wasm_optimizer/mod.rs \
-    scripts/app/build.sh .github/workflows/canic-adapter.yml Makefile ci/ic-tools.tsv \
+    scripts/app/build.sh .github/workflows/canic-adapter.yml Makefile vendor/toko-tooling/ci/ic-tools.tsv \
     scripts/dev/workstation-setup.sh; do
     mkdir -p "$fixture/$(dirname "$path")"
     cp "$ROOT/$path" "$fixture/$path"
@@ -95,7 +97,7 @@ esac
 # The copied gate independently verifies the shared scanner source. Copy its
 # authoritative manifest closure instead of maintaining another payload roster.
 cp "$ROOT/.toko-tooling.snapshot" "$scratch/.toko-tooling.snapshot"
-shared_records="$(bash "$ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
+shared_records="$(bash "$ROOT/vendor/toko-tooling/scripts/ci/verify-toko-tooling-snapshot.sh" \
   --read-manifest "$ROOT/.toko-tooling.snapshot")"
 while IFS=$'\t' read -r kind _digest _mode shared_path; do
   [[ "$kind" == file ]] || continue

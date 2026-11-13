@@ -67,7 +67,7 @@ pub(in crate::db) fn decode_optional_grouped_cursor_token(
     decode_optional_cursor_token(cursor_token)?
         .map(|bytes| {
             GroupedContinuationToken::decode(bytes.as_slice(), mac_key)
-                .map_err(CursorPlanError::from_token_wire_error)
+                .map_err(|error| CursorPlanError::from_token_wire_error(&error))
         })
         .transpose()
 }

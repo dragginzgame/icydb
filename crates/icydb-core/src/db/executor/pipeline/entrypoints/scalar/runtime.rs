@@ -387,7 +387,7 @@ fn build_prepared_scalar_route_runtime(
     suppress_route_scan_hints: bool,
 ) -> Result<PreparedScalarRouteRuntime, InternalError> {
     let projection = PreparedExecutionProjection::compile(
-        authority.clone(),
+        &authority,
         plan_core.plan(),
         prepared_retained_slot_layout,
         projection_runtime_mode,

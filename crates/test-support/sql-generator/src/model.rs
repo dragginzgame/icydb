@@ -2264,10 +2264,6 @@ impl SelectPredicate {
 
     // Keep shrink behavior exhaustive beside the closed predicate AST so new
     // variants cannot silently miss minimization.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "closed predicate AST shrink policy is intentionally exhaustive"
-    )]
     fn shrink_candidates(&self) -> Vec<Self> {
         let mut candidates = Vec::new();
         match self {

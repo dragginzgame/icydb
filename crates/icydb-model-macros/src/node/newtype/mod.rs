@@ -4,7 +4,10 @@
 //! Boundary: macro metadata to node models.
 
 use crate::{
-    imp::*,
+    imp::{
+        DefaultTrait, FromTrait, NormalizeAutoTrait, NumericValueTrait, PartialEqTrait,
+        PartialOrdTrait, ValidateAutoTrait, VisitableTrait,
+    },
     node::traits::{HasDef, HasSchema},
     prelude::*,
 };

@@ -164,7 +164,7 @@ fn lower_global_aggregate_base_query_shape(
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     Ok(LoweredBaseQueryShape {
         filter: predicate
-            .map(|expr| lower_global_aggregate_filter(expr, work))
+            .map(|expr| lower_global_aggregate_filter(&expr, work))
             .transpose()?,
         order_by: lower_order_terms(order_by, work)?,
         limit,
@@ -173,14 +173,14 @@ fn lower_global_aggregate_base_query_shape(
 }
 
 fn lower_global_aggregate_filter(
-    expr: SqlExpr,
+    expr: &SqlExpr,
     work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlFilter, SqlLoweringError> {
     // Keep global aggregate base filters on the strict predicate-admission
     // lane. Unlike ordinary SELECT/DELETE filters, this path feeds reduced
     // aggregate execution and direct COUNT shortcut classification, so moving
     // expression-only filters here would widen the accepted SQL surface.
-    LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr, work)
+    LoweredSqlFilter::from_where_expr_requiring_predicate_subset(expr, work)
 }
 
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(

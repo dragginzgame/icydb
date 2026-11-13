@@ -9,11 +9,22 @@ use std::fmt;
 /// Compact predicate operator identity for schema validation diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SchemaValidationOperator {
+    /// Compares a field with a literal operand.
     Compare(CompareOp),
-    CompareField { op: CompareOp, right_field: String },
+    /// Compare against another field rather than a literal.
+    CompareField {
+        /// Comparison operator applied to the two operands.
+        op: CompareOp,
+        /// Name of the comparison's right-hand field.
+        right_field: String,
+    },
+    /// Matches an empty supported collection or text value.
     IsEmpty,
+    /// Matches a nonempty supported collection or text value.
     IsNotEmpty,
+    /// Matches a case-sensitive text substring.
     TextContains,
+    /// Matches a substring after the canonical case-insensitive fold.
     TextContainsCi,
 }
 
@@ -48,13 +59,21 @@ impl fmt::Display for SchemaValidationOperator {
 /// Compact literal validation reason for schema validation diagnostics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SchemaLiteralValidationReason {
+    /// The operator requires a list literal.
     ExpectedList,
+    /// The operator requires a text literal.
     ExpectedText,
+    /// The operator requires a scalar literal.
     ExpectedScalar,
+    /// The literal does not match the accepted field type.
     LiteralTypeMismatch,
+    /// A list element does not match the accepted element type.
     ListElementTypeMismatch,
+    /// The nominal enum path differs from the accepted field type.
     EnumPathMismatch,
+    /// The enum variant is absent from the accepted enum contract.
     UnknownEnumVariant,
+    /// The payload does not match the accepted variant's body contract.
     EnumBodyMismatch,
 }
 
@@ -81,38 +100,78 @@ impl fmt::Display for SchemaLiteralValidationReason {
 #[derive(Debug, thiserror::Error)]
 pub enum ValidateError {
     #[error("unknown field '{field}'")]
-    UnknownField { field: String },
+    /// The requested field is absent from the accepted schema.
+    UnknownField {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
 
     #[error("field '{field}' is not queryable")]
-    NonQueryableFieldType { field: String },
+    /// The field's accepted type does not support query evaluation.
+    NonQueryableFieldType {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
 
     #[error("duplicate field '{field}'")]
-    DuplicateField { field: String },
+    /// The field is declared more than once.
+    DuplicateField {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
 
     #[error("map predicates are unsupported for field '{field}'")]
-    MapPredicateUnsupported { field: String },
+    /// Map-valued fields do not support this predicate surface.
+    MapPredicateUnsupported {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
 
     #[error("primary key '{field}' not present in entity fields")]
-    InvalidPrimaryKey { field: String },
+    /// The primary key is absent from the entity's fields.
+    InvalidPrimaryKey {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
 
     #[error("primary key '{field}' has a non-keyable type")]
-    InvalidPrimaryKeyType { field: String },
+    /// The primary-key field type cannot be encoded as a key.
+    InvalidPrimaryKeyType {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
 
     #[error("duplicate index name '{name}'")]
-    DuplicateIndexName { name: String },
+    /// Two indexes share the same name.
+    DuplicateIndexName {
+        /// Conflicting index name.
+        name: String,
+    },
 
     #[error("operator {operator} is not valid for field '{field}'")]
+    /// The operator is not admitted for the field type.
     InvalidOperator {
+        /// Name of the field being evaluated or rejected.
         field: String,
+        /// Operator rejected for this field.
         operator: SchemaValidationOperator,
     },
 
     #[error("coercion {coercion:?} is not valid for field '{field}'")]
-    InvalidCoercion { field: String, coercion: CoercionId },
+    /// The coercion is not admitted for the field type.
+    InvalidCoercion {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+        /// Requested coercion strategy.
+        coercion: CoercionId,
+    },
 
     #[error("invalid literal for field '{field}': {reason}")]
+    /// The literal violates the accepted field contract.
     InvalidLiteral {
+        /// Name of the field being evaluated or rejected.
         field: String,
+        /// Typed cause of the rejection.
         reason: SchemaLiteralValidationReason,
     },
 }

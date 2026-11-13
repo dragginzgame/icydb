@@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Display};
 // Wire uses int32 epoch days; JSON uses ISO-8601 text (`YYYY-MM-DD`).
 //
 
+/// A Gregorian calendar date, stored as days since the Unix epoch.
 #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Date(i32);

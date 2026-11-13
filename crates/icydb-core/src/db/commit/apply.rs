@@ -38,7 +38,7 @@ impl PreparedIndexMutation {
     /// Fold one already-prepared recovered mutation into canonical stable index storage.
     pub(in crate::db) fn fold_recovered(self) -> Result<(), crate::error::InternalError> {
         self.index_store
-            .with_borrow_mut(|store| store.apply_canonical_entry(self.key, self.value))
+            .with_borrow_mut(|store| store.apply_canonical_entry(self.key, self.value.as_ref()))
     }
 }
 

@@ -145,10 +145,10 @@ impl PreparedOutputRows {
     fn new(
         binding: &TypedEntityBinding,
         entity: String,
-        columns: Vec<String>,
+        columns: &[String],
         rows: Vec<Vec<OutputValue>>,
     ) -> Result<Self, TypedAdapterError> {
-        let projection = OutputRowProjection::new(binding, entity, columns.as_slice())?;
+        let projection = OutputRowProjection::new(binding, entity, columns)?;
         for values in &rows {
             if values.len() != projection.0.value_count {
                 return Err(TypedAdapterError::RowShapeMismatch);
@@ -1221,7 +1221,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &TypedEntityBinding,
         entity: String,
-        columns: Vec<String>,
+        columns: &[String],
         rows: Vec<Vec<OutputValue>>,
     ) -> Result<PreparedOutputRows, TypedOperationError> {
         self.ensure_typed_binding_is_current(binding)?;
@@ -1364,7 +1364,7 @@ impl<C: CanisterKind> DbSession<C> {
         if rows.len() != expected_results {
             return Err(TypedAdapterError::RowShapeMismatch.into());
         }
-        Ok(PreparedOutputRows::new(binding, entity, columns, rows)?)
+        Ok(PreparedOutputRows::new(binding, entity, &columns, rows)?)
     }
 
     /// Start one mixed-entity generated typed-write batch.

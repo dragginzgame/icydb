@@ -21,6 +21,7 @@ pub struct Type {
 
 impl Type {
     #[must_use]
+    /// Declare type-level hook attachments and source rules.
     pub const fn new(
         normalizers: &'static [TypeNormalizer],
         validators: &'static [TypeValidator],
@@ -34,11 +35,13 @@ impl Type {
     }
 
     #[must_use]
+    /// Borrow normalizer attachments in declaration order.
     pub const fn normalizers(&self) -> &'static [TypeNormalizer] {
         self.normalizers
     }
 
     #[must_use]
+    /// Borrow validator attachments in declaration order.
     pub const fn validators(&self) -> &'static [TypeValidator] {
         self.validators
     }
@@ -258,16 +261,19 @@ pub struct TypeNormalizer {
 
 impl TypeNormalizer {
     #[must_use]
+    /// Attach the constructor at the given Rust path with its ordered arguments.
     pub const fn new(path: &'static str, args: Args) -> Self {
         Self { path, args }
     }
 
     #[must_use]
+    /// Return the attached constructor's Rust path.
     pub const fn path(&self) -> &'static str {
         self.path
     }
 
     #[must_use]
+    /// Borrow constructor arguments in their authored order.
     pub const fn args(&self) -> &Args {
         &self.args
     }
@@ -303,16 +309,19 @@ pub struct TypeValidator {
 
 impl TypeValidator {
     #[must_use]
+    /// Attach the constructor at the given Rust path with its ordered arguments.
     pub const fn new(path: &'static str, args: Args) -> Self {
         Self { path, args }
     }
 
     #[must_use]
+    /// Return the attached constructor's Rust path.
     pub const fn path(&self) -> &'static str {
         self.path
     }
 
     #[must_use]
+    /// Borrow constructor arguments in their authored order.
     pub const fn args(&self) -> &Args {
         &self.args
     }

@@ -234,14 +234,14 @@ impl ExecutionRuntimeAdapter {
     /// Resolve one primary-key fast path when the route is already verified.
     pub(in crate::db::executor) fn try_execute_pk_order_stream(
         &self,
-        executable_access: ExecutableAccessPlan<'_, Value>,
+        executable_access: &ExecutableAccessPlan<'_, Value>,
         continuation: AccessScanContinuationInput<'_>,
         physical_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
             &self.runtime,
-            FastStreamRouteRequest::PrimaryKey {
-                executable_access: &executable_access,
+            &FastStreamRouteRequest::PrimaryKey {
+                executable_access,
                 continuation,
                 probe_fetch_hint: physical_fetch_hint,
             },
@@ -251,15 +251,15 @@ impl ExecutionRuntimeAdapter {
     /// Resolve one verified secondary-prefix fast path.
     pub(in crate::db::executor) fn try_execute_secondary_index_order_stream(
         &self,
-        executable_access: ExecutableAccessPlan<'_, Value>,
+        executable_access: &ExecutableAccessPlan<'_, Value>,
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
             &self.runtime,
-            FastStreamRouteRequest::SecondaryIndex {
-                executable_access: &executable_access,
+            &FastStreamRouteRequest::SecondaryIndex {
+                executable_access,
                 bindings,
                 probe_fetch_hint: physical_fetch_hint,
                 index_predicate_execution,
@@ -270,7 +270,7 @@ impl ExecutionRuntimeAdapter {
     /// Resolve one verified index-range limit-pushdown fast path.
     pub(in crate::db::executor) fn try_execute_index_range_limit_pushdown_stream(
         &self,
-        executable_access: ExecutableAccessPlan<'_, Value>,
+        executable_access: &ExecutableAccessPlan<'_, Value>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
         continuation: AccessScanContinuationInput<'_>,
         fetch: usize,
@@ -278,8 +278,8 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
             &self.runtime,
-            FastStreamRouteRequest::IndexRangeLimitPushdown {
-                executable_access: &executable_access,
+            &FastStreamRouteRequest::IndexRangeLimitPushdown {
+                executable_access,
                 index_range_spec,
                 continuation,
                 effective_fetch: fetch,
@@ -303,7 +303,7 @@ impl ExecutionRuntimeAdapter {
             index_predicate_execution,
         );
 
-        self.runtime.ordered_key_stream_from_runtime_access(access)
+        self.runtime.ordered_key_stream_from_runtime_access(&access)
     }
 
     /// Attempt the cursorless row-collector short path and erase the typed page result.

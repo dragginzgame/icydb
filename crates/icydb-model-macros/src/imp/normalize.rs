@@ -78,7 +78,8 @@ impl Imp<Record> for NormalizeAutoTrait {
 /// The visitor still owns traversal into the resulting payload's children.
 impl NormalizeAutoFn for Enum {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
-        let mut statements = generate_normalizers(&node.ty.normalizers, quote!(*self), None, paths);
+        let mut statements =
+            generate_normalizers(&node.ty.normalizers, &quote!(*self), None, paths);
         if node.variants.iter().any(|variant| {
             variant
                 .value
@@ -94,11 +95,12 @@ impl NormalizeAutoFn for Enum {
                 let name = ident.to_string();
                 let rules = generate_normalizers(
                     &value.item.normalizers,
-                    quote!(*v),
-                    Some(quote!(#model::visitor::PathSegment::Field(#name))),
+                    &quote!(*v),
+                    Some(&quote!(#model::visitor::PathSegment::Field(#name))),
                     paths,
                 );
-                if let Some(rules) = cardinality_wrapper(value.cardinality(), rules, quote!(value))
+                if let Some(rules) =
+                    cardinality_wrapper(value.cardinality(), &rules, &quote!(value))
                 {
                     quote! { Self::#ident(value) => { #rules } }
                 } else {
@@ -117,18 +119,19 @@ impl NormalizeAutoFn for Enum {
 impl NormalizeAutoFn for Tuple {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
         let model = &paths.model;
-        let mut statements = generate_normalizers(&node.ty.normalizers, quote!(*self), None, paths);
+        let mut statements =
+            generate_normalizers(&node.ty.normalizers, &quote!(*self), None, paths);
         for (index, value) in node.values.iter().enumerate() {
             let name = index.to_string();
             let index = syn::Index::from(index);
             let rules = generate_normalizers(
                 &value.item.normalizers,
-                quote!(*v),
-                Some(quote!(#model::visitor::PathSegment::Field(#name))),
+                &quote!(*v),
+                Some(&quote!(#model::visitor::PathSegment::Field(#name))),
                 paths,
             );
             if let Some(rules) =
-                cardinality_wrapper(value.cardinality(), rules, quote!(&mut self.#index))
+                cardinality_wrapper(value.cardinality(), &rules, &quote!(&mut self.#index))
             {
                 statements.push(quote! { { #rules } });
             }
@@ -159,11 +162,11 @@ impl NormalizeAutoFn for List {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
         let model = &paths.model;
         let mut statements =
-            generate_normalizers(&node.ty.normalizers, quote!(self.0), None, paths);
+            generate_normalizers(&node.ty.normalizers, &quote!(self.0), None, paths);
         let items = generate_normalizers(
             &node.item.normalizers,
-            quote!(*v),
-            Some(quote!(#model::visitor::PathSegment::Index(i))),
+            &quote!(*v),
+            Some(&quote!(#model::visitor::PathSegment::Index(i))),
             paths,
         );
         if !items.is_empty() {
@@ -190,14 +193,14 @@ impl NormalizeAutoFn for Map {
     fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
         let model = &paths.model;
         let mut statements =
-            generate_normalizers(&node.ty.normalizers, quote!(self.0), None, paths);
+            generate_normalizers(&node.ty.normalizers, &quote!(self.0), None, paths);
         let values = generate_normalizers(
             &node.value.item.normalizers,
-            quote!(*v),
-            Some(quote!(#model::visitor::PathSegment::Index(i))),
+            &quote!(*v),
+            Some(&quote!(#model::visitor::PathSegment::Index(i))),
             paths,
         );
-        if let Some(values) = cardinality_wrapper(node.value.cardinality(), values, quote!(v)) {
+        if let Some(values) = cardinality_wrapper(node.value.cardinality(), &values, &quote!(v)) {
             statements.push(quote! {
                 for (i, v) in self.0.values_mut().enumerate() {
                     #values
@@ -219,17 +222,17 @@ impl NormalizeAutoFn for Map {
 /// Errors are recorded via VisitorContext.
 fn generate_normalizers(
     normalizers: &[TypeNormalizer],
-    target: TokenStream,
-    seg: Option<TokenStream>,
+    target: &TokenStream,
+    seg: Option<&TokenStream>,
     paths: &CratePaths,
 ) -> Vec<TokenStream> {
     let model = &paths.model;
     normalizers
         .iter()
         .map(|normalizer| match &seg {
-            None => normalizer_call(normalizer, &target, quote!(ctx), paths),
+            None => normalizer_call(normalizer, target, &quote!(ctx), paths),
             Some(seg) => {
-                let call = normalizer_call(normalizer, &target, quote!(&mut __field_ctx), paths);
+                let call = normalizer_call(normalizer, target, &quote!(&mut __field_ctx), paths);
                 quote! {{
                     let mut __field_ctx = #model::visitor::ScopedContext::new(ctx, #seg);
                     #call
@@ -243,7 +246,7 @@ fn generate_normalizers(
 fn normalizer_call(
     normalizer: &TypeNormalizer,
     target: &TokenStream,
-    context: TokenStream,
+    context: &TokenStream,
     paths: &CratePaths,
 ) -> TokenStream {
     let model = &paths.model;
@@ -270,7 +273,7 @@ fn normalizer_call(
 /// Normalizers attached to the container itself (not items).
 fn container_normalizers(
     normalizers: &[TypeNormalizer],
-    target: TokenStream,
+    target: &TokenStream,
     paths: &CratePaths,
 ) -> Option<TokenStream> {
     let stmts = generate_normalizers(normalizers, target, None, paths);
@@ -284,7 +287,7 @@ fn container_normalizers(
 /// Emit container normalization without mutable item callbacks, as required by sets.
 fn container_self_tokens(normalizers: &[TypeNormalizer], paths: &CratePaths) -> TokenStream {
     fn_wrap_normalize_self(
-        container_normalizers(normalizers, quote!(self.0), paths),
+        container_normalizers(normalizers, &quote!(self.0), paths),
         paths,
     )
 }
@@ -302,14 +305,14 @@ fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> T
         .filter_map(|(field, binding)| {
             let stmts = generate_normalizers(
                 &field.value.item.normalizers,
-                quote!(*v),
-                Some(binding.path_segment(paths)),
+                &quote!(*v),
+                Some(&binding.path_segment(paths)),
                 paths,
             );
             let stmts = cardinality_wrapper(
                 field.value.cardinality(),
-                stmts,
-                binding.member_mut_from(quote!(node)),
+                &stmts,
+                &binding.member_mut_from(&quote!(node)),
             )?;
             let fn_ident = binding.normalize_fn_ident();
 
@@ -347,7 +350,7 @@ fn field_list(def: &Def, ty: &Type, fields: &FieldList, paths: &CratePaths) -> T
         })
         .impl_tokens(paths);
 
-    let type_rules = generate_normalizers(&ty.normalizers, quote!(*self), None, paths);
+    let type_rules = generate_normalizers(&ty.normalizers, &quote!(*self), None, paths);
     let trait_tokens = Implementor::new(def, TraitKind::NormalizeAuto)
         .add_tokens(fn_wrap_normalize_self(
             Some(quote! {
@@ -381,13 +384,13 @@ fn newtype_normalizers(node: &Newtype, paths: &CratePaths) -> Option<TokenStream
     let mut stmts = Vec::new();
     stmts.extend(generate_normalizers(
         &node.ty.normalizers,
-        target.clone(),
+        &target,
         None,
         paths,
     ));
     stmts.extend(generate_normalizers(
         &node.item.normalizers,
-        target,
+        &target,
         None,
         paths,
     ));

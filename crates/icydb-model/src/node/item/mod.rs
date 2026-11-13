@@ -52,6 +52,7 @@ impl Item {
     }
 
     #[must_use]
+    /// Declare an element type with relation, bounds and ordered hook attachments.
     pub const fn new(
         target: ItemTarget,
         relation: Option<&'static str>,
@@ -73,41 +74,49 @@ impl Item {
     }
 
     #[must_use]
+    /// Borrow the primitive or named-type target of this item.
     pub const fn target(&self) -> &ItemTarget {
         &self.target
     }
 
     #[must_use]
+    /// Return the related entity path, if this item declares a relation.
     pub const fn relation(&self) -> Option<&'static str> {
         self.relation
     }
 
     #[must_use]
+    /// Return the declared fixed decimal scale, if present.
     pub const fn scale(&self) -> Option<u32> {
         self.scale
     }
 
     #[must_use]
+    /// Return the declared variable-length bound, if present.
     pub const fn max_len(&self) -> Option<u32> {
         self.max_len
     }
 
     #[must_use]
+    /// Borrow validator attachments in declaration order.
     pub const fn validators(&self) -> &'static [TypeValidator] {
         self.validators
     }
 
     #[must_use]
+    /// Borrow normalizer attachments in declaration order.
     pub const fn normalizers(&self) -> &'static [TypeNormalizer] {
         self.normalizers
     }
 
     #[must_use]
+    /// Whether generated Rust wraps this item in indirection.
     pub const fn indirect(&self) -> bool {
         self.indirect
     }
 
     #[must_use]
+    /// Whether this item declares a related entity.
     pub const fn is_relation(&self) -> bool {
         self.relation().is_some()
     }
@@ -192,6 +201,8 @@ impl VisitableNode for Item {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum ItemTarget {
+    /// Reference a named Rust application type by path.
     Is(&'static str),
+    /// Use a built-in authoring scalar type.
     Primitive(Primitive),
 }

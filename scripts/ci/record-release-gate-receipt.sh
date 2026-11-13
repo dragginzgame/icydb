@@ -30,7 +30,7 @@ candidate="$RELEASE_RECEIPT_DIR/$release_tag.candidate"
 [[ -f "$candidate" && ! -L "$candidate" ]] || exit 1
 RELEASE_COMMIT="$release_commit" bash "$ROOT_DIR/scripts/ci/release-candidate-receipt.sh" verify-commit
 if [[ -f "$candidate" && "$(sed -n '1p' "$candidate")" == "format=3:$RELEASE_GROUP" ]]; then
-    candidate_sha="$(bash "$ROOT_DIR/scripts/ci/verify-file-checksum.sh" --print sha256 "$candidate")"
+    candidate_sha="$(bash "$ROOT_DIR/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$candidate")"
     printf '%s\n' "format=selected-$RELEASE_GROUP/1" "$release_commit" "$candidate_sha" > "$temporary_receipt"
 else
     printf '%s\n' "$release_commit" > "$temporary_receipt"

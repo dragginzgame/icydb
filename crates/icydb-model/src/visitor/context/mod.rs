@@ -81,15 +81,19 @@ impl fmt::Display for CallbackIdentity {
 ///
 
 pub trait VisitorContext {
+    /// Record an issue at the current traversal path.
     fn add_issue(&mut self, issue: Issue);
+    /// Record an issue beneath the current path at `seg`.
     fn add_issue_at(&mut self, seg: PathSegment, issue: Issue);
 }
 
 impl dyn VisitorContext + '_ {
+    /// Convert and record a diagnostic at the current path.
     pub fn issue(&mut self, issue: impl Into<Issue>) {
         self.add_issue(issue.into());
     }
 
+    /// Convert and record a diagnostic at a child segment.
     pub fn issue_at(&mut self, seg: PathSegment, issue: impl Into<Issue>) {
         self.add_issue_at(seg, issue.into());
     }
@@ -133,6 +137,7 @@ impl VisitorContext for CallbackContext<'_> {
 
 impl<'a> ScopedContext<'a> {
     #[must_use]
+    /// Redirect all diagnostics to `seg`, including explicitly segmented reports.
     pub fn new(ctx: &'a mut dyn VisitorContext, seg: PathSegment) -> Self {
         Self { ctx, seg }
     }
@@ -160,6 +165,7 @@ pub struct Issue {
 
 impl Issue {
     #[must_use]
+    /// Create a diagnostic without a bound callback identity.
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             callback: None,
@@ -174,11 +180,13 @@ impl Issue {
     }
 
     #[must_use]
+    /// Borrow the diagnostic text without callback metadata.
     pub fn message(&self) -> &str {
         &self.message
     }
 
     #[must_use]
+    /// Consume the diagnostic and return its text without callback metadata.
     pub fn into_message(self) -> String {
         self.message
     }
@@ -218,8 +226,11 @@ impl fmt::Display for Issue {
 
 #[derive(Clone, Debug)]
 pub enum PathSegment {
+    /// Stay at the current path without pushing a segment.
     Empty,
+    /// A named struct field or map route.
     Field(&'static str),
+    /// A zero-based collection element position.
     Index(usize),
 }
 

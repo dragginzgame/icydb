@@ -17,9 +17,7 @@ const MARKER_ID: [u8; 16] = [0xA1; 16];
 #[cfg(feature = "metrics")]
 #[test]
 fn public_debt_and_movements_follow_publication_replay_rejection_and_retirement() {
-    use super::super::store::{
-        apply_prepared_commit_control_replacement, prepare_commit_control_replacement,
-    };
+    use super::super::store::prepare_commit_control_replacement;
     use crate::db::{
         DatabaseIncarnationId,
         commit::{commit_memory_handle, select_commit_memory_allocation},
@@ -48,7 +46,7 @@ fn public_debt_and_movements_follow_publication_replay_rejection_and_retirement(
         &[super::super::PersistedStoreAllocation::active(identities).unwrap()],
     )
     .unwrap();
-    apply_prepared_commit_control_replacement(replacement);
+    replacement.apply();
     RUNTIME_JOURNAL_TAILS
         .with_borrow_mut(|tails| tails.push((owner, identities.journal().unwrap(), &TAIL)));
     TAIL.with_borrow_mut(|tail| tail.initialize_current_tail_control().unwrap());

@@ -15,13 +15,26 @@ use crate::sql_harness::RowOrder;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NormalizedCell {
+    /// SQL NULL, independent of the provider's native representation.
     Null,
+    /// A normalized boolean value.
     Bool(bool),
+    /// A normalized signed integer.
     Int(i128),
+    /// A normalized unsigned integer.
     Nat(u128),
-    Decimal { coefficient: i128, scale: u32 },
+    /// An exact decimal represented by coefficient and base-10 scale.
+    Decimal {
+        /// Signed integer significand.
+        coefficient: i128,
+        /// Number of decimal fractional digits.
+        scale: u32,
+    },
+    /// The normalized floating-point value's exact 64-bit representation.
     FloatBits(u64),
+    /// A normalized text value.
     Text(String),
+    /// A normalized binary value.
     Bytes(Vec<u8>),
 }
 
@@ -64,10 +77,15 @@ impl NormalizedResult {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NormalizationMismatchKind {
+    /// The output-column declarations differ.
     ColumnShape,
+    /// The providers disagree about whether row order is significant.
     OrderingContract,
+    /// The normalized results contain different row counts.
     RowCount,
+    /// The compared rows contain different column counts.
     RowShape,
+    /// The compared values differ.
     Value,
 }
 

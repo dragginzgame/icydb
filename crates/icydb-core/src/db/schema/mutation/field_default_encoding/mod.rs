@@ -88,7 +88,7 @@ fn encode_sql_ddl_field_default_payload(
     let encoding = AcceptedFieldPersistenceContract::new(catalog, field)
         .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
     let mut budget = ValueAdmissionBudget::standard();
-    let payload = encode_input_value_for_accepted_field_contract(encoding, input, &mut budget)
+    let payload = encode_input_value_for_accepted_field_contract(&encoding, input, &mut budget)
         .map_err(|_| SchemaDdlFieldDefaultEncodingError::Encoding)?;
 
     Ok(SchemaInsertDefault::SlotPayload(payload))

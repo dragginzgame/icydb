@@ -197,7 +197,7 @@ fn handoff_preserves_untouched_corruption_and_primary_key_refusal_order() {
         .enumerate()
         .map(|(slot, value)| {
             encode_canonical_value_for_accepted_field_contract(
-                contract
+                &contract
                     .required_accepted_field_persistence_contract(slot)
                     .unwrap(),
                 value,

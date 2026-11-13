@@ -106,7 +106,7 @@ impl QueryFieldDiagnostic {
 // Error
 //
 
-#[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
+#[doc = "Error\n\nPublic error payload."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -173,23 +173,23 @@ impl Error {
 
     /// Build a compact public error from a full diagnostic payload.
     #[must_use]
-    pub fn from_diagnostic(diagnostic: icydb_diagnostic_code::Diagnostic) -> Self {
+    pub fn from_diagnostic(diagnostic: &icydb_diagnostic_code::Diagnostic) -> Self {
         Self::from_error_code(diagnostic.error_code(), diagnostic.origin().into())
     }
 
     fn from_internal_error(err: &InternalError) -> Self {
-        Self::from_diagnostic_and_facts(err.diagnostic(), err.diagnostic_facts())
+        Self::from_diagnostic_and_facts(&err.diagnostic(), err.diagnostic_facts())
     }
 
     pub(crate) fn from_diagnostic_and_facts(
-        diagnostic: icydb_diagnostic_code::Diagnostic,
+        diagnostic: &icydb_diagnostic_code::Diagnostic,
         facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
     ) -> Self {
         Self::from_diagnostic_facts_and_query_field(diagnostic, facts, None)
     }
 
     fn from_diagnostic_facts_and_query_field(
-        diagnostic: icydb_diagnostic_code::Diagnostic,
+        diagnostic: &icydb_diagnostic_code::Diagnostic,
         facts: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
         query_field: Option<(icydb_diagnostic_code::QueryFieldRole, &str)>,
     ) -> Self {
@@ -317,7 +317,7 @@ impl From<InternalError> for Error {
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
         Self::from_diagnostic_facts_and_query_field(
-            err.diagnostic(),
+            &err.diagnostic(),
             err.diagnostic_facts(),
             err.query_field_context(),
         )
@@ -384,9 +384,10 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-#[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
+#[doc = "ErrorKind\n\nPublic error category."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorKind {
+    /// Query admission, planning or result-cardinality failure.
     Query(QueryErrorKind),
 
     /// Runtime failure.
@@ -445,12 +446,19 @@ macro_rules! facade_error_kind {
 
 facade_error_kind! {
     RuntimeErrorKind {
+        /// Persisted data failed an integrity check.
         Corruption => RuntimeCorruption,
+        /// Persisted bytes use a format this release cannot read.
         IncompatiblePersistedFormat => RuntimeIncompatiblePersistedFormat,
+        /// An internal runtime invariant was violated.
         InvariantViolation => RuntimeInvariantViolation,
+        /// The operation conflicts with current database state.
         Conflict => RuntimeConflict,
+        /// The requested runtime resource was absent.
         NotFound => RuntimeNotFound,
+        /// The requested runtime operation is unsupported.
         Unsupported => RuntimeUnsupported,
+        /// An internal operation failed.
         Internal => RuntimeInternal,
     }
 }
@@ -481,7 +489,10 @@ macro_rules! facade_error_origin {
         /// Public error origin.
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub enum ErrorOrigin {
-            $($variant,)+
+            $(
+                #[doc = concat!("Error originating from [`icydb_diagnostic_code::ErrorOrigin::", stringify!($variant), "`].")]
+                $variant,
+            )+
         }
 
         impl ErrorOrigin {

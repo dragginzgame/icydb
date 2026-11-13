@@ -196,11 +196,41 @@ pub(in crate::db) enum SchemaDdlMutationTarget {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation {
-    pub(in crate::db::schema::mutation) accepted_after: AcceptedSchemaSnapshot,
-    pub(in crate::db::schema::mutation) admission: SchemaDdlMutationAdmission,
+    accepted_after: AcceptedSchemaSnapshot,
+    before_version: SchemaVersion,
+    before_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+    admission: SchemaDdlMutationAdmission,
 }
 
 impl SchemaDdlAcceptedSnapshotDerivation {
+    pub(super) fn new(
+        before: &AcceptedSchemaSnapshot,
+        accepted_after: AcceptedSchemaSnapshot,
+        admission: SchemaDdlMutationAdmission,
+    ) -> Result<Self, SchemaDdlMutationAdmissionError> {
+        Ok(Self {
+            before_version: before.persisted_snapshot().version(),
+            before_fingerprint: crate::db::schema::accepted_schema_cache_fingerprint(before)
+                .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?,
+            accepted_after,
+            admission,
+        })
+    }
+
+    /// Bind the carried proof to the supplied source snapshot and catalog identity.
+    /// Publication still checks that identity against live store authority.
+    pub(in crate::db::schema) fn matches_before(
+        &self,
+        before: &AcceptedSchemaSnapshot,
+        identity: &crate::db::schema::AcceptedCatalogIdentity,
+    ) -> Result<bool, crate::error::InternalError> {
+        Ok(self.before_version == before.persisted_snapshot().version()
+            && self.before_version == identity.accepted_schema_version()
+            && self.before_fingerprint == identity.accepted_schema_fingerprint()
+            && self.before_fingerprint
+                == crate::db::schema::accepted_schema_cache_fingerprint(before)?)
+    }
+
     /// Borrow the accepted-after schema snapshot.
     #[must_use]
     pub(in crate::db) const fn accepted_after(&self) -> &AcceptedSchemaSnapshot {
@@ -241,7 +271,7 @@ impl SchemaDdlAcceptedSnapshotDerivation {
 
         Ok(Self {
             accepted_after,
-            admission: self.admission,
+            ..self
         })
     }
 }

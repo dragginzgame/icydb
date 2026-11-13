@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 use FindBin;
-use lib $FindBin::Bin;
+use lib "$FindBin::Bin/../../vendor/toko-tooling/scripts/ci";
 use StableVersion qw(stable version_cmp);
 
 # Validate references, not sentences. Current behavior is exercised by the
@@ -42,7 +42,7 @@ my %seen;
 
 # Shared Tooling owns Markdown navigation mechanics. IcyDB owns this roster
 # and the structured product facts checked below.
-system($^X, "$FindBin::Bin/check-documentation-links.pl", '--root', '.', @documents) == 0
+system($^X, "$FindBin::Bin/../../vendor/toko-tooling/scripts/ci/check-documentation-links.pl", '--root', '.', @documents) == 0
     or die "shared documentation link check failed\n";
 
 for my $document (@documents) {

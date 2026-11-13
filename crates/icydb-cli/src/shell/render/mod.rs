@@ -73,7 +73,7 @@ pub(crate) fn render_lines(result: &SqlQueryResult) -> Vec<String> {
             index_keys_written,
             constraint_validation,
         } => {
-            let mut lines = render_sql_ddl_lines(SqlDdlRenderInput {
+            let mut lines = render_sql_ddl_lines(&SqlDdlRenderInput {
                 entity: entity.as_str(),
                 mutation_kind: mutation_kind.as_str(),
                 target_index: target_index.as_str(),

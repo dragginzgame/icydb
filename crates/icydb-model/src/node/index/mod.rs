@@ -15,13 +15,21 @@ use crate::node::{Schema, SourceExpressionResolver};
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum IndexExpression {
+    /// Lowercase the named text field for the index key.
     Lower(&'static str),
+    /// Uppercase the named text field for the index key.
     Upper(&'static str),
+    /// Trim the named text field for the index key.
     Trim(&'static str),
+    /// Trim and lowercase the named text field for the index key.
     LowerTrim(&'static str),
+    /// Extract the date from the named temporal field.
     Date(&'static str),
+    /// Extract the year from the named temporal field.
     Year(&'static str),
+    /// Extract the month from the named temporal field.
     Month(&'static str),
+    /// Extract the day from the named temporal field.
     Day(&'static str),
 }
 
@@ -66,7 +74,9 @@ impl Display for IndexExpression {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum IndexKeyItem {
+    /// A direct field component of an index key.
     Field(&'static str),
+    /// An expression-derived index-key component.
     Expression(IndexExpression),
 }
 
@@ -98,7 +108,9 @@ impl IndexKeyItem {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IndexKeyItemsRef {
+    /// A borrowed list of direct field names.
     Fields(&'static [&'static str]),
+    /// A borrowed list of field or expression key components.
     Items(&'static [IndexKeyItem]),
 }
 
@@ -257,6 +269,7 @@ impl Index {
     }
 
     #[must_use]
+    /// Whether this index has a strictly shorter field list matching the start of the other index.
     pub fn is_prefix_of(&self, other: &Self) -> bool {
         self.fields().len() < other.fields().len() && other.fields().starts_with(self.fields())
     }

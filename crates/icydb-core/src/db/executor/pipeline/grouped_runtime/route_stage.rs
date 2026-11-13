@@ -28,7 +28,7 @@ use std::ops::Bound;
 // Resolve grouped handoff/route metadata into one grouped route-stage payload.
 pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     plan: PreparedLoadPlan,
-    cursor: ValidatedGroupedCursor,
+    cursor: &ValidatedGroupedCursor,
 ) -> Result<GroupedRouteStage, InternalError> {
     let authority = plan.authority();
 
@@ -69,7 +69,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     );
 
     let direction = grouped_route_plan.direction();
-    let grouped_pagination_window = plan.grouped_pagination_window(&cursor)?;
+    let grouped_pagination_window = plan.grouped_pagination_window(cursor)?;
     let resume_anchor = if grouped_route_plan.grouped_execution_mode()
         == Some(GroupedExecutionMode::OrderedStreaming)
     {

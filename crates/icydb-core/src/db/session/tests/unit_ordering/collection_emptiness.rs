@@ -91,7 +91,7 @@ fn collection_emptiness_matches_stored_text_list_and_set_cardinality() {
             ),
             (
                 AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Nat64)),
-                InputValue::list(items.clone()),
+                InputValue::list(items),
             ),
         ] {
             let text = matches!(kind, AcceptedFieldKind::Text { .. });

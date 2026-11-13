@@ -19,30 +19,53 @@ use serde::Deserialize;
     derive(ic_wire::Wire)
 )]
 pub enum PublicValue {
+    /// An account identified by its owner and subaccount.
     Account(Account),
+    /// An uninterpreted sequence of bytes.
     Blob(#[serde(with = "serde_bytes")] Vec<u8>),
+    /// A boolean truth value.
     Bool(bool),
+    /// A calendar date.
     Date(Date),
+    /// An exact fixed-point decimal.
     Decimal(Decimal),
+    /// A duration measured in milliseconds.
     Duration(Duration),
+    /// A nominal enum variant with its canonical payload.
     Enum(PublicEnumValue),
+    /// A normalized finite 32-bit floating-point value.
     Float32(Float32),
+    /// A normalized finite 64-bit floating-point value.
     Float64(Float64),
     #[serde(rename = "Int")]
+    /// A signed 64-bit integer.
     Int64(i64),
+    /// A signed 128-bit integer.
     Int128(i128),
+    /// An ordered sequence of values.
     List(Vec<Self>),
+    /// A collection of key/value entries.
     Map(Vec<(Self, Self)>),
+    /// An absent optional value, represented as SQL NULL.
     Null,
+    /// An Internet Computer principal identifier.
     Principal(Principal),
+    /// A 32-byte account subidentifier.
     Subaccount(Subaccount),
+    /// A UTF-8 string.
     Text(String),
+    /// A timestamp measured in milliseconds since the Unix epoch.
     Timestamp(Timestamp),
     #[serde(rename = "Nat")]
+    /// An unsigned 64-bit integer.
     Nat64(u64),
+    /// An unsigned 128-bit integer.
     Nat128(u128),
+    /// A 128-bit lexicographically sortable identifier.
     Ulid(Ulid),
+    /// The unit value, carrying no payload.
     Unit,
+    /// An unsigned 256-bit integer.
     U256(U256),
 }
 

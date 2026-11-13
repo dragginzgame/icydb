@@ -227,7 +227,7 @@ fn grouped_query() -> AccessPlannedQuery {
                 "profile",
                 vec!["name".into()],
                 1,
-                AcceptedFieldKind::Text { max_len: Some(64) },
+                &AcceptedFieldKind::Text { max_len: Some(64) },
             )]),
             aggregates: vec![
                 GroupAggregateSpec::from_aggregate_expr(count()),

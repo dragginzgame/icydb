@@ -52,6 +52,7 @@ pub struct PercentModifier {}
 pub struct DecimalRange {}
 
 impl DecimalRange {
+    /// Construct bounds; ordering is checked by validation rather than construction.
     #[must_use]
     pub const fn new(min: Decimal, max: Decimal) -> Self {
         Self { min, max }
@@ -80,6 +81,7 @@ impl ValidateCustom for DecimalRange {
 pub struct DurationRange {}
 
 impl DurationRange {
+    /// Construct bounds; ordering is checked by validation rather than construction.
     #[must_use]
     pub const fn new(min: Duration, max: Duration) -> Self {
         Self { min, max }
@@ -108,6 +110,7 @@ impl ValidateCustom for DurationRange {
 pub struct Int32Range {}
 
 impl Int32Range {
+    /// Construct bounds; ordering is checked by validation rather than construction.
     #[must_use]
     pub const fn new(min: i32, max: i32) -> Self {
         Self { min, max }
@@ -136,6 +139,7 @@ impl ValidateCustom for Int32Range {
 pub struct Nat32Range {}
 
 impl Nat32Range {
+    /// Construct bounds; ordering is checked by validation rather than construction.
     #[must_use]
     pub const fn new(min: u32, max: u32) -> Self {
         Self { min, max }

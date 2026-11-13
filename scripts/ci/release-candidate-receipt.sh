@@ -98,7 +98,7 @@ validate_changed_paths() (
     local source_commit
     source_commit="$(git -C "$ROOT_DIR" rev-parse --verify "$base^{commit}")" || exit 1
     (cd "$ROOT_DIR"; RELEASE_COMMIT="$source_commit" RELEASE_VERSION="$release_version" \
-        bash "$SCRIPT_DIR/cargo-release-group.sh" plan "$RELEASE_GROUP") > "$inspection/plan.json" || exit 1
+        bash "$SCRIPT_DIR/../../vendor/toko-tooling/scripts/ci/cargo-release-group.sh" plan "$RELEASE_GROUP") > "$inspection/plan.json" || exit 1
     # Capture each producer before comparing bytes. A process substitution can
     # hide an editor or Git failure after it has emitted complete-looking output.
     "${command[@]}" > "$inspection/paths" || exit 1

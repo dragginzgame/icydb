@@ -289,7 +289,6 @@ fn to_publishing(db: &Db<EvolutionCanister>, proposal: &SchemaProposal) {
         SchemaMigrationPhase::Validating,
         SchemaMigrationPhase::ReadyToRewrite,
         SchemaMigrationPhase::RewritingRows,
-        SchemaMigrationPhase::RebuildingIndexes,
         SchemaMigrationPhase::FinalValidation,
         SchemaMigrationPhase::Publishing,
     ] {
@@ -323,10 +322,6 @@ fn physical_migration_creates_named_entity_after_rewriting_and_recovery() {
     forget_recovered_domain_for_tests(&db).unwrap();
     drive_startup_recovery_to_completion(&db);
     assert!(db.accepted_runtime_entity_for_path("Quest").is_err());
-    assert_eq!(
-        advance(&db, &proposal).phase(),
-        SchemaMigrationPhase::RebuildingIndexes
-    );
     assert_eq!(
         advance(&db, &proposal).phase(),
         SchemaMigrationPhase::FinalValidation
@@ -405,7 +400,7 @@ fn interrupt_mixed_publication(
         before[0].as_ref().unwrap(),
         &planned.candidates()[0],
         controls,
-        application,
+        &application,
         receipt_first,
     );
 }

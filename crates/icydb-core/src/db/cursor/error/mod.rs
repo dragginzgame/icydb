@@ -118,7 +118,7 @@ impl CursorPlanError {
     }
 
     /// Map cursor token decode failures into canonical plan-surface cursor errors.
-    pub(in crate::db) const fn from_token_wire_error(err: TokenWireError) -> Self {
+    pub(in crate::db) const fn from_token_wire_error(err: &TokenWireError) -> Self {
         match err {
             TokenWireError::Encode => {
                 Self::invalid_continuation_cursor_payload(DiagnosticDecodeReason::CursorTokenEncode)

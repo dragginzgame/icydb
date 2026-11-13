@@ -51,7 +51,7 @@ pub(in crate::db::executor) struct RowView {
 // Compile one grouped ingest slot layout from the planner-owned grouped
 // runtime shape plus the already selected predicate program.
 pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_inputs(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     group_fields: &GroupFieldSet,
     grouped_aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     grouped_distinct_execution_strategy: &GroupedDistinctExecutionStrategy,

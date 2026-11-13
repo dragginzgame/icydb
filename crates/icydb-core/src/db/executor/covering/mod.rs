@@ -105,7 +105,7 @@ where
         return resolve_covering_projection_components_for_prefix_set(
             entity_tag,
             index_prefix_specs,
-            CoveringPrefixSetScan {
+            &CoveringPrefixSetScan {
                 direction,
                 limit,
                 component_indices,
@@ -216,7 +216,7 @@ where
 fn resolve_covering_projection_components_for_prefix_set<F>(
     entity_tag: EntityTag,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
-    scan: CoveringPrefixSetScan<'_>,
+    scan: &CoveringPrefixSetScan<'_>,
     mut resolve_store_for_index: F,
 ) -> Result<Option<IndexComponentRows>, InternalError>
 where
@@ -260,8 +260,8 @@ where
             resolve_branch_ordered_covering_projection_components_for_prefix_set(
                 entity_tag,
                 active_specs,
-                &scan,
-                Arc::clone(&component_indices),
+                scan,
+                &Arc::clone(&component_indices),
             )
             .map(Some)
         }
@@ -353,7 +353,7 @@ fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
     entity_tag: EntityTag,
     active_specs: Vec<ActiveCoveringPrefixSpec<'_>>,
     scan: &CoveringPrefixSetScan<'_>,
-    component_indices: Arc<[usize]>,
+    component_indices: &Arc<[usize]>,
 ) -> Result<IndexComponentRows, InternalError> {
     let mut rows = Vec::with_capacity(scan.limit.min(32));
     let branch_count = active_specs.len();
@@ -374,7 +374,7 @@ fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
             scan.direction,
             Some(remaining),
             chunk_entries,
-            Arc::clone(&component_indices),
+            Arc::clone(component_indices),
             scan.predicate_execution,
         );
         while rows.len() < scan.limit {
@@ -995,10 +995,10 @@ where
 // Decode one ordered component vector into runtime values while keeping
 // unsupported component kinds fail-closed at the caller boundary.
 pub(in crate::db::executor) fn decode_covering_projection_components(
-    components: IndexComponentValues,
+    components: &[Vec<u8>],
 ) -> Result<Option<Vec<Value>>, InternalError> {
     let mut decoded = Vec::with_capacity(components.len());
-    for component in components.iter() {
+    for component in components {
         let Some(value) = decode_covering_projection_component(component.as_slice())? else {
             return Ok(None);
         };
@@ -1011,7 +1011,7 @@ pub(in crate::db::executor) fn decode_covering_projection_components(
 // Decode one single-component vector under the executor invariant that the
 // covering route promised exactly one projection payload per row.
 pub(in crate::db::executor) fn decode_single_covering_projection_value(
-    components: IndexComponentValues,
+    components: &[Vec<u8>],
 ) -> Result<Option<Value>, InternalError> {
     let mut components = components.iter();
     let Some(component) = components.next() else {
@@ -1035,7 +1035,7 @@ fn decode_covering_projection_pairs_with<T, D, Decode, Map>(
     mut map_decoded: Map,
 ) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
-    Decode: FnMut(IndexComponentValues) -> Result<Option<D>, InternalError>,
+    Decode: FnMut(&[Vec<u8>]) -> Result<Option<D>, InternalError>,
     Map: FnMut(D) -> Result<T, InternalError>,
 {
     map_covering_projection_pairs(
@@ -1044,7 +1044,7 @@ where
         consistency,
         existing_row_mode,
         |components| {
-            let Some(decoded) = decode_components(components)? else {
+            let Some(decoded) = decode_components(&components)? else {
                 return Ok(None);
             };
 

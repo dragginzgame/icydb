@@ -50,7 +50,7 @@ fn continuation_retention_is_independent_of_access_payload_size() {
         assert_eq!(request.observed(Resource::RowsVisited), 0);
         assert_eq!(request.observed(Resource::QueryExecutions), 0);
         drop(plan);
-        assert_eq!(contract.clone().continuation_signature(), expected);
+        assert_eq!(contract.continuation_signature(), expected);
     }
 }
 

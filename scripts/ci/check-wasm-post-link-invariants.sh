@@ -90,10 +90,10 @@ require_text \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
 require_text \
     Makefile \
-    "include \$(ROOT_DIR)/make/consumer.mk" \
+    "include \$(ROOT_DIR)/vendor/toko-tooling/make/consumer.mk" \
     'tool installation must delegate to the reviewed shared Make include.'
 require_text \
-    ci/ic-tools.tsv \
+    vendor/toko-tooling/ci/ic-tools.tsv \
     $'wasm-opt\t133\t' \
     'the IC toolset must retain the qualified optimizer release.'
 require_text \

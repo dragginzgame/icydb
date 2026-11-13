@@ -10,7 +10,7 @@ fn rank_path() -> GroupField {
         "profile",
         vec!["rank".to_string()],
         1,
-        AcceptedFieldKind::Int32,
+        &AcceptedFieldKind::Int32,
     )
 }
 

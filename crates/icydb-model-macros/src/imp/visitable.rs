@@ -204,7 +204,7 @@ fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream 
     let visit_helpers = bindings.iter().map(|binding| {
         let fn_ident = binding.visit_fn_ident();
         let field_name = binding.field_name().to_string();
-        let member_ref = binding.member_ref_from(quote!(node));
+        let member_ref = binding.member_ref_from(&quote!(node));
 
         quote! {
             fn #fn_ident(node: &Self, visitor: &mut dyn #model::visitor::VisitorCore) {
@@ -218,7 +218,7 @@ fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream 
     let visit_mut_helpers = bindings.iter().map(|binding| {
         let fn_ident = binding.visit_mut_fn_ident();
         let field_name = binding.field_name().to_string();
-        let member_mut = binding.member_mut_from(quote!(node));
+        let member_mut = binding.member_mut_from(&quote!(node));
 
         quote! {
             fn #fn_ident(node: &mut Self, visitor: &mut dyn #model::visitor::VisitorMutCore) {

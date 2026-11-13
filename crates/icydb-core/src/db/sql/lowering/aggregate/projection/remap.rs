@@ -99,13 +99,13 @@ impl GlobalAggregateTerminalInterner {
             GlobalAggregateTerminalCollectionMode::Nested
         };
 
-        self.collect_with_mode(aggregate_refs, mode)
+        self.collect_with_mode(aggregate_refs, &mode)
     }
 
     fn collect_with_mode(
         &mut self,
         aggregate_refs: &[AggregateExpr],
-        mode: GlobalAggregateTerminalCollectionMode,
+        mode: &GlobalAggregateTerminalCollectionMode,
     ) -> Result<Option<usize>, SqlLoweringError> {
         let mut direct_terminal_index = None;
         for aggregate_expr in aggregate_refs {

@@ -5,7 +5,7 @@ use crate::db::resource::construction::ConstructionBudget;
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 use std::convert::identity;
 
-fn assert_resource(error: InternalError, resource: Resource) {
+fn assert_resource(error: &InternalError, resource: Resource) {
     assert!(
         error
             .diagnostic_facts()
@@ -19,7 +19,7 @@ fn maintenance_uses_the_existing_mutation_profile_for_every_resource() {
         let budget = MaintenanceConstructionBudget::new();
         let limit = MUTATION_HARD_BUDGET.limit(resource);
         budget.charge(resource, limit).unwrap();
-        assert_resource(budget.charge(resource, 1).unwrap_err(), resource);
+        assert_resource(&budget.charge(resource, 1).unwrap_err(), resource);
     }
 }
 
@@ -46,9 +46,9 @@ fn maintenance_segments_accumulate_and_first_exhaustion_is_sticky() {
             identity,
         )
         .unwrap_err();
-    assert_resource(error, Resource::PredicateExpressionSteps);
+    assert_resource(&error, Resource::PredicateExpressionSteps);
     assert_resource(
-        budget
+        &budget
             .run(
                 |_| {
                     published = true;
@@ -61,7 +61,7 @@ fn maintenance_segments_accumulate_and_first_exhaustion_is_sticky() {
     );
     assert!(!published);
     assert_resource(
-        budget.charge(Resource::TemporaryBytes, 0).unwrap_err(),
+        &budget.charge(Resource::TemporaryBytes, 0).unwrap_err(),
         Resource::PredicateExpressionSteps,
     );
 }
@@ -75,7 +75,7 @@ fn maintenance_oversized_construction_rejects_instead_of_returning_an_empty_page
             |work| (work as &dyn ConstructionBudget).vec_with_capacity::<u8>(8),
             identity,
         );
-        assert_resource(result.unwrap_err(), Resource::TemporaryBytes);
+        assert_resource(&result.unwrap_err(), Resource::TemporaryBytes);
     }
 }
 
@@ -93,7 +93,7 @@ fn maintenance_failed_work_remains_charged_across_later_segments() {
         .unwrap_err();
     assert_eq!(budget.tracker.borrow().observed(Resource::RowsVisited), 1);
     assert_resource(
-        budget
+        &budget
             .run(|work| work.charge(Resource::RowsVisited, 1), identity)
             .unwrap_err(),
         Resource::RowsVisited,
@@ -120,7 +120,7 @@ fn maintenance_does_not_use_or_replace_an_active_execution_tracker() {
                 QueryError::execute,
             )?;
             assert_resource(
-                ExecutionConstructionBudget
+                &ExecutionConstructionBudget
                     .charge(Resource::TemporaryBytes, 1)
                     .unwrap_err(),
                 Resource::TemporaryBytes,
@@ -130,7 +130,7 @@ fn maintenance_does_not_use_or_replace_an_active_execution_tracker() {
     )
     .unwrap();
     assert_resource(
-        maintenance.charge(Resource::TemporaryBytes, 1).unwrap_err(),
+        &maintenance.charge(Resource::TemporaryBytes, 1).unwrap_err(),
         Resource::TemporaryBytes,
     );
 }

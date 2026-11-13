@@ -9,8 +9,8 @@ export RELEASE_GROUP=database
 # No Git mutations, credentials, registry requests or real publication occur.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$root/.tools/host/bin:$PATH"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$root/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$root/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/publish-workspace.XXXXXX")"
 fixture_complete=false
 finish() {
@@ -22,9 +22,10 @@ finish() {
 trap finish EXIT
 mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/state" "$fixture/receipts"
 cp "$root/scripts/ci/publish-workspace.sh" \
-    "$root/scripts/ci/verify-release-gate-receipt.sh" \
-    "$root/scripts/ci/check-crates-io-version.sh" \
-    "$root/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
+    "$root/scripts/ci/verify-release-gate-receipt.sh" "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci"
+cp "$root/vendor/toko-tooling/scripts/ci/check-crates-io-version.sh" \
+    "$root/vendor/toko-tooling/scripts/ci/read-cargo-workspace-version.sh" "$fixture/vendor/toko-tooling/scripts/ci/"
 printf '[workspace.package]\nversion = "0.265.0"\n' > "$fixture/Cargo.toml"
 # Shared qualifies tooling admission; this consumer fixture checks that a failed
 # admission stops the direct publisher before registry or Cargo effects.
@@ -43,7 +44,8 @@ done
 # group/version admission is covered by test-release-groups.sh.
 mkdir -p "$fixture/scripts/release" "$fixture/ci"
 cp "$root/scripts/release/group.sh" "$fixture/scripts/release/"
-cp "$root/scripts/ci/cargo-release-groups.jq" "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/cargo-release-groups.jq" "$fixture/vendor/toko-tooling/scripts/ci/"
 cp "$root/ci/cargo-release-groups.json" "$fixture/ci/"
 cat > "$fixture/scripts/release/version.sh" <<'VERSION'
 #!/usr/bin/env bash
@@ -235,11 +237,12 @@ cmp "$fixture/expected" "$EVENTS"
 
 # Selected completion permits push, never skipping final archive verification.
 # Candidate admission is substituted here; the plan fixture owns real recovery.
-cp "$root/scripts/ci/verify-file-checksum.sh" "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" "$fixture/vendor/toko-tooling/scripts/ci/"
 printf '#!/usr/bin/env bash\n[[ "$*" == verify-commit ]]\n' > "$fixture/scripts/ci/release-candidate-receipt.sh"
 for selected_group in database cli; do
     printf 'admitted fixture candidate\n' > "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.candidate"
-    candidate_sha="$(bash "$root/scripts/ci/verify-file-checksum.sh" --print sha256 "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.candidate")"
+    candidate_sha="$(bash "$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.candidate")"
     printf '%s\n' "format=selected-$selected_group/1" "$HEAD_COMMIT" "$candidate_sha" > "$RELEASE_RECEIPT_DIR/$selected_group-v0.265.0.commit"
     RELEASE_GROUP="$selected_group" bash "$fixture/scripts/ci/verify-release-gate-receipt.sh" "$HEAD_COMMIT"
     run_subject 0 "RELEASE_GROUP=$selected_group" REGISTRY_MODE=absent PUBLISH_DRY_RUN=1

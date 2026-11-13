@@ -12,7 +12,7 @@ while [[ $# != 0 ]]; do
 done
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$root"
-bash scripts/ci/check-make-execution.sh
+bash vendor/toko-tooling/scripts/ci/check-make-execution.sh
 [[ "$working_tree" == true || -z "$(git status --porcelain --untracked-files=all)" ]] || {
     echo 'Native mapping qualification requires settled, clean committed input.' >&2; exit 1;
 }
@@ -49,8 +49,8 @@ if [[ "$working_tree" == true ]]; then
             source_paths[${#source_paths[@]}]="$path"
         fi
     done < "$attempt/evidence/source-paths"
-    perl scripts/ci/validation-input-checkpoint.pl "$root" '' "$attempt/evidence/source-inputs.json" \
-        "$root/scripts/ci/verify-file-checksum.sh" "${source_paths[@]}"
+    perl vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl "$root" '' "$attempt/evidence/source-inputs.json" \
+        "$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" "${source_paths[@]}"
     printf '%s\n' working-tree-snapshot > "$attempt/evidence/source-kind"
 else
     printf '%s\n' committed-source > "$attempt/evidence/source-kind"
@@ -81,8 +81,8 @@ if [[ "$working_tree" == true ]]; then
         mkdir -p "$(dirname "$path")"
         cp -p "$root/$path" "$path"
     done
-    perl scripts/ci/validation-input-checkpoint.pl "$PWD" "$attempt/evidence/source-inputs.json" \
-        "$attempt/evidence/exported-inputs.json" "$PWD/scripts/ci/verify-file-checksum.sh"
+    perl vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl "$PWD" "$attempt/evidence/source-inputs.json" \
+        "$attempt/evidence/exported-inputs.json" "$PWD/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh"
     git add --all -- .
     git commit --quiet --allow-empty -m 'Settled IcyDB candidate snapshot for local qualification'
     git rev-parse HEAD > "$attempt/evidence/candidate-source"
@@ -143,7 +143,7 @@ tar -xOf "$attempt/evidence/workspace-cli-package.crate" "icydb-cli-$cli_version
     > "$attempt/evidence/archive-Cargo.toml.orig"
 git show "$RELEASE_SOURCE:crates/icydb-cli/Cargo.toml" > "$attempt/evidence/source-Cargo.toml"
 cmp "$attempt/evidence/source-Cargo.toml" "$attempt/evidence/archive-Cargo.toml.orig"
-bash scripts/ci/verify-file-checksum.sh --print sha256 "$attempt/evidence/workspace-cli-package.crate" \
+bash vendor/toko-tooling/scripts/ci/verify-file-checksum.sh --print sha256 "$attempt/evidence/workspace-cli-package.crate" \
     > "$attempt/evidence/archive-sha256"
 full="$(sed -n '\|^target/release-validation/qualification\.[A-Za-z0-9]*/receipt.json$|p' "$attempt/evidence/workspace.log")"
 selected="$(sed -n '\|^target/release-validation/qualification\.[A-Za-z0-9]*/receipt.json$|p' "$attempt/evidence/auto.log")"
@@ -160,8 +160,8 @@ if [[ "$working_tree" == true ]]; then
     cmp "$attempt/evidence/source-paths" "$attempt/evidence/final-source-paths"
     cmp "$attempt/evidence/source-index" "$attempt/evidence/final-source-index"
     cmp "$attempt/evidence/candidate.patch" "$attempt/evidence/final-candidate.patch"
-    perl "$root/scripts/ci/validation-input-checkpoint.pl" "$root" "$attempt/evidence/source-inputs.json" \
-        "$attempt/evidence/final-source-inputs.json" "$root/scripts/ci/verify-file-checksum.sh"
+    perl "$root/vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl" "$root" "$attempt/evidence/source-inputs.json" \
+        "$attempt/evidence/final-source-inputs.json" "$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh"
 else
     [[ -z "$(git -C "$root" status --porcelain --untracked-files=all)" ]] || exit 1
 fi

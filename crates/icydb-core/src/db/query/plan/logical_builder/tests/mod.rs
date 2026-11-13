@@ -24,7 +24,7 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
 };
 
-fn assert_budget_error(error: QueryError, resource: Resource) {
+fn assert_budget_error(error: &QueryError, resource: Resource) {
     assert_budget_resource(&error.diagnostic_facts(), resource);
 }
 
@@ -50,7 +50,7 @@ fn canonical_order_moves_into_the_logical_plan_without_more_construction() {
         let bytes = request.observed(Resource::TemporaryBytes);
         let steps = request.observed(Resource::PredicateExpressionSteps);
         let logical = logical_query_from_logical_inputs(
-            LogicalPlanningInputs::new(
+            &LogicalPlanningInputs::new(
                 QueryMode::Load(LoadSpec::new()),
                 None,
                 false,
@@ -94,7 +94,7 @@ fn logical_clauses_preserve_scalar_grouped_and_shared_slot_identity() {
         "profile",
         vec!["rank".into()],
         1,
-        AcceptedFieldKind::Int32,
+        &AcceptedFieldKind::Int32,
     );
     for fields in [
         GroupFieldSet::Direct(vec![direct.clone()]),
@@ -109,7 +109,7 @@ fn logical_clauses_preserve_scalar_grouped_and_shared_slot_identity() {
             let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
             let copied = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
                 logical_query_from_logical_inputs(
-                    LogicalPlanningInputs::new(
+                    &LogicalPlanningInputs::new(
                         QueryMode::Load(LoadSpec::new()),
                         Some(&filter),
                         true,
@@ -149,7 +149,7 @@ fn logical_copy_charges_exact_backing_cumulatively_in_every_lane() {
         let copy = || {
             PreparationWork::run(&request.scope(), lane, |work| {
                 logical_query_from_logical_inputs(
-                    LogicalPlanningInputs::new(
+                    &LogicalPlanningInputs::new(
                         QueryMode::Load(LoadSpec::new()),
                         None,
                         false,
@@ -166,7 +166,7 @@ fn logical_copy_charges_exact_backing_cumulatively_in_every_lane() {
         };
         assert_eq!(copy().unwrap().order.as_ref(), Some(&order));
         assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
-        assert_budget_error(copy().unwrap_err(), Resource::TemporaryBytes);
+        assert_budget_error(&copy().unwrap_err(), Resource::TemporaryBytes);
         // The second attempt rejects the clause backing before visiting its expression.
         assert_eq!(request.observed(Resource::PredicateExpressionSteps), 6);
     }
@@ -181,7 +181,7 @@ fn rejected_order_backing_does_not_visit_operands_or_change_source() {
     let request = request_with_limit(Resource::TemporaryBytes, size_of::<OrderTerm>() as u64 - 1);
     let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         logical_query_from_logical_inputs(
-            LogicalPlanningInputs::new(
+            &LogicalPlanningInputs::new(
                 QueryMode::Load(LoadSpec::new()),
                 None,
                 false,
@@ -196,7 +196,7 @@ fn rejected_order_backing_does_not_visit_operands_or_change_source() {
         )
     })
     .unwrap_err();
-    assert_budget_error(error, Resource::TemporaryBytes);
+    assert_budget_error(&error, Resource::TemporaryBytes);
     assert_eq!(request.observed(Resource::PredicateExpressionSteps), 0);
     assert_eq!(order, before);
 }
@@ -207,7 +207,7 @@ fn stripped_filter_never_copies_its_payload() {
     let request = request_with_limit(Resource::TemporaryBytes, 0);
     let query = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         logical_query_from_logical_inputs(
-            LogicalPlanningInputs::new(
+            &LogicalPlanningInputs::new(
                 QueryMode::Load(LoadSpec::new()),
                 Some(&filter),
                 true,
@@ -252,7 +252,7 @@ fn projection_copy_preserves_duplicates_aliases_and_typed_rejection() {
                 source.copy_for_preparation(work)
             })
             .unwrap_err();
-            assert_budget_error(error, Resource::TemporaryBytes);
+            assert_budget_error(&error, Resource::TemporaryBytes);
         }
     }
 }

@@ -8,8 +8,8 @@ export YQ="${YQ:-$root/.tools/host/bin/yq}"
 export CARGO_RELEASE_METADATA_MAX_BYTES=8388608
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-groups.XXXXXX")"
 fixture_complete=false
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$root/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$root/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$fixture" "Release group fixture retained"' EXIT
 : "${CARGO_RELEASE_METADATA_EDITOR:?prepare the locked IC Build editor}"
 # Synthetic commits/tags and the local-only remote must not inherit developer
@@ -39,6 +39,8 @@ for selection in missing empty unknown; do
     esac
 done
 mkdir -p "$fixture/base/scripts" "$fixture/base/ci" "$fixture/base/releases"
+mkdir -p "$fixture/base/vendor"
+cp -R "$root/vendor/toko-tooling" "$fixture/base/vendor/"
 cp -R "$root/scripts/ci" "$root/scripts/release" "$fixture/base/scripts/"
 cd "$fixture/base"
 # Publication now admits tooling through Make before registry/Cargo effects.
@@ -87,7 +89,7 @@ for group in database cli; do
     unset RELEASE_RECEIPT_DIR
     receipts="$(git rev-parse --absolute-git-dir)/release-state/receipts"
     other=cli; [[ "$group" != cli ]] || other=database
-    bash scripts/ci/cargo-release-group.sh plan "$group" > "$fixture/$group-plan.json"
+    bash vendor/toko-tooling/scripts/ci/cargo-release-group.sh plan "$group" > "$fixture/$group-plan.json"
     jq -e --arg other "$other" '.files | all(.[]; startswith("releases/"+$other+"/") | not)' "$fixture/$group-plan.json" >/dev/null
     # Fail after emitting valid candidate bytes: neither partial output nor a
     # failed editor may mutate any file in the encompassing transaction.
@@ -149,7 +151,7 @@ if [[ "\${1:-}" == publish ]]; then printf '%s\n' "\$*" >> "$fixture/$group-publ
 exec "$real_cargo" "\$@"
 CARGO
     chmod +x "$fixture/$group-bin/cargo"
-    printf '#!/usr/bin/env bash\nexit 1\n' > scripts/ci/check-crates-io-version.sh
+    printf '#!/usr/bin/env bash\nexit 1\n' > vendor/toko-tooling/scripts/ci/check-crates-io-version.sh
     git add .; git commit -qm 'Registry substitute'
     expect_failure env PATH="$fixture/$group-bin:$PATH" FAIL_TOOLING_CHECK=1 \
         PUBLISH_DRY_RUN=1 PUBLISH_VERIFY=always bash scripts/ci/publish-workspace.sh
@@ -169,14 +171,14 @@ done
 # execution is substituted; metadata, receipts, tags and recovery are real.
 cp -R "$fixture/base" "$fixture/recovery"
 cd "$fixture/recovery"
-bash "$root/scripts/ci/prepare-script-fixture.sh" "$root" "$fixture/recovery" \
-    make/release.mk make/execution.mk
+bash "$root/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh" "$root" "$fixture/recovery" \
+    vendor/toko-tooling/make/release.mk vendor/toko-tooling/make/execution.mk
 cat > Makefile <<'MAKE'
 .DEFAULT_GOAL := release-version
 # Exercise the inner saved runner explicitly; ordinary CI has no parent batch.
 # Automatic capture is qualified separately by the release-batch fixtures.
 RELEASE_BATCH_ACTIVE := 1
-include make/release.mk
+include vendor/toko-tooling/make/release.mk
 release-version:
 	@bash scripts/release/version.sh
 release-preflight release-verify:

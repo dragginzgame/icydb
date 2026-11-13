@@ -828,16 +828,16 @@ impl StoreHandle {
         let bases = match admitted {
             Some((database_incarnation, accepted_root)) => self
                 .ready_cardinality_counts_for_source(
-                    ReadyCardinalitySource::Admitted {
+                    &ReadyCardinalitySource::Admitted {
                         database_incarnation,
                         accepted_root,
                         fold_watermark: delta_watermark,
                     },
-                    ReadyCardinalityCountTargets::UserIndexPrefixes(keys),
+                    &ReadyCardinalityCountTargets::UserIndexPrefixes(keys),
                     accepts,
                 ),
             None => self.ready_cardinality_counts_for_targets(
-                ReadyCardinalityCountTargets::UserIndexPrefixes(keys),
+                &ReadyCardinalityCountTargets::UserIndexPrefixes(keys),
                 accepts,
             ),
         }
@@ -895,12 +895,12 @@ impl StoreHandle {
         });
         delta_watermark.is_some_and(|watermark| {
             self.ready_cardinality_counts_for_source(
-                ReadyCardinalitySource::Admitted {
+                &ReadyCardinalitySource::Admitted {
                     database_incarnation,
                     accepted_root,
                     fold_watermark: watermark,
                 },
-                ReadyCardinalityCountTargets::Digests(&[]),
+                &ReadyCardinalityCountTargets::Digests(&[]),
                 |authority| {
                     component_prefixes.into_iter().all(|components| {
                         authority.accepts_user_index_prefix(index_id, components.len())
@@ -1009,19 +1009,19 @@ impl StoreHandle {
         accepts: impl FnOnce(&CardinalityBuildAuthority) -> bool,
     ) -> Result<Option<Vec<u64>>, InternalError> {
         self.ready_cardinality_counts_for_targets(
-            ReadyCardinalityCountTargets::Digests(digests),
+            &ReadyCardinalityCountTargets::Digests(digests),
             accepts,
         )
     }
 
     fn ready_cardinality_counts_for_targets(
         &self,
-        targets: ReadyCardinalityCountTargets<'_>,
+        targets: &ReadyCardinalityCountTargets<'_>,
         accepts: impl FnOnce(&CardinalityBuildAuthority) -> bool,
     ) -> Result<Option<Vec<u64>>, InternalError> {
         let incarnation = database_incarnation_id()?;
         self.ready_cardinality_counts_for_source(
-            ReadyCardinalitySource::Current {
+            &ReadyCardinalitySource::Current {
                 database_incarnation: incarnation,
             },
             targets,
@@ -1031,8 +1031,8 @@ impl StoreHandle {
 
     fn ready_cardinality_counts_for_source(
         &self,
-        source: ReadyCardinalitySource,
-        targets: ReadyCardinalityCountTargets<'_>,
+        source: &ReadyCardinalitySource,
+        targets: &ReadyCardinalityCountTargets<'_>,
         accepts: impl FnOnce(&CardinalityBuildAuthority) -> bool,
     ) -> Result<Option<Vec<u64>>, InternalError> {
         let Some(journal) = self.journal else {
@@ -1053,7 +1053,7 @@ impl StoreHandle {
                 database_incarnation,
                 accepted_root,
                 fold_watermark,
-            } => (database_incarnation, Some(accepted_root), fold_watermark),
+            } => (database_incarnation, Some(accepted_root), *fold_watermark),
         };
         self.with_schema(|schema| {
             let (header, cursor) = schema.cardinality_generation_control()?;
@@ -1066,14 +1066,14 @@ impl StoreHandle {
             let authority = match accepted_root {
                 Some(root) => CardinalityBuildAuthority::derive_for_admitted_consumer_root(
                     schema,
-                    incarnation,
+                    *incarnation,
                     allocation,
-                    root,
+                    *root,
                     watermark,
                 )?,
                 None => CardinalityBuildAuthority::derive_for_current_consumer(
                     schema,
-                    incarnation,
+                    *incarnation,
                     allocation,
                     watermark,
                 )?,

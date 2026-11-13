@@ -15,10 +15,6 @@ use std::borrow::Cow;
 
 impl CompiledExpr {
     /// Evaluate one compiled expression against a value reader.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "explicit compiled opcode dispatch keeps grouped hot-loop behavior auditably direct"
-    )]
     pub(in crate::db) fn evaluate<'row>(
         &'row self,
         reader: &'row dyn CompiledExprValueReader,

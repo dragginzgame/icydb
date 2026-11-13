@@ -113,10 +113,6 @@ pub(in crate::db::query::plan) fn schema() -> SchemaInfo {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "Keep bound parity and cumulative admission in one read-lane matrix."
-)]
 fn prefix_selection_shares_bounds_and_propagates_cumulative_exhaustion() {
     let schema = schema();
     let visible = crate::db::query::preparation::with_preparation_work(|work| {

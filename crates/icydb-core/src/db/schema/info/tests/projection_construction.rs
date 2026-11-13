@@ -40,7 +40,7 @@ fn fields(projection: &ProjectionSpec) -> Vec<ProjectionField> {
     projection.fields().cloned().collect()
 }
 
-fn assert_budget_error(error: QueryError, resource: Resource) {
+fn assert_budget_error(error: &QueryError, resource: Resource) {
     assert!(
         error
             .diagnostic_facts()
@@ -121,14 +121,14 @@ fn projection_copies_reject_at_exact_payload_boundaries_and_accumulate() {
                 if limit == exact {
                     assert_eq!(result.unwrap().len(), 3);
                     assert_budget_error(
-                        PreparationWork::run(&request.scope(), lane, |work| {
+                        &PreparationWork::run(&request.scope(), lane, |work| {
                             plan.prepare_projection(&schema, work)
                         })
                         .unwrap_err(),
                         resource,
                     );
                 } else {
-                    assert_budget_error(result.unwrap_err(), resource);
+                    assert_budget_error(&result.unwrap_err(), resource);
                 }
                 assert!(plan.projection_spec().is_err());
                 assert_eq!(request.observed(Resource::RowsVisited), 0);
@@ -160,7 +160,7 @@ fn all_projection_admits_shared_sort_scratch_before_construction() {
             if limit == exact {
                 assert_eq!(result.unwrap().len(), schema.field_count());
             } else {
-                assert_budget_error(result.unwrap_err(), resource);
+                assert_budget_error(&result.unwrap_err(), resource);
             }
             assert_eq!(request.observed(Resource::RowsVisited), 0);
         }

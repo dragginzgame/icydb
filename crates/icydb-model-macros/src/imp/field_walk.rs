@@ -31,7 +31,7 @@ impl FieldWalkBinding {
 
     /// Borrow this field by immutable reference from the provided receiver.
     #[must_use]
-    pub fn member_ref_from(&self, receiver: TokenStream) -> TokenStream {
+    pub fn member_ref_from(&self, receiver: &TokenStream) -> TokenStream {
         let ident = &self.ident;
 
         quote!(&#receiver.#ident)
@@ -39,7 +39,7 @@ impl FieldWalkBinding {
 
     /// Borrow this field by mutable reference from the provided receiver.
     #[must_use]
-    pub fn member_mut_from(&self, receiver: TokenStream) -> TokenStream {
+    pub fn member_mut_from(&self, receiver: &TokenStream) -> TokenStream {
         let ident = &self.ident;
 
         quote!(&mut #receiver.#ident)
@@ -94,8 +94,8 @@ pub(crate) fn field_walk_bindings(fields: &FieldList) -> Vec<FieldWalkBinding> {
 /// Applies cardinality (One / Opt / Many)
 pub(crate) fn cardinality_wrapper(
     card: Cardinality,
-    rules: Vec<TokenStream>,
-    var_expr: TokenStream,
+    rules: &[TokenStream],
+    var_expr: &TokenStream,
 ) -> Option<TokenStream> {
     if rules.is_empty() {
         return None;

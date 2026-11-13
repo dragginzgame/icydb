@@ -990,6 +990,57 @@ fn structural_promotions_preserve_both_states_and_typed_owner_refusals() {
 }
 
 #[test]
+fn entity_structure_edit_preserves_pending_owners_and_retained_bytes() {
+    let original =
+        pending_unique_schema_fixture().with_relation_id_allocator(RelationIdAllocator::new(9));
+    let bytes = encode_persisted_schema_snapshot(&original).unwrap();
+    // Exercise both a shared accepted input and a uniquely owned decoded draft.
+    for input in [
+        original.clone(),
+        decode_persisted_schema_snapshot(&bytes).unwrap(),
+    ] {
+        let mut fields = input.fields().to_vec();
+        fields[1] = fields[1].clone_with_insert_default(SchemaInsertDefault::SlotPayload(vec![0]));
+        let layout = input.row_layout().clone();
+        let constraints = input.constraint_catalog().clone();
+        let candidate = input.with_entity_structure(
+            SchemaVersion::new(2),
+            "renamed::Entity".to_string(),
+            "Renamed".to_string(),
+            layout,
+            fields,
+            constraints,
+        );
+        assert_eq!(candidate.version(), SchemaVersion::new(2));
+        assert_eq!(candidate.entity_path(), "renamed::Entity");
+        assert_eq!(candidate.entity_name(), "Renamed");
+        assert_ne!(candidate.fields(), original.fields());
+        assert_eq!(
+            candidate.primary_key_field_ids(),
+            original.primary_key_field_ids()
+        );
+        assert_eq!(
+            candidate.constraint_catalog(),
+            original.constraint_catalog()
+        );
+        assert_eq!(candidate.relation_id_allocator().high_water(), 9);
+        assert_eq!(candidate.indexes(), original.indexes());
+        assert_eq!(candidate.relations(), original.relations());
+        assert_eq!(candidate.candidate_indexes(), original.candidate_indexes());
+        assert_eq!(
+            candidate.candidate_relations(),
+            original.candidate_relations()
+        );
+        let encoded = encode_persisted_schema_snapshot(&candidate).unwrap();
+        assert_eq!(
+            decode_persisted_schema_snapshot(&encoded).unwrap(),
+            candidate
+        );
+        assert_eq!(encode_persisted_schema_snapshot(&original).unwrap(), bytes);
+    }
+}
+
+#[test]
 fn field_candidate_edit_preserves_pending_owners_and_original_bytes() {
     let original =
         pending_unique_schema_fixture().with_relation_id_allocator(RelationIdAllocator::new(9));

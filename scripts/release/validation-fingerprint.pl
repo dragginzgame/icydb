@@ -41,7 +41,7 @@ $editor =~ m{\A/} && -x $editor or die "select admitted metadata editor\n";
 my %normalized;
 for my $group (qw(database cli)) {
     my $projection=$json->decode(capture('env',"RELEASE_COMMIT=$source",'RELEASE_VERSION=0.0.0',
-        'bash','scripts/ci/cargo-release-group.sh','plan',$group));
+        'bash','vendor/toko-tooling/scripts/ci/cargo-release-group.sh','plan',$group));
     write_file("$scratch/plan.json",$json->encode($projection));
     for my $path ((map {$_->{path}} @{$projection->{manifests}}),
         'Cargo.lock', (exists($projection->{qualification}) ? 'qualification/Cargo.lock' : ()),
@@ -58,7 +58,7 @@ my %inputs = map {$_ => sha256_hex($normalized{$_})} keys %normalized;
 # reviewed certificate is the trust input and is checkpointed by every fresh run;
 # excluding it here avoids a self-referential fingerprint.
 my @automation=grep {$_ ne 'ci/release-validation-qualified.json'} split /\n/,
-    capture('git','ls-tree','-r','--name-only',$source,'--','scripts','ci','make','.github','AGENTS.md');
+    capture('git','ls-tree','-r','--name-only',$source,'--','scripts','ci','vendor/toko-tooling','.github','AGENTS.md');
 my %seen;
 for my $path (@{$contract->{qualification_inputs}}, @automation) {
     $path =~ m{\A[.A-Za-z0-9_-][A-Za-z0-9_./-]*\z} && $path !~ m{(?:^|/)\.\.?(?:/|$)}

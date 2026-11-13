@@ -20,8 +20,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
 mkdir -p "$ROOT/target"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "$ROOT/target/cargo-adoption.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Cargo adoption fixture retained"' EXIT
@@ -122,7 +122,7 @@ if [[ "$ordering_only" == false ]]; then
   # Exercise the actual consumer allowlist before injecting a forbidden canonical
   # SDK/substrate identity through aliases, disabled optional features and inactive targets.
   CARGO_HOME="$ROOT/.cache/cargo/icydb" \
-    bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
+    bash vendor/toko-tooling/scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
     > "$fixture/boundaries.log" 2>&1
   cp Cargo.toml "$fixture/catalog.toml"
   for dependency in canic-icydb ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister blake3 ic-platform ic-platform-runtime ic-platform-types; do
@@ -159,7 +159,7 @@ if [[ "$ordering_only" == false ]]; then
         any(.name == $dependency and .rename == "boundary_alias")' \
         "$fixture/injected-metadata.json" > /dev/null
       if CARGO_HOME="$ROOT/.cache/cargo/icydb" \
-        bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
+        bash vendor/toko-tooling/scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
           > "$fixture/boundary-rejection.log" 2>&1; then
         echo "consumer boundary admitted excluded dependency alias: $dependency" >&2; exit 1
       fi
@@ -222,7 +222,7 @@ printf '## [0.1.0] - 2026-10-18\n' > CHANGELOG.md
 cargo generate-lockfile --offline > "$fixture/metadata-lock.log" 2>&1
 cp Cargo.toml "$fixture/grouped.toml"
 RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 \
-  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  bash "$ROOT/vendor/toko-tooling/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
   > "$fixture/current-grouped.log" 2>&1
 # Formatting is stable and retains both role groups, despite global disorder.
 cargo sort --workspace --grouped > "$fixture/grouped-write.log" 2>&1
@@ -235,13 +235,13 @@ selected="$(git rev-parse HEAD)"
 perl -0777 -pe 's/(zeta = "1"\n)(zulu = "1"\n)/$2$1/ or die "missing group inputs\n"' \
   "$fixture/grouped.toml" > Cargo.toml
 if RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 \
-  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  bash "$ROOT/vendor/toko-tooling/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
   > "$fixture/current-unsorted.log" 2>&1; then
   echo 'release ordering admitted an unsorted role group' >&2; exit 1
 fi
 # The selected commit passes even though the working manifest does not.
 RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 RELEASE_COMMIT="$selected" \
-  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  bash "$ROOT/vendor/toko-tooling/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
   > "$fixture/committed-grouped.log" 2>&1
 git add -- Cargo.toml
 git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null -c commit.gpgsign=false \
@@ -249,7 +249,7 @@ git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath
 selected="$(git rev-parse HEAD)"
 cp "$fixture/grouped.toml" Cargo.toml
 if RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 RELEASE_COMMIT="$selected" \
-  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  bash "$ROOT/vendor/toko-tooling/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
   > "$fixture/committed-unsorted.log" 2>&1; then
   echo 'release ordering read the newer worktree instead of the selected commit' >&2; exit 1
 fi

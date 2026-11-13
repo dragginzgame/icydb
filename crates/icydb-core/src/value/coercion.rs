@@ -17,15 +17,24 @@
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoercionFamily {
-    Numeric,    // Decimal, Float, Duration, Timestamp, …
-    Textual,    // Text
+    /// Numeric-family routing, including temporal scalar representations.
+    Numeric, // Decimal, Float, Duration, Timestamp, …
+    /// Text values routed through textual coercions.
+    Textual, // Text
+    /// Identifier values such as principals, ULIDs and subaccounts.
     Identifier, // Ulid, Principal, Subaccount
-    Enum,       // Enum(type, variant)
+    /// Nominal enum values routed by type and variant.
+    Enum, // Enum(type, variant)
+    /// Collection values routed through element operations.
     Collection, // List
     /// Explicit heterogeneous values with no coercion routes.
     Opaque,
+    /// Opaque binary values.
     Blob, // Blob(Vec<u8>)
+    /// Boolean values.
     Bool,
+    /// Absent optional values.
     Null, // Value::Null
+    /// Internal unit placeholders.
     Unit, // Value::Unit
 }

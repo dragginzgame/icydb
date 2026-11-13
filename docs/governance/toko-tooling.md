@@ -1,5 +1,208 @@
 # Toko Tooling Adoption
 
+
+## Current adoption — 0.42.4 and Rust 1.100
+
+The 0.42.4 patch fixes substitute release runners/admission in vendor layouts.
+Cargo tool setup now distinguishes successful activation from failed cleanup;
+retrying setup re-admits the installed tool and retries retained scratch cleanup
+without rebuilding. The 0.42.3 policy clarification keeps domain operations and
+codecs in libraries, with endpoint registration and guards in host adapters;
+codec dependencies alone do not require moving domain code into Canic.
+
+The 0.42 migration installs executable tooling under `vendor/toko-tooling/`.
+The published installer retired verified old files; local Make, CI actions,
+release adapters, setup and fixture callers now use the vendor paths. The stock
+Git hook uses `vendor/toko-tooling/.githooks`. Release and publication Make
+entrypoints are explicitly selected. Producer regression scripts and the
+governance inventory are no longer selected payloads. Root baseline/license
+files and the ownership receipt retain their canonical locations.
+
+The release fingerprint includes vendor helpers and rejects their drift.
+Existing release qualification evidence remains unchanged and must pass its
+normal input-identity checks before reuse; this migration does not qualify or
+authorize deployment.
+
+The latest Wire/Build/Platform adoption selects Wire/Derive **0.22.0**, Build
+**0.84.1**, Platform Runtime **0.22.1**, Types **0.20.1**, and native qualification
+Platform **0.32.1**. Build/Platform were already locked at these published versions;
+the declared direct floors now match. Only Wire/Derive changed in the two maintained
+locks. The Build release metadata tool is admitted at 0.84.1 from the local cache.
+The matching Wasm-only Core/facade runtime dependency edges remain intact.
+Deferred Canic is unchanged. These selections supersede the older adoption
+versions recorded below.
+
+Latest requested Host/Build/Testkit adoption selects Host Artifacts/Fs/Process
+**0.77.0**, Host Text **0.75.0**, Host Tools **0.92.0**, IC Build **0.84.0** and
+Testkit **0.102.0** wherever consumed in the root/native qualification workspaces.
+Published archives were reviewed against prior locked sources: these releases
+primarily adopt Rust 1.100/lints and module layout; Build also removes assumptions
+about Cargo's intermediate artifact layout from its tests. Testkit's required
+native Platform **0.32.0** now shares Types **0.20.0**, removing Types 0.19.5.
+Other locked suppliers are unchanged; local lock entries only change dependency
+identity references where Cargo removes the now-unambiguous Types version suffix.
+Deferred Canic manifests/lock remain unchanged by this supplier update.
+
+Formatting, both locked offline metadata graphs, graph invariants and tooling
+admission pass. The earlier CLI findings in Core and Model Macros are now cleared
+by their focused strict library/test gates. Model's strict library/test gate also
+passes after ownership and documentation repairs, including generated fields and
+variants. Its 97 focused runtime/generator checks pass (25 Model unit tests,
+17 hook integration tests and 55 generator tests). Three numeric constructors
+retain narrow, reasoned ownership expectations because generated attachments pass
+literal/constant/function-result arguments by value; no attachment API redesign
+was introduced solely for a lint. ErrorTree now moves owned strings and borrows
+flattening prefixes. The CLI consumer gate subsequently reached the facade;
+the facade SQL/migration/metrics library/test gate and CLI all-target Clippy now
+pass too. The facade has 78 passing focused runtime tests; CLI has 109 focused
+unit tests and 69 actual-process exit-status fixtures passing. Evidence is retained
+in the latest [status follow-up](../design/0.311-migration-completion/status.md).
+Model's optional `build` feature now also passes strict all-target Clippy and
+Rustdoc, with 58 focused actor/schema/fixture tests passing. Parser-error callers
+use the existing formatted-error path; generator rendering borrows inspected
+fragments and plans. No new lint suppression was added in that follow-up.
+Later Build/Testkit consumer qualification remains unexecuted, not passed.
+The locked Build release editor has now been admitted from the local cache.
+
+The authorized Rust 1.100 follow-up replaces four restore-only guards with
+DropGuard and uses trim_prefix for subaccount input. Schema strict Clippy and both
+prefix tests pass; nested request-scope/unwind coverage is added alongside the
+existing counter restoration test. Ordinary Make Clippy uses Cargo warning denial,
+qualified on fresh and cached artifacts. Plain JSON collection keeps explicit
+compiler denial. Tooling-adapter regressions, 69 database-dispatch assertions and
+53 release-plan rejection/expansion cases pass. The refreshed recipe/group hashes
+do not authorize native mapping reuse; no qualification certificate was rewritten.
+See the [implementation evidence](../design/0.311-migration-completion/status.md#rust-1100-implementation-follow-up).
+
+Requested supplier follow-up: published Entropy **0.2.0**, Metrics **0.30.1** and
+Storage **0.74.0** now select in root and native qualification. Their registry
+source review found Metrics unchanged, Entropy adding must-use annotations, and
+Storage adding docs plus adopting Platform Runtime 0.22.0. Both locks now remove
+Runtime 0.21.3; all unrelated package versions/checksums are preserved, including
+qualification rustls-webpki 0.103.17. These supplier changes introduce no additional
+persisted-format cut beyond the pending IcyDB Unicode/migration cuts.
+
+Full locked offline metadata admission passes for both maintained workspaces;
+root graph invariants and both external-IC dependency-boundary checks pass.
+Consumer compiler/test qualification remains blocked by the existing #637 Core
+lint findings below; unchanged failing Clippy and later expensive gates were not
+replayed. This is selection/graph adoption, not a completed runtime qualification
+or deployment. Deferred Canic and sibling repositories remain untouched.
+
+The selected published tooling version is **0.42.4**,
+with crates.io SHA-256 `697efc1801f8c8c3f563364984efff1b941e84eef2cfaade40aece5e09bced2b`.
+The installer verified the retained 106-file snapshot. Product, native qualification
+and deferred Canic tooling selections agree. The follow-up Platform adoption selects Runtime 0.22.0 and Types 0.20.0 in root
+and native qualification, preserving unrelated selections. Older Platform versions
+remain only where existing suppliers require them. The deferred Canic executor-links
+conflict still blocks its runtime qualification.
+
+The 0.41.1 source-bundle marker uses `target.'cfg(any())'.dev-dependencies`
+in all 54 real packages, retaining the exact workspace selection without linking
+unused tooling into binary tests. Root and qualification locks were updated by
+Cargo; the deferred Canic lock received only the verified tooling package repair.
+Snapshot, nested tooling admission and tool checks pass. The locked IC Build 0.84
+release metadata editor was admitted from the local cache. Deployment sequencing
+and supplier isolation remain unchanged by this patch.
+
+All three workspace compiler floors and the development pin select **1.100.0**.
+CI's existing prepare-rust action projects this version from the root manifest;
+there is no independent CI compiler pin to change. Actual local identities are
+rustc `1.100.0 (0ef1bc386 2026-11-09)` and Cargo `1.100.0 (3acc79c0c 2026-11-05)`.
+This supersedes earlier current-compiler statements below; historical evidence
+continues to identify the compiler that actually produced it.
+
+The [released migration guide](https://github.com/dragginzgame/toko-tooling/blob/dcc51b5cab3d9993f0668bc0902252364d7dc316/docs/adoption/migrations.md#rust-11000-minimum-in-0400)
+and [common lint policy](https://github.com/dragginzgame/toko-tooling/blob/dcc51b5cab3d9993f0668bc0902252364d7dc316/TOKO-TOOLING.md#common-rust-lint-policy)
+own the adoption requirements. All 55 inspected package manifests inherit their
+workspace lint/compiler policy. Broad nursery selection and blocking line-count
+checks are removed; existing domain-specific safety exceptions remain local.
+Full acceptance is tracked by [#637](https://github.com/dragginzgame/icydb/issues/637);
+snapshot integrity and compiler configuration alone do not close it.
+
+For deployment, follow the [0.41.0 sequencing, recovery and supplier-isolation rules](https://github.com/dragginzgame/toko-tooling/blob/b4e6308894c495169278b34ea7803973c125adb6/TOKO-TOOLING.md#release-commands).
+The compiler/lint change invalidates old host qualification; retain those receipts
+as historical evidence rather than rewriting them or claiming new-compiler reuse.
+No deployment or broad release gate was selected during this adoption.
+
+Qualification currently remains incomplete: Schema's strict native Clippy and
+Rustdoc gates, Wasm compilation and four bounded-codec tests pass. A disposable
+inherited-policy fixture rejects unsafe code and ignored must-use results.
+All 611 Diagnostic Code missing-doc findings are repaired; its strict library/test
+Clippy gate passes. Registry-generated docs use authoritative numeric entries and
+typed classification links. SQL generator library/test strict Clippy also passes after documentation and
+ownership repairs. The Core documentation follow-up clears all 460 missing-doc
+findings, including existing descriptions previously hidden behind `cfg(doc)`.
+Explicit imports, simplified optional/boolean expressions and redundant-clone
+repairs also clear those lint classes. Owned truth-admission failures move their
+value into diagnostics without cloning; constraint compilation consumes its input
+vectors, and read-only relation merging borrows its entries. No lint suppression
+was added. Core's strict SQL/migration/metrics library and test gate now passes
+with zero warnings and errors, including the integration-test harness. Evidence:
+`/tmp/icydb-637-zero-final.jsonl`. Read-only catalog, schema, projection and scan
+inputs borrow their existing owners; decoders accept slices and callers avoid
+redundant clones. Prepared commit-control replacement retains single-use
+publication through `apply(self)`. Formatting and diff whitespace checks pass.
+Broader Rustdoc/Wasm/release qualification remains unrun.
+Focused runtime coverage now has 622 passing checks: 609 from the initial
+selection plus the repaired marker-byte fixture and 12 migration-record tests.
+The marker fixture now reflects the authorized migration-envelope hard cut;
+all original byte/range/corruption assertions remain. Evidence is retained in
+`/tmp/icydb-637-zero-focused-tests.log` and
+`/tmp/icydb-637-zero-migration-tests.log`. The latter passes after the former's
+single stale-fixture failure; the final strict Clippy rerun is clean.
+The recovery/schema/projection fixture pass removes 12 more findings. Raw marker
+and journal helpers borrow byte slices; index delta fixtures share index slices;
+assertions borrow expected errors, kinds and values. Historical backfill fixtures
+accept the expected OutputValue directly and consume it into the expected rows,
+removing a redundant conversion and fixture-only panic branch. No assertion or
+lint policy was weakened.
+The cardinality query-fixture pass removes another 12 ownership findings by
+borrowing inspected filters, schema candidates, scalar kinds and expected rows.
+Group-order fixtures use borrowed arrays, and covering assertions retain their
+exact expected source through `Option<&CoveringReadFieldSource>`. No findings
+remain in that test family; all selected cardinality fixtures pass in the
+focused runtime run.
+The earlier ownership pass removes 40 unique findings: assertion/error adapters
+borrow inspected errors, index lowering borrows accepted contracts instead of
+cloning them, and catalog diagnostics move fingerprint metadata directly. Two
+owned-only SQL forwarding wrappers and one owned index-encoding wrapper are
+removed with their callers updated. No lint suppression or Canic changes were
+introduced. The schema/SQL follow-up removes another 19 unique findings: publication
+borrows catalog identity through the DDL envelope, mutation derivation borrows
+field/default/index inputs, and SQL filter/HAVING/order inspection borrows syntax.
+Live identity checks, owned staged replacements and strict aggregate predicate
+admission remain intact. The planner/fixture pass removes eight more findings:
+assembly and the scalar-load cache miss borrow schema metadata, logical assembly
+borrows its input view, validation scans borrow dependency fields, and comparison
+fixtures borrow inspected values. Prepared planning state still retains its schema
+handle; findings still own their persisted field lists. The maintainer is handling endpoint exceptions in Canic separately. Rust 1.100 also changes Unicode tables from 17
+to 18: the 0.311 fresh-installation cut rejects earlier database images unchanged
+using boot identity `ICYDBU18`, with scalar and contextual mapping fixtures. The Core selected gate and focused runtime closeout above supersede the earlier
+red-gate evidence. The remaining feature,
+native qualification, generated-consumer and macOS proof remains outstanding under
+#637, in addition to the separately deferred Canic graph. The previous compiler's
+217-test migration result is not evidence for this compiler/lint change.
+
+Toko Tooling 0.41.0 replaces display-only dependency catalogs with offline
+`make deps-list`. Root aliases `icydb-cli`, `model_api` and `runtime_api` were
+unused and removed from dependency rosters, preserving every release-group member.
+Unused qualification/Canic workspace aliases and unused package defaults were
+removed too. All three workspace lint tables now deny unused Cargo declarations,
+missing lint inheritance and unknown lints; Rustdoc denies invalid Markdown tables.
+The old unused-workspace-dependency allowance is removed. Both release-group graph
+admissions, qualification locked metadata and root/qualification/Canic tooling
+selection checks pass. `make deps-list`, formatting, graph invariants and
+`make tools-check` pass. Formatter tools and the locked IC Build release editor
+were admitted under the new artifact policy through existing-cache reuse. Only
+Toko Tooling changes in all three locks; Canic's known
+executor conflict prevents Cargo refresh there, so its tooling-only entry uses the
+verified root selection without changing runtime dependencies.
+
+The earlier Core ownership findings are superseded by the zero-warning selected
+gate and focused runtime closeout above. Broader qualification remains outstanding.
+
+
 This document describes current ownership and qualification boundaries. Dependency
 identities come from [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lock)
 and the [reviewed snapshot](../../.toko-tooling.snapshot), not historical notes.
@@ -70,7 +273,7 @@ stack. This adoption changes no IcyDB package versions or installed snapshots.
 
 ## Current tooling migration boundary
 
-Toko Tooling 0.39.12 is installed and selected in all three workspaces. The
+Toko Tooling 0.39.19 is installed and selected in all three workspaces. The
 [approved native migration](../design/0.308-package-layout/status.md) separates
 fourteen native qualification packages into `qualification/`, with its own lock.
 The startup composition fixture adds the fifteenth native qualification package.
@@ -100,13 +303,21 @@ namespace or consumer-specific path remapping.
 
 ## Ownership and provenance
 
-IcyDB selects published **Toko Tooling 0.39.17** with one exact workspace pin
+IcyDB selects published **Toko Tooling 0.39.19** with one exact workspace pin
 inherited as an unconditional dev-dependency by every real package, alongside
 its cargo-machete exemption. Cargo.lock and `.toko-tooling.snapshot` identify
-archive SHA-256 `aaeab49adb84ea0d66cf86ecc48d826125f9c3ac6eafaf2a362bccfeba7acbfd`,
-from source `f3be6c9ea8da46c7f2cebdc420766a829d01f82d`. All 109 payloads are installed
+archive SHA-256 `0f65ed6a66d3d105fd3b9c33f6cae21a800971a6697f40c99c8e34b24ff483a0`,
+from source `a6f3c63b9cf7a2547d3302369bce855676544722`. All 109 payloads are installed
 by the authenticated exporter; no snapshot-owned files or receipt hashes are
 edited locally.
+
+The 0.39.19 adoption adds [whole-subsystem replacement guidance](https://github.com/dragginzgame/toko-tooling/blob/a6f3c63b9cf7a2547d3302369bce855676544722/docs/principles/subsystem-replacement.md).
+The guidance stays upstream. The installer updates the baseline, governance-file
+inventory and receipt; executable payloads and tool versions are unchanged.
+Root/native locks use Cargo's targeted update, and the approved Canic tooling-only
+repair preserves its deferred runtime selections. Snapshot admission verifies
+109 installed files; root/native and nested Canic tooling admission pass. All
+three lock diffs change only the tooling package record.
 
 The 0.39.17 refresh changes only the installed baseline; executable payloads and
 native tool selections are unchanged. Product and qualification locks were
@@ -178,7 +389,7 @@ metadata, method identities, budgets and native bytes retain the reviewed
 0.21 contract; the existing compatible catalog requirements remain unchanged.
 
 The 0.37 hard cut adopts `TOKO-TOOLING.md`, `toko-tooling-*` Make targets,
-`scripts/dev/toko-tooling.sh`, `TOKO_TOOLING_*` settings and
+`vendor/toko-tooling/scripts/dev/toko-tooling.sh`, `TOKO_TOOLING_*` settings and
 `package.metadata.toko-tooling.loc`. The installer preview retained all 100
 selected entrypoints, renamed the baseline/verification/schedule roots, and
 retired five unchanged old paths. Refresh used the existing receipt for ownership
@@ -1254,7 +1465,7 @@ Do not introduce sibling path overrides or silently update inputs during a gate.
 
 `make check-dependency-pins` enables Shared's Cargo-inheritance checks across
 normal, build, development and target-specific declarations. `check-invariants`
-enables the common [external-IC inventory](../../ci/external-ic-dependencies.txt);
+enables the common [external-IC inventory](../../vendor/toko-tooling/ci/external-ic-dependencies.txt);
 [local policy](../../ci/cargo-dependency-boundaries.json) adds stricter bans.
 The local graph guard retains coupled pins, sensitive version uniqueness and
 release-specific exclusions. Declaration/graph checks do not prove final Wasm
@@ -1276,8 +1487,8 @@ qualify actual Canic compatibility or every maintained actor recipe. Those and
 native macOS/installed qualification remain open in #378; ordinary product
 package resolution stays independent of the adapter.
 
-Tool versions come from the [shared host/Rust catalog](../../ci/tool-versions.env),
-[IC archive matrix](../../ci/ic-tools.tsv) and [IcyDB utility selections](../../ci/icydb-tools.env).
+Tool versions come from the [shared host/Rust catalog](../../vendor/toko-tooling/ci/tool-versions.env),
+[IC archive matrix](../../vendor/toko-tooling/ci/ic-tools.tsv) and [IcyDB utility selections](../../ci/icydb-tools.env).
 After preparing Rust and locked dependencies, `make install-tools` explicitly
 prepares the selected product tools; `make tools-check` admits them offline.
 Canic qualification additionally selects `make install-testkit testkit-check`.
@@ -1775,7 +1986,7 @@ These are retained adoption results, not a fresh full gate for later changes.
 | Group transactions, lock selection, receipts and recovery | `scripts/release/test-release-groups.sh` |
 | Publication preflight, receipts and exact-version retries | `scripts/ci/test-publish-workspace.sh` |
 | Failure evidence and fixture completion | `scripts/ci/test-tooling-fixture-completion.sh` and validation-adapter fixtures |
-| Tag-maintenance command selection without deletion | Shared's `scripts/dev/delete-github-tags-up-to.pl` default dry run |
+| Tag-maintenance command selection without deletion | Shared's `vendor/toko-tooling/scripts/dev/delete-github-tags-up-to.pl` default dry run |
 | IcyDB document inventory, links and version facts | `scripts/ci/test-documentation.pl`, `scripts/ci/check-documentation.pl` |
 
 Shared owns generic installer and dependency-check regression matrices. IcyDB
@@ -1784,7 +1995,7 @@ those producer matrices. Substitute fixtures do not qualify installed tools.
 The generic CI-inspection matrix likewise stays upstream
 ([#474](https://github.com/dragginzgame/icydb/issues/474)); IcyDB retains its actual
 Make/workflow/release-adapter checks and explicitly selects the interactive
-`scripts/dev/gh-ci.sh` helper.
+`vendor/toko-tooling/scripts/dev/gh-ci.sh` helper.
 
 The generic release-runner matrix likewise remains at Shared Tooling's
 `scripts/ci/test-portable-tools.sh` caller
@@ -1876,7 +2087,8 @@ The maintainer approved independent CLI releases on 2026-11-02.
 The database group keeps engine, schema, model, macros, diagnostics and root
 qualification packages coordinated; only `icydb-cli` belongs to `cli`. Numeric
 versions are unchanged by this layout adoption. All members own literal package
-versions, with a complete root dependency catalog and one shared product lock.
+versions and one shared product lock. The 0.41.0 adoption removes unused display
+aliases; `make deps-list` now provides the complete package inventory.
 No package moves or new workspaces are introduced.
 
 Release, resume and publication require explicit `RELEASE_GROUP=database` or

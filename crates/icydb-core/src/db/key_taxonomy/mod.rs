@@ -137,16 +137,27 @@ impl PrimaryKeyKind {
 /// One admitted scalar primary-key component before compact canonical encoding.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PrimaryKeyComponent {
+    /// An unsigned 64-bit integer.
     Nat64(u64),
+    /// A signed 64-bit integer.
     Int64(i64),
+    /// An unsigned 128-bit integer.
     Nat128(u128),
+    /// A signed 128-bit integer.
     Int128(i128),
+    /// A timestamp measured in milliseconds since the Unix epoch.
     Timestamp(Timestamp),
+    /// A 128-bit lexicographically sortable identifier.
     Ulid(Ulid),
+    /// An Internet Computer principal identifier.
     Principal(Principal),
+    /// A 32-byte account subidentifier.
     Subaccount(Subaccount),
+    /// An account identified by its owner and subaccount.
     Account(Account),
+    /// The unit value, carrying no payload.
     Unit,
+    /// An unsigned 256-bit integer.
     U256(U256),
 }
 
@@ -332,7 +343,9 @@ impl PartialOrd for CompositePrimaryKeyValue {
     reason = "primary-key values stay Copy and allocation-free on hot encode/decode paths"
 )]
 pub enum PrimaryKeyValue {
+    /// A primary key consisting of one admitted component.
     Scalar(PrimaryKeyComponent),
+    /// A primary key consisting of an ordered sequence of admitted components.
     Composite(CompositePrimaryKeyValue),
 }
 
@@ -346,6 +359,7 @@ impl PrimaryKeyValue {
     }
 
     #[must_use]
+    /// Return the scalar component, or `None` for a composite primary key.
     pub const fn scalar_component(self) -> Option<PrimaryKeyComponent> {
         match self {
             Self::Scalar(value) => Some(value),
@@ -413,13 +427,26 @@ impl PartialOrd for PrimaryKeyValue {
 #[derive(Debug)]
 pub enum CompositePrimaryKeyValueError {
     /// Fewer than the minimum required composite key components were provided.
-    TooFewComponents { count: usize, min: usize },
+    TooFewComponents {
+        /// Number of supplied key components.
+        count: usize,
+        /// Minimum admitted component count.
+        min: usize,
+    },
 
     /// More than the maximum supported composite key components were provided.
-    TooManyComponents { count: usize, max: usize },
+    TooManyComponents {
+        /// Number of supplied key components.
+        count: usize,
+        /// Maximum admitted length or component count.
+        max: usize,
+    },
 
     /// A `Unit` component appeared inside a composite primary key.
-    UnitComponent { index: usize },
+    UnitComponent {
+        /// Zero-based position of the rejected element or component.
+        index: usize,
+    },
 }
 
 #[derive(Debug)]

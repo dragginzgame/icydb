@@ -22,6 +22,7 @@ macro_rules! define_error_code_registry {
     ) => {
         impl ErrorCode {
             $(
+                #[doc = concat!("Public wire code `", stringify!($raw), "`, classified as [`DiagnosticCode::", stringify!($diagnostic), "`].")]
                 pub const $name: Self = Self($raw);
             )+
 

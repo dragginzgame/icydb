@@ -20,12 +20,16 @@ use icydb_diagnostic_code as diagnostic_code;
 #[derive(Debug, thiserror::Error)]
 #[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum QueryError {
+    /// Schema validation rejected the query.
     Validate(Box<ValidateError>),
 
+    /// Planning rejected the query.
     Plan(Box<PlanError>),
 
+    /// The requested terminal operation conflicts with the query intent.
     Intent(IntentError),
 
+    /// Execution failed after query admission.
     Execute(QueryExecutionError),
 }
 
@@ -200,18 +204,25 @@ impl From<ValidateError> for QueryError {
 #[derive(Debug, thiserror::Error)]
 #[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum QueryExecutionError {
+    /// Persisted or runtime data failed integrity checks.
     Corruption(InternalError),
 
+    /// Retained data uses an unsupported format contract.
     IncompatiblePersistedFormat(InternalError),
 
+    /// An engine invariant was violated.
     InvariantViolation(InternalError),
 
+    /// Concurrent state or authority no longer matches the admitted operation.
     Conflict(InternalError),
 
+    /// The requested resource was not found.
     NotFound(InternalError),
 
+    /// The requested operation is outside the maintained contract.
     Unsupported(InternalError),
 
+    /// An internal failure prevented completion.
     Internal(InternalError),
 }
 
@@ -278,14 +289,19 @@ impl From<PlanError> for QueryError {
 
 #[derive(Clone, Copy, Debug)]
 pub enum IntentError {
+    /// The query shape violates a planner policy.
     PlanShape(PolicyPlanError),
 
+    /// HAVING was supplied without grouping.
     HavingRequiresGroupBy,
 
+    /// A scalar terminal operation was applied to a grouped query.
     ScalarTerminalRequiresScalarQuery,
 
+    /// A grouped terminal operation was applied to a scalar query.
     GroupedTerminalRequiresGroupedQuery,
 
+    /// Grouped output must be determined by group keys and aggregates.
     GroupedOutputDefinedByGroupAndAggregates,
 }
 

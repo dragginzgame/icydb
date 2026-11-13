@@ -59,7 +59,7 @@ impl<'a> DistinctProjectionRuntime<'a> {
 }
 
 pub(in crate::db::executor::projection) fn project_distinct(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     prepared_projection: &PreparedProjectionContract,
     strategy: ProjectionDistinctStrategy,
     window: ProjectionDistinctWindow,
@@ -104,9 +104,9 @@ pub(in crate::db::executor::projection) fn project_distinct(
                 },
                 |row| {
                     let boundary = resolved_order
-                        .map(|order| row.cursor_boundary(&row_layout, order))
+                        .map(|order| row.cursor_boundary(row_layout, order))
                         .transpose()?;
-                    project_data_row(&row_layout, prepared_projection, row)
+                    project_data_row(row_layout, prepared_projection, row)
                         .map(|row| DistinctProjectedRow::new(row, boundary))
                 },
             )

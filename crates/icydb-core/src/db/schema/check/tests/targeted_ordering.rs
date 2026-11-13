@@ -1,6 +1,7 @@
 //! Targeted-rule ordering must consume the compiler caller's budget authority.
 
 use super::*;
+use crate::db::schema::AcceptedConstraintKind;
 use crate::db::{
     QueryError, query::preparation::PreparationWork,
     schema::check::targeted::CompiledAcceptedTargetedRules, tests::support::request_with_limit,
@@ -27,14 +28,16 @@ fn grouped_fixture() -> TargetedRuleFixture {
     let mut catalog = snapshot.constraint_catalog().clone();
     for root in [2, 3] {
         catalog = catalog
-            .with_added_targeted_rule(
+            .with_added_row_constraint(
                 format!("extra_degree_{root}"),
                 ConstraintOrigin::Generated,
-                AcceptedRuleTarget::new(
-                    FieldId::new(root),
-                    AcceptedNamedTypeIdentity::Composite(fixture.degree_type),
-                ),
-                operation.clone(),
+                AcceptedConstraintKind::TargetedRule {
+                    target: AcceptedRuleTarget::new(
+                        FieldId::new(root),
+                        AcceptedNamedTypeIdentity::Composite(fixture.degree_type),
+                    ),
+                    operation: Box::new(operation.clone()),
+                },
             )
             .unwrap();
     }
@@ -73,7 +76,7 @@ fn compile_with_limit(
     (root.observed(resource), result)
 }
 
-fn assert_budget(error: QueryError, resource: Resource, lane: Lane, limit: u64, actual: u64) {
+fn assert_budget(error: &QueryError, resource: Resource, lane: Lane, limit: u64, actual: u64) {
     for fact in [
         (DiagnosticFactTag::BudgetResource, resource.raw()),
         (DiagnosticFactTag::ExecutionLane, lane.raw()),
@@ -120,7 +123,7 @@ fn targeted_ordering_admits_exact_short_and_cumulative_resources_without_changin
                 baseline
             );
             let (_, short) = compile_with_limit(&fixture, resource, expected - 1, lane, usize::MAX);
-            assert_budget(short.unwrap_err(), resource, lane, expected - 1, expected);
+            assert_budget(&short.unwrap_err(), resource, lane, expected - 1, expected);
             // Independent preparation segments must share the existing request.
             let root = request_with_limit(resource, expected * 2 - 1);
             for repetition in 0..2 {
@@ -137,7 +140,7 @@ fn targeted_ordering_admits_exact_short_and_cumulative_resources_without_changin
                     assert_eq!(result.unwrap(), baseline);
                 } else {
                     assert_budget(
-                        result.unwrap_err(),
+                        &result.unwrap_err(),
                         resource,
                         lane,
                         expected * 2 - 1,
@@ -213,7 +216,7 @@ fn empty_sources_skip_catalog_ordering_and_single_sources_still_admit_record_ord
     assert!(!single.unwrap().is_empty());
     let (_, short) = compile_with_limit(&fixture, Resource::SortEntries, 1, Lane::Mutation, 1);
     assert_budget(
-        short.unwrap_err(),
+        &short.unwrap_err(),
         Resource::SortEntries,
         Lane::Mutation,
         1,
@@ -241,7 +244,7 @@ fn whole_row_compilation_preserves_targeted_ordering_refusal_facts_before_other_
             .map_err(QueryError::execute)
         });
         assert_budget(
-            result.unwrap_err(),
+            &result.unwrap_err(),
             Resource::SortEntries,
             lane,
             0,

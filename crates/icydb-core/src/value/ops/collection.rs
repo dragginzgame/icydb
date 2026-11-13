@@ -138,6 +138,7 @@ fn in_list_ci(value: &Value, haystack: &Value) -> Option<bool> {
 
 impl Value {
     #[must_use]
+    /// Return emptiness for supported collection/text values, or `None` otherwise.
     pub const fn is_empty(&self) -> Option<bool> {
         is_empty(self)
     }

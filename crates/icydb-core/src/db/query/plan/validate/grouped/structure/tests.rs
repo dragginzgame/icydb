@@ -235,7 +235,7 @@ fn grouped_field_membership_admits_exact_and_cumulative_work() {
                 "profile",
                 vec!["age".into()],
                 0,
-                AcceptedFieldKind::Int32,
+                &AcceptedFieldKind::Int32,
             )]),
             Expr::FieldPath(FieldPath::new("profile", vec!["age".into()])),
         ),

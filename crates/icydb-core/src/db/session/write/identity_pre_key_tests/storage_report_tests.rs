@@ -34,10 +34,6 @@ fn corrupt_data_bytes(data: &DataStore) -> u64 {
     bytes
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one report oracle compares every retained store and allocation field"
-)]
 fn assert_report<C: CanisterKind>(
     session: &DbSession<C>,
     valid_rows: u64,

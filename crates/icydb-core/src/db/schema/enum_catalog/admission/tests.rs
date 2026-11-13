@@ -48,16 +48,13 @@ fn nested_input(items: usize, bytes: usize) -> InputValue {
     )
 }
 
-fn admission(
-    catalog: &AcceptedValueCatalogHandle,
-    kind: AcceptedFieldKind,
-) -> AcceptedValueAdmissionContract<'_> {
-    let contract = AcceptedValueContract::from_accepted_field(
-        catalog,
-        &kind,
-        FieldStorageDecode::CatalogValue,
-    )
-    .unwrap();
+fn admission<'a>(
+    catalog: &'a AcceptedValueCatalogHandle,
+    kind: &AcceptedFieldKind,
+) -> AcceptedValueAdmissionContract<'a> {
+    let contract =
+        AcceptedValueContract::from_accepted_field(catalog, kind, FieldStorageDecode::CatalogValue)
+            .unwrap();
     AcceptedValueAdmissionContract::owned(catalog, contract, true)
 }
 
@@ -102,7 +99,7 @@ fn row_contract(
 #[test]
 fn group_key_decimal_validation_preserves_strict_storage_and_exact_values() {
     let catalog = catalog();
-    let admission = admission(&catalog, AcceptedFieldKind::Decimal { scale: 2 });
+    let admission = admission(&catalog, &AcceptedFieldKind::Decimal { scale: 2 });
     let key = Value::Decimal(Decimal::new(1, 0));
     assert_eq!(
         admission.with_validated(&key, &mut ValueAdmissionBudget::standard(), |_| ()),
@@ -162,7 +159,7 @@ fn group_key_decimal_validation_recurses_through_collection_keys_and_values() {
             Value::Map(vec![(key.clone(), Value::List(vec![key]))]),
         ),
     ] {
-        let admission = admission(&catalog, kind);
+        let admission = admission(&catalog, &kind);
         admission
             .validate_group_key(&value, &mut ValueAdmissionBudget::standard())
             .unwrap();
@@ -176,7 +173,7 @@ fn group_key_decimal_validation_recurses_through_collection_keys_and_values() {
 #[test]
 fn group_key_validation_retains_nullability_and_resource_limits() {
     let catalog = catalog();
-    let admission = admission(&catalog, AcceptedFieldKind::Decimal { scale: 2 });
+    let admission = admission(&catalog, &AcceptedFieldKind::Decimal { scale: 2 });
     admission
         .validate_group_key(&Value::Null, &mut ValueAdmissionBudget::standard())
         .unwrap();
@@ -236,7 +233,7 @@ fn group_key_validation_keeps_opaque_enum_payloads_in_stored_form() {
         AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,
     );
-    let admission = admission(&catalog, AcceptedFieldKind::Enum { type_id });
+    let admission = admission(&catalog, &AcceptedFieldKind::Enum { type_id });
     for (decimal, expected) in [
         (Decimal::new(100, 2), Ok(())),
         (
@@ -259,7 +256,7 @@ fn group_key_validation_keeps_opaque_enum_payloads_in_stored_form() {
 #[test]
 fn owned_handoff_consumption_preserves_nested_heap_backing() {
     let catalog = catalog();
-    let admission = admission(&catalog, nested_kind());
+    let admission = admission(&catalog, &nested_kind());
     let value = Value::List(vec![Value::Map(vec![(
         Value::Text("payload".into()),
         Value::Blob(vec![7; 128]),
@@ -293,7 +290,7 @@ fn owned_handoff_consumption_preserves_nested_heap_backing() {
 #[test]
 fn owned_handoff_normalization_and_persistence_preserve_nested_and_null_values() {
     let catalog = catalog();
-    let admission = admission(&catalog, nested_kind());
+    let admission = admission(&catalog, &nested_kind());
     let row = row_contract(catalog.clone(), nested_kind());
     for input in [
         nested_input(3, 128),
@@ -314,7 +311,7 @@ fn owned_handoff_normalization_and_persistence_preserve_nested_and_null_values()
 #[test]
 fn owned_handoff_rejects_invalid_input_and_persisted_values_before_returning() {
     let catalog = catalog();
-    let admission = admission(&catalog, nested_kind());
+    let admission = admission(&catalog, &nested_kind());
     for (input, expected) in [
         (InputValue::nat64(1), ValueAdmissionError::TypeMismatch),
         (nested_input(1, 4097), ValueAdmissionError::ScalarConstraint),
@@ -354,7 +351,7 @@ fn owned_handoff_rejects_invalid_input_and_persisted_values_before_returning() {
 
 fn encode_value(row: &StructuralRowContract, value: &Value) -> Vec<u8> {
     encode_canonical_value_for_accepted_field_contract(
-        row.required_accepted_field_persistence_contract(1).unwrap(),
+        &row.required_accepted_field_persistence_contract(1).unwrap(),
         value,
     )
     .unwrap()

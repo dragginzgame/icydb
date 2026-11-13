@@ -18,10 +18,6 @@ fn workspace_root() -> PathBuf {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "qualifies one cold/single/batch reuse contract end to end"
-)]
 fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
     let root = ic_host_fs::testing::create_fixture_directory(
         &env::temp_dir(),

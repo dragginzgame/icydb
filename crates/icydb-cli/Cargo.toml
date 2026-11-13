@@ -32,7 +32,9 @@ serde_json = { workspace = true }
 [dev-dependencies]
 ic-host-fs = { workspace = true, features = ["test-support"] }
 ic-host-process = { workspace = true, features = ["test-support"] }
-toko-tooling.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true

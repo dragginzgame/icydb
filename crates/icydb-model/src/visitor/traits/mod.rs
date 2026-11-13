@@ -26,7 +26,9 @@ pub trait Visitable: Normalize + Validate {
         std::any::type_name::<Self>()
     }
 
+    /// Traverse immediate children without applying node-local hooks; leaves do nothing.
     fn drive(&self, _: &mut dyn VisitorCore) {}
+    /// Mutably traverse immediate children; leaves do nothing.
     fn drive_mut(&mut self, _: &mut dyn VisitorMutCore) {}
 }
 
@@ -106,6 +108,7 @@ impl<T> Normalize for T where T: NormalizeAuto + NormalizeCustom {}
 /// - Must NOT fail-fast
 /// - Must report issues via `VisitorContext`
 pub trait NormalizeAuto {
+    /// Apply generated node-local normalization; the default leaves the value unchanged.
     fn normalize_self(&mut self, _ctx: &mut dyn VisitorContext) {}
 }
 
@@ -129,6 +132,7 @@ impl_primitive!(NormalizeAuto);
 ///
 /// Same rules as `NormalizeAuto`.
 pub trait NormalizeCustom {
+    /// Apply application node-local normalization; the default leaves the value unchanged.
     fn normalize_custom(&mut self, _ctx: &mut dyn VisitorContext) {}
 }
 
@@ -167,6 +171,7 @@ impl<T> Validate for T where T: ValidateAuto + ValidateCustom {}
 /// - Must NOT return errors
 /// - Must report issues via `VisitorContext`
 pub trait ValidateAuto {
+    /// Report generated node-local validation issues; the default reports none.
     fn validate_self(&self, _ctx: &mut dyn VisitorContext) {}
 }
 
@@ -190,6 +195,7 @@ impl_primitive!(ValidateAuto);
 ///
 /// Same rules as `ValidateAuto`.
 pub trait ValidateCustom {
+    /// Report application node-local validation issues; the default reports none.
     fn validate_custom(&self, _ctx: &mut dyn VisitorContext) {}
 }
 
@@ -207,8 +213,10 @@ impl_primitive!(ValidateCustom);
 
 /// Transforms a value into a normalized version.
 pub trait Normalizer<T> {
+    /// Normalize the value, returning a diagnostic if normalization fails.
     fn normalize(&self, value: &mut T) -> Result<(), String>;
 
+    /// Normalize with access to contextual diagnostics; the default calls `normalize`.
     fn normalize_with_context(
         &self,
         value: &mut T,
@@ -222,6 +230,7 @@ pub trait Normalizer<T> {
 
 /// Allows a node to validate values.
 pub trait Validator<T: ?Sized> {
+    /// Inspect the value and report any violations through the supplied context.
     fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
 }
 

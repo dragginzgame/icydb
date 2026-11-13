@@ -85,7 +85,7 @@ fn grouped_compilation_resolves_first_matching_fields_paths_and_aggregates() {
             "account",
             vec!["owner".into()],
             8,
-            crate::db::schema::AcceptedFieldKind::Text { max_len: None },
+            &crate::db::schema::AcceptedFieldKind::Text { max_len: None },
         )]);
         let path = Expr::FieldPath(FieldPath::new("account", vec!["owner".into()]));
         let compiled = compile_grouped_projection_expr(&path, &fields, &[], work).unwrap();

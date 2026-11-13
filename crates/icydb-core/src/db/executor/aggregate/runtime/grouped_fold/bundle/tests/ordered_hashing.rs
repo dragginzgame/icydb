@@ -83,7 +83,7 @@ fn ordered_path_repeats_do_not_hash_single_or_tuple_keys() {
                 "profile",
                 vec!["amount".into()],
                 0,
-                AcceptedFieldKind::Decimal { scale: 2 },
+                &AcceptedFieldKind::Decimal { scale: 2 },
             );
             let fields = if tuple {
                 vec![

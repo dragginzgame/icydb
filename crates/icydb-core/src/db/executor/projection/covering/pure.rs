@@ -33,10 +33,9 @@ use crate::{
     value::Value,
 };
 
-#[expect(clippy::too_many_lines)]
 pub(super) fn try_execute_covering_projection_rows_with_plan_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     index_prefix_specs: &[LoweredIndexPrefixSpec],
     index_range_specs: &[LoweredIndexRangeSpec],
@@ -67,10 +66,7 @@ where
     }
 
     if let Some(projected_rows) = try_execute_primary_store_covering_projection_rows_for_canister(
-        db,
-        authority.clone(),
-        plan,
-        covering,
+        db, authority, plan, covering,
     )? {
         return Ok(Some(projected_rows));
     }
@@ -78,7 +74,7 @@ where
     if index_prefix_specs.is_empty()
         && let [range] = index_range_specs
         && let Some(projected_rows) = try_execute_bounded_index_range_covering_rows_for_canister(
-            db, &authority, plan, range, covering,
+            db, authority, plan, range, covering,
         )?
     {
         return Ok(Some(projected_rows));
@@ -93,7 +89,7 @@ where
         existing_row_mode,
     }) = resolve_index_backed_covering_scan(
         db,
-        &authority,
+        authority,
         CoveringIndexScanRequest {
             plan,
             index_prefix_specs,
@@ -365,7 +361,7 @@ where
         CoveringProjectionComponentWindow::new(offset, Some(limit)),
         Vec::with_capacity(limit.min(32)),
         |mut rows, data_key, components| {
-            let Some(decoded_values) = decode_covering_projection_components(components)? else {
+            let Some(decoded_values) = decode_covering_projection_components(&components)? else {
                 return Ok(None);
             };
             rows.push(project_covering_row_from_owned_decoded_values(
@@ -382,7 +378,7 @@ where
 
 fn try_execute_primary_store_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
@@ -496,7 +492,7 @@ fn pure_covering_output_capacity_hint(
 
 fn primary_store_covering_key_stream<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
     scan_limit: usize,

@@ -19,11 +19,9 @@ members = [
 resolver = "3"
 
 [workspace.package]
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 edition = "2024"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
-description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
-categories = ["database", "web-programming", "wasm"]
 license-file = "../LICENSE.md"
 repository = "https://github.com/dragginzgame/icydb"
 
@@ -32,36 +30,15 @@ repository = "https://github.com/dragginzgame/icydb"
 # Changelog : releases/database/CHANGELOG.md
 icydb = { path = "../crates/icydb", version = "=0.310.2", default-features = false }
 icydb-core = { path = "../crates/icydb-core", version = "=0.310.2" }
-icydb-diagnostic-code = { path = "../crates/icydb-diagnostic-code", version = "=0.310.2" }
 icydb-model = { path = "../crates/icydb-model", version = "=0.310.2" }
-icydb-model-macros = { path = "../crates/icydb-model-macros", version = "=0.310.2" }
 icydb-schema = { path = "../crates/icydb-schema", version = "=0.310.2" }
-icydb-testing-audit-default-empty-fixtures = { version = "0.307.0", path = "schema/audit/default_empty" }
-icydb-testing-audit-group-path-fixtures = { version = "0.307.0", path = "schema/audit/group_path" }
-icydb-testing-audit-one-simple-fixtures = { version = "0.307.0", path = "schema/audit/one_simple" }
-icydb-testing-audit-sql-perf-fixtures = { version = "0.307.0", path = "schema/audit/sql_perf" }
-icydb-testing-audit-ten-simple-fixtures = { version = "0.307.0", path = "schema/audit/ten_simple" }
-icydb-testing-build = { version = "0.307.0", path = "build" }
-icydb-testing-codec-query = { version = "0.307.0", path = "codec-query" }
-icydb-testing-demo-rpg-fixtures = { version = "0.307.0", path = "schema/demo/rpg" }
-icydb-testing-model-schema-only = { path = "model-schema-only", version = "0.307.0" }
-icydb-testing-model-typed-adapter = { path = "model-typed-adapter", version = "0.307.0" }
-icydb-testing-source-checks = { path = "source-checks", version = "0.307.0" }
-icydb-testing-sql-generator = { path = "../crates/test-support/sql-generator" }
-icydb-testing-sqlite-reference = { path = "../crates/test-support/sqlite-reference" }
-icydb-testing-test-fixtures = { path = "schema/tests/fixtures", version = "0.307.0" }
-icydb-testing-test-sql-fixtures = { version = "0.307.0", path = "schema/tests/sql" }
 icydb-testing-wasm-helpers = { version = "0.307.0", path = "wasm-helpers" }
 model_api = { version = "0.310.2", package = "icydb-model", path = "../crates/icydb-model" }
 runtime_api = { version = "0.310.2", package = "icydb", path = "../crates/icydb", default-features = false }
-
 # CLI release group
 # Changelog : releases/cli/CHANGELOG.md
-icydb-cli = { path = "../crates/icydb-cli", version = "0.296.13" }
 
 # Production dependencies
-base64 = { version = "0.23.1", default-features = false, features = ["std"] }
-blake3 = { version = "1.8.7", default-features = false, features = ["std"] }
 clap = { version = "4.6.1", default-features = false, features = [
     "derive",
     "env",
@@ -70,68 +47,54 @@ clap = { version = "4.6.1", default-features = false, features = [
     "std",
     "usage",
 ] }
-convert_case = "0.12"
 # Schema registration runs before main and does not request ordered constructors.
-ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", "std"] }
-darling = "0.24"
-ethnum = { version = "1.5.3", default-features = false }
-getrandom = "0.4"
-ic-entropy = "0.1.6"
-ic-host-artifacts = { version = "0.76.3", default-features = false }
-ic-host-fs = { version = "0.76.3", default-features = false }
-ic-host-process = "0.76.3"
-ic-host-text = "0.74.4"
-ic-host-tools = "0.91.0"
-ic-metrics = { version = "0.29.10", default-features = false }
-ic-platform-runtime = { version = "0.21.0", default-features = false }
-ic-platform-types = { version = "0.19.0", default-features = false }
-ic-storage = "0.73.0"
-ic-testkit = { version = "0.101.0", default-features = false }
-ic-wire = "0.21.0"
-libc = "0.2"
-proc-macro-crate = "3.5.0"
+ic-host-artifacts = { version = "0.77.0", default-features = false }
+ic-host-fs = { version = "0.77.0", default-features = false }
+ic-host-process = "0.77.0"
+ic-host-tools = "0.92.0"
+ic-platform-runtime = { version = "0.22.1", default-features = false }
+ic-testkit = { version = "0.102.0", default-features = false }
+ic-wire = "0.22.0"
 proc-macro2 = "1.0"
-quote = "1.0"
-remain = "0.2"
-rustyline = { version = "19.0", default-features = false, features = ["with-file-history"] }
 serde = { version = "1.0", default-features = false }
-serde_bytes = "0.11"
 serde_json = "1.0"
 # Fixed-size database hashing needs neither allocation nor OID metadata.
-sha2 = { version = "0.11.1", default-features = false }
 syn = "3.0"
-thiserror = "2.0"
-time = { version = "0.3.55", default-features = false }
 # Keep std disabled because IcyDB owns runtime randomness and monotonic generation.
-ulid = { version = "3.0.0", default-features = false }
-xxhash-rust = { version = "0.8.15", default-features = false, features = [
-    "xxh3",
-] }
 
 # Tests and tooling only
-ic-build = "0.83.0"
-proptest = { version = "1.9.0", default-features = false, features = ["std"] }
-rusqlite = { version = "=0.42.0", default-features = false, features = [
-    "bundled",
-    "functions",
-    "load_extension",
-] }
+ic-build = "0.84.1"
 serde-reflection = "0.6.0"
 tokio = { version = "1.54.1", default-features = false }
-toko-tooling = "=0.39.17"
-trybuild = "1.0"
+toko-tooling = "=0.42.4"
 
 # ---------------------
 #  CLIPPY CONFIGURATION
 # ---------------------
+[workspace.lints.cargo]
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
+unused_workspace_package_fields = "deny"
+missing_lints_inheritance = "deny"
+unknown_lints = "deny"
+
 [workspace.lints.rust]
+dead_code = "deny"
+unused_must_use = "deny"
+unfulfilled_lint_expectations = "deny"
 unsafe_code = "deny"
-unfulfilled_lint_expectations = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+invalid_markdown_table = "deny"
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
+all = { level = "warn", priority = -2 }
+correctness = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
+too_many_lines = "allow"
 
 # Rust 1.99 empty-comparison suggestions can use ambiguous or inaccessible types.
 # Keep direct is_empty assertions instead of adding type plumbing to tests.
@@ -156,10 +119,10 @@ empty_line_after_doc_comments = "allow"
 missing_errors_doc = "allow"
 module_inception = "allow"
 module_name_repetitions = "allow"
-needless_pass_by_value = "allow"
+needless_pass_by_value = "warn"
 option_if_let_else = "allow"
 redundant_pub_crate = "allow"
-wildcard_imports = "allow"
+wildcard_imports = "warn"
 
 # ---------------------
 #  PATCH SECTION

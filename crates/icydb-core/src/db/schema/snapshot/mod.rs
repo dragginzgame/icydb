@@ -247,6 +247,47 @@ impl PersistedSchemaSnapshot {
         }
     }
 
+    /// Replace entity structure and its derived constraints while retaining all
+    /// unrelated object/activation state. Admission remains with the caller.
+    /// A shared snapshot copies only retained components, not replaced fields
+    /// or constraints.
+    #[must_use]
+    pub(in crate::db::schema) fn with_entity_structure(
+        mut self,
+        version: SchemaVersion,
+        entity_path: String,
+        entity_name: String,
+        row_layout: SchemaRowLayout,
+        fields: Vec<PersistedFieldSnapshot>,
+        constraint_catalog: AcceptedConstraintCatalog,
+    ) -> Self {
+        if let Some(payload) = Rc::get_mut(&mut self.payload) {
+            payload.version = version;
+            payload.entity_path = entity_path;
+            payload.entity_name = entity_name;
+            payload.row_layout = row_layout;
+            payload.fields = fields;
+            payload.constraint_catalog = constraint_catalog;
+            return self;
+        }
+        Self {
+            payload: Rc::new(SchemaSnapshotPayload {
+                version,
+                entity_path,
+                entity_name,
+                row_layout,
+                fields,
+                primary_key_field_ids: self.payload.primary_key_field_ids.clone(),
+                constraint_catalog,
+                relation_id_allocator: self.payload.relation_id_allocator,
+                indexes: self.payload.indexes.clone(),
+                relations: self.payload.relations.clone(),
+                candidate_indexes: self.payload.candidate_indexes.clone(),
+                candidate_relations: self.payload.candidate_relations.clone(),
+            }),
+        }
+    }
+
     /// Replace candidate field metadata, preserving every unrelated catalog component.
     /// Acceptance and transition admission remain with the caller's existing boundary.
     #[must_use]

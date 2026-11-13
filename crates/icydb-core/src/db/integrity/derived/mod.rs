@@ -380,7 +380,6 @@ fn inspect_index_entry(
 
 #[expect(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
     reason = "one entry classifier keeps accepted identity, physical source/store facts, bounded accounting, and finding precedence visible at the trust boundary"
 )]
 fn inspect_index_witness(
@@ -808,8 +807,7 @@ fn derived_finding(
             .ok()
             .map(|(_, bytes)| bytes.to_vec()),
         field_paths: relation_id
-            .map(|relation_id| relation_field_paths(plan, relation_id))
-            .unwrap_or_default(),
+            .map_or_default(|relation_id| relation_field_paths(plan, relation_id)),
         value_path: None,
         constraint_id: None,
         constraint_name: None,

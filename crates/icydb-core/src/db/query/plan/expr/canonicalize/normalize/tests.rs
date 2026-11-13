@@ -108,7 +108,7 @@ fn issue_case_normalization_reaches_conditions_results_and_else() {
             let input = Expr::Case {
                 when_then_arms: vec![
                     CaseWhenArm::new(compound.clone(), nested.clone()),
-                    CaseWhenArm::new(not(not(field(2))), compound.clone()),
+                    CaseWhenArm::new(not(not(field(2))), compound),
                 ],
                 else_expr: Box::new(nested),
             };

@@ -91,9 +91,8 @@ pub(in crate::db) fn validate_index_semantic_contract(
         }
     }
 
-    let guarded_fields = bound_predicate
-        .map(AcceptedIndexPredicate::exact_non_null_guards)
-        .unwrap_or_default();
+    let guarded_fields =
+        bound_predicate.map_or_default(AcceptedIndexPredicate::exact_non_null_guards);
     let mut missing = Vec::new();
     for (source, class) in sources.iter().zip(classes) {
         if !matches!(class, SourceOmissionClass::TerminalNullOmits) {

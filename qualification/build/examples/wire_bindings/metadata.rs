@@ -10,10 +10,6 @@ use crate::bulk;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 /// Retain public browser type names while Wire collects their actual layouts.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one inventory of maintained public browser type names"
-)]
 pub(super) fn registry() -> Result<SchemaRegistry> {
     let mut registry = SchemaRegistry::new();
     macro_rules! register {

@@ -201,7 +201,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_exact_global_aggregate(
         &self,
         command: &SqlGlobalAggregateCommand,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
         entry: &SqlExactAggregatePlan,
     ) -> Result<Option<Vec<Value>>, QueryError> {
         if let Some(target) = entry.exact_cardinality_target() {
@@ -242,7 +242,7 @@ impl<C: CanisterKind> DbSession<C> {
             ExactTarget::Fallback => Ok(None),
             ExactTarget::ExactPlan { authority, entry } => {
                 if let Some(row) =
-                    self.execute_exact_global_aggregate(command, authority, &entry)?
+                    self.execute_exact_global_aggregate(command, &authority, &entry)?
                 {
                     return exact_aggregate_statement_result(catalog, command.projection(), row)
                         .map(Some);

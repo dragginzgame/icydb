@@ -68,7 +68,13 @@ fn retired_boot_identity_refuses_without_rewriting_any_retained_bytes() {
     select_commit_memory_allocation(246, "icydb.test.retired-format.commit.v1");
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     memory.grow(1);
-    for retired_magic in [b"ICYDBCTL", b"ICYDBRT\0", b"ICYDBST\0", b"ICYDBNX\0"] {
+    for retired_magic in [
+        b"ICYDBCTL",
+        b"ICYDBRT\0",
+        b"ICYDBST\0",
+        b"ICYDBNX\0",
+        b"ICYDBID\0",
+    ] {
         let mut retired = DatabaseBootRecord::current().encode();
         retired[..8].copy_from_slice(retired_magic);
         let checksum = crc32c(&retired[..DATABASE_BOOT_CHECKSUM_OFFSET]);

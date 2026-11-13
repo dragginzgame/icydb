@@ -251,7 +251,7 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
     for child_prefix in child_prefixes {
         expanded_specs.push(LoweredIndexPrefixSpec::from_raw_component_prefix(
             entity_tag,
-            index.index_contract(),
+            &index.index_contract(),
             IndexKeyKind::User,
             child_prefix,
             &ExecutionConstructionBudget,

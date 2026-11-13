@@ -1585,10 +1585,6 @@ fn apply_prepared_journal_batch(
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "recovery keeps every journal record's replay and fold behavior in one exhaustive authority"
-)]
 fn apply_journal_record(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
@@ -1652,7 +1648,7 @@ fn apply_journal_record(
                     Ok(())
                 }
                 JournalRecordApplyMode::Fold => {
-                    store.apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+                    store.apply_canonical_entry(key.clone(), Some(&IndexEntryValue::presence()))
                 }
             })
         }
@@ -1722,7 +1718,7 @@ fn apply_journal_record(
                     Some(_) => Err(InternalError::store_corruption()),
                 },
                 JournalRecordApplyMode::Fold => {
-                    store.apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+                    store.apply_canonical_entry(key.clone(), Some(&IndexEntryValue::presence()))
                 }
             })
         }
@@ -1743,7 +1739,10 @@ fn apply_recovered_accepted_schema_index_chunk(
     }
     handle.with_index_mut(|store| {
         for key in keys {
-            store.apply_canonical_entry(key.clone(), insert.then(IndexEntryValue::presence))?;
+            store.apply_canonical_entry(
+                key.clone(),
+                insert.then(IndexEntryValue::presence).as_ref(),
+            )?;
         }
         Ok::<(), InternalError>(())
     })
@@ -1850,7 +1849,6 @@ fn validate_journal_batch_envelope<C: CanisterKind>(
 
 #[expect(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
     reason = "the exhaustive current journal record validator keeps store routing and apply-mode closure in one match"
 )]
 fn validate_journal_batch_record<C: CanisterKind>(
@@ -2552,10 +2550,6 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the exhaustive marker-effect verifier binds every current journal variant to its exact durable postcondition"
-)]
 fn verify_recovered_record<C: CanisterKind>(
     db: &Db<C>,
     batch: &JournalBatch,

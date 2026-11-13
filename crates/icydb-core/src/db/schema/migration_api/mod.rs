@@ -99,8 +99,6 @@ pub enum SchemaMigrationPhase {
     ReadyToRewrite,
     /// Candidate row layouts are being written.
     RewritingRows,
-    /// Candidate index generations are being rebuilt.
-    RebuildingIndexes,
     /// Complete candidate state is undergoing final validation.
     FinalValidation,
     /// Candidate authority is crossing the atomic publication boundary.

@@ -238,7 +238,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows_scanned, index_keys_written) = Self::execute_prepared_sql_ddl_mutation(
             store,
             accepted_before.snapshot(),
-            accepted_before.identity(),
+            &accepted_before.identity(),
             derivation,
             &prepared,
         )?;
@@ -315,7 +315,7 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_before.identity().entity_tag(),
             accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
-            accepted_before.identity(),
+            &accepted_before.identity(),
             add,
             next_schema_version,
         )
@@ -346,7 +346,7 @@ impl<C: CanisterKind> DbSession<C> {
             EntityTag,
             &str,
             &AcceptedSchemaSnapshot,
-            AcceptedCatalogIdentity,
+            &AcceptedCatalogIdentity,
             SchemaVersion,
         ) -> Result<T, InternalError>,
     ) -> Result<SqlStatementResult, QueryError> {
@@ -360,7 +360,7 @@ impl<C: CanisterKind> DbSession<C> {
             identity.entity_tag(),
             identity.entity_path(),
             accepted_before.snapshot(),
-            identity.clone(),
+            &identity,
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -532,7 +532,7 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_before.identity().entity_tag(),
             accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
-            accepted_before.identity(),
+            &accepted_before.identity(),
             derivation,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?
@@ -551,7 +551,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_prepared_sql_ddl_mutation(
         store: StoreHandle,
         accepted_before: &AcceptedSchemaSnapshot,
-        accepted_before_identity: AcceptedCatalogIdentity,
+        accepted_before_identity: &AcceptedCatalogIdentity,
         derivation: &SchemaDdlAcceptedSnapshotDerivation,
         prepared: &PreparedSqlDdlCommand,
     ) -> Result<(usize, usize), QueryError> {
@@ -638,7 +638,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_prepared_create_index(
         store: StoreHandle,
         accepted_before: &AcceptedSchemaSnapshot,
-        accepted_before_identity: AcceptedCatalogIdentity,
+        accepted_before_identity: &AcceptedCatalogIdentity,
         derivation: &SchemaDdlAcceptedSnapshotDerivation,
         create: &BoundSqlCreateIndexRequest,
     ) -> Result<(usize, usize), QueryError> {

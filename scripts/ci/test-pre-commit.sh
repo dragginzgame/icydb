@@ -7,8 +7,8 @@ unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS
 # Qualify IcyDB's actual Make/hook selection, derive coverage and staged-file
 # preservation. Generic formatter/input-reuse permutations belong upstream.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-formatting.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "IcyDB formatting evidence retained"' EXIT
@@ -24,20 +24,20 @@ perl -0777 -pe 's/(\[workspace.dependencies\]\n.*?^(?![ \t]*#)[^\n]*\n)([A-Za-z0
 overlays=(Cargo.lock .toko-tooling.snapshot rust-toolchain.toml ci/icydb-tools.env)
 # Keep the exported Shared layer coherent with its selected Makefiles, including
 # newly declared companions absent from the committed consumer baseline.
-bash scripts/ci/verify-toko-tooling-snapshot.sh --read-manifest .toko-tooling.snapshot > "$fixture/shared-manifest"
+bash vendor/toko-tooling/scripts/ci/verify-toko-tooling-snapshot.sh --read-manifest .toko-tooling.snapshot > "$fixture/shared-manifest"
 while IFS=$'\t' read -r kind _digest _mode path; do
   [[ "$kind" != file ]] || overlays[${#overlays[@]}]="$path"
 done < "$fixture/shared-manifest"
 git ls-files --modified --others --exclude-standard -z > "$fixture/working-inputs"
 while IFS= read -r -d '' path; do
   case "$path" in
-    Cargo.toml|Cargo.lock|rust-toolchain.toml|ci/tool-versions.env|ci/icydb-tools.env|crates/icydb-diagnostic-code/src/lib.rs) continue ;;
+    Cargo.toml|Cargo.lock|rust-toolchain.toml|vendor/toko-tooling/ci/tool-versions.env|ci/icydb-tools.env|crates/icydb-diagnostic-code/src/lib.rs) continue ;;
     *.rs|*/Cargo.toml|*/Cargo.lock|.cargo/*)
       [[ ! -f "$path" ]] || overlays[${#overlays[@]}]="$path" ;;
   esac
 done < "$fixture/working-inputs"
-bash scripts/ci/check-formatting-hooks.sh "$ROOT" crates/icydb-diagnostic-code/src/lib.rs \
-  Cargo.toml "$fixture/unsorted.toml" make/cargo-dependencies.mk make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk "${overlays[@]}"
+bash vendor/toko-tooling/scripts/ci/check-formatting-hooks.sh "$ROOT" crates/icydb-diagnostic-code/src/lib.rs \
+  Cargo.toml "$fixture/unsorted.toml" --rust-sources vendor/toko-tooling/make/cargo-dependencies.mk vendor/toko-tooling/make/consumer.mk vendor/toko-tooling/make/tools.mk vendor/toko-tooling/make/release.mk vendor/toko-tooling/make/rust-format.mk vendor/toko-tooling/make/execution.mk "${overlays[@]}"
 
 # A dependency-free disposable workspace runs IcyDB's same Makefile formatters
 # against derive ordering and filenames Cargo can select as explicit targets.
@@ -48,10 +48,12 @@ cp "$ROOT/Makefile" "$ROOT/rust-toolchain.toml" "$fixture/product/"
 # above and the tooling-adapter fixture cover native multi-workspace dispatch.
 printf '\nFORMAT_RUST_ARGS := --sort-derives\n' >> "$fixture/product/Makefile"
 mkdir -p "$fixture/product/make"
-cp "$ROOT/make/cargo-dependencies.mk" "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/product/make/"
+mkdir -p "$fixture/product/vendor/toko-tooling/make/"
+cp "$ROOT/vendor/toko-tooling/make/cargo-dependencies.mk" "$ROOT/vendor/toko-tooling/make/consumer.mk" "$ROOT/vendor/toko-tooling/make/tools.mk" "$ROOT/vendor/toko-tooling/make/release.mk" "$ROOT/vendor/toko-tooling/make/rust-format.mk" "$ROOT/vendor/toko-tooling/make/execution.mk" "$fixture/product/vendor/toko-tooling/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/product" make/rust-format.mk
-cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"
+bash "$ROOT/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/product" vendor/toko-tooling/make/rust-format.mk
+mkdir -p "$fixture/product/vendor/toko-tooling/.githooks/"
+cp "$ROOT/vendor/toko-tooling/.githooks/pre-commit" "$fixture/product/vendor/toko-tooling/.githooks/"
 cd "$fixture/product"
 git init --quiet
 # Workspace admission precedes formatter dispatch, even with substitute Cargo.
@@ -92,7 +94,7 @@ CARGO
 chmod +x "$fixture/cargo"
 # The prepared fixture copy exports the reviewed tool identities.
 # shellcheck source=/dev/null
-source ci/tool-versions.env
+source vendor/toko-tooling/ci/tool-versions.env
 export FORMAT_FIXTURE_EVENTS="$fixture/format-events"
 export FORMAT_FIXTURE_MANIFEST="$fixture/pass-manifest"
 export RUNNER_TEMP="$fixture"
@@ -183,7 +185,7 @@ cmp Cargo.lock "$fixture/product-lock-before"
 printf '#[derive(PartialEq, Clone, Eq, Copy)]\nstruct Flag;\n' > src/lib.rs
 printf 'fn main( ) { }\n' > 'src/staged [1].rs'
 printf 'fn main( ) { }\n' > "$newline_path"
-git add -- Makefile make rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" .githooks/pre-commit scripts/ci ci
+git add -- Makefile vendor/toko-tooling rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" scripts/ci
 printf 'fn unrelated( ) { }\n' > unselected.rs
 cp unselected.rs "$fixture/unselected-before"
 # Refusal precedes formatter dispatch and preserves selected bytes and index.
@@ -193,7 +195,7 @@ cp 'src/staged [1].rs' "$fixture/brackets-before"
 cp "$newline_path" "$fixture/newline-before"
 for flags in i n q t v --ignore-errors --just-print --question --touch --version; do
   status=0
-  MAKEFLAGS="$flags" bash .githooks/pre-commit \
+  MAKEFLAGS="$flags" bash vendor/toko-tooling/.githooks/pre-commit \
     > "$fixture/refused-${flags#--}.log" 2>&1 || status=$?
   [[ "$status" -ne 0 ]]
   cmp .git/index "$fixture/index-before"
@@ -201,7 +203,7 @@ for flags in i n q t v --ignore-errors --just-print --question --touch --version
   cmp 'src/staged [1].rs' "$fixture/brackets-before"
   cmp "$newline_path" "$fixture/newline-before"
 done
-bash .githooks/pre-commit > "$fixture/product-hook.log" 2>&1
+bash vendor/toko-tooling/.githooks/pre-commit > "$fixture/product-hook.log" 2>&1
 grep -F 'Derive sorting [.]... ok (' "$fixture/product-hook.log" >/dev/null
 git diff --exit-code
 rg -Fx '#[derive(Clone, Copy, Eq, PartialEq)]' src/lib.rs >/dev/null

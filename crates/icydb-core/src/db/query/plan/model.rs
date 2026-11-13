@@ -30,7 +30,9 @@ use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryMode {
+    /// Load rows under the admitted query specification.
     Load(LoadSpec),
+    /// Delete rows under the admitted query specification.
     Delete(DeleteSpec),
 }
 
@@ -93,7 +95,9 @@ impl DeleteSpec {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OrderDirection {
+    /// Order values from least to greatest.
     Asc,
+    /// Order values from greatest to least.
     Desc,
 }
 

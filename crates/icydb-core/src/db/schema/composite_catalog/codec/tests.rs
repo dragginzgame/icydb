@@ -311,7 +311,7 @@ fn accepted_composite_catalog_local_kind_shape_agrees_across_construction_and_co
             },
             AcceptedFieldKind::Map {
                 key: Box::new(AcceptedFieldKind::Nat64),
-                value: Box::new(leaf.clone()),
+                value: Box::new(leaf),
             },
         ] {
             for shape in [
@@ -324,7 +324,7 @@ fn accepted_composite_catalog_local_kind_shape_agrees_across_construction_and_co
                     kind.clone(),
                     true,
                 )]),
-                AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(kind.clone(), false)),
+                AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(kind, false)),
             ] {
                 let definitions = BTreeMap::from([(
                     CompositeTypeId::new(1).unwrap(),

@@ -206,7 +206,7 @@ pub(super) fn bind_alter_table_add_column_statement(
 
     resolve_sql_ddl_field_addition_name_candidate(accepted_before, statement.column_name.as_str())
         .map_err(|error| {
-            sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), error)
+            sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), &error)
         })?;
 
     let contract =
@@ -236,7 +236,7 @@ pub(super) fn bind_alter_table_add_column_statement(
         leaf_codec,
     )
     .map_err(|error| {
-        sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), error)
+        sql_field_addition_candidate_error(entity_name, statement.column_name.as_str(), &error)
     })?;
 
     Ok(BoundSqlDdlRequest {
@@ -278,7 +278,7 @@ pub(super) fn bind_alter_table_alter_column_statement(
                 sql_field_nullability_candidate_error(
                     entity_name,
                     statement.column_name.as_str(),
-                    error,
+                    &error,
                 )
             })?;
             let pending_not_null = pending_not_null_activation(accepted_before, field);
@@ -300,7 +300,7 @@ pub(super) fn bind_alter_table_alter_column_statement(
                 sql_field_nullability_candidate_error(
                     entity_name,
                     statement.column_name.as_str(),
-                    error,
+                    &error,
                 )
             })?;
             let pending_not_null = pending_not_null_activation(accepted_before, field);
@@ -323,7 +323,7 @@ fn bind_alter_column_set_default(
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let field = resolve_sql_ddl_field_set_default_candidate(accepted_before, column_name)
-        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
+        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, &error))?;
     let default = schema_field_default_for_alter_column_default(
         entity_name,
         field,
@@ -331,7 +331,7 @@ fn bind_alter_column_set_default(
         Some(schema.value_catalog_handle()),
     )?;
     validate_sql_ddl_field_default_change_candidate(field, &default)
-        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
+        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, &error))?;
 
     Ok(bind_alter_table_alter_column_default(
         entity_name,
@@ -347,7 +347,7 @@ fn bind_alter_column_drop_default(
     accepted_before: &AcceptedSchemaSnapshot,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let field = resolve_sql_ddl_field_drop_default_candidate(accepted_before, column_name)
-        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
+        .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, &error))?;
 
     Ok(bind_alter_table_alter_column_default(
         entity_name,
@@ -433,7 +433,7 @@ pub(super) fn bind_alter_table_rename_column_statement(
             entity_name,
             statement.old_column_name.as_str(),
             statement.new_column_name.as_str(),
-            error,
+            &error,
         )
     })?;
 
@@ -549,7 +549,7 @@ fn pending_not_null_activation(
 fn sql_field_addition_candidate_error(
     entity_name: &str,
     column_name: &str,
-    error: SchemaDdlFieldAdditionCandidateError,
+    error: &SchemaDdlFieldAdditionCandidateError,
 ) -> SqlDdlBindError {
     match error {
         SchemaDdlFieldAdditionCandidateError::InvalidName => SqlDdlBindError::InvalidColumnName {
@@ -571,7 +571,7 @@ fn sql_field_addition_candidate_error(
 fn sql_field_default_candidate_error(
     entity_name: &str,
     column_name: &str,
-    error: SchemaDdlFieldDefaultCandidateError,
+    error: &SchemaDdlFieldDefaultCandidateError,
 ) -> SqlDdlBindError {
     match error {
         SchemaDdlFieldDefaultCandidateError::Unknown => SqlDdlBindError::UnknownColumn {
@@ -590,7 +590,7 @@ fn sql_field_default_candidate_error(
 fn sql_field_nullability_candidate_error(
     entity_name: &str,
     column_name: &str,
-    error: SchemaDdlFieldNullabilityCandidateError,
+    error: &SchemaDdlFieldNullabilityCandidateError,
 ) -> SqlDdlBindError {
     match error {
         SchemaDdlFieldNullabilityCandidateError::Unknown => SqlDdlBindError::UnknownColumn {
@@ -610,7 +610,7 @@ fn sql_field_rename_candidate_error(
     entity_name: &str,
     old_column_name: &str,
     new_column_name: &str,
-    error: SchemaDdlFieldRenameCandidateError,
+    error: &SchemaDdlFieldRenameCandidateError,
 ) -> SqlDdlBindError {
     match error {
         SchemaDdlFieldRenameCandidateError::InvalidName => SqlDdlBindError::InvalidColumnName {

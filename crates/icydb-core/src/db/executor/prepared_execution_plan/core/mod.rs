@@ -51,8 +51,11 @@ use crate::db::executor::planning::preparation::covering_strict_predicate_compat
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionFamily {
+    /// Continuation follows primary-key order.
     PrimaryKey,
+    /// Continuation follows the admitted explicit ordering.
     Ordered,
+    /// Continuation follows grouped result ordering.
     Grouped,
 }
 
@@ -350,7 +353,7 @@ impl PreparedExecutionPlanCore {
                 &ExecutionConstructionBudget,
             )?;
             let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
-                authority.row_layout(),
+                &authority.row_layout(),
                 &grouped_plan.group.group_fields,
                 aggregate_specs,
                 grouped_distinct_execution_strategy,

@@ -37,7 +37,7 @@ case "$path" in
         ;;
     releases/*/*.md)
         awk -v version="$next" -v previous="$previous" -v date="${RELEASE_DATE:?}" \
-            -f "$root/scripts/ci/finalize-release-changelog.awk" "$source_file"
+            -f "$root/vendor/toko-tooling/scripts/ci/finalize-release-changelog.awk" "$source_file"
         ;;
     *) echo "Unsupported release projection: $path" >&2; exit 1 ;;
 esac

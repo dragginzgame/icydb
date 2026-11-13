@@ -260,7 +260,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
             scan_budget_hint,
             load_order_route_mode,
             consistency,
-            continuation,
+            &continuation,
             row_runtime,
             direct_data_row_path,
         );

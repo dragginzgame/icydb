@@ -16,6 +16,7 @@ use std::fmt::Debug;
 /// Keys are public identifiers rather than authority-bearing capabilities.
 /// Typed identity is provided by `Id<Self>`, not by the key itself.
 pub trait EntityKey {
+    /// Primitive or composite key type admitted for this entity.
     type Key: Copy
         + Debug
         + Eq
@@ -31,10 +32,20 @@ pub trait EntityKey {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EntityKeyBytesError {
     /// The caller-provided output buffer has the wrong size.
-    BufferLength { expected: usize, actual: usize },
+    BufferLength {
+        /// Expected value required by this contract.
+        expected: usize,
+        /// Observed value that does not meet the contract.
+        actual: usize,
+    },
 
     /// The key value exceeds the maintained fixed-width representation.
-    ValueTooLong { len: usize, max: usize },
+    ValueTooLong {
+        /// Observed encoded length in bytes.
+        len: usize,
+        /// Maximum admitted length or component count.
+        max: usize,
+    },
 }
 
 /// Validate that one caller-provided key buffer has the exact required size.
@@ -171,9 +182,11 @@ maintained_scalar_key_types!(impl_scalar_relation_target_key);
 /// structured-value conversion surface used by persisted-field codecs and
 /// planner queryability metadata.
 pub trait KeyValueCodec {
+    /// Convert this typed key to its runtime value representation.
     fn to_key_value(&self) -> Value;
 
     #[must_use]
+    /// Recover a typed key when the runtime value has its accepted representation.
     fn from_key_value(value: &Value) -> Option<Self>
     where
         Self: Sized;
@@ -185,13 +198,33 @@ pub trait KeyValueCodec {
 /// keys do not inherit scalar-only compatibility lanes.
 #[derive(Debug)]
 pub enum PrimaryKeyEncodeError {
-    UnsupportedComponentKind { kind: &'static str },
+    /// The component's value kind is not admitted as a primary key.
+    UnsupportedComponentKind {
+        /// Identity of the rejected payload or component kind.
+        kind: &'static str,
+    },
 
-    TooFewComponents { count: usize, min: usize },
+    /// The key contains fewer components than the minimum.
+    TooFewComponents {
+        /// Number of supplied key components.
+        count: usize,
+        /// Minimum admitted component count.
+        min: usize,
+    },
 
-    TooManyComponents { count: usize, max: usize },
+    /// The key contains more components than the maximum.
+    TooManyComponents {
+        /// Number of supplied key components.
+        count: usize,
+        /// Maximum admitted length or component count.
+        max: usize,
+    },
 
-    UnitComponent { index: usize },
+    /// A composite key contains a unit component.
+    UnitComponent {
+        /// Zero-based position of the rejected element or component.
+        index: usize,
+    },
 }
 
 impl From<CompositePrimaryKeyValueError> for PrimaryKeyEncodeError {
@@ -221,6 +254,7 @@ impl From<PrimaryKeyEncodeError> for InternalError {
 /// persisted identity boundaries can encode directly into the internal
 /// decoded primary-key value.
 pub trait PrimaryKeyEncode {
+    /// Encode this key into the canonical scalar/composite taxonomy, rejecting invalid components.
     fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError>;
 }
 
@@ -231,6 +265,7 @@ pub trait PrimaryKeyEncode {
 /// identity boundaries can decode directly from the internal decoded
 /// primary-key value.
 pub trait PrimaryKeyDecode: Sized {
+    /// Decode an admitted primary key, rejecting an incompatible typed representation.
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError>;
 }
 

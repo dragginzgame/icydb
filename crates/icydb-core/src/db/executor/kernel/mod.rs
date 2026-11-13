@@ -298,7 +298,7 @@ trait ResidualRetryAttempt: Sized {
 
         Self::from_retry_parts(
             latest_payload,
-            accumulated_metrics.merge_residual_retry_attempt(latest_metrics),
+            accumulated_metrics.merge_residual_retry_attempt(&latest_metrics),
         )
     }
 }

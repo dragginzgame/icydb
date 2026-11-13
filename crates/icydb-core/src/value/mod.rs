@@ -30,7 +30,10 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
-use crate::types::*;
+use crate::types::{
+    Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+    Ulid,
+};
 use serde::{Deserialize, Deserializer, de};
 use std::{cmp::Ordering, fmt};
 
@@ -101,6 +104,7 @@ enum ValueWireVariant {
     Int128,
     List,
     Map,
+    /// An absent optional value, represented as SQL NULL.
     Null,
     Principal,
     Subaccount,
@@ -109,6 +113,7 @@ enum ValueWireVariant {
     Nat64,
     Nat128,
     Ulid,
+    /// Internal operand placeholder; not a stored field value.
     Unit,
     U256,
 }
@@ -150,8 +155,11 @@ impl ValueWireVariant {
 //
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Case sensitivity used by text predicate operations.
 pub enum TextMode {
+    /// Compare text with case preserved.
     Cs, // case-sensitive
+    /// Compare text after the canonical case-insensitive fold.
     Ci, // case-insensitive
 }
 
@@ -169,17 +177,29 @@ pub enum TextMode {
 // Unit        → internal placeholder for RHS; not a real value.
 //
 #[derive(Clone, Eq, PartialEq)]
+/// Runtime query value; persistence requires admission through an accepted field contract.
 pub enum Value {
+    /// An account identified by its owner and subaccount.
     Account(Account),
+    /// An uninterpreted sequence of bytes.
     Blob(Vec<u8>),
+    /// A boolean truth value.
     Bool(bool),
+    /// A calendar date.
     Date(Date),
+    /// An exact fixed-point decimal.
     Decimal(Decimal),
+    /// A duration measured in milliseconds.
     Duration(Duration),
+    /// A nominal enum variant with its canonical payload.
     Enum(ValueEnum),
+    /// A normalized finite 32-bit floating-point value.
     Float32(Float32),
+    /// A normalized finite 64-bit floating-point value.
     Float64(Float64),
+    /// A signed 64-bit integer.
     Int64(i64),
+    /// A signed 128-bit integer.
     Int128(i128),
     /// Ordered list of values.
     /// Used for many-cardinality transport.
@@ -192,15 +212,25 @@ pub enum Value {
     /// - Map fields remain non-queryable and persist as atomic value replacements.
     /// - Persistence treats map fields as atomic value replacements per row save.
     Map(Vec<(Self, Self)>),
+    /// An absent optional value, represented as SQL NULL.
     Null,
+    /// An Internet Computer principal identifier.
     Principal(Principal),
+    /// A 32-byte account subidentifier.
     Subaccount(Subaccount),
+    /// A UTF-8 string.
     Text(String),
+    /// A timestamp measured in milliseconds since the Unix epoch.
     Timestamp(Timestamp),
+    /// An unsigned 64-bit integer.
     Nat64(u64),
+    /// An unsigned 128-bit integer.
     Nat128(u128),
+    /// A 128-bit lexicographically sortable identifier.
     Ulid(Ulid),
+    /// Internal operand placeholder; not a stored field value.
     Unit,
+    /// An unsigned 256-bit integer.
     U256(U256),
 }
 
@@ -283,6 +313,7 @@ impl Value {
     }
 
     #[must_use]
+    /// Whether this value is neither a collection nor the internal unit placeholder.
     pub const fn is_scalar(&self) -> bool {
         match self {
             // definitely not scalar:
@@ -329,6 +360,7 @@ impl Value {
     }
 
     #[must_use]
+    /// Borrow list elements, or return `None` for another value variant.
     pub const fn as_list(&self) -> Option<&[Self]> {
         if let Self::List(xs) = self {
             Some(xs.as_slice())
@@ -338,6 +370,7 @@ impl Value {
     }
 
     #[must_use]
+    /// Borrow map entries, or return `None` for another value variant.
     pub const fn as_map(&self) -> Option<&[(Self, Self)]> {
         if let Self::Map(entries) = self {
             Some(entries.as_slice())
@@ -410,6 +443,7 @@ impl From<()> for Value {
 //
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd)]
+/// Canonical nominal enum identity and recursively typed runtime payload.
 pub struct ValueEnum(CanonicalEnumValue<Value>);
 
 impl ValueEnum {

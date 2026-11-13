@@ -4,18 +4,23 @@ set -euo pipefail
 # Qualify IcyDB orchestration. Shared Tooling owns installer byte/version fixtures.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS IC_TOOLS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 FIXTURE="$(fixture_create "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
 # Bash 3.2 may report zero after nounset; completion must be explicit.
 fixture_complete=false
 trap 'fixture_finish "$?" "$FIXTURE" "Workstation fixture retained"' EXIT
 mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci" "$FIXTURE/make"
-cp "$ROOT/ci/"{tool-versions.env,icydb-tools.env,ic-tools.tsv} "$FIXTURE/ci/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/ci/"
+cp "$ROOT/vendor/toko-tooling/ci/tool-versions.env" "$FIXTURE/vendor/toko-tooling/ci/"
+mkdir -p "$FIXTURE/ci/"
+cp "$ROOT/ci/icydb-tools.env" "$FIXTURE/ci/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/ci/"
+cp "$ROOT/vendor/toko-tooling/ci/ic-tools.tsv" "$FIXTURE/vendor/toko-tooling/ci/"
 cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"
 cp "$ROOT/scripts/ci/install-gh.sh" "$FIXTURE/scripts/ci/"
 # shellcheck source=/dev/null
-source "$ROOT/ci/tool-versions.env"
+source "$ROOT/vendor/toko-tooling/ci/tool-versions.env"
 # shellcheck source=/dev/null
 source "$ROOT/ci/icydb-tools.env"
 export TEST_FIXTURE="$FIXTURE" TEST_HOST=Linux TEST_ARCH=x86_64
@@ -95,8 +100,12 @@ done
 # orchestration. All installers, Cargo and nested Make effects are substitutes.
 # Select Bash for these probes so the exported substitutes survive recipe shells.
 cp "$ROOT/Makefile" "$FIXTURE/"
-cp "$ROOT/make/"*.mk "$FIXTURE/make/"
-cp "$ROOT/scripts/ci/"{check-make-execution.sh,actionlint-checksums.tsv} "$FIXTURE/scripts/ci/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/make"
+cp "$ROOT/vendor/toko-tooling/make/"*.mk "$FIXTURE/vendor/toko-tooling/make/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/ci/"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/check-make-execution.sh" "$FIXTURE/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$FIXTURE/scripts/ci/"
+cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
 workstation_make="$(type -P make)"
 for lane in install-dev update-dev; do
   : > "$TEST_TRACE"
@@ -141,11 +150,14 @@ bash "$FIXTURE/scripts/dev/workstation-setup.sh" update extra > "$FIXTURE/invali
 # Exercise actual Make dispatch with local script stubs, without installations.
 unset -f make
 cp "$ROOT/Makefile" "$FIXTURE/Makefile"
-cp "$ROOT/make/cargo-dependencies.mk" "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$FIXTURE/make/"
-bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$FIXTURE" make/rust-format.mk
+mkdir -p "$FIXTURE/vendor/toko-tooling/make/"
+cp "$ROOT/vendor/toko-tooling/make/cargo-dependencies.mk" "$ROOT/vendor/toko-tooling/make/consumer.mk" "$ROOT/vendor/toko-tooling/make/tools.mk" "$ROOT/vendor/toko-tooling/make/release.mk" "$ROOT/vendor/toko-tooling/make/rust-format.mk" "$ROOT/vendor/toko-tooling/make/execution.mk" "$FIXTURE/vendor/toko-tooling/make/"
+bash "$ROOT/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$FIXTURE" vendor/toko-tooling/make/rust-format.mk
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/dev"
 for tool in rust host ic; do
-  cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'
+  mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/dev"
+  cat > "$FIXTURE/vendor/toko-tooling/scripts/dev/install-$tool-tools.sh" <<'INSTALL'
 #!/usr/bin/env bash
 printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
 if [[ "${!#}" == --preflight ]]; then exit 0; fi
@@ -174,18 +186,18 @@ export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 [[ ! -s "$TEST_TRACE" ]]
 command make --no-print-directory -j4 -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --preflight" \
-  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --preflight" \
-  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
-  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt" \
+printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/vendor/toko-tooling/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --preflight" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/vendor/toko-tooling/ci/tool-versions.env --preflight" \
+  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/vendor/toko-tooling/ci/tool-versions.env" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/vendor/toko-tooling/ci/tool-versions.env" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/vendor/toko-tooling/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt" \
   "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/qualification/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -j4 -C "$FIXTURE" tools-check > "$FIXTURE/offline"
-printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
-  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --check" \
+printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/vendor/toko-tooling/ci/tool-versions.env --check" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/vendor/toko-tooling/ci/tool-versions.env --check" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/vendor/toko-tooling/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --check" \
   "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/qualification/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 printf '%s\n' verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
@@ -200,7 +212,7 @@ env TEST_POLICY_FAIL=1 make --no-print-directory -C "$FIXTURE" ic-tools-check \
 : > "$TEST_POLICY_TRACE"
 env TEST_POLICY_FAIL=1 make --no-print-directory -C "$FIXTURE" ic-tools-check IC_TOOLS=ic-wasm \
   > "$FIXTURE/selected-ic-check"
-printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool ic-wasm --check" > "$FIXTURE/expected"
+printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/vendor/toko-tooling/ci/ic-tools.tsv --tool ic-wasm --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 [[ ! -s "$TEST_POLICY_TRACE" ]]
 : > "$TEST_TRACE"
@@ -212,7 +224,10 @@ env TEST_INSTALL_FAIL=1 make --no-print-directory -C "$FIXTURE" install-tools > 
 
 # IcyDB's raw optimizer admission is independent of shared archive provisioning.
 # Check consumer ordering with a harmless executable; no real optimizer runs.
-cp "$ROOT/scripts/ci/"{verify-wasm-optimizer.sh,verify-file-checksum.sh} "$FIXTURE/scripts/ci/"
+mkdir -p "$FIXTURE/scripts/ci/"
+cp "$ROOT/scripts/ci/verify-wasm-optimizer.sh" "$FIXTURE/scripts/ci/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/ci/"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" "$FIXTURE/vendor/toko-tooling/scripts/ci/"
 unset -f uname
 mkdir -p "$FIXTURE/.tools/ic/bin"
 cat > "$FIXTURE/.tools/ic/bin/wasm-opt" <<'OPTIMIZER'
@@ -221,7 +236,7 @@ printf 'executed\n' >> "$TEST_TRACE"
 printf '%s\n' 'wasm-opt version 133 (version_133)'
 OPTIMIZER
 chmod +x "$FIXTURE/.tools/ic/bin/wasm-opt"
-digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
+digest="$(bash "$ROOT/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
 for platform in linux_x86_64 darwin_x86_64 darwin_arm64; do
   printf '%s\t%s\n' "$platform" "$digest"
 done > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
@@ -233,7 +248,7 @@ printf '\n# changed bytes\n' >> "$FIXTURE/.tools/ic/bin/wasm-opt"
 if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-tampered" 2>&1; then exit 1; fi
 [[ ! -s "$TEST_TRACE" ]]
 perl -pi -e 's/version 133/version 0/' "$FIXTURE/.tools/ic/bin/wasm-opt"
-digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
+digest="$(bash "$ROOT/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
 for platform in linux_x86_64 darwin_x86_64 darwin_arm64; do
   printf '%s\t%s\n' "$platform" "$digest"
 done > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
@@ -241,8 +256,8 @@ done > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
 if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-version-refused" 2>&1; then exit 1; fi
 [[ "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
 awk -F '\t' 'BEGIN { OFS="\t" } $1=="wasm-opt" { $2="0" } { print }' \
-  "$FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/changed-optimizer.tsv"
-mv "$FIXTURE/changed-optimizer.tsv" "$FIXTURE/ci/ic-tools.tsv"
+  "$FIXTURE/vendor/toko-tooling/ci/ic-tools.tsv" > "$FIXTURE/changed-optimizer.tsv"
+mv "$FIXTURE/changed-optimizer.tsv" "$FIXTURE/vendor/toko-tooling/ci/ic-tools.tsv"
 : > "$TEST_TRACE"
 if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-selection-refused" 2>&1; then exit 1; fi
 [[ ! -s "$TEST_TRACE" ]]

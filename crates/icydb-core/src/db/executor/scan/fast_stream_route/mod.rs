@@ -21,7 +21,7 @@ use crate::{
 /// Execute one verified fast-stream route through the structural load dispatch boundary.
 pub(in crate::db::executor) fn execute_fast_stream_route(
     runtime: &TraversalRuntime,
-    request: FastStreamRouteRequest<'_, '_>,
+    request: &FastStreamRouteRequest<'_, '_>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     match request {
         FastStreamRouteRequest::PrimaryKey {
@@ -31,8 +31,8 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
         } => execute_primary_key_fast_stream_route(
             runtime,
             executable_access,
-            continuation,
-            probe_fetch_hint,
+            *continuation,
+            *probe_fetch_hint,
         ),
         FastStreamRouteRequest::SecondaryIndex {
             executable_access,
@@ -42,9 +42,9 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
         } => execute_secondary_index_fast_stream_route(
             runtime,
             executable_access,
-            bindings,
-            probe_fetch_hint,
-            index_predicate_execution,
+            *bindings,
+            *probe_fetch_hint,
+            *index_predicate_execution,
         ),
         FastStreamRouteRequest::IndexRangeLimitPushdown {
             executable_access,
@@ -55,10 +55,10 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
         } => execute_index_range_fast_stream_route(
             runtime,
             executable_access,
-            index_range_spec,
-            continuation,
-            effective_fetch,
-            index_predicate_execution,
+            *index_range_spec,
+            *continuation,
+            *effective_fetch,
+            *index_predicate_execution,
         ),
     }
 }

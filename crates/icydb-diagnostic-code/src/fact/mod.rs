@@ -157,26 +157,42 @@ define_fact_tag_registry! {
 /// or validation categories and never retain rejected payload bytes.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum DiagnosticDecodeReason {
+    /// The supplied continuation cursor is empty.
     CursorEmpty,
+    /// The cursor exceeds its encoded size bound.
     CursorTooLong,
+    /// The cursor has an invalid encoded length.
     CursorInvalidLength,
+    /// The cursor is not valid base64 text.
     CursorInvalidBase64,
+    /// The grouped continuation uses a different traversal direction.
     CursorGroupedDirectionMismatch,
+    /// The cursor token could not be encoded.
     CursorTokenEncode,
+    /// The cursor token could not be decoded.
     CursorTokenDecode,
+    /// The recovery marker has an invalid format discriminator.
     RecoveryMarkerMagic,
+    /// The recovery marker checksum does not match its contents.
     RecoveryMarkerChecksum,
+    /// The recovery marker describes an invalid state.
     RecoveryMarkerState,
+    /// Grouped continuation requires a declared limit.
     CursorGroupedContinuationRequiresLimit,
+    /// Global DISTINCT continuation is unsupported.
     CursorGlobalDistinctContinuationUnsupported,
 }
 
 /// Compact operation carried by [`DiagnosticFactTag::MutationOperation`].
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum DiagnosticMutationOperation {
+    /// Insert a new row.
     Insert,
+    /// Replace an existing row's value.
     Replace,
+    /// Update selected fields of an existing row.
     Update,
+    /// Delete an existing row.
     Delete,
 }
 
@@ -594,10 +610,6 @@ pub fn validate_raw_diagnostic_fact_schema(
     validate_diagnostic_fact_schema(code, facts.len(), |index| facts[index])
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the frozen E-code schema registry keeps every numeric owner visible in one exhaustive dispatch"
-)]
 fn validate_diagnostic_fact_schema(
     code: ErrorCode,
     fact_count: usize,
@@ -846,10 +858,6 @@ const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the query-plan E-code deliberately owns several exact finite fact sequences"
-)]
 fn query_plan_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
     fact_count == 0
         || tags_match(fact_count, fact_at, &[DiagnosticFactTag::TermIndex])

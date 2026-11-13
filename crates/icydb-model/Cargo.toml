@@ -50,8 +50,10 @@ ic-wire = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
-toko-tooling.workspace = true
 trybuild = { workspace = true }
+
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true
 
 [[test]]
 name = "boolean_truth"

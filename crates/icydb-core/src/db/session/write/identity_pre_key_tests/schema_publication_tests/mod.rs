@@ -393,3 +393,56 @@ fn populated_index_drop_recovers_exact_domain_after_interruption() {
         ),
     );
 }
+
+#[test]
+fn ddl_publication_rejects_mismatched_admission_before_effects() {
+    let session = populated_session();
+    let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
+    let selection = store
+        .with_schema(|schema| {
+            schema.current_accepted_catalog_selection(
+                ENTITY_TAG,
+                ENTITY_SOURCE,
+                JOURNALED_STORE_PATH,
+            )
+        })
+        .unwrap()
+        .unwrap();
+    let before = selection.snapshot();
+    let identity = selection.identity();
+    let derived = crate::db::schema::derive_sql_ddl_secondary_index_drop_accepted_after(
+        &before,
+        &before.persisted_snapshot().indexes()[0],
+    )
+    .unwrap();
+    let changed = crate::db::schema::derive_sql_ddl_field_rename_accepted_after(
+        &before,
+        "payload",
+        "renamed_payload",
+    )
+    .unwrap();
+    let rows_before = rows(store);
+    let indexes_before = indexes(store, false);
+    assert!(
+        crate::db::schema::execute_schema_secondary_index_drop(
+            store,
+            changed.accepted_after(),
+            &identity,
+            &derived,
+        )
+        .is_err()
+    );
+    assert_eq!(rows(store), rows_before);
+    assert_eq!(indexes(store, false), indexes_before);
+    let current = store
+        .with_schema(|schema| {
+            schema.current_accepted_catalog_selection(
+                ENTITY_TAG,
+                ENTITY_SOURCE,
+                JOURNALED_STORE_PATH,
+            )
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.identity(), identity);
+}

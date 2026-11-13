@@ -445,10 +445,6 @@ fn closed_transform_proposal(
     .expect("proposal should admit")
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the complete rename fixture keeps every accepted object kind visible"
-)]
 fn complete_rename_proposal(
     current: bool,
     expected_head: ExpectedAcceptedHead,
@@ -705,11 +701,19 @@ fn shared_type_proposal(
     let type_name = if current { "Value" } else { "OldValue" };
     let version =
         DeclaredEntityVersion::try_new(if current { 2 } else { 1 }).expect("version should admit");
-    let entities = ["Alpha", "Beta"]
+    let mut entities = ["Alpha", "Beta"]
         .into_iter()
         .map(|entity_name| {
             EntityFragment::try_new(
-                name(entity_name),
+                name(if current {
+                    if entity_name == "Alpha" {
+                        "NewAlpha"
+                    } else {
+                        "NewBeta"
+                    }
+                } else {
+                    entity_name
+                }),
                 version,
                 vec![
                     FieldFragment::new(
@@ -729,12 +733,32 @@ fn shared_type_proposal(
                 ],
                 vec![field("id")],
                 Vec::new(),
-                Vec::new(),
+                vec![
+                    RelationFragment::try_new(
+                        name("peer"),
+                        RelationSourceFragment::Direct {
+                            fields: vec![field("id")],
+                        },
+                        EntitySourceKey::try_new(match (entity_name, current) {
+                            ("Alpha", false) => "Beta",
+                            ("Alpha", true) => "NewBeta",
+                            (_, false) => "Alpha",
+                            (_, true) => "NewAlpha",
+                        })
+                        .unwrap(),
+                        vec![field("id")],
+                        RelationDeleteAction::Restrict,
+                    )
+                    .unwrap(),
+                ],
                 Vec::new(),
             )
             .expect("entity should admit")
         })
         .collect::<Vec<_>>();
+    if current {
+        entities.push(maintained_control_entity());
+    }
     let fragment = SchemaFragment::try_new(
         entities,
         vec![NamedTypeFragment::newtype(
@@ -743,9 +767,32 @@ fn shared_type_proposal(
         )],
     )
     .expect("fragment should admit");
-    let mut capabilities = vec![SchemaCapability::EXACT_COMPOSITE_TYPES];
+    let mut capabilities = vec![
+        SchemaCapability::EXACT_COMPOSITE_TYPES,
+        SchemaCapability::RESTRICTIVE_RELATIONS,
+    ];
     if migration.is_some() {
         capabilities.push(SchemaCapability::VERSIONED_MIGRATIONS);
+    }
+    let mut assignments = vec![
+        EntityStoreAssignment::new(
+            EntitySourceKey::try_new(if current { "NewAlpha" } else { "Alpha" })
+                .expect("entity should admit"),
+            TargetStoreIdentity::from_bytes([2; 32]),
+        ),
+        EntityStoreAssignment::new(
+            EntitySourceKey::try_new(if current { "NewBeta" } else { "Beta" })
+                .expect("entity should admit"),
+            TargetStoreIdentity::from_bytes([5; 32]),
+        ),
+    ];
+    if current {
+        // Beta needs ordinary reconciliation for creation; Alpha uses its
+        // migrated catalog unchanged. Both must appear once in canonical order.
+        assignments.push(EntityStoreAssignment::new(
+            EntitySourceKey::try_new("Control").unwrap(),
+            TargetStoreIdentity::from_bytes([5; 32]),
+        ));
     }
     SchemaProposal::try_compose(
         capabilities,
@@ -754,16 +801,7 @@ fn shared_type_proposal(
             .expect("submission should admit"),
         expected_head,
         vec![fragment],
-        vec![
-            EntityStoreAssignment::new(
-                EntitySourceKey::try_new("Alpha").expect("entity should admit"),
-                TargetStoreIdentity::from_bytes([2; 32]),
-            ),
-            EntityStoreAssignment::new(
-                EntitySourceKey::try_new("Beta").expect("entity should admit"),
-                TargetStoreIdentity::from_bytes([5; 32]),
-            ),
-        ],
+        assignments,
         Vec::new(),
         migration,
     )
@@ -776,9 +814,14 @@ fn shared_type_plan() -> SchemaMigrationPlan {
             .into_iter()
             .map(|entity_name| {
                 EntityMigration::try_new(
-                    EntitySourceKey::try_new(entity_name).expect("entity should admit"),
+                    EntitySourceKey::try_new(if entity_name == "Alpha" {
+                        "NewAlpha"
+                    } else {
+                        "NewBeta"
+                    })
+                    .unwrap(),
                     DeclaredEntityVersion::try_new(1).expect("version should admit"),
-                    None,
+                    Some(EntitySourceKey::try_new(entity_name).unwrap()),
                     vec![SchemaMigrationRename::NamedType {
                         from: r#type("OldValue"),
                         to: r#type("Value"),
@@ -798,7 +841,7 @@ fn adoption_requires_v1_and_exact_noop_reconciliation() {
     let existing = ExistingProposalStore {
         path: "test::Store",
         identity: TargetStoreIdentity::from_bytes([2; 32]),
-        bundle: candidate.bundle(),
+        bundle: candidate.bundle().catalog(),
     };
     let adopted = plan_entity_source_adoption(
         &proposal(1, "User", "email", head(), None),
@@ -936,7 +979,7 @@ fn explicit_entity_and_field_rename_preserve_accepted_ids_in_candidate() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: candidate.bundle(),
+            bundle: candidate.bundle().catalog(),
         }],
         &lineage,
     )
@@ -964,10 +1007,6 @@ fn explicit_entity_and_field_rename_preserve_accepted_ids_in_candidate() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one matrix test proves every renamed source key and accepted ID together"
-)]
 fn complete_rename_set_preserves_accepted_identities_through_physical_rewrite() {
     let initial = complete_rename_proposal(false, ExpectedAcceptedHead::Empty, None);
     let candidate = lower_initial_schema_proposal(
@@ -1060,7 +1099,7 @@ fn complete_rename_set_preserves_accepted_identities_through_physical_rewrite() 
         &[ExistingProposalStore {
             path: "test::Store",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: candidate.bundle(),
+            bundle: candidate.bundle().catalog(),
         }],
         &lineage,
     )
@@ -1088,7 +1127,7 @@ fn complete_rename_set_preserves_accepted_identities_through_physical_rewrite() 
         &[ExistingProposalStore {
             path: "test::Store",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: &restart,
+            bundle: restart.catalog(),
         }],
     )
     .expect("current generated declarations reconcile after restart and renames");
@@ -1168,7 +1207,7 @@ fn complete_rename_set_preserves_accepted_identities_through_physical_rewrite() 
 }
 
 #[test]
-fn shared_named_type_rename_updates_every_store_local_copy_simultaneously() {
+fn shared_type_rename_and_creation_preserve_store_order_and_identities() {
     let initial = shared_type_proposal(false, ExpectedAcceptedHead::Empty, None);
     let mut candidates = lower_initial_schema_proposal(
         &initial,
@@ -1227,22 +1266,56 @@ fn shared_named_type_rename_updates_every_store_local_copy_simultaneously() {
         accepted.push((candidate.store_path(), type_id));
     }
     let migration = shared_type_proposal(true, head(), Some(shared_type_plan()));
-    let stores = vec![
+    let mut stores = vec![
         ExistingProposalStore {
             path: "test::AlphaStore",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: candidates[0].bundle(),
+            bundle: candidates[0].bundle().catalog(),
         },
         ExistingProposalStore {
             path: "test::BetaStore",
             identity: TargetStoreIdentity::from_bytes([5; 32]),
-            bundle: candidates[1].bundle(),
+            bundle: candidates[1].bundle().catalog(),
         },
     ];
+    stores.reverse();
     let planned =
         plan_schema_migration(&migration, &stores, &lineage).expect("shared rename should plan");
-    assert_eq!(planned.candidates().len(), 2);
+    assert_eq!(
+        planned
+            .candidates()
+            .iter()
+            .map(CandidateSchemaRevision::store_path)
+            .collect::<Vec<_>>(),
+        ["test::AlphaStore", "test::BetaStore"]
+    );
+    assert_eq!(planned.candidates()[0].bundle().entity_snapshots().len(), 1);
+    assert_eq!(planned.candidates()[1].bundle().entity_snapshots().len(), 2);
     for candidate in planned.candidates() {
+        let migrated = candidate
+            .bundle()
+            .entity_snapshots()
+            .values()
+            .find(|snapshot| snapshot.entity_path().starts_with("New"))
+            .unwrap();
+        let target = if migrated.entity_path() == "NewAlpha" {
+            "NewBeta"
+        } else {
+            "NewAlpha"
+        };
+        assert_eq!(migrated.relations()[0].target_path(), target);
+        assert!(migrated.constraints().iter().any(|constraint| matches!(
+            constraint.kind(), AcceptedConstraintKind::Relation { relation_id }
+                if *relation_id == migrated.relations()[0].id()
+        )));
+
+        assert_eq!(candidate.bundle().revision().get(), 2);
+        let recovered = crate::db::schema::enum_catalog::decode_accepted_schema_revision_bundle(
+            candidate.encoded_bundle(),
+        )
+        .unwrap();
+        assert_eq!(&recovered, candidate.bundle());
+
         let expected = accepted
             .iter()
             .find(|(path, _)| *path == candidate.store_path())
@@ -1292,7 +1365,7 @@ fn unadopted_lineage_fails_before_candidate_derivation() {
             &[ExistingProposalStore {
                 path: "test::Store",
                 identity: TargetStoreIdentity::from_bytes([2; 32]),
-                bundle: candidate.bundle(),
+                bundle: candidate.bundle().catalog(),
             }],
             &AcceptedEntitySourceLineageCatalog::default(),
         )
@@ -1302,10 +1375,6 @@ fn unadopted_lineage_fails_before_candidate_derivation() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one rejection matrix compares the four version and head classifications"
-)]
 fn publication_head_does_not_replace_source_version_and_digest_checks() {
     let (initial, candidate) = accepted_fixture();
     let entity_source = EntitySourceKey::try_new("User").expect("entity should admit");
@@ -1321,7 +1390,7 @@ fn publication_head_does_not_replace_source_version_and_digest_checks() {
     let existing = || ExistingProposalStore {
         path: "test::Store",
         identity: store,
-        bundle: candidate.bundle(),
+        bundle: candidate.bundle().catalog(),
     };
     let rename = |from_version| {
         SchemaMigrationPlan::try_new(vec![
@@ -1493,7 +1562,7 @@ fn physical_transform_cannot_target_the_primary_key() {
             &[ExistingProposalStore {
                 path: "test::Store",
                 identity: TargetStoreIdentity::from_bytes([2; 32]),
-                bundle: candidate.bundle(),
+                bundle: candidate.bundle().catalog(),
             }],
             &lineage,
         )
@@ -1562,7 +1631,7 @@ fn checked_cast_transform_compiles_to_accepted_ids_and_full_rewrite_layout() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: candidate.bundle(),
+            bundle: candidate.bundle().catalog(),
         }],
         &lineage,
     )
@@ -1689,7 +1758,7 @@ fn managed_generated_indexed_entity_plans_rename_and_same_field_checked_cast() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: candidate.bundle(),
+            bundle: candidate.bundle().catalog(),
         }],
         &lineage,
     )
@@ -1770,7 +1839,7 @@ fn every_closed_transform_form_compiles_into_one_accepted_id_program() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: TargetStoreIdentity::from_bytes([2; 32]),
-            bundle: candidate.bundle(),
+            bundle: candidate.bundle().catalog(),
         }],
         &lineage,
     )
@@ -1781,4 +1850,24 @@ fn every_closed_transform_form_compiles_into_one_accepted_id_program() {
     assert_eq!(candidate_entity.indexes().len(), 1);
     assert!(candidate_entity.indexes()[0].unique());
     assert_ne!(candidate_entity.indexes()[0].physical_generation(), 0);
+}
+
+#[test]
+fn reconciliation_rejects_incomplete_rekeyed_catalog_before_lowering() {
+    let (proposal, candidate) = accepted_fixture();
+    let store = ExistingProposalStore {
+        path: "test::Store",
+        identity: TargetStoreIdentity::from_bytes([2; 32]),
+        bundle: candidate.bundle().catalog(),
+    };
+    let mut working = SchemaDraft::new(&store);
+    // The source bindings still name the missing entity. Borrowing unpublished
+    // catalog parts must retain the same closure check as bundle construction.
+    working.snapshots.clear();
+    let stores = BTreeMap::from([(store.path, working)]);
+    assert!(matches!(
+        reconcile_migration_drafts(&proposal, stores),
+        Err(SchemaMigrationPlanningError::RekeyedCatalogInvalid)
+    ));
+    assert!(!candidate.bundle().entity_snapshots().is_empty());
 }

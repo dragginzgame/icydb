@@ -11,11 +11,17 @@ pub const MAX_PUBLIC_QUERY_FIELD_BYTES: usize = 256;
 /// Compact semantic role of one rejected query-field reference.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum QueryFieldRole {
+    /// A field referenced by the query predicate.
     Predicate,
+    /// A field referenced by the selected output.
     Projection,
+    /// A field referenced by GROUP BY.
     GroupBy,
+    /// A field referenced by HAVING.
     Having,
+    /// A field referenced by ORDER BY.
     OrderBy,
+    /// A field used as an aggregate input.
     AggregateTarget,
 }
 
@@ -51,9 +57,13 @@ impl QueryFieldRole {
 /// Reason one optional public query-field context failed schema validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryFieldSchemaMismatch {
+    /// The numeric field-role tag is unknown.
     UnknownRole,
+    /// The error code does not allow this field-role context.
     DisallowedCodeRole,
+    /// The rejected field reference is empty.
     EmptyField,
+    /// The rejected field reference exceeds its UTF-8 byte bound.
     FieldTooLong,
 }
 

@@ -611,7 +611,7 @@ fn take_or_clone_last_component_value(
 
 pub(super) fn decode_hybrid_covering_components(
     component_indices: &[usize],
-    components: std::sync::Arc<[Vec<u8>]>,
+    components: &[Vec<u8>],
 ) -> Result<Option<Vec<(usize, Value)>>, InternalError> {
     let mut decoded = Vec::with_capacity(component_indices.len());
 

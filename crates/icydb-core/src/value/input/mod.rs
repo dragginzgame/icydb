@@ -19,6 +19,7 @@ use serde::{Deserialize, Deserializer};
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Caller-authored input value, kept distinct from runtime execution values.
 pub struct InputValue(PublicValue);
 
 impl InputValue {

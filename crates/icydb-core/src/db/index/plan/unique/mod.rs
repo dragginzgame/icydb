@@ -30,7 +30,7 @@ pub(super) fn validate_unique_constraint_structural_impl(
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    key_authority: AcceptedIndexKeyAuthority<'_>,
+    key_authority: &AcceptedIndexKeyAuthority<'_>,
     read_contract: IndexReadContract<'_>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
@@ -100,7 +100,7 @@ pub(super) fn validate_unique_constraint_structural_impl(
         entity_tag,
         &existing_key,
         &row_fields,
-        &key_authority,
+        key_authority,
     )?
     else {
         if batch_override_releases_unique_membership(batch_overrides_existing, false) {

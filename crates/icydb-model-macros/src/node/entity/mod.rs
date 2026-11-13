@@ -6,7 +6,13 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{imp::*, prelude::*};
+use crate::{
+    imp::{
+        DefaultTrait, NormalizeAutoTrait, ValidateAutoTrait, VisitableTrait,
+        validate_struct_default_request,
+    },
+    prelude::*,
+};
 use darling::ast::NestedMeta;
 use icydb_schema::MAX_INDEX_FIELDS;
 use std::collections::HashSet;
@@ -1002,7 +1008,7 @@ fn typed_write_value_type(entity: &Entity, field: &Field, paths: &CratePaths) ->
 fn typed_write_value_input_expr(
     entity: &Entity,
     field: &Field,
-    value: TokenStream,
+    value: &TokenStream,
     paths: &CratePaths,
 ) -> TokenStream {
     let model = &paths.model;
@@ -1039,11 +1045,11 @@ fn typed_write_value_input_expr(
 fn typed_write_cell_input_expr(
     entity: &Entity,
     field: &Field,
-    access: TokenStream,
+    access: &TokenStream,
     paths: &CratePaths,
 ) -> TokenStream {
     let runtime = &paths.runtime;
-    let value = typed_write_value_input_expr(entity, field, quote!(value), paths);
+    let value = typed_write_value_input_expr(entity, field, &quote!(value), paths);
 
     quote! {
         match #access {
@@ -1080,7 +1086,10 @@ fn typed_operation_struct_tokens(
             field.value.type_expr(paths)
         };
 
-        Some(quote!(pub #ident: #ty))
+        Some(quote!(
+            #[doc = concat!("Primary-key component `", stringify!(#ident), "` identifying the target row.")]
+            pub #ident: #ty
+        ))
     });
     let write_fields = entity.fields.iter().filter_map(|field| {
         if !field_is_insert_authorable(field)
@@ -1091,7 +1100,10 @@ fn typed_operation_struct_tokens(
         let ident = &field.name;
         let ty = typed_write_value_type(entity, field, paths);
 
-        Some(quote!(pub #ident: #runtime::db::WriteCell<#ty>))
+        Some(quote!(
+            #[doc = concat!("Authored value, null, or omission for `", stringify!(#ident), "`.")]
+            pub #ident: #runtime::db::WriteCell<#ty>
+        ))
     });
     let entity_ident = entity.def.ident();
     let row_fields = entity.fields.iter().filter_map(|field| {
@@ -1216,7 +1228,7 @@ fn typed_write_fields_tokens(
                 return None;
             }
             let ident = &field.name;
-            let input = typed_write_cell_input_expr(entity, field, quote!(self.#ident), paths);
+            let input = typed_write_cell_input_expr(entity, field, &quote!(self.#ident), paths);
 
             Some(quote! {
                 encoder.push(#descriptor_ordinal, #input);

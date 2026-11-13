@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture_parent="${TMPDIR:-$ROOT/target/tmp}"
 mkdir -p "$fixture_parent"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 TEST_ROOT="$(fixture_create "$fixture_parent/icydb-wasm-audit.XXXXXX")"
 fixture_complete=false
 finish() {
@@ -24,7 +24,9 @@ source "$ROOT/scripts/ci/wasm-report-common.sh"
 FIXTURE="$TEST_ROOT/repository"
 ARTIFACTS="$FIXTURE/artifacts/wasm-size"
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/target/evidence/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
-cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$ROOT/scripts/ci/verify-file-checksum.sh" "$FIXTURE/scripts/ci/"
+cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$FIXTURE/scripts/ci/"
+mkdir -p "$FIXTURE/vendor/toko-tooling/scripts/ci"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" "$FIXTURE/vendor/toko-tooling/scripts/ci/"
 mkdir -p "$FIXTURE/qualification/build/src"
 cp "$ROOT/qualification/build/src/wasm_measurement_subjects.tsv" "$FIXTURE/qualification/build/src/"
 # A real executable stub keeps the test independent of installed Wasm tools.

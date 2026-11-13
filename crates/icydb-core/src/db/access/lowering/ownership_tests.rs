@@ -71,7 +71,7 @@ fn prefix_spec_transfers_encoded_payloads_and_accounts_their_capacity() {
         push_lowered_index_prefix_spec_from_encoded_components(
             tag,
             &index,
-            LoweredIndexScanContract::from_access_contract(index.clone()),
+            LoweredIndexScanContract::from_access_contract(&index),
             encoded,
             &mut specs,
             false,

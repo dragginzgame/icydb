@@ -144,7 +144,7 @@ impl AcceptedMutationConstraintScheduler {
     )]
     pub(in crate::db::executor::mutation) fn admit_save_after_image(
         &mut self,
-        context: AcceptedMutationConstraintContext<'_>,
+        context: &AcceptedMutationConstraintContext<'_>,
         mode: MutationMode,
         data_key: &DecodedDataStoreKey,
         row: &StructuralSlotReader<'_>,

@@ -845,10 +845,6 @@ impl JournalRecordOutput<'_> {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the current persisted journal format is encoded by one exhaustive record-kind match"
-)]
 fn write_journal_record(
     out: &mut JournalRecordOutput<'_>,
     record: &JournalRecord,
@@ -998,10 +994,6 @@ fn write_index_key_chunk(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive decoder keeps every current journal record tag on the same bounded cursor authority"
-)]
 fn read_journal_record(
     reader: &mut ByteReader<'_>,
 ) -> Result<(JournalRecord, Option<Vec<EntityTag>>), InternalError> {
@@ -1657,10 +1649,6 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
 
 // Admission is the sole source of publication facts for raw records and decoded
 // recovery bytes. The batch carries only the projection its consumers need.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the current persisted journal format is validated by one exhaustive record-kind match"
-)]
 fn admit_journal_record(record: &JournalRecord) -> Result<Option<Vec<EntityTag>>, InternalError> {
     match record {
         JournalRecord::RowPut {

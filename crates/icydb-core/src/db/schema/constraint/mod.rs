@@ -855,41 +855,22 @@ impl AcceptedConstraintCatalog {
         Ok(self)
     }
 
-    /// Add one fully validated row-local check candidate.
-    pub(in crate::db) fn with_added_check(
+    /// Add an already-bound row constraint without reconstructing its kind.
+    /// Initial creation and physical migration share this allocation boundary.
+    pub(in crate::db) fn with_added_row_constraint(
         mut self,
         name: String,
         origin: ConstraintOrigin,
-        expression: AcceptedCheckExprV1,
+        kind: AcceptedConstraintKind,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
+        if !matches!(
+            kind,
+            AcceptedConstraintKind::Check { .. } | AcceptedConstraintKind::TargetedRule { .. }
+        ) {
+            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
+        }
         self.reject_live_activation()?;
-        self.push(
-            name,
-            origin,
-            AcceptedConstraintKind::Check {
-                expression: Box::new(expression),
-            },
-        )?;
-        Ok(self)
-    }
-
-    /// Add one fully bound targeted durable rule during initial publication.
-    pub(in crate::db) fn with_added_targeted_rule(
-        mut self,
-        name: String,
-        origin: ConstraintOrigin,
-        target: AcceptedRuleTarget,
-        operation: AcceptedRuleOperation,
-    ) -> Result<Self, AcceptedConstraintCatalogError> {
-        self.reject_live_activation()?;
-        self.push(
-            name,
-            origin,
-            AcceptedConstraintKind::TargetedRule {
-                target,
-                operation: Box::new(operation),
-            },
-        )?;
+        self.push(name, origin, kind)?;
         Ok(self)
     }
 

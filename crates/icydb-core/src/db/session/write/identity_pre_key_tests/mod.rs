@@ -1942,10 +1942,6 @@ fn source_proofs_ignore_unrelated_stores_but_bind_access_state_changes() {
 }
 
 #[cfg(feature = "sql")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one lifecycle test proves successful replay plus pre-page and post-page source invalidation without sharing progress state across tests"
-)]
 #[test]
 fn journaled_job_advance_is_idempotent_and_revision_checked_on_both_sides() {
     let session = initialize_journaled();
@@ -2660,10 +2656,6 @@ fn pre_key_candidate_count_rejects_values_beyond_the_persisted_u32_bound() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one holding lifecycle proves split, merge, transfer, late-failure neutrality, result order, and Identity state"
-)]
 fn mixed_structural_batch_preserves_holding_conservation_and_failure_atomicity() {
     let session = initialize();
     let seeded = session
@@ -3223,10 +3215,6 @@ fn structural_cells_preserve_default_intent_and_database_ownership() {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one lifecycle proves shared materialization and every maintained frontend against the same zero-state owner"
-)]
 #[test]
 fn identity_insert_frontends_share_one_committed_range_without_rejected_consumption() {
     let session = initialize();
@@ -3512,10 +3500,6 @@ fn identity_insert_frontends_share_one_committed_range_without_rejected_consumpt
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one ordered scenario proves target/progress atomicity, every interruption wake-up, state-only admission, and successful no-op wake-up behavior"
-)]
 fn mutation_progress_and_target_rows_recover_as_one_marker_transition() {
     let session = initialize_journaled();
     let initial_entity_revision = JOURNALED_TAIL_STORE
@@ -3883,10 +3867,6 @@ fn mutation_progress_neither_side_mismatch_blocks_recovery() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one ordered scenario exercises every durable interruption boundary, guarded recovery, derived rebuild, and both integrity tiers"
-)]
 fn journaled_identity_recovery_quiesces_every_publication_interruption_before_reallocation() {
     let session = initialize_journaled();
     let catalog = session
@@ -4640,7 +4620,7 @@ fn complete_batch_validation_rejects_a_late_record_before_canonical_writes() {
         let encoded =
             encode_journal_batch(&corrupted).expect("current corrupt batch envelope should encode");
         tail.clear_batches_through(original.journal_sequence());
-        tail.insert_raw_batch_for_tests(original.journal_sequence(), encoded)
+        tail.insert_raw_batch_for_tests(original.journal_sequence(), &encoded)
             .expect("corrupt persisted batch should replace the predecessor");
     });
 
@@ -4715,7 +4695,7 @@ fn prepared_batch_row_evidence_rejects_a_late_malformed_row_before_canonical_wri
         let encoded =
             encode_journal_batch(&corrupted).expect("current corrupt batch envelope should encode");
         tail.clear_batches_through(original.journal_sequence());
-        tail.insert_raw_batch_for_tests(original.journal_sequence(), encoded)
+        tail.insert_raw_batch_for_tests(original.journal_sequence(), &encoded)
             .expect("corrupt persisted batch should replace the predecessor");
     });
 

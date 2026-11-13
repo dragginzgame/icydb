@@ -5,7 +5,7 @@ set -euo pipefail
 # Shared owns TOML bootstrap parsing; this check never installs a compiler.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
-expected="$(bash "$ROOT/scripts/ci/read-cargo-workspace-rust-version.sh" "$ROOT/Cargo.toml")"
+expected="$(bash "$ROOT/vendor/toko-tooling/scripts/ci/read-cargo-workspace-rust-version.sh" "$ROOT/Cargo.toml")"
 selected="$("${YQ:-yq}" -p toml -o json '.toolchain.channel' "$ROOT/rust-toolchain.toml" | jq -er 'select(type == "string")')"
 if [[ "$selected" != "$expected" ]]; then
   printf 'Pinned Rust compiler %s differs from workspace support floor %s.\n' "$selected" "$expected" >&2

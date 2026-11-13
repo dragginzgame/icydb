@@ -55,9 +55,12 @@ fn visit_index_store_entry<E: From<InternalError>>(
     all(feature = "wire-schema", not(target_family = "wasm")),
     derive(ic_wire::Wire)
 )]
+/// Readiness of a physical secondary index for query access.
 pub enum IndexState {
+    /// Derived entries are being built and are not yet ready for query access.
     Building,
     #[default]
+    /// Derived entries are ready for query access.
     Ready,
 }
 
@@ -224,6 +227,7 @@ impl IndexStore {
         }
     }
 
+    /// Return the number of physical index entries, propagating storage failures.
     pub fn len(&self) -> Result<u64, InternalError> {
         Ok(match &self.backend {
             IndexStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
@@ -238,6 +242,7 @@ impl IndexStore {
         })
     }
 
+    /// Whether the physical index has no entries, propagating storage failures.
     pub fn is_empty(&self) -> Result<bool, InternalError> {
         Ok(match &self.backend {
             IndexStoreBackend::Heap(map) => map.is_empty(),
@@ -695,7 +700,7 @@ impl IndexStore {
     pub(in crate::db) fn apply_canonical_entry(
         &mut self,
         key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
+        value: Option<&IndexEntryValue>,
     ) -> Result<(), crate::error::InternalError> {
         let IndexStoreBackend::Journaled {
             canonical,
@@ -708,7 +713,7 @@ impl IndexStore {
         };
 
         let visible = !live.contains_key(&key) && !tombstones.contains(&key);
-        let (previous, key) = if let Some(value) = value.as_ref() {
+        let (previous, key) = if let Some(value) = value {
             // The published stable insertion API consumes its key before
             // returning the previous entry; cardinality still needs this copy.
             let cardinality_key = key.clone();
@@ -717,7 +722,7 @@ impl IndexStore {
             (canonical.remove(&key), key)
         };
         if visible {
-            if let Some(value) = value.as_ref() {
+            if let Some(value) = value {
                 self.prefix_cardinality
                     .apply_insert(&key, previous.as_ref(), value);
             } else {
@@ -725,7 +730,7 @@ impl IndexStore {
                     .apply_remove(&key, previous.as_ref());
             }
         } else {
-            self.apply_prefix_overlay_delta(&key, value.as_ref(), previous.as_ref());
+            self.apply_prefix_overlay_delta(&key, value, previous.as_ref());
         }
         self.bump_generation();
 

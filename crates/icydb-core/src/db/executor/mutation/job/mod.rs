@@ -952,10 +952,6 @@ enum PackedForwardOutcome {
     Failure(MutationJobError),
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one read-only preparation orders scan failure, policy stop, continuation, counters, and exact progress replacement before the writer commit decision"
-)]
 fn prepare_packed_forward_outcome(
     before: &MutationJobRecord,
     request: &MutationJobAdvanceRequest,

@@ -31,7 +31,6 @@ ic-wire = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde_json = { workspace = true }
-toko-tooling.workspace = true
 
 [lints]
 workspace = true
@@ -130,3 +129,6 @@ path = "tests/memory_allocations.rs"
 
 [package.metadata.toko-tooling.loc]
 category = "tests"
+
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true

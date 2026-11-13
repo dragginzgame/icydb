@@ -131,7 +131,7 @@ fn path_count_probe_preserves_canonical_decimal_equality_under_hash_collisions()
                     "profile",
                     vec!["amount".into()],
                     0,
-                    AcceptedFieldKind::Decimal { scale: 2 },
+                    &AcceptedFieldKind::Decimal { scale: 2 },
                 );
                 width
             ];

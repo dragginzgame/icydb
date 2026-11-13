@@ -429,7 +429,7 @@ fn build_canister_package_artifacts(
         package_name,
         options,
         context_label,
-        configured,
+        &configured,
     )
 }
 
@@ -439,7 +439,7 @@ fn build_configured_canister_artifacts(
     package_name: &str,
     options: CanisterBuildOptions,
     context_label: &str,
-    configured: ConfiguredCanisterBuild,
+    configured: &ConfiguredCanisterBuild,
 ) -> Result<BuiltCanisterArtifacts, String> {
     let packages = [package_name];
     let request = CargoWasmCacheRequest {
@@ -456,7 +456,7 @@ fn build_configured_canister_artifacts(
 
     let artifacts = finish_canister_build(
         root,
-        &configured,
+        configured,
         options,
         context_label,
         outcome.record().clone(),
@@ -501,7 +501,7 @@ pub fn build_fixture_variant_wasm_with_profile(
         package,
         options,
         label,
-        ConfiguredCanisterBuild {
+        &ConfiguredCanisterBuild {
             selection,
             encoded_rustflags: None,
             final_deployable: target
@@ -773,7 +773,7 @@ pub fn build_maintained_canisters_with_options(
     let specs = plan.cargo_specs(&root);
     let cargo_report = build_cached_cargo_wasm_batch(&specs);
 
-    finish_maintained_canister_builds(&root, plan, cargo_report)
+    finish_maintained_canister_builds(&root, &plan, cargo_report)
 }
 
 /// Build both maintained whole-fleet contract profiles with checked input resolution.
@@ -817,7 +817,7 @@ pub fn build_maintained_canister_contract_profiles()
                 let handle = scope.spawn(move || {
                     let specs = plan.cargo_specs(root);
                     let cargo_report = build_cached_cargo_wasm_batch(&specs);
-                    finish_maintained_canister_builds(root, plan, cargo_report)
+                    finish_maintained_canister_builds(root, &plan, cargo_report)
                 });
                 (build_profile, handle)
             })
@@ -844,13 +844,9 @@ pub fn build_maintained_canister_contract_profiles()
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "retain Cargo, post-link and dependency admission failures in one batch outcome"
-)]
 fn finish_maintained_canister_builds(
     root: &Path,
-    plan: MaintainedCanisterBuildPlan,
+    plan: &MaintainedCanisterBuildPlan,
     cargo_report: Result<WasmBuildBatchReport, BatchLabelError>,
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let options = plan.options;

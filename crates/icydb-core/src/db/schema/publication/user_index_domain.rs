@@ -63,8 +63,8 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
         accepted_before_identity.clone(),
         accepted_before,
         accepted_after,
-        accepted_before_row_contract,
-        accepted_after_row_contract,
+        &accepted_before_row_contract,
+        &accepted_after_row_contract,
     )
 }
 
@@ -73,8 +73,8 @@ fn stage_user_index_domain_replacement(
     accepted_before_identity: AcceptedCatalogIdentity,
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
-    accepted_before_row_contract: StructuralRowContract,
-    accepted_after_row_contract: StructuralRowContract,
+    accepted_before_row_contract: &StructuralRowContract,
+    accepted_after_row_contract: &StructuralRowContract,
 ) -> Result<StagedUserIndexDomainReplacement, InternalError> {
     let entity_tag = accepted_before_identity.entity_tag();
     let mut builder = store.with_index(|index_store| {
@@ -82,8 +82,8 @@ fn stage_user_index_domain_replacement(
             accepted_before_identity,
             accepted_before,
             accepted_after,
-            Some(&accepted_before_row_contract),
-            Some(&accepted_after_row_contract),
+            Some(accepted_before_row_contract),
+            Some(accepted_after_row_contract),
             index_store,
             MaintenanceConstructionBudget::new(),
         )
@@ -102,11 +102,10 @@ fn stage_user_index_domain_replacement(
             let accepted_before_slots =
                 StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                     raw_row,
-                    &accepted_before_row_contract,
+                    accepted_before_row_contract,
                 )?;
             accepted_before_slots.validate_primary_key(&data_key)?;
-            if accepted_before_row_contract.has_same_decode_authority(&accepted_after_row_contract)
-            {
+            if accepted_before_row_contract.has_same_decode_authority(accepted_after_row_contract) {
                 let row = SchemaUserIndexDomainRow::new(
                     data_key.primary_key_value(),
                     &accepted_before_slots,
@@ -120,7 +119,7 @@ fn stage_user_index_domain_replacement(
                 let accepted_after_slots =
                     StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                         raw_row,
-                        &accepted_after_row_contract,
+                        accepted_after_row_contract,
                     )?;
                 accepted_after_slots.validate_primary_key(&data_key)?;
                 let row = SchemaUserIndexDomainRow::new(

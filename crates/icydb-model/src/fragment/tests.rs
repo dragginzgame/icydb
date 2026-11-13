@@ -742,10 +742,6 @@ static ENTITY_FIELDS: [Field; 5] = [
 ];
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one graph fixture proves the complete field, type, relation, and durable-rule closure"
-)]
 fn sealed_canister_graph_emits_store_free_database_closure() {
     let mut schema = Schema::new();
     schema.insert_node(SchemaNode::Canister(Canister::new(

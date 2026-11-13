@@ -40,6 +40,7 @@ impl Entity {
         clippy::too_many_arguments,
         reason = "schema entity construction keeps store, key, index, relation, field, and type metadata explicit"
     )]
+    /// Declare an entity and its source schema; graph validation runs before code generation.
     pub const fn new(
         def: Def,
         store: &'static str,
@@ -65,36 +66,43 @@ impl Entity {
     }
 
     #[must_use]
+    /// Borrow the Rust definition identity used to register this declaration.
     pub const fn def(&self) -> &Def {
         &self.def
     }
 
     #[must_use]
+    /// Return the Rust path of the store owning this entity.
     pub const fn store(&self) -> &'static str {
         self.store
     }
 
     #[must_use]
+    /// Return the source-declared entity schema version.
     pub const fn schema_version(&self) -> u32 {
         self.schema_version
     }
 
     #[must_use]
+    /// Borrow the declared primary-key components and source policy.
     pub const fn primary_key(&self) -> &PrimaryKey {
         &self.primary_key
     }
 
     #[must_use]
+    /// Return the entity definition identifier used as its public name.
     pub const fn name(&self) -> &'static str {
         self.def().ident()
     }
 
     #[must_use]
+    /// Borrow index declarations in authoring order.
     pub const fn indexes(&self) -> &'static [Index] {
         self.indexes
     }
 
     #[must_use]
+    /// Borrow the declared relationship edges.
     pub const fn relations(&self) -> &'static [RelationEdge] {
         self.relations
     }
@@ -106,11 +114,13 @@ impl Entity {
     }
 
     #[must_use]
+    /// Borrow the fields in declaration order.
     pub const fn fields(&self) -> &FieldList {
         &self.fields
     }
 
     #[must_use]
+    /// Borrow type-level normalizers, validators and source rules.
     pub const fn ty(&self) -> &Type {
         &self.ty
     }
@@ -205,7 +215,7 @@ impl ValidateNode for Entity {
             // store
             match schema.cast_node::<Store>(self.store()) {
                 Ok(_) => {}
-                Err(e) => errs.add(e),
+                Err(e) => errs.addf(format_args!("{e}")),
             }
         }
 

@@ -334,10 +334,6 @@ fn marker_owned_application_publishes_one_live_only_store_and_receipt() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the interrupted compound publication and recovery assertions form one scenario"
-)]
 fn interrupted_live_only_application_recovers_candidate_and_receipt_from_marker() {
     let db = Db::<RecoveryCanister>::new(
         &RECOVERY_REGISTRY,

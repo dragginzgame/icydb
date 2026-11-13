@@ -36,6 +36,8 @@ icydb = { workspace = true, features = ["wire-schema"] }
 icydb-core = { workspace = true, features = ["metrics", "migration", "sql", "wire-schema"] }
 icydb-schema = { workspace = true, features = ["wire-schema"] }
 serde-reflection = { workspace = true }
+
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

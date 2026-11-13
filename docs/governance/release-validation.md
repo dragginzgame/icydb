@@ -1,5 +1,49 @@
 # Release validation qualification
 
+
+## Current compiler qualification
+
+The Rust 1.100.0/common-lint adoption tracked by
+[#637](https://github.com/dragginzgame/icydb/issues/637) changes qualification inputs.
+The retained Rust 1.99.1 receipts remain historical and cannot authorize selected
+omissions on the new compiler. A future authorized release must resolve its actual
+host/mapping admission before expensive product gates. This adoption does not
+claim fresh full/selected qualification or collector-failure recovery.
+
+
+## Supplier isolation in Toko Tooling 0.41.0
+
+The [adopted supplier rule](https://github.com/dragginzgame/toko-tooling/blob/b4e6308894c495169278b34ea7803973c125adb6/TOKO-TOOLING.md#current-dependencies-and-upstream-independence)
+qualifies the frozen product and required qualification graphs independently.
+Older native Testkit/build dependencies may coexist with newer deployed suppliers
+when actual typed, protocol and executor boundaries remain valid. A failed optional
+upgrade probe blocks that upgrade, not an otherwise qualified release selection;
+it may be deferred to dependency maintenance without another approval round.
+Duplicate package names across a whole lockfile are not themselves a conflict.
+Required integration, correctness/security failures and actual executor/type
+incompatibilities still block the affected release. Report the selected package,
+target/features and introducing dependency paths for any claimed blocker.
+
+Keep optional dependency updates outside deployment's critical path. Qualify
+changed release wiring before expensive checks, run one selected validation pass,
+and reuse valid phase evidence only under its existing admission contract. Fresh
+artifact and registry checks remain required. This adoption does not waive #637,
+qualify deferred Canic, or authorize deployment.
+
+## Rust 1.100 warning enforcement
+
+Ordinary Make Clippy recipes set `CARGO_BUILD_WARNINGS=deny` instead of adding
+`-D warnings` to compiler arguments solely for warning enforcement. The existing
+adapter fixture proves a real warning fails on fresh and reused artifacts, in
+human output and JSON-rendered diagnostics, and substitute Cargo verifies that
+production recipes propagate denial. Plain JSON collectors still require their
+explicit compiler-level denial or structured diagnostic refusal.
+
+The recipe and release-group input hashes are refreshed for this source. That is
+mapping-input admission, not a native qualification certificate: prior compiler,
+source and command evidence cannot be reused merely because the roster is unchanged.
+No release gate is skipped and no completed receipt was rewritten.
+
 ## Receipt custody
 
 Candidate-transition and completed-release receipts default to
@@ -134,8 +178,8 @@ and every native check still executes. This CI cache is not validation-proof
 reuse and makes no claim about local deployment savings. Hosted macOS acceptance
 and before/after CI measurements remain unmeasured.
 
-Fresh Linux x86-64 comparisons now qualify the current mapping for eligible
-database source and CLI-private changes. Both groups executed sixteen full and
+Fresh Linux x86-64 comparisons qualified the captured Entropy 0.1.10 mapping for
+eligible database source and CLI-private changes. Both groups executed sixteen full and
 eleven selected stages, with zero reused passes; final source custody and CLI
 archive checks passed. Reviewed records bind mapping
 `481754ab60286940f7f91c8b0ac3bffec628093d98994c4f6bccf024bf700df5`.
@@ -152,6 +196,49 @@ stage reuse and macOS release narrowing are not admitted by these comparisons.
 Preserve source, archive, registry and recovery admission; neither a digest
 refresh nor a compiler cache hit supplies a pass. Follow-up and deployment
 measurements stay in #636, not a local task queue.
+
+### Delivered 0.310.2 / 0.296.13 observations
+
+The locks changed to Entropy 0.1.12 after final comparison custody and before the
+source commit. Both release groups correctly refused the older mapping records
+(`mapping_inputs`: root and qualification locks) and executed all twelve full
+release stages, with zero stage-pass reuse. The records above are historical
+evidence for their exact graph, not qualification of the delivered graph. The
+published database notes mention the earlier 0.1.10 candidate; the released
+locks are authoritative and select 0.1.12. Published notes and tags are preserved.
+
+Frozen `batch-bXriLG7V` completed from source
+`70ed739ca7311ee72e6e45631a1366a6a141a5d6`. Database Git delivery is
+`83300e367655a940133c069303dbafa14cf7daff`; final CLI delivery is
+`c71f242833b2c490aaf11f68a62cb72c1b48e340`. All six database packages and the
+CLI were observed on crates.io. The batch ran from 17:25:09 to 18:16:12 UTC on
+12 November 2026: 51 minutes 3 seconds, excluding earlier repair/qualification.
+No comparable previous total is available, so no total speedup is claimed.
+
+| Observed phase boundary | Database | CLI |
+| --- | --- | --- |
+| Full validation start → final pass | 17:26:06–17:48:59 (1,373s) | 17:52:45–18:13:48 (1,263s) |
+| Validation pass → committed release receipt | 17:48:59–17:50:59 (120s) | 18:13:48–18:15:46 (118s) |
+| Receipt → Git push complete | 17:50:59–17:51:10 (11s) | 18:15:46–18:15:57 (11s) |
+| Publication invocation → registry observation | 17:51:14–17:51:58 (44s) | 18:16:01–18:16:12 (11s) |
+
+Database setup/initial admission preceded validation by 57s; the CLI transition
+from database registry observation to validation took 47s. Publication intervals
+include index access, packaging, upload and availability checks. At log
+resolution, database packaging-to-upload intervals total 3s, uploads 8s and
+upload-to-observation intervals 22s across six packages; CLI reports 3s, 1s and
+5s respectively. These are output-event intervals at one-second resolution,
+not isolated profiler measurements. Remaining gaps are hook/index transitions.
+
+Automation was 497s/476s for database/CLI versus the prior 468s/458s; feature
+checks were 56s/55s versus 56s/54s; tests were 538s/488s versus 528s/495s.
+Nested summaries overlap and are not added twice. No deployment saving is
+established. Durable release records remain under
+`.git/release-state/frozen/batch-bXriLG7V/`; the local timestamped console is
+`/tmp/icydb-deploy-03102-029613.timestamped.log`. Public follow-up and the next
+stable-graph qualification requirement remain in #636. Hosted macOS cache
+acceptance is pending, and #635's installed measurements remain blocked by the
+deferred Canic runtime/Wire integration. No IC performance measurement is claimed.
 
 ## Mapping and selection
 

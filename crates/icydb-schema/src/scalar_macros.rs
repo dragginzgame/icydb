@@ -236,6 +236,7 @@ macro_rules! scalar_kind_registry_entries {
     };
 }
 
+/// Expand the canonical scalar registry using the supplied callback macro.
 #[macro_export]
 macro_rules! scalar_kind_registry {
     ($macro:ident) => {

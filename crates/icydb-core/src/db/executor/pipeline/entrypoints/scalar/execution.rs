@@ -26,7 +26,7 @@ use crate::{
 // the caller choose which scalar kernel terminal to invoke.
 pub(super) fn execute_prepared_scalar_kernel<T>(
     prepared: PreparedScalarRouteRuntime,
-    terminal: ScalarRouteTerminal,
+    terminal: &ScalarRouteTerminal,
     execute: impl FnOnce(
         &ExecutionInputs<'_>,
         &ExecutionRoutePlan,

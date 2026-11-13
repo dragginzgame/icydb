@@ -6,17 +6,19 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-numbered-notes.XXXXXX")"
 fixture="$(cd -P "$fixture" && pwd)"
 fixture_complete=false
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$root/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$root/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$fixture" "Release-note fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/releases/database"
-cp "$root/scripts/ci/finalize-release-changelog.awk" "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/finalize-release-changelog.awk" "$fixture/vendor/toko-tooling/scripts/ci/"
 cp "$root/scripts/release/finalize-notes.sh" "$fixture/scripts/release/"
 cd "$fixture"
 mkdir -p ci scripts/ci scripts/release releases/database
 cp "$root/ci/cargo-release-groups.json" ci/
 cp "$root/scripts/release/group.sh" scripts/release/
-cp "$root/scripts/ci/cargo-release-groups.jq" scripts/ci/
+mkdir -p "vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/cargo-release-groups.jq" "vendor/toko-tooling/scripts/ci/"
 # This fixture selects its own numbered draft independently of repository notes.
 sed 's/0.295/0.265/g' ci/cargo-release-groups.json > ci/selected.json
 mv ci/selected.json ci/cargo-release-groups.json

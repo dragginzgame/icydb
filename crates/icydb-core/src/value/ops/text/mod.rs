@@ -12,8 +12,8 @@ use std::borrow::Cow;
 // a new Unicode release needs an explicit retained-index compatibility decision,
 // not a compiler upgrade silently changing lookups or uniqueness enforcement.
 const _: () = assert!(
-    matches!(char::UNICODE_VERSION, (17, 0, 0)),
-    "IcyDB persists Unicode 17.0.0 text transforms; changing Unicode data requires a retained-index compatibility review",
+    matches!(char::UNICODE_VERSION, (18, 0, 0)),
+    "IcyDB persists Unicode 18.0.0 text transforms; changing Unicode data requires a retained-index compatibility review",
 );
 
 /// Apply the canonical case-insensitive text fold.
@@ -33,7 +33,7 @@ pub(crate) fn lower_text(input: &str) -> String {
 }
 
 /// Conservative construction allowance for `lower_text` on the pinned Rust
-/// 1.99.1 implementation: cumulative requested backing and byte-work units.
+/// 1.100.0 implementation: cumulative requested backing and byte-work units.
 /// This is not allocator telemetry or an IC instruction estimate.
 #[must_use]
 pub(crate) fn lower_text_construction_allowance(input_len: usize) -> (u64, u64) {

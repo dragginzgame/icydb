@@ -29,7 +29,7 @@ for receipt in "$RELEASE_RECEIPT_DIR"/"$RELEASE_GROUP"-v*.commit; do
         [[ "$receipt_commit" == "$EXPECTED_COMMIT" ]] || continue
         candidate="${receipt%.commit}.candidate"
         [[ -f "$candidate" && ! -L "$candidate" ]] || continue
-        [[ "$(bash "$ROOT_DIR/scripts/ci/verify-file-checksum.sh" --print sha256 "$candidate")" == "$(sed -n '3p' "$receipt")" ]] || continue
+        [[ "$(bash "$ROOT_DIR/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" --print sha256 "$candidate")" == "$(sed -n '3p' "$receipt")" ]] || continue
         RELEASE_COMMIT="$EXPECTED_COMMIT" bash "$ROOT_DIR/scripts/ci/release-candidate-receipt.sh" verify-commit || continue
     fi
     if [[ "$receipt_commit" != "$EXPECTED_COMMIT" ]]; then

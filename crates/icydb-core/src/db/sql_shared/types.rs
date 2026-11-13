@@ -2,10 +2,7 @@ use crate::{types::Decimal, value::Value};
 use icydb_diagnostic_code::SqlFeatureCode;
 use std::str::FromStr;
 
-#[cfg_attr(
-    doc,
-    doc = "SqlParseError\n\nReduced SQL parser errors shared by standalone predicate parsing and the statement-level SQL frontend."
-)]
+#[doc = "SqlParseError\n\nReduced SQL parser errors shared by standalone predicate parsing and the statement-level SQL frontend."]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlParseError {
     #[cfg(feature = "sql")]
@@ -77,10 +74,7 @@ impl SqlParseError {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "SqlSyntaxErrorKind\n\nCompact syntax-error taxonomy for reduced SQL parsing."
-)]
+#[doc = "SqlSyntaxErrorKind\n\nCompact syntax-error taxonomy for reduced SQL parsing."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlSyntaxErrorKind {
     ExpectedToken {
@@ -313,10 +307,7 @@ pub(crate) enum SqlClauseOrderRule {
     UpdateLimitBeforeOffset,
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Keyword\n\nReduced SQL keyword taxonomy shared by predicate parsing and statement parsing."
-)]
+#[doc = "Keyword\n\nReduced SQL keyword taxonomy shared by predicate parsing and statement parsing."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Keyword {
     And,

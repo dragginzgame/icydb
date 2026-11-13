@@ -112,20 +112,20 @@ fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String
 }
 
 fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, String> {
-    let bytes = response.map_err(fixture_load_error)?;
+    let bytes = response.map_err(|error| fixture_load_error(&error))?;
     let result: Result<(), icydb::Error> = icydb::__macro::RpcMethod::FixturesLoad
         .decode_response(&bytes, icydb::wire::limits(icydb::wire::MAX_REPLY_BYTES))
         .map_err(|error| {
-            fixture_load_error(IcpCallKind::Update.reply_error(
+            fixture_load_error(&IcpCallKind::Update.reply_error(
                 crate::diagnostic::render_wire_decode_error(RpcMethod::FixturesLoad, error),
             ))
         })?;
     result
         .map(|()| String::new())
-        .map_err(|error| fixture_load_error(crate::diagnostic::render_error(&error)))
+        .map_err(|error| fixture_load_error(&crate::diagnostic::render_error(&error)))
 }
 
-fn fixture_load_error(stderr: String) -> String {
+fn fixture_load_error(stderr: &str) -> String {
     format!(
         "icp canister call {} failed: {stderr}",
         RpcMethod::FixturesLoad.name(),

@@ -5,12 +5,12 @@ use super::*;
 impl CommitStore {
     /// Encode one raw commit-control slot payload for recovery tests.
     pub(in crate::db::commit) fn encode_raw_control_slot_for_tests(
-        marker_bytes: Vec<u8>,
+        marker_bytes: &[u8],
     ) -> Result<Vec<u8>, InternalError> {
         encode_commit_control_slot(
             DatabaseIncarnationId::for_tests(0x31),
             [0x42; 32],
-            &marker_bytes,
+            marker_bytes,
         )
     }
 
@@ -89,7 +89,7 @@ pub(in crate::db) fn validate_commit_marker_envelope_for_tests(
 /// Persist one valid database-control slot whose marker payload is supplied
 /// directly by a recovery test.
 pub(in crate::db) fn persist_raw_commit_marker_for_tests(
-    marker_bytes: Vec<u8>,
+    marker_bytes: &[u8],
 ) -> Result<(), InternalError> {
     let control_slot = CommitStore::encode_raw_control_slot_for_tests(marker_bytes)?;
     with_commit_store(|store| {
@@ -135,6 +135,6 @@ pub(in crate::db) fn initialize_current_commit_control_for_tests(
         0,
         &[],
     )?;
-    apply_prepared_commit_control_replacement(replacement);
+    replacement.apply();
     Ok(())
 }

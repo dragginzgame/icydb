@@ -473,7 +473,7 @@ where
 
     fn consume_entry(
         &mut self,
-        entry: KeyFlatMergeHeapEntry,
+        entry: &KeyFlatMergeHeapEntry,
     ) -> Result<DecodedDataStoreKey, InternalError> {
         let Some(child) = self.children.get_mut(entry.child_index) else {
             return Err(InternalError::executor_invariant());
@@ -502,7 +502,7 @@ where
             return Ok(None);
         };
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
-        let next = self.consume_entry(entry)?;
+        let next = self.consume_entry(&entry)?;
         let emitted = row_key_witness(&next);
 
         while self.heap.peek().is_some_and(|entry| entry.key == emitted) {
@@ -510,7 +510,7 @@ where
                 return Err(InternalError::executor_invariant());
             };
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
-            let _discarded_duplicate = self.consume_entry(duplicate)?;
+            let _discarded_duplicate = self.consume_entry(&duplicate)?;
         }
 
         Ok(Some(next))

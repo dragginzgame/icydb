@@ -200,7 +200,7 @@ fn decoded_query_field_error(
     code: icydb::ErrorCode,
     role: u8,
     field: &str,
-    facts: serde_json::Value,
+    facts: &serde_json::Value,
 ) -> icydb::Error {
     serde_json::from_value(serde_json::json!({
         "code": code.raw(),
@@ -234,7 +234,7 @@ fn renders_every_valid_query_field_role_from_shared_typed_context() {
             icydb::ErrorCode::QUERY_PLAN,
             role.raw(),
             "missing",
-            serde_json::json!([]),
+            &serde_json::json!([]),
         );
 
         assert_eq!(
@@ -250,7 +250,7 @@ fn renders_reference_order_field_with_its_numeric_term_position() {
         icydb::ErrorCode::QUERY_PLAN,
         icydb::diagnostic::QueryFieldRole::OrderBy.raw(),
         "id",
-        serde_json::json!([{
+        &serde_json::json!([{
             "tag": icydb::diagnostic::DiagnosticFactTag::TermIndex.raw(),
             "value": 1,
         }]),
@@ -268,7 +268,7 @@ fn query_field_rendering_escapes_terminal_control_and_delimiter_characters() {
         icydb::ErrorCode::QUERY_PLAN,
         icydb::diagnostic::QueryFieldRole::Projection.raw(),
         "line\n\0`\"'\u{1b}\\\u{202e}",
-        serde_json::json!([]),
+        &serde_json::json!([]),
     );
     let rendered = render_error(&error);
 
@@ -290,7 +290,7 @@ fn malformed_decoded_query_field_context_is_withheld_and_reported() {
                 icydb::ErrorCode::QUERY_PLAN,
                 0,
                 "unknown-role-secret",
-                serde_json::json!([]),
+                &serde_json::json!([]),
             ),
             "unknown role",
             "unknown-role-secret",
@@ -300,7 +300,7 @@ fn malformed_decoded_query_field_context_is_withheld_and_reported() {
                 icydb::ErrorCode::QUERY_VALIDATE,
                 icydb::diagnostic::QueryFieldRole::Predicate.raw(),
                 "wrong-code-secret",
-                serde_json::json!([]),
+                &serde_json::json!([]),
             ),
             "role is not allowed for this E-code",
             "wrong-code-secret",
@@ -310,7 +310,7 @@ fn malformed_decoded_query_field_context_is_withheld_and_reported() {
                 icydb::ErrorCode::QUERY_PLAN,
                 icydb::diagnostic::QueryFieldRole::OrderBy.raw(),
                 overbound.as_str(),
-                serde_json::json!([]),
+                &serde_json::json!([]),
             ),
             "field exceeds the 256-byte bound",
             overbound.as_str(),
@@ -333,7 +333,7 @@ fn invalid_numeric_facts_withhold_otherwise_valid_query_field_context() {
         icydb::ErrorCode::QUERY_PLAN,
         icydb::diagnostic::QueryFieldRole::OrderBy.raw(),
         "fact-mismatch-secret",
-        serde_json::json!([
+        &serde_json::json!([
             {
                 "tag": icydb::diagnostic::DiagnosticFactTag::TermIndex.raw(),
                 "value": 1,
@@ -875,7 +875,7 @@ fn unknown_compact_code_report_is_explicit() {
 
 #[test]
 fn renders_schema_ddl_admission_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::SchemaDdlAdmission,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::SchemaDdlAdmission {
@@ -891,7 +891,7 @@ fn renders_schema_ddl_admission_detail() {
 
 #[test]
 fn renders_unsupported_sql_feature_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QueryUnsupportedSqlFeature,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::UnsupportedSqlFeature {
@@ -907,7 +907,7 @@ fn renders_unsupported_sql_feature_detail() {
 
 #[test]
 fn renders_sql_surface_mismatch_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QuerySqlSurfaceMismatch,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::SqlSurfaceMismatch {
@@ -923,7 +923,7 @@ fn renders_sql_surface_mismatch_detail() {
 
 #[test]
 fn renders_sql_write_boundary_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QuerySqlWriteBoundary,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::SqlWriteBoundary {
@@ -939,7 +939,7 @@ fn renders_sql_write_boundary_detail() {
 
 #[test]
 fn renders_sql_write_staged_row_boundary_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QuerySqlWriteBoundary,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::SqlWriteBoundary {
@@ -955,7 +955,7 @@ fn renders_sql_write_staged_row_boundary_detail() {
 
 #[test]
 fn renders_query_projection_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QueryUnsupportedProjection,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::QueryProjection {
@@ -971,7 +971,7 @@ fn renders_query_projection_detail() {
 
 #[test]
 fn renders_query_read_admission_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission {
@@ -1007,7 +1007,7 @@ fn renders_query_read_admission_fix_hints_for_common_public_read_rejections() {
     ];
 
     for (reason, expected) in cases {
-        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+        let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
             icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
             icydb::diagnostic::ErrorOrigin::Query,
             Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission { reason }),
@@ -1050,7 +1050,7 @@ fn renders_query_read_admission_fix_hint_for_every_rejection_code() {
 
 #[test]
 fn renders_unknown_aggregate_target_field_code() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::from_code(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::from_code(
         icydb::diagnostic::DiagnosticCode::QueryUnknownAggregateTargetField,
     ));
 
@@ -1062,7 +1062,7 @@ fn renders_unknown_aggregate_target_field_code() {
 
 #[test]
 fn renders_sql_lowering_detail() {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QueryUnsupportedSqlFeature,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::SqlLowering {
@@ -1333,7 +1333,7 @@ fn falls_back_to_code_text_without_detail() {
 }
 
 fn render_query_read_admission_error(reason: icydb::diagnostic::QueryReadAdmissionCode) -> String {
-    let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let err = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission { reason }),

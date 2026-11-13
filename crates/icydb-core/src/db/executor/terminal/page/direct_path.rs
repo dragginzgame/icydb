@@ -31,7 +31,7 @@ pub(super) fn execute_direct_data_row_path(
     scan_budget_hint: Option<usize>,
     load_order_route_mode: LoadOrderRouteMode,
     consistency: MissingRowPolicy,
-    continuation: ScalarContinuationContext,
+    continuation: &ScalarContinuationContext,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     direct_data_row_path: DirectDataRowPath<'_>,
 ) -> Result<ScalarPageMaterialization, InternalError> {

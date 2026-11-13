@@ -40,7 +40,7 @@ use std::rc::Rc;
 pub(in crate::db) fn execute_shared_grouped_plan_for_canister<C>(
     db: &crate::db::Db<C>,
     plan: SharedPreparedExecutionPlan,
-    cursor: ValidatedGroupedCursor,
+    cursor: &ValidatedGroupedCursor,
     execution_lane: DiagnosticExecutionLane,
 ) -> Result<StructuralGroupedProjectionResult, InternalError>
 where
@@ -55,14 +55,14 @@ where
 fn execute_shared_grouped_plan_for_canister_inner<C>(
     db: &crate::db::Db<C>,
     plan: SharedPreparedExecutionPlan,
-    cursor: ValidatedGroupedCursor,
+    cursor: &ValidatedGroupedCursor,
 ) -> Result<StructuralGroupedProjectionResult, InternalError>
 where
     C: CanisterKind,
 {
     let entity_path = plan.authority_ref().entity_path_handle();
     let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
-    charge_grouped_cursor_input(&cursor)?;
+    charge_grouped_cursor_input(cursor)?;
     let value_catalog = plan
         .authority_ref()
         .accepted_schema_info()
@@ -240,7 +240,7 @@ impl PreparedGroupedRouteRuntime {
 pub(in crate::db::executor) fn prepare_grouped_route_runtime_for_load_plan<C>(
     db: &crate::db::Db<C>,
     plan: PreparedLoadPlan,
-    cursor: ValidatedGroupedCursor,
+    cursor: &ValidatedGroupedCursor,
 ) -> Result<PreparedGroupedRouteRuntime, InternalError>
 where
     C: CanisterKind,
@@ -262,18 +262,18 @@ where
 // so this orchestration can stay monomorphic.
 fn execute_grouped_route_path(
     runtime: &GroupedPathRuntimeContext,
-    route: GroupedRouteStage,
+    route: &GroupedRouteStage,
     prepared_residents: Rc<PreparedGroupedRuntimeResidents>,
 ) -> Result<GroupedCursorPage, InternalError> {
     if let Some(page) = try_execute_grouped_count_metadata(
         runtime.row_store,
         runtime.authority.entity_tag(),
-        &route,
+        route,
     )? {
         return Ok(page);
     }
-    let stream = runtime.build_grouped_stream(&route, prepared_residents)?;
-    execute_group_fold_stage(&route, stream)
+    let stream = runtime.build_grouped_stream(route, prepared_residents)?;
+    execute_group_fold_stage(route, stream)
 }
 
 // Execute one fully prepared grouped runtime bundle through the canonical
@@ -287,7 +287,7 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
         prepared_residents,
     } = prepared;
 
-    execute_grouped_route_path(&runtime, route, prepared_residents)
+    execute_grouped_route_path(&runtime, &route, prepared_residents)
 }
 
 ///

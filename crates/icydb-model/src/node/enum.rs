@@ -14,6 +14,7 @@ pub struct Enum {
 
 impl Enum {
     #[must_use]
+    /// Declare an enum with its alternatives and type-level hooks.
     pub const fn new(
         def: Def,
         name: &'static str,
@@ -29,6 +30,7 @@ impl Enum {
     }
 
     #[must_use]
+    /// Borrow the Rust definition identity used to register this declaration.
     pub const fn def(&self) -> &Def {
         &self.def
     }
@@ -40,11 +42,13 @@ impl Enum {
     }
 
     #[must_use]
+    /// Borrow enum alternatives in declaration order.
     pub const fn variants(&self) -> &'static [EnumVariant] {
         self.variants
     }
 
     #[must_use]
+    /// Borrow type-level normalizers, validators and source rules.
     pub const fn ty(&self) -> &Type {
         &self.ty
     }
@@ -103,6 +107,7 @@ pub struct EnumVariant {
 
 impl EnumVariant {
     #[must_use]
+    /// Declare a named enum alternative with an optional payload.
     pub const fn new(name: &'static str, value: Option<Value>) -> Self {
         Self { name, value }
     }
@@ -114,6 +119,7 @@ impl EnumVariant {
     }
 
     #[must_use]
+    /// Borrow the variant payload shape, or None for a unit variant.
     pub const fn value(&self) -> Option<&Value> {
         self.value.as_ref()
     }

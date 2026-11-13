@@ -11,7 +11,7 @@ pub fn validate_entity_naming(schema: &Schema, errs: &mut ErrorTree) {
         let store = match schema.cast_node::<Store>(entity.store()) {
             Ok(store) => store,
             Err(e) => {
-                errs.add(e);
+                errs.addf(format_args!("{e}"));
                 continue;
             }
         };

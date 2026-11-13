@@ -249,7 +249,6 @@ impl SchemaProposal {
     /// ambiguous routing, removal conflicts, or malformed nested data.
     #[expect(
         clippy::too_many_arguments,
-        clippy::too_many_lines,
         reason = "composition receives and validates one complete atomic public envelope"
     )]
     pub fn try_compose(

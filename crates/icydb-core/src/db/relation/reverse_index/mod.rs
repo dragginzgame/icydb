@@ -505,11 +505,6 @@ impl AcceptedRelationInfo {
 }
 
 impl RelationConstraintProjection {
-    /// Return the exact planner-invisible reverse-index generation.
-    #[cfg(feature = "migration")]
-    pub(in crate::db) const fn index_id(&self) -> IndexId {
-        reverse_index_id_for_relation(&self.source, &self.relation)
-    }
     /// Bind one isolated activation candidate to row and target-store authority.
     pub(in crate::db) fn new<C: CanisterKind>(
         db: &Db<C>,
@@ -770,8 +765,7 @@ impl RelationConstraintProjection {
                 )
             })
             .transpose()?
-            .map(RelationConstraintRowProjection::into_entries)
-            .unwrap_or_default();
+            .map_or_default(RelationConstraintRowProjection::into_entries);
         let new_projection = new_row
             .map(|row| {
                 self.project_row_with_target_reader(
@@ -800,11 +794,10 @@ impl RelationConstraintProjection {
         if unchanged {
             return Ok(Vec::new());
         }
-        let new_entries = new_projection
-            .map(RelationConstraintRowProjection::into_entries)
-            .unwrap_or_default();
+        let new_entries =
+            new_projection.map_or_default(RelationConstraintRowProjection::into_entries);
 
-        merge_relation_entries(old_entries, new_entries, commit_budget)
+        merge_relation_entries(&old_entries, &new_entries, commit_budget)
     }
 }
 
@@ -829,8 +822,8 @@ impl RelationConstraintIndexEntry {
 }
 
 fn merge_relation_entries(
-    old_entries: Vec<RelationConstraintIndexEntry>,
-    new_entries: Vec<RelationConstraintIndexEntry>,
+    old_entries: &[RelationConstraintIndexEntry],
+    new_entries: &[RelationConstraintIndexEntry],
     commit_budget: &mut RelationCommitBudget,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
     let mut effects = Vec::new();
@@ -1381,11 +1374,11 @@ const fn reverse_index_id_for_relation(
     source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> IndexId {
-    IndexId::new_with_generation(
-        source.entity_tag,
-        RELATION_SYSTEM_INDEX_ORDINAL,
-        relation.physical_generation(),
-    )
+    reverse_index_id(source.entity_tag, relation.physical_generation())
+}
+
+const fn reverse_index_id(source: EntityTag, generation: u64) -> IndexId {
+    IndexId::new_with_generation(source, RELATION_SYSTEM_INDEX_ORDINAL, generation)
 }
 
 const fn relation_id_component(relation: &AcceptedRelationInfo) -> [u8; size_of::<u32>()] {
@@ -1581,14 +1574,22 @@ fn relation_target_store_binding<C>(
 where
     C: CanisterKind,
 {
-    let target = relation.target();
+    relation_store_binding(db, source.entity_tag(), relation.target().store_path())
+}
+
+// Keep source/target capability admission common to projections and metadata-only work.
+fn relation_store_binding<C: CanisterKind>(
+    db: &Db<C>,
+    source: EntityTag,
+    target_store_path: &str,
+) -> Result<(&'static str, StoreHandle), InternalError> {
     let (target_store_path, target_store) = db.with_store_registry(|registry| {
         registry
             .iter()
-            .find(|(path, _)| *path == target.store_path())
+            .find(|(path, _)| *path == target_store_path)
             .ok_or_else(InternalError::executor_internal)
     })?;
-    let source_runtime = db.accepted_runtime_entity_for_tag(source.entity_tag())?;
+    let source_runtime = db.accepted_runtime_entity_for_tag(source)?;
     let source_store = db.store_handle(source_runtime.store_path())?;
     if matches!(
         (
@@ -1604,6 +1605,22 @@ where
     }
 
     Ok((target_store_path, target_store))
+}
+
+/// Resolve a migration reverse domain without compiling its row projection.
+#[cfg(feature = "migration")]
+pub(in crate::db) fn migration_relation_domain<C: CanisterKind>(
+    db: &Db<C>,
+    source: EntityTag,
+    edge: &PersistedRelationEdgeSnapshot,
+) -> Result<(&'static str, StoreHandle, IndexId), InternalError> {
+    let target = accepted_relation_target_contract(db, edge.target_path())?;
+    let (path, store) = relation_store_binding(db, source, target.target.store_path())?;
+    Ok((
+        path,
+        store,
+        reverse_index_id(source, edge.physical_generation()),
+    ))
 }
 
 /// Decode one stored delete key, skipping other entities in the shared delete set.

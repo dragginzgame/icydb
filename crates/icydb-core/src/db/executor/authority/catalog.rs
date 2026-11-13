@@ -39,7 +39,7 @@ impl AcceptedSchemaEntityRuntime {
     pub(in crate::db) fn compile<C: CanisterKind>(
         db: &crate::db::Db<C>,
         root_identity: AcceptedSchemaRuntimeRootIdentity,
-        runtime_entity: AcceptedRuntimeEntity,
+        runtime_entity: &AcceptedRuntimeEntity,
         store: StoreHandle,
     ) -> Result<Self, AcceptedInspectionPlanLoadError> {
         let selection = store
@@ -131,7 +131,7 @@ impl AcceptedSchemaRuntimeRoot {
             let entity = Rc::new(AcceptedSchemaEntityRuntime::compile(
                 db,
                 identity,
-                runtime_entity,
+                &runtime_entity,
                 store,
             )?);
             let entity_path = entity.inspection_plan.identity().entity_path_handle();

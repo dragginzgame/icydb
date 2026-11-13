@@ -160,7 +160,7 @@ impl<C: CanisterKind> DbSession<C> {
         )? {
             return self.explain_sql_global_aggregate_structural_for_authority(
                 mode,
-                command,
+                &command,
                 authority,
                 catalog,
                 schema_info,
@@ -232,14 +232,10 @@ impl<C: CanisterKind> DbSession<C> {
     // Render one SQL EXPLAIN EXECUTION payload through the shared planner-owned
     // covering contract. Covering visibility is now part of route planning, so
     // SQL EXPLAIN does not need a separate store-backed authority pass.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "execution EXPLAIN keeps budgeted access preparation and final diagnostic publication together"
-    )]
     pub(in crate::db::session::sql::execute) fn explain_lowered_sql_execution_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
         schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
@@ -289,7 +285,7 @@ impl<C: CanisterKind> DbSession<C> {
                     let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
                     StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                         &plan,
-                        &authority,
+                        authority,
                         Some(reuse),
                         work,
                         |descriptor| {
@@ -316,7 +312,7 @@ impl<C: CanisterKind> DbSession<C> {
                     DiagnosticExecutionLane::Diagnostic,
                     |work| {
                         let route_facts =
-                            freeze_load_execution_route_facts_for_authority(&authority, plan)
+                            freeze_load_execution_route_facts_for_authority(authority, plan)
                                 .map_err(QueryError::execute)?;
                         assemble_load_execution_node_descriptor_from_route_facts(
                             plan,
@@ -377,7 +373,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn explain_sql_global_aggregate_structural_for_authority(
         &self,
         mode: SqlExplainMode,
-        command: SqlGlobalAggregateCommand,
+        command: &SqlGlobalAggregateCommand,
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
         schema_info: &SchemaInfo,
@@ -389,7 +385,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
                     catalog,
-                    &command,
+                    command,
                     |plan| {
                         PreparationWork::run(
                             self.db.request_execution_scope(),
@@ -403,10 +399,10 @@ impl<C: CanisterKind> DbSession<C> {
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority.clone(),
                     catalog,
-                    &command,
+                    command,
                     |plan| {
                         self.render_global_aggregate_execution_explain(
-                            &command,
+                            command,
                             strategies,
                             plan.logical_plan(),
                             &authority,
@@ -418,10 +414,10 @@ impl<C: CanisterKind> DbSession<C> {
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority.clone(),
                     catalog,
-                    &command,
+                    command,
                     |plan| {
                         self.render_global_aggregate_execution_explain_json(
-                            &command,
+                            command,
                             strategies,
                             plan.logical_plan(),
                             &authority,
@@ -433,7 +429,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
                     catalog,
-                    &command,
+                    command,
                     |plan| {
                         PreparationWork::run(
                             self.db.request_execution_scope(),

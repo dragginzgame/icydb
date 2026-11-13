@@ -24,10 +24,7 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-#[cfg_attr(
-    doc,
-    doc = "EntityStats\n\nInternal struct for building per-entity stats before snapshotting."
-)]
+#[doc = "EntityStats\n\nInternal struct for building per-entity stats before snapshotting."]
 #[derive(Default)]
 struct EntityStats {
     entries: u64,
@@ -273,10 +270,7 @@ fn push_entity_snapshot(
     entity_storage.push(EntitySnapshot::new(store, path, entries, memory_bytes));
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Build one deterministic storage snapshot with default entity-path names.\n\nThis variant is used by generated snapshot endpoints that never pass alias remapping, so it keeps the snapshot root independent from optional alias-resolution machinery."
-)]
+#[doc = "Build one deterministic storage snapshot with default entity-path names.\n\nThis variant is used by generated snapshot endpoints that never pass alias remapping, so it keeps the snapshot root independent from optional alias-resolution machinery."]
 pub(in crate::db) fn storage_report_default<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<StorageReport, InternalError> {
@@ -285,10 +279,7 @@ pub(in crate::db) fn storage_report_default<C: CanisterKind>(
     build_storage_report(db, &StorageReportMode::Default)
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Build one deterministic storage snapshot with per-entity rollups.\n\nThis path is read-only and fail-closed on decode/validation errors by counting corrupted keys/entries instead of panicking."
-)]
+#[doc = "Build one deterministic storage snapshot with per-entity rollups.\n\nThis path is read-only and fail-closed on decode/validation errors by counting corrupted keys/entries instead of panicking."]
 pub(in crate::db) fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
@@ -314,10 +305,6 @@ pub(in crate::db) fn storage_report<C: CanisterKind>(
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one report boundary collects deterministic store metadata and single-pass data/index rollups"
-)]
 fn build_storage_report<C: CanisterKind>(
     db: &Db<C>,
     mode: &StorageReportMode<'_>,

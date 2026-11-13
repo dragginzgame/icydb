@@ -39,7 +39,7 @@ impl Subaccount {
     /// Returns [`SchemaContractError::InvalidLiteral`] for invalid width,
     /// non-ASCII input or non-hex characters. No trimming is performed.
     pub fn from_hex(text: &str) -> Result<Self, SchemaContractError> {
-        let text = text.strip_prefix("0x").unwrap_or(text);
+        let text = text.trim_prefix("0x");
         if text.len() != 64 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(SchemaContractError::InvalidLiteral);
         }

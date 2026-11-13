@@ -18,19 +18,30 @@ use std::cmp::Ordering;
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 #[error("map value error")]
 pub enum MapValueError {
+    /// A map entry has a null key.
     EmptyKey {
+        /// Zero-based position of the rejected element or component.
         index: usize,
     },
+    /// A map key is not an admitted scalar value.
     NonScalarKey {
+        /// Zero-based position of the rejected element or component.
         index: usize,
+        /// Rejected key value.
         key: Value,
     },
+    /// A map value is not an admitted scalar value.
     NonScalarValue {
+        /// Zero-based position of the rejected element or component.
         index: usize,
+        /// Operand value carried by this operation.
         value: Value,
     },
+    /// Two map entries have the same canonical key.
     DuplicateKey {
+        /// Position of the first entry with the duplicate key.
         left_index: usize,
+        /// Position of the second entry with the duplicate key.
         right_index: usize,
     },
 }
@@ -46,6 +57,7 @@ pub enum MapValueError {
 #[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
 #[error("schema invariant error")]
 pub enum SchemaInvariantError {
+    /// Map normalization or admission failed.
     InvalidMapValue(MapValueError),
 }
 

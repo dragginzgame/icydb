@@ -8,12 +8,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-adapter-tooling.XXXXXX")"
 fixture="$(cd "$fixture" && pwd -P)"
 fixture_complete=false
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 trap 'fixture_finish "$?" "$fixture" "Adapter tooling fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/testing/canic-adapter" "$fixture/.tools/host/bin"
 cp "$ROOT/scripts/ci/check-adapter-tooling.sh" "$fixture/scripts/ci/"
-cat > "$fixture/scripts/dev/tooling-lock.pl" <<'PERL'
+mkdir -p "$fixture/vendor/toko-tooling/scripts/dev"
+cat > "$fixture/vendor/toko-tooling/scripts/dev/tooling-lock.pl" <<'PERL'
 use strict;
 use warnings;
 use JSON::PP;

@@ -11,7 +11,7 @@ fn quoted_paths_remain_literal_defaults_and_arguments() {
             arg.to_token_stream().to_string(),
             quote!(#literal).to_string()
         );
-        let args = Args::from_list(&[NestedMeta::Lit(Lit::Str(literal.clone()))]).unwrap();
+        let args = Args::from_list(&[NestedMeta::Lit(Lit::Str(literal))]).unwrap();
         assert!(matches!(&args.0[0], Arg::String(value) if value.value() == text));
         let schema = arg.schema_part(&CratePaths::test());
         assert!(schema.to_string().contains("Arg :: String"));

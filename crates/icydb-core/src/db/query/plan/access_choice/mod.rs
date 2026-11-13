@@ -197,10 +197,6 @@ const fn access_choice_family_for_cardinality(
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "candidate projection preserves one evaluation pass and rejection precedence"
-)]
 fn project_access_choice_explain_snapshot_from_authority(
     visible_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,

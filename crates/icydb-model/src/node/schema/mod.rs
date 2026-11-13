@@ -11,17 +11,29 @@ use sha2::{Digest, Sha256};
 #[remain::sorted]
 #[derive(Clone, Debug, Serialize)]
 pub enum SchemaNode {
+    /// A registered [`Canister`] authoring declaration.
     Canister(Canister),
+    /// A registered [`Entity`] authoring declaration.
     Entity(Entity),
+    /// A registered [`Enum`] authoring declaration.
     Enum(Enum),
+    /// A registered [`List`] authoring declaration.
     List(List),
+    /// A registered [`Map`] authoring declaration.
     Map(Map),
+    /// A registered [`Newtype`] authoring declaration.
     Newtype(Newtype),
+    /// A registered [`Normalizer`] authoring declaration.
     Normalizer(Normalizer),
+    /// A registered [`Record`] authoring declaration.
     Record(Record),
+    /// A registered [`Set`] authoring declaration.
     Set(Set),
+    /// A registered [`Store`] authoring declaration.
     Store(Store),
+    /// A registered [`Tuple`] authoring declaration.
     Tuple(Tuple),
+    /// A registered [`Validator`] authoring declaration.
     Validator(Validator),
 }
 
@@ -99,6 +111,7 @@ pub struct Schema {
 
 impl Schema {
     #[must_use]
+    /// Create an empty collecting graph; registration and sealing happen separately.
     pub const fn new() -> Self {
         Self {
             nodes: BTreeMap::new(),
@@ -177,11 +190,13 @@ impl Schema {
 
     // get_node
     #[must_use]
+    /// Look up a declaration by its fully qualified Rust path.
     pub fn get_node<'a>(&'a self, path: &str) -> Option<&'a SchemaNode> {
         self.nodes.get(path)
     }
 
     // try_get_node
+    /// Look up a declaration, reporting a missing-path error when absent.
     pub fn try_get_node<'a>(&'a self, path: &str) -> Result<&'a SchemaNode, Error> {
         let node = self
             .get_node(path)
@@ -191,6 +206,7 @@ impl Schema {
     }
 
     // cast_node
+    /// Look up and downcast a declaration, reporting missing paths or mismatched node kinds.
     pub fn cast_node<'a, T: 'static>(&'a self, path: &str) -> Result<&'a T, Error> {
         let node = self.try_get_node(path)?;
 
@@ -205,6 +221,7 @@ impl Schema {
     }
 
     // get_nodes
+    /// Iterate declarations of the requested concrete node type with their Rust paths.
     pub fn get_nodes<T: 'static>(&self) -> impl Iterator<Item = (&str, &T)> {
         self.nodes
             .iter()
@@ -213,6 +230,7 @@ impl Schema {
 
     // filter_nodes
     // Generic method to filter key, and nodes of any type with a predicate
+    /// Iterate nodes of the requested type that satisfy the supplied predicate.
     pub fn filter_nodes<'a, T: 'static>(
         &'a self,
         predicate: impl Fn(&T) -> bool + 'a,

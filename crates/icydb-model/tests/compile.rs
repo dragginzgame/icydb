@@ -1,3 +1,5 @@
+//! Compile-time contracts and diagnostics for generated model code.
+
 #[test]
 fn required_generated_trait_diagnostics() {
     let tests = trybuild::TestCases::new();

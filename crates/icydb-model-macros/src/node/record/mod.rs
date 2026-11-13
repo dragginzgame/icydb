@@ -3,7 +3,13 @@
 //! Does not own: runtime schema semantics.
 //! Boundary: macro metadata to node models.
 
-use crate::{imp::*, prelude::*};
+use crate::{
+    imp::{
+        DefaultTrait, NormalizeAutoTrait, ValidateAutoTrait, VisitableTrait,
+        validate_struct_default_request,
+    },
+    prelude::*,
+};
 
 ///
 /// Record

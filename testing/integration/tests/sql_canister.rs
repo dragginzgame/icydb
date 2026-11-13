@@ -2174,10 +2174,6 @@ fn assert_nullable_unique_range_route_parity(pic: &PocketIc, canister_id: Princi
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     let fixture = install_sql_canister_fixture();
     let pic = fixture.pocket_ic();
@@ -3305,10 +3301,6 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     let fixture = install_sql_canister_fixture();
     let pic = fixture.pocket_ic();
@@ -4045,10 +4037,6 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     // Use an unpooled fixture because this test deliberately replaces the
     // installed Wasm and observes real post-upgrade reconciliation.

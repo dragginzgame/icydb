@@ -16,7 +16,7 @@ use crate::{
 // cannot prove a stall. Bound paid calls per invocation; retained work can resume.
 const MAX_MIGRATION_UPDATE_CALLS: usize = 1_024;
 
-pub(super) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {
+pub(super) fn run_schema_migration_command(command: &SchemaMigrationCommand) -> Result<(), String> {
     let status = match &command {
         SchemaMigrationCommand::Status(target) => load_status(target),
         SchemaMigrationCommand::Advance(target) => {

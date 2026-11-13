@@ -35,7 +35,7 @@ sub finish {
 finish('Explicit workspace selection.') if $scope eq 'workspace';
 finish('Uncommitted or untracked inputs require full validation.')
     if capture('git', 'status', '--porcelain', '--untracked-files=all') ne '';
-my $observed = $json->decode(capture('perl', 'scripts/ci/validation-evidence.pl',
+my $observed = $json->decode(capture('perl', 'vendor/toko-tooling/scripts/ci/validation-evidence.pl',
     'baseline', '.', $source, "refs/tags/$baseline"));
 finish('Missing, lightweight or non-ancestor database baseline requires full validation.')
     unless $observed->{available};

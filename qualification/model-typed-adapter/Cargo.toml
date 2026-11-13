@@ -25,6 +25,8 @@ runtime_api = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
 runtime_api = { workspace = true, features = ["sql"] }
+
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

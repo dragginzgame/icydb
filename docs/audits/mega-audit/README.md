@@ -11,6 +11,7 @@ audit procedure or a replacement for GitHub issue tracking.
 - [Implementation evidence and dispositions](implementation.md).
 - [Write, migration and aggregate follow-on investigation](follow-on.md).
 - [Schema installation, reconciliation and rebuild audit](schema-lifecycle.md).
+- [Schema lifecycle removal deep dive](schema-lifecycle-removal.md).
 - [Journal recovery closeout investigation](recovery.md).
 - [Relation preparation closeout investigation](relations.md).
 - [Prepared-query cache closeout investigation](query-cache.md).

@@ -128,7 +128,7 @@ impl TraversalRuntime {
     /// Resolve one executable access binding into an ordered key stream.
     pub(in crate::db::executor) fn ordered_key_stream_from_runtime_access(
         &self,
-        request: ExecutableAccess<'_, Value>,
+        request: &ExecutableAccess<'_, Value>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.ordered_key_stream_from_executable_plan(
             &request.plan,

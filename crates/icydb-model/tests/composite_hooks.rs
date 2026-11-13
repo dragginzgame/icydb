@@ -7,6 +7,7 @@ use icydb_model::visitor::{
 use icydb_model::{normalize, prelude::*, validate};
 
 #[normalizer]
+/// Append the configured text to record composite hook ordering.
 pub struct Append(pub &'static str);
 
 impl Append {
@@ -32,6 +33,7 @@ impl Normalizer<Box<String>> for Append {
 }
 
 #[validator]
+/// Report a diagnostic without accepting the visited value.
 pub struct Reject;
 
 impl<T> Validator<T> for Reject {
@@ -41,6 +43,7 @@ impl<T> Validator<T> for Reject {
 }
 
 #[normalizer]
+/// Fail normalization so composite traversal can verify issue collection.
 pub struct RejectNormalize;
 
 impl<T> Normalizer<T> for RejectNormalize {
@@ -60,6 +63,7 @@ impl<T> Normalizer<T> for RejectNormalize {
         value(item(prim = "Text", unbounded, normalizer(path = "Append", args("/item"))))
     ))
 )]
+/// Record fixture combining type-level and field-level hooks.
 pub struct HookRecord;
 
 impl Normalizer<HookRecord> for Append {
@@ -70,9 +74,11 @@ impl Normalizer<HookRecord> for Append {
 }
 
 #[canister(memory_namespace = "composite_hooks")]
+/// Canister identity for generated hook fixtures.
 pub struct HookCanister;
 
 #[store(canister = "HookCanister", storage(heap()))]
+/// Heap-backed store for generated hook fixtures.
 pub struct HookStore;
 
 #[entity(
@@ -93,6 +99,7 @@ pub struct HookStore;
         field(name = "child", value(item(is = "HookRecord")))
     )
 )]
+/// Entity fixture combining type-level and field-level hooks.
 pub struct HookEntity;
 
 impl Normalizer<HookEntity> for Append {
@@ -134,6 +141,7 @@ impl Normalizer<HookEntity> for Append {
     ),
     value(item(is = "HookRecord"))
 )]
+/// Tuple fixture combining type-level and item-level hooks.
 pub struct HookTuple;
 
 impl Normalizer<HookTuple> for Append {
@@ -186,6 +194,7 @@ impl Normalizer<HookTuple> for Append {
     ),
     variant(name = "Nested", value(item(is = "HookRecord")))
 )]
+/// Enum fixture combining type-level and variant-level hooks.
 pub struct HookEnum;
 
 impl Normalizer<HookEnum> for Append {
@@ -327,12 +336,14 @@ fn enum_absent_empty_and_unit_variants_invoke_no_payload_validator() {
 }
 
 #[record(ty(normalizer(path = "RejectNormalize")), fields())]
+/// Record whose type-level normalizer rejects the value.
 pub struct RejectedRecord;
 
 #[tuple(
     ty(normalizer(path = "RejectNormalize")),
     value(item(prim = "Nat32", normalizer(path = "RejectNormalize")))
 )]
+/// Tuple whose type-level and item-level normalizers reject the value.
 pub struct RejectedTuple;
 
 #[enum_(
@@ -343,6 +354,7 @@ pub struct RejectedTuple;
         value(item(prim = "Nat32", normalizer(path = "RejectNormalize")))
     )
 )]
+/// Enum whose type-level and variant-level normalizers reject the value.
 pub struct RejectedEnum;
 
 #[test]

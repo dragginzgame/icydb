@@ -179,7 +179,7 @@ impl AcceptedInspectionPlan {
                 )?;
                 let index_inspection = AcceptedIndexInspectionPlan::compile(
                     &snapshot,
-                    value_catalog.clone(),
+                    &value_catalog,
                     &row_contract,
                     work,
                 )?;

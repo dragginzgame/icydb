@@ -20,15 +20,25 @@ use crate::sql_harness::{
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ScenarioStratum {
+    /// Partition scenarios by the declared strength of their evidence.
     EvidenceStrength(EvidenceStrength),
+    /// Partition scenarios by mutation operation.
     Mutation(MutationKind),
+    /// Partition scenarios by nullability coverage.
     Nullability(NullabilityClass),
+    /// Partition scenarios by predicate family.
     Predicate(PredicateFamily),
+    /// Partition scenarios by eligible reference provider.
     Provider(EligibleProvider),
+    /// Partition scenarios by execution route family.
     Route(RouteFamily),
+    /// Partition scenarios by query shape.
     Shape(QueryShape),
+    /// Partition scenarios by statement family.
     Statement(StatementFamily),
+    /// Partition scenarios by value-type family.
     ValueType(ValueTypeFamily),
+    /// Partition scenarios by ordering and window behavior.
     Window(WindowBehavior),
 }
 
@@ -58,10 +68,14 @@ const fn scenario_strata<S>(scenario: &CorrectnessScenario<S>) -> [ScenarioStrat
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectionError {
+    /// Two supplied scenarios have the same stable identifier.
     DuplicateScenarioId(String),
 
+    /// The scenario budget cannot cover every required stratum.
     InsufficientBudget {
+        /// Maximum number of scenarios available for selection.
         budget: usize,
+        /// Required strata not covered within the selection budget.
         uncovered: BTreeSet<ScenarioStratum>,
     },
 }

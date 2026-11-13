@@ -1023,10 +1023,6 @@ fn adopt_entity_source_lineage<C: CanisterKind>(
 }
 
 #[cfg(feature = "migration")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one migration entry point keeps preparation and exact replay ordering visible"
-)]
 fn advance_metadata_schema_migration<C: CanisterKind>(
     db: &Db<C>,
     proposal: &SchemaProposal,
@@ -1248,7 +1244,7 @@ fn prepared_physical_schema_migration(
         for (entity, snapshot) in candidate.bundle().entity_snapshots() {
             // Fresh entities have empty initial index generations, not
             // historical domains to stage, rebuild or clean up on abort.
-            let Some(before) = store.bundle.entity_snapshots().get(entity) else {
+            let Some(before) = store.bundle.entity_snapshots.get(entity) else {
                 continue;
             };
             for index in snapshot
@@ -1345,27 +1341,23 @@ fn advance_active_schema_migration<C: CanisterKind>(
                     SchemaMigrationCode::ProgressCorrupt,
                 ));
             }
-            let phase = if exhausted {
-                PersistedSchemaMigrationPhase::RebuildingIndexes
+            // Commit completion accounting and the fresh validation cursor with
+            // the last page's effects so recovery cannot expose a partial handoff.
+            let (phase, progress) = if exhausted {
+                let rebuilt = migration_derived_domain_count(db, &planned)?;
+                (
+                    PersistedSchemaMigrationPhase::FinalValidation,
+                    progress
+                        .begin_row_phase()?
+                        .with_index_progress(None, rebuilt)?,
+                )
             } else {
-                PersistedSchemaMigrationPhase::RewritingRows
+                (PersistedSchemaMigrationPhase::RewritingRows, progress)
             };
             let advanced = record.transition(phase, progress)?;
             let operation = SchemaMigrationRecordOp::replace(record, &advanced)?;
-            publish_migration_rewrite_page(effects, operation)?;
+            publish_migration_rewrite_page(effects, &operation)?;
             active_migration_status(proposal, target, &advanced)
-        }
-        PersistedSchemaMigrationPhase::RebuildingIndexes => {
-            let planned = recompile_active_physical_migration(db, proposal, record)?;
-            let rebuilt = migration_derived_domain_count(db, &planned)?;
-            let progress = record
-                .progress()
-                .begin_row_phase()?
-                .with_index_progress(None, rebuilt)?;
-            let validating =
-                record.transition(PersistedSchemaMigrationPhase::FinalValidation, progress)?;
-            publish_migration_record_replacement(record, &validating)?;
-            active_migration_status(proposal, target, &validating)
         }
         PersistedSchemaMigrationPhase::FinalValidation => {
             let planned = recompile_active_physical_migration(db, proposal, record)?;
@@ -1552,8 +1544,17 @@ fn attach_ordinary_lineage_publication(
 ) -> Result<Vec<DatabaseControlOp>, InternalError> {
     let stored_before = load_entity_source_lineage_catalog()?;
     #[cfg(feature = "migration")]
-    let planned = plan_new_entity_source_lineage(proposal, current_bundles, candidates)
-        .map_err(schema_migration_planning_error)?;
+    let planned = plan_new_entity_source_lineage(
+        proposal,
+        |source| {
+            current_bundles
+                .iter()
+                .flatten()
+                .any(|bundle| bundle.source_bindings().entity(source).is_some())
+        },
+        candidates,
+    )
+    .map_err(schema_migration_planning_error)?;
     #[cfg(feature = "migration")]
     if !planned.is_empty() && !matches!(prior_head, ExpectedAcceptedHead::Empty) {
         // Creation may initialise its own lineage, never implicitly adopt an
@@ -1865,7 +1866,6 @@ fn active_migration_status(
         PersistedSchemaMigrationPhase::Validating => SchemaMigrationPhase::Validating,
         PersistedSchemaMigrationPhase::ReadyToRewrite => SchemaMigrationPhase::ReadyToRewrite,
         PersistedSchemaMigrationPhase::RewritingRows => SchemaMigrationPhase::RewritingRows,
-        PersistedSchemaMigrationPhase::RebuildingIndexes => SchemaMigrationPhase::RebuildingIndexes,
         PersistedSchemaMigrationPhase::FinalValidation => SchemaMigrationPhase::FinalValidation,
         PersistedSchemaMigrationPhase::Publishing => SchemaMigrationPhase::Publishing,
         PersistedSchemaMigrationPhase::Applied => SchemaMigrationPhase::Applied,
@@ -1922,7 +1922,7 @@ fn existing_proposal_stores<'a>(
             bundle.as_ref().map(|bundle| ExistingProposalStore {
                 path: authority.path,
                 identity: derive_store_identity(database_identity, authority),
-                bundle,
+                bundle: bundle.catalog(),
             })
         })
         .collect()
@@ -2199,7 +2199,7 @@ fn preflight_unpublished_schema_migration<C: CanisterKind>(
             bundle.as_ref().map(|bundle| ExistingProposalStore {
                 path: authority.path,
                 identity: derive_store_identity(target.database_identity(), authority),
-                bundle,
+                bundle: bundle.catalog(),
             })
         })
         .collect::<Vec<_>>();
@@ -2216,7 +2216,7 @@ fn preflight_unpublished_schema_migration<C: CanisterKind>(
             if next.version().get() != 1
                 || stores.iter().any(|store| {
                     store.identity == next.store()
-                        && store.bundle.entity_snapshots().contains_key(&next.entity())
+                        && store.bundle.entity_snapshots.contains_key(&next.entity())
                 })
             {
                 return Err(InternalError::store_invariant());
@@ -2268,7 +2268,7 @@ fn lower_application_candidates<const ALLOW_REMOVALS: bool>(
             let candidates = lower_initial_schema_proposal(proposal, stores.as_slice())?;
             #[cfg(feature = "migration")]
             {
-                let planned = plan_new_entity_source_lineage(proposal, &[], &candidates)
+                let planned = plan_new_entity_source_lineage(proposal, |_| false, &candidates)
                     .map_err(schema_migration_planning_error)?;
                 if planned.len()
                     != proposal
@@ -2295,7 +2295,7 @@ fn lower_application_candidates<const ALLOW_REMOVALS: bool>(
                     bundle.as_ref().map(|bundle| ExistingProposalStore {
                         path: authority.path,
                         identity: derive_store_identity(target.database_identity(), authority),
-                        bundle,
+                        bundle: bundle.catalog(),
                     })
                 })
                 .collect::<Vec<_>>();

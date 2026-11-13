@@ -3,6 +3,7 @@
 mod admission;
 
 use super::*;
+use crate::db::schema::AcceptedConstraintKind;
 
 #[test]
 fn mixed_constraint_sources_preserve_violation_order_and_activation_scope() {
@@ -11,10 +12,12 @@ fn mixed_constraint_sources_preserve_violation_order_and_activation_scope() {
     let catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "accepted_true".into(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::True,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::True),
+            },
         )
         .unwrap()
         .with_added_check_activation(

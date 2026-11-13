@@ -1,3 +1,5 @@
+//! Compile-time contract for public structural writes.
+
 use icydb::{
     db::{
         DbSession, StructuralMutation, StructuralPatch, TypedEntityBinding, TypedWrite, WriteCell,

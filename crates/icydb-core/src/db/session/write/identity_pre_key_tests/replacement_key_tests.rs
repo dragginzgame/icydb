@@ -116,10 +116,6 @@ fn non_primary_generation_snapshot(
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one matrix pairs ULID/timestamp ownership across typed/structural single/batch routes and authorship rejection"
-)]
 fn replacement_routes_preserve_non_primary_insert_generation() {
     for (kind, generation) in [
         (AcceptedFieldKind::Ulid, FieldInsertGeneration::Ulid),

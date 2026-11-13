@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey, RawRow, ReadDataRow},
         executor::{
-            EntityAuthority, IndexComponentValues, OrderedKeyStreamBox,
+            EntityAuthority, OrderedKeyStreamBox,
             covering::{
                 decode_covering_projection_components,
                 read_row_presence_with_consistency_from_data_store,
@@ -409,7 +409,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     ) -> Result<Option<KernelRow>, InternalError> {
         if let Some(covering) = &self.covering
             && let Some(components) = stream.take_covering_components()
-            && let Some(values) = covering.decode(key, components)?
+            && let Some(values) = covering.decode(key, &components)?
         {
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
             if !self.state.store.with_data(|data| {
@@ -600,7 +600,7 @@ impl RetainedCoveringRead {
     fn decode(
         &self,
         key: &DecodedDataStoreKey,
-        components: IndexComponentValues,
+        components: &[Vec<u8>],
     ) -> Result<Option<Vec<Option<crate::value::Value>>>, InternalError> {
         charge_decoded_row(components.iter().map(Vec::len).sum(), self.fields.len())?;
         let Some(values) = decode_covering_projection_components(components)? else {

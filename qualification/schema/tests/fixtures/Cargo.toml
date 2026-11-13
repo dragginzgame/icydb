@@ -23,7 +23,7 @@ build = ["icydb/build", "icydb-model/build"]
 icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

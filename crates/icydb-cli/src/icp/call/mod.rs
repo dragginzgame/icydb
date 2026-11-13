@@ -70,11 +70,11 @@ impl IcpCallKind {
         }
     }
 
-    fn capture_error(self, error: io::Error) -> String {
-        let not_started = capture_failed_before_dispatch(&error);
+    fn capture_error(self, error: &io::Error) -> String {
+        let not_started = capture_failed_before_dispatch(error);
         let mut detail = format!(
             "failed to run icp canister call: {}",
-            capture_error_detail(&error)
+            capture_error_detail(error)
         );
         if matches!(self, Self::Update)
             && let Some(evidence) = error
@@ -257,7 +257,7 @@ pub(super) fn call_hex(
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()),
         )
-        .map_err(|error| kind.capture_error(error))?;
+        .map_err(|error| kind.capture_error(&error))?;
 
         let response = (|| {
             if !output.status.success() {

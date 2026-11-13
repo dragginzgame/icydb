@@ -210,7 +210,12 @@ pub enum ResumableJobError {
     /// The requested job does not exist.
     NotFound,
     /// The request did not name the job's current sequence.
-    StaleSequence { expected: u64, actual: u64 },
+    StaleSequence {
+        /// Sequence requested by the caller.
+        expected: u64,
+        /// Job's current committed sequence.
+        actual: u64,
+    },
     /// A non-replay request targeted an invalidated job.
     Invalidated,
     /// A non-replay request targeted a completed job.
@@ -229,11 +234,17 @@ pub enum ResumableJobError {
     Internal,
     /// The enclosing request exhausted aggregate IcyDB work allowance.
     ExecutionBudgetExceeded {
+        /// Typed or numeric identity of the exhausted resource.
         resource: u64,
+        /// Maximum admitted value for this bound.
         limit: u64,
+        /// Observed value that exceeded the bound.
         observed: u64,
+        /// Numeric identity of the accounting scope.
         scope: u64,
+        /// Numeric identity of the execution lane.
         lane: u64,
+        /// Prefix of the normalized query-shape fingerprint.
         normalized_shape_fingerprint_prefix: u64,
     },
 }

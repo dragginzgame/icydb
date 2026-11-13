@@ -46,8 +46,8 @@ fn generate_with_crate_path(canister_path: &str, icydb_crate_path: Option<&str>)
     let code = ActorBuilder::new(
         Arc::new(schema.clone()),
         canister.clone(),
-        fragment,
-        migration_plan,
+        &fragment,
+        migration_plan.as_ref(),
         crate_path::resolve_path(icydb_crate_path),
     );
     drop(schema);
@@ -83,17 +83,17 @@ impl ActorBuilder {
     pub fn new(
         schema: Arc<Schema>,
         canister: Canister,
-        fragment: icydb_schema::SchemaFragment,
-        migration_plan: Option<SchemaMigrationPlan>,
+        fragment: &icydb_schema::SchemaFragment,
+        migration_plan: Option<&SchemaMigrationPlan>,
         icydb: TokenStream,
     ) -> Self {
-        if let Some(plan) = &migration_plan {
-            plan.validate_target_fragment(&fragment)
+        if let Some(plan) = migration_plan {
+            plan.validate_target_fragment(fragment)
                 .expect("generated migration target must satisfy the schema proposal contract");
         }
         let schema_fragment_bytes =
-            encode_schema_fragment(&fragment).expect("sealed schema fragment must encode");
-        let schema_migration_plan_bytes = migration_plan.as_ref().map(|plan| {
+            encode_schema_fragment(fragment).expect("sealed schema fragment must encode");
+        let schema_migration_plan_bytes = migration_plan.map(|plan| {
             encode_schema_migration_plan(plan).expect("sealed migration plan must encode")
         });
         let mut builder = Self {

@@ -22,6 +22,10 @@ pub struct Clamp {
 
 impl Clamp {
     /// Configure bounds; unrepresentable bounds make normalization fail without mutation.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Generated attachments pass literal, constant and function-result bounds by value"
+    )]
     pub fn new<N: NumericValue>(min: N, max: N) -> Self {
         let min = try_cast_decimal(&min);
         let max = try_cast_decimal(&max);

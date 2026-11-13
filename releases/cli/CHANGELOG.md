@@ -3,6 +3,33 @@
 Last coordinated release: [0.294.0](../history.md). Independent cli releases
 begin with 0.295.0 below.
 
+## [0.296.14]
+
+### 🔧 Changed
+
+- Complete CLI Clippy cleanup across all targets: borrow inspected command
+  arguments, process errors and render inputs, and remove redundant fixture
+  clones without changing command or exit-status contracts
+  ([#637 — Rust 1.100 and common lint adoption](https://github.com/dragginzgame/icydb/issues/637)).
+
+- Enforce Clippy warning denial through Cargo, with fresh/cached warning refusal
+  and command-adapter coverage; retain release evidence invalidation.
+
+- Adopt Host Artifacts/Fs/Process 0.77.0, Host Text 0.75.0 and Host Tools 0.92.0,
+  preserving unrelated locked suppliers.
+
+- Adopt Toko Tooling 0.42.4 and Rust 1.100.0 across workspace compiler selections.
+  Isolate managed tooling under `vendor/toko-tooling/` and migrate CI, release,
+  setup and hook callers; select release/publication helpers explicitly.
+  Fix vendor release-command qualification and retry tool cleanup without rebuilding.
+  Select the tooling source bundle through the supported `cfg(any())` dev-dependency
+  marker without compiling it into binary tests. Add offline `make deps-list`, remove unused dependency catalogs, and enforce the
+  new Cargo/Rustdoc lints. Apply deployment sequencing and supplier-isolation rules; preserve
+  locked runtime dependencies. Compiler/lint qualification remains tracked by
+  [#637 — Rust 1.100 and common lint adoption](https://github.com/dragginzgame/icydb/issues/637).
+
+[Detailed changes](0.296.md).
+
 ## [0.296.13] - 2026-11-12
 
 ### 🔧 Changed

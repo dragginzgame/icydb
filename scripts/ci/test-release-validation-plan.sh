@@ -22,13 +22,37 @@ git_context="$(git rev-parse --local-env-vars)"
 while IFS= read -r variable; do
     unset "$variable"
 done <<< "$git_context"
-cp "$root/ci/"{release-validation.json,release-validation-contract.json,cargo-release-groups.json} "$fixture_repo/ci/"
+mkdir -p "$fixture_repo/ci/"
+cp "$root/ci/release-validation.json" "$fixture_repo/ci/"
+mkdir -p "$fixture_repo/ci/"
+cp "$root/ci/release-validation-contract.json" "$fixture_repo/ci/"
+mkdir -p "$fixture_repo/ci/"
+cp "$root/ci/cargo-release-groups.json" "$fixture_repo/ci/"
 cp "$root/Makefile" "$fixture_repo/"
 cp "$root/scripts/release/"{validation-plan.pl,validation-receipt.pl,validation-stages.pl,compare-validation-plans.pl,qualify-validation-plan.sh,qualify-native-validation.sh,ValidationScope.pm,validation-fingerprint.pl} "$fixture_repo/scripts/release/"
-cp "$root/scripts/ci/"{run-validation-targets.sh,run-icydb-validation-targets.sh,check-make-execution.sh,verify-file-checksum.sh,validation-input-checkpoint.pl,release-validation-plan.pl,ValidationPlan.pm,validation-evidence.pl,release-receipts.sh} "$fixture_repo/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/run-validation-targets.sh" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/scripts/ci/"
+cp "$root/scripts/ci/run-icydb-validation-targets.sh" "$fixture_repo/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/check-make-execution.sh" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/verify-file-checksum.sh" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/release-validation-plan.pl" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/ValidationPlan.pm" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/validation-evidence.pl" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/release-receipts.sh" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
 cp "$root/scripts/release/"{group.sh,prepare-extra.sh} "$fixture_repo/scripts/release/"
-cp "$root/scripts/ci/cargo-release-groups.jq" "$fixture_repo/scripts/ci/"
-cp "$root/scripts/ci/StableVersion.pm" "$fixture_repo/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/cargo-release-groups.jq" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture_repo/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/StableVersion.pm" "$fixture_repo/vendor/toko-tooling/scripts/ci/"
 while IFS= read -r path; do
     mkdir -p "$fixture_repo/$(dirname "$path")"
     cp "$root/$path" "$fixture_repo/$path"
@@ -54,6 +78,7 @@ mkdir -p "$fixture/cargo-probe"
 cat > "$fixture/cargo-probe/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "$1" != clippy || "${CARGO_BUILD_WARNINGS:-}" == deny ]]
 printf '%s\n' "$*" >> "$ICYDB_CARGO_TRACE"
 [[ "$1" != test || "${RUST_TEST_THREADS:-}" == 2 ]]
 CARGO
@@ -65,7 +90,7 @@ export ICYDB_CARGO_TRACE="$fixture/cargo-calls"
     "CARGO_WORK_ENV=PATH=\"$fixture/cargo-probe:$PATH\"" \
     clippy-cli check-cli test-cli package-cli > "$fixture/cargo-projection.log"
 cat > "$fixture/cargo-expected" <<'EXPECTED'
-clippy --locked -p icydb-cli --all-targets -- -D warnings
+clippy --locked -p icydb-cli --all-targets
 check --locked -p icydb-cli --all-targets
 test --locked --no-fail-fast -p icydb-cli --all-targets
 package --locked -p icydb-cli
@@ -105,7 +130,7 @@ for fixture_group in database cli; do
     mkdir -p "releases/$fixture_group"
     printf '# Fixture notes\n' > "releases/$fixture_group/CHANGELOG.md"
 done
-fixture_group_sha="$(bash scripts/ci/verify-file-checksum.sh --print sha256 ci/cargo-release-groups.json)"
+fixture_group_sha="$(bash vendor/toko-tooling/scripts/ci/verify-file-checksum.sh --print sha256 ci/cargo-release-groups.json)"
 jq -cS --arg hash "$fixture_group_sha" '.files["ci/cargo-release-groups.json"]=$hash' ci/release-validation-contract.json > "$fixture/initial-contract"
 mv "$fixture/initial-contract" ci/release-validation-contract.json
 cargo generate-lockfile --offline > "$fixture/initial-lock.log" 2>&1
@@ -196,7 +221,7 @@ for group in database cli; do
             printf '# Notes\n\n## [0.296.0]\n\nFixture release.\n' > "releases/$mini_group/CHANGELOG.md"
             cp "releases/$mini_group/CHANGELOG.md" "releases/$mini_group/0.296.md"
         done
-        mini_sha="$(bash scripts/ci/verify-file-checksum.sh --print sha256 ci/cargo-release-groups.json)"
+        mini_sha="$(bash vendor/toko-tooling/scripts/ci/verify-file-checksum.sh --print sha256 ci/cargo-release-groups.json)"
         jq -cS --arg hash "$mini_sha" '.files["ci/cargo-release-groups.json"]=$hash' ci/release-validation-contract.json > "$fixture/mini-contract"
         mv "$fixture/mini-contract" ci/release-validation-contract.json
         cargo generate-lockfile --offline > "$fixture/mini-lock.log" 2>&1
@@ -224,7 +249,7 @@ for group in database cli; do
         rg -F 'Native mapping, host/compiler or Cargo configuration is not qualified.' "$fixture/database-summary.md"
         # A transitive automation helper is part of the omission mapping even
         # when the top-level roster, Makefile and dependency graph stay fixed.
-        printf '\n# changed automation owner\n' >> scripts/ci/check-make-execution.sh
+        printf '\n# changed automation owner\n' >> vendor/toko-tooling/scripts/ci/check-make-execution.sh
         git commit -qam 'fixture automation owner drift'
         perl scripts/release/validation-fingerprint.pl "$(git rev-parse HEAD)" > "$fixture/automation-fingerprint.json"
         [[ "$(jq -r .mapping_sha256 "$fixture/automation-fingerprint.json")" != "$(jq -r .mapping_sha256 "$fixture/mini-fingerprint.json")" ]]
@@ -249,7 +274,7 @@ for group in database cli; do
             local RELEASE_GROUP="$group" RELEASE_SOURCE="$production_source" RELEASE_PREVIOUS=0.295.2
             local RELEASE_VERSION=0.296.0 RELEASE_DATE=2026-11-04 RELEASE_KIND=minor RELEASE_COMMIT
             export RELEASE_GROUP RELEASE_SOURCE RELEASE_PREVIOUS RELEASE_VERSION RELEASE_DATE RELEASE_KIND RELEASE_COMMIT
-            bash scripts/ci/cargo-release-group.sh prepare "$group" > "$fixture/selected-prepare.log" 2>&1
+            bash vendor/toko-tooling/scripts/ci/cargo-release-group.sh prepare "$group" > "$fixture/selected-prepare.log" 2>&1
             bash scripts/release/prepare-extra.sh >> "$fixture/selected-prepare.log" 2>&1
             bash scripts/release/finalize-notes.sh >> "$fixture/selected-prepare.log" 2>&1
             bash scripts/ci/release-candidate-receipt.sh record minor "$production_source"
@@ -274,7 +299,7 @@ for group in database cli; do
             # An interleaved other-group version is canonical metadata, not a
             # dependency/feature change. It cannot invalidate the mapping.
             other_group="$( [[ "$group" == cli ]] && printf database || printf cli )"
-            RELEASE_GROUP="$other_group" bash scripts/ci/cargo-release-group.sh prepare "$other_group" > "$fixture/other-prepare.log" 2>&1
+            RELEASE_GROUP="$other_group" bash vendor/toko-tooling/scripts/ci/cargo-release-group.sh prepare "$other_group" > "$fixture/other-prepare.log" 2>&1
             RELEASE_GROUP="$other_group" bash scripts/release/prepare-extra.sh >> "$fixture/other-prepare.log" 2>&1
             RELEASE_GROUP="$other_group" bash scripts/release/finalize-notes.sh >> "$fixture/other-prepare.log" 2>&1
             git add .; git commit -qm 'fixture interleaved other-group metadata'
@@ -395,8 +420,8 @@ refuse perl scripts/release/validation-receipt.pl "$attempt/plan.json" "${run[0]
 cp target/events.original "${run[0]}/plan-events.tsv"
 # Qualify the consumer's saved-proof pointer and Shared atomic publication:
 # changed raw logs cannot become a new successful baseline or replace a receipt.
-# shellcheck source=scripts/ci/release-receipts.sh
-source scripts/ci/release-receipts.sh
+# shellcheck source=vendor/toko-tooling/scripts/ci/release-receipts.sh
+source vendor/toko-tooling/scripts/ci/release-receipts.sh
 cp "${run[0]}/0.log" target/log.original
 cp "$receipt" target/receipt.original
 printf 'changed retained execution log\n' >> "${run[0]}/0.log"

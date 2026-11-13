@@ -638,7 +638,7 @@ fn derive_execution_preparation_predicate(
     };
     match access.selected_index_contract() {
         Some(index) => {
-            residual_query_predicate_after_filtered_access_contract(index, query_predicate, budget)
+            residual_query_predicate_after_filtered_access_contract(&index, query_predicate, budget)
         }
         None => Ok(Some(query_predicate)),
     }

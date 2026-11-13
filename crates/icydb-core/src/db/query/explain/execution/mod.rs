@@ -14,10 +14,7 @@ use crate::{
 };
 use std::fmt::{self, Debug};
 
-#[cfg_attr(
-    doc,
-    doc = "ExplainPropertyMap\n\nStable ordered property map for EXPLAIN metadata.\nKeeps deterministic key order without `BTreeMap`."
-)]
+#[doc = "ExplainPropertyMap\n\nStable ordered property map for EXPLAIN metadata.\nKeeps deterministic key order without `BTreeMap`."]
 #[derive(Clone, Default, Eq, PartialEq)]
 pub(in crate::db) struct ExplainPropertyMap {
     entries: Vec<(&'static str, Value)>,
@@ -150,10 +147,7 @@ pub(in crate::db) mod property_values {
     pub(in crate::db) const STRICT_ALL_OR_NONE: &str = "strict_all_or_none";
 }
 
-#[cfg_attr(
-    doc,
-    doc = "ExplainExecutionOrderingSource\n\nOrdering-origin label used by execution EXPLAIN output."
-)]
+#[doc = "ExplainExecutionOrderingSource\n\nOrdering-origin label used by execution EXPLAIN output."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ExplainExecutionOrderingSource {
     AccessOrder,
@@ -162,20 +156,14 @@ pub(in crate::db) enum ExplainExecutionOrderingSource {
     IndexSeekLast { fetch: usize },
 }
 
-#[cfg_attr(
-    doc,
-    doc = "ExplainExecutionMode\n\nExecution mode used by EXPLAIN descriptors."
-)]
+#[doc = "ExplainExecutionMode\n\nExecution mode used by EXPLAIN descriptors."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ExplainExecutionMode {
     Streaming,
     Materialized,
 }
 
-#[cfg_attr(
-    doc,
-    doc = "ExplainExecutionDescriptor\n\nScalar execution descriptor consumed by terminal EXPLAIN surfaces.\nKeeps execution projection centralized for renderers."
-)]
+#[doc = "ExplainExecutionDescriptor\n\nScalar execution descriptor consumed by terminal EXPLAIN surfaces.\nKeeps execution projection centralized for renderers."]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExplainExecutionDescriptor {
     pub(in crate::db) access_strategy: ExplainAccessPath,
@@ -188,10 +176,7 @@ pub(in crate::db) struct ExplainExecutionDescriptor {
     pub(in crate::db) node_properties: ExplainPropertyMap,
 }
 
-#[cfg_attr(
-    doc,
-    doc = "ExplainExecutionNodeType\n\nExecution-node vocabulary for EXPLAIN descriptors."
-)]
+#[doc = "ExplainExecutionNodeType\n\nExecution-node vocabulary for EXPLAIN descriptors."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ExplainExecutionNodeType {
     ByKeyLookup,
@@ -228,10 +213,7 @@ pub(in crate::db) enum ExplainExecutionNodeType {
     SecondaryOrderPushdown,
 }
 
-#[cfg_attr(
-    doc,
-    doc = "ExplainExecutionNodeDescriptor\n\nCanonical execution-node descriptor for EXPLAIN renderers.\nOptional fields are node-family specific."
-)]
+#[doc = "ExplainExecutionNodeDescriptor\n\nCanonical execution-node descriptor for EXPLAIN renderers.\nOptional fields are node-family specific."]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExplainExecutionNodeDescriptor {
     pub(in crate::db) node_type: ExplainExecutionNodeType,

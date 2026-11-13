@@ -25,10 +25,10 @@ git -C "$root" show "$1:$lock" > "$selection" || exit 1
 version="$("${YQ:-yq}" -p toml -o json '.' "$selection" |
     jq -er '[.package[] | select(.name == "ic-build")] |
         if length == 1 then .[0].version else error("expected one saved IC Build selection") end')" || exit 1
-order="$(perl "$root/scripts/ci/compare-stable-versions.pl" "$version" 0.63.0)" || exit 1
+order="$(perl "$root/vendor/toko-tooling/scripts/ci/compare-stable-versions.pl" "$version" 0.63.0)" || exit 1
 features=()
 if [[ "$order" != -1 ]]; then features=(--features cli); fi
-editor="$(bash "$root/scripts/dev/install-rust-tools.sh" --consumer "$root" \
+editor="$(bash "$root/vendor/toko-tooling/scripts/dev/install-rust-tools.sh" --consumer "$root" \
     --package ic-build --lockfile "$selection" --bin ic-build-release-metadata \
     --profile debug ${features[@]+"${features[@]}"} --check)" || exit $?
 printf '%s\n' "$editor"

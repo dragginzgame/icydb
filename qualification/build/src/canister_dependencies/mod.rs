@@ -58,7 +58,7 @@ pub(crate) fn admit(
     let facts = inputs.facts();
     let mut command = Command::new("perl");
     command
-        .arg(repository.join("scripts/ci/check-cargo-graph.pl"))
+        .arg(repository.join("vendor/toko-tooling/scripts/ci/check-cargo-graph.pl"))
         .args(["--consumer"])
         .arg(request.workspace_root)
         .args([

@@ -563,7 +563,7 @@ impl JournalTailStore {
     ) -> Result<(), InternalError> {
         let entries =
             self.prepare_accepted_entity_mutation_revision_replacement(accepted_entity_tags)?;
-        self.apply_entity_mutation_revision_replacement(entries)
+        self.apply_entity_mutation_revision_replacement(&entries)
     }
 
     /// Require the complete revision authority to match the accepted entity set.
@@ -999,7 +999,7 @@ impl JournalTailStore {
     /// grow with tail length.
     pub(in crate::db) fn inspect_page(
         &self,
-        checkpoint: JournalInspectionCheckpoint,
+        checkpoint: &JournalInspectionCheckpoint,
         limits: JournalInspectionLimits,
     ) -> Result<JournalIntegrityPage, InternalError> {
         let limits = limits.validate()?;
@@ -1012,17 +1012,17 @@ impl JournalTailStore {
                 self.start_inspection_batch(watermark, sequence, &mut accumulator)
             }
             JournalInspectionCheckpoint::BeforeBatch { sequence } => {
-                let sequence = JournalSequence::new(sequence);
+                let sequence = JournalSequence::new(*sequence);
                 if sequence <= watermark {
                     return Err(journal_tail_corruption());
                 }
                 self.start_inspection_batch(watermark, sequence, &mut accumulator)
             }
             JournalInspectionCheckpoint::AfterBatch { sequence } => {
-                if sequence < watermark.get() {
+                if *sequence < watermark.get() {
                     return Err(journal_tail_corruption());
                 }
-                let sequence = JournalSequence::new(sequence)
+                let sequence = JournalSequence::new(*sequence)
                     .next()
                     .ok_or_else(journal_tail_corruption)?;
                 self.start_inspection_batch(watermark, sequence, &mut accumulator)
@@ -1033,9 +1033,9 @@ impl JournalTailStore {
                 next_prior_sequence,
             } => self.continue_batch_identity_check(
                 watermark,
-                JournalSequence::new(sequence),
-                batch_id,
-                JournalSequence::new(next_prior_sequence),
+                JournalSequence::new(*sequence),
+                *batch_id,
+                JournalSequence::new(*next_prior_sequence),
                 &mut accumulator,
             ),
         }
@@ -1072,7 +1072,7 @@ impl JournalTailStore {
             }
             entries.extend(chunk);
         }
-        validate_entity_mutation_revision_entries(entries.as_slice())?;
+        validate_entity_mutation_revision_entries(&entries)?;
         if entries.iter().any(|entry| entry.revision > data_revision) {
             return Err(journal_tail_corruption());
         }
@@ -1154,7 +1154,7 @@ impl JournalTailStore {
         }
 
         if let Some(entries) = replacement {
-            return self.prepare_entity_mutation_revision_replacement(entries);
+            return self.prepare_entity_mutation_revision_replacement(&entries);
         }
         self.prepare_entity_mutation_revision_chunks(updates)
     }
@@ -1265,7 +1265,7 @@ impl JournalTailStore {
 
     fn apply_entity_mutation_revision_replacement(
         &mut self,
-        entries: Vec<EntityMutationRevisionEntry>,
+        entries: &[EntityMutationRevisionEntry],
     ) -> Result<(), InternalError> {
         let update = self.prepare_entity_mutation_revision_replacement(entries)?;
         self.apply_prepared_entity_mutation_revision_update(update);
@@ -1274,9 +1274,9 @@ impl JournalTailStore {
 
     fn prepare_entity_mutation_revision_replacement(
         &self,
-        entries: Vec<EntityMutationRevisionEntry>,
+        entries: &[EntityMutationRevisionEntry],
     ) -> Result<PreparedEntityMutationRevisionUpdate, InternalError> {
-        validate_entity_mutation_revision_entries(entries.as_slice())?;
+        validate_entity_mutation_revision_entries(entries)?;
         let count = u32::try_from(entries.len()).map_err(|_| journal_tail_corruption())?;
         let existing_keys = self
             .map
@@ -1964,7 +1964,7 @@ fn decode_entity_mutation_revision_chunk(
             revision: u64::from_be_bytes(revision),
         });
     }
-    validate_entity_mutation_revision_entries(entries.as_slice())?;
+    validate_entity_mutation_revision_entries(&entries)?;
     Ok(entries)
 }
 

@@ -11,7 +11,7 @@ candidate="releases/$RELEASE_GROUP/$candidate_line.md"
 jq -e --arg group "$RELEASE_GROUP" --arg path "$candidate" ' .groups[] | select(.name == $group) | .metadata_files | index($path) != null' ci/cargo-release-groups.json >/dev/null
 cp -p "$candidate" "$scratch/candidate"
 awk -v version="$RELEASE_VERSION" -v date="${RELEASE_DATE:?}" \
-    -f scripts/ci/finalize-release-changelog.awk "$scratch/candidate" > "$scratch/finalized"
+    -f vendor/toko-tooling/scripts/ci/finalize-release-changelog.awk "$scratch/candidate" > "$scratch/finalized"
 # Shared preparation already finalized the group ledger. Admit that identity
 # before publishing the independently rendered detail notes.
 awk -v heading="## [$RELEASE_VERSION] - $RELEASE_DATE" \

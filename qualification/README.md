@@ -19,7 +19,7 @@ server. Prepare the selected Testkit CLI and server explicitly, then admit the
 server for the focused test:
 
 ```sh
-testkit_cli="$(bash scripts/dev/install-rust-tools.sh --consumer "$PWD" \
+testkit_cli="$(bash vendor/toko-tooling/scripts/dev/install-rust-tools.sh --consumer "$PWD" \
   --package ic-testkit --lockfile "$PWD/qualification/Cargo.lock" \
   --bin ic-testkit-server --profile debug --features cli)"
 "$testkit_cli" setup --directory "$PWD/.tools/ic-testkit-server-native"

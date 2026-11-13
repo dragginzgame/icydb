@@ -326,7 +326,7 @@ fn sql_nat128_column_equality_covers_the_full_domain_and_preserves_nulls() {
 #[test]
 fn sql_nat128_column_ordering_covers_the_full_domain_across_execution_lanes() {
     assert_scalar_column_ordering(
-        AcceptedFieldKind::Nat128,
+        &AcceptedFieldKind::Nat128,
         InputValue::nat128(1_u128 << 127),
         InputValue::nat128(u128::MAX),
     );
@@ -362,7 +362,7 @@ fn sql_same_width_float_comparisons_preserve_finite_extremes_and_nulls() {
     for (kind, first, second) in cases {
         crate::testing::run_isolated({
             let (kind, first, second) = (kind.clone(), first.clone(), second.clone());
-            move || assert_scalar_column_ordering(kind, first, second)
+            move || assert_scalar_column_ordering(&kind, first, second)
         });
         crate::testing::run_isolated(move || {
             let session = seed_scalar_pairs(kind, first, second);
@@ -471,7 +471,7 @@ fn sql_same_width_float_literals_agree_across_predicate_and_expression_routes() 
 #[test]
 fn sql_issue_timestamp_column_equality_matches_execution_lanes() {
     assert_scalar_column_equality(
-        AcceptedFieldKind::Timestamp,
+        &AcceptedFieldKind::Timestamp,
         InputValue::timestamp(Timestamp::from_millis(-1)),
         InputValue::timestamp(Timestamp::from_millis(1)),
     );
@@ -480,7 +480,7 @@ fn sql_issue_timestamp_column_equality_matches_execution_lanes() {
 #[test]
 fn sql_issue_ulid_column_equality_matches_execution_lanes() {
     assert_scalar_column_equality(
-        AcceptedFieldKind::Ulid,
+        &AcceptedFieldKind::Ulid,
         InputValue::ulid(Ulid::from_u128(1)),
         InputValue::ulid(Ulid::from_u128(2)),
     );
@@ -489,7 +489,7 @@ fn sql_issue_ulid_column_equality_matches_execution_lanes() {
 #[test]
 fn sql_scalar_text_column_equality_preserves_unknown() {
     assert_scalar_column_equality(
-        AcceptedFieldKind::Text { max_len: None },
+        &AcceptedFieldKind::Text { max_len: None },
         InputValue::text("a".into()),
         InputValue::text("b".into()),
     );
@@ -498,7 +498,7 @@ fn sql_scalar_text_column_equality_preserves_unknown() {
 #[test]
 fn sql_scalar_bool_column_equality_preserves_unknown() {
     assert_scalar_column_equality(
-        AcceptedFieldKind::Bool,
+        &AcceptedFieldKind::Bool,
         InputValue::boolean(false),
         InputValue::boolean(true),
     );
@@ -507,13 +507,13 @@ fn sql_scalar_bool_column_equality_preserves_unknown() {
 #[test]
 fn sql_scalar_principal_column_equality_preserves_unknown() {
     assert_scalar_column_equality(
-        AcceptedFieldKind::Principal,
+        &AcceptedFieldKind::Principal,
         InputValue::principal(Principal::anonymous()),
         InputValue::principal(Principal::from_slice(&[])),
     );
 }
 
-fn assert_scalar_column_equality(kind: AcceptedFieldKind, first: InputValue, second: InputValue) {
+fn assert_scalar_column_equality(kind: &AcceptedFieldKind, first: InputValue, second: InputValue) {
     let session = seed_scalar_pairs(kind.clone(), first, second);
     for (predicate, expected) in [
         ("left_value = right_value", vec![1]),
@@ -561,7 +561,7 @@ fn assert_scalar_column_equality(kind: AcceptedFieldKind, first: InputValue, sec
             icydb_diagnostic_code::ErrorCode::QUERY_PLAN
         );
     }
-    if kind == AcceptedFieldKind::Timestamp {
+    if *kind == AcceptedFieldKind::Timestamp {
         assert_eq!(
             projection_rows(
                 &session,
@@ -575,7 +575,7 @@ fn assert_scalar_column_equality(kind: AcceptedFieldKind, first: InputValue, sec
 #[test]
 fn sql_issue_field_ordering_text_control_preserves_unknown() {
     assert_scalar_column_ordering(
-        AcceptedFieldKind::Text { max_len: None },
+        &AcceptedFieldKind::Text { max_len: None },
         InputValue::text("a".into()),
         InputValue::text("b".into()),
     );
@@ -643,11 +643,11 @@ fn sql_issue_field_ordering_scalar_families_match_execution_lanes() {
     ] {
         // Each schema needs fresh thread-local authority, as in the maintained
         // multi-schema session fixtures.
-        crate::testing::run_isolated(move || assert_scalar_column_ordering(kind, first, second));
+        crate::testing::run_isolated(move || assert_scalar_column_ordering(&kind, first, second));
     }
 }
 
-fn assert_scalar_column_ordering(kind: AcceptedFieldKind, first: InputValue, second: InputValue) {
+fn assert_scalar_column_ordering(kind: &AcceptedFieldKind, first: InputValue, second: InputValue) {
     let session = seed_scalar_pairs(kind.clone(), first, second);
     for (predicate, expected) in [
         ("left_value < right_value", vec![2]),

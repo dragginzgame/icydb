@@ -817,3 +817,5 @@ pub(in crate::db) use helper_tests::empty_accepted_enum_catalog_for_tests;
 pub(in crate::db) use helper_tests::TestEnumDefinition;
 #[cfg(test)]
 pub(in crate::db) use helper_tests::TestEnumVariant;
+
+pub(in crate::db::schema) use publication::SchemaCatalogView;

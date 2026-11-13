@@ -26,12 +26,12 @@ use std::cell::RefCell;
 pub(in crate::db) use entropy::set_boot_entropy_for_tests;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
-// Split identity checkpoints require a distinct boot identity. Earlier
-// incarnations refuse before collection or recovery decoding can observe them.
-const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBID\0";
+// Unicode 18 changes persisted expression-index keys and predicate bounds.
+// Reject earlier images before recovery or collection decoding can observe them.
+const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBU18";
 const DATABASE_BOOT_CHECKSUM_OFFSET: usize = 11;
 const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;
-// Split identity checkpoints require fresh control images; old bytes never decode.
+// This hard cut requires fresh control images; earlier bytes never decode.
 const DATABASE_FORMAT_VERSION_CURRENT: DatabaseFormatVersion = DatabaseFormatVersion(1);
 const CRC32C_REVERSED_POLYNOMIAL: u32 = 0x82f6_3b78;
 const CRC32C_TABLE: [u32; 256] = crc32c_table();

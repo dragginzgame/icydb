@@ -141,7 +141,7 @@ pub(in crate::db) fn accepted_relation_path_terminal(
         return None;
     }
     for step in steps {
-        current = relation_step_output(current, step, enum_catalog, composite_catalog)?;
+        current = relation_step_output(&current, step, enum_catalog, composite_catalog)?;
     }
     (!current.nullable()
         && current.kind().has_valid_local_shape()
@@ -150,7 +150,7 @@ pub(in crate::db) fn accepted_relation_path_terminal(
 }
 
 fn relation_step_output(
-    current: AcceptedRelationValueContract,
+    current: &AcceptedRelationValueContract,
     step: &PersistedRelationPathStepSnapshot,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
@@ -249,7 +249,7 @@ fn relation_step_output(
 }
 
 fn relation_collection_step_output(
-    current: AcceptedRelationValueContract,
+    current: &AcceptedRelationValueContract,
     step: &PersistedRelationPathStepSnapshot,
 ) -> Option<AcceptedRelationValueContract> {
     if current.nullable() {

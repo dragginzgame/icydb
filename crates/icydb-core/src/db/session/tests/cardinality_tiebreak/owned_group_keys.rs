@@ -483,14 +483,14 @@ fn expected_order_groups(
     rows
 }
 
-fn assert_group_order_matrix(kind: AcceptedFieldKind, values: Vec<Value>) {
+fn assert_group_order_matrix(kind: AcceptedFieldKind, values: &[Value]) {
     use crate::db::desc;
-    seed_order_groups(kind, &values);
+    seed_order_groups(kind, values);
     let root = crate::db::RequestExecutionRoot::__new_runtime_root();
     let session = new_request_session(&root);
     for compound in [false, true] {
         for descending in [false, true] {
-            let expected = expected_order_groups(&values, compound, descending);
+            let expected = expected_order_groups(values, compound, descending);
             let mut base = DynamicQuery::new(ENTITY_NAME)
                 .filter(FieldRef::new("category").eq(InputValue::nat64(3)))
                 .group_by("operand")
@@ -565,18 +565,13 @@ fn assert_group_order_matrix(kind: AcceptedFieldKind, values: Vec<Value>) {
 fn owned_group_order_scalar_matrix() {
     assert_group_order_matrix(
         AcceptedFieldKind::Text { max_len: None },
-        ["eng", "ops", "sales"]
-            .map(|key| Value::Text(key.into()))
-            .to_vec(),
+        &["eng", "ops", "sales"].map(|key| Value::Text(key.into())),
     );
 }
 
 #[test]
 fn owned_group_order_signed_matrix() {
-    assert_group_order_matrix(
-        AcceptedFieldKind::Int128,
-        [-7, 0, 9].map(Value::Int128).to_vec(),
-    );
+    assert_group_order_matrix(AcceptedFieldKind::Int128, &[-7, 0, 9].map(Value::Int128));
 }
 
 fn assert_canonical_order_rejection(error: QueryError) {
@@ -597,9 +592,7 @@ fn assert_canonical_order_rejection(error: QueryError) {
 fn owned_group_order_rejects_mixed_canonical_directions() {
     assert_mixed_group_direction_rejection(
         AcceptedFieldKind::Text { max_len: None },
-        ["eng", "ops", "sales"]
-            .map(|key| Value::Text(key.into()))
-            .to_vec(),
+        &["eng", "ops", "sales"].map(|key| Value::Text(key.into())),
     );
 }
 
@@ -607,13 +600,13 @@ fn owned_group_order_rejects_mixed_canonical_directions() {
 fn owned_group_order_rejects_signed_mixed_canonical_directions() {
     assert_mixed_group_direction_rejection(
         AcceptedFieldKind::Int128,
-        [-7, 0, 9].map(Value::Int128).to_vec(),
+        &[-7, 0, 9].map(Value::Int128),
     );
 }
 
-fn assert_mixed_group_direction_rejection(kind: AcceptedFieldKind, values: Vec<Value>) {
+fn assert_mixed_group_direction_rejection(kind: AcceptedFieldKind, values: &[Value]) {
     use crate::db::desc;
-    seed_order_groups(kind, &values);
+    seed_order_groups(kind, values);
     let root = crate::db::RequestExecutionRoot::__new_runtime_root();
     let session = new_request_session(&root);
     for descending in [false, true] {

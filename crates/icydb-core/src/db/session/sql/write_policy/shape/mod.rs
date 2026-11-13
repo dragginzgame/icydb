@@ -23,7 +23,7 @@ pub(in crate::db::session::sql) struct SqlWriteStatementShapeInput<'a> {
 }
 
 pub(in crate::db::session::sql) fn classify_write_statement_shape(
-    input: SqlWriteStatementShapeInput<'_>,
+    input: &SqlWriteStatementShapeInput<'_>,
 ) -> SqlWriteStatementShape {
     SqlWriteStatementShape {
         where_proof: classify_write_where_proof(

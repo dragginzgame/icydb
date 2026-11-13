@@ -230,10 +230,6 @@ impl IndexStore {
     /// executor can retain its ordinary bounded child-stream path.
     /// Empty child envelopes are skipped; an entirely empty merge performs no
     /// structural admission, decoding or visitation.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the explicit backing/direction matrix keeps each iterator borrowed and allocation-free"
-    )]
     pub(in crate::db) fn visit_raw_entries_in_merged_ranges<K, Admit, Decode, Visit>(
         &self,
         bounds: &[(&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>)],

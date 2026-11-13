@@ -21,7 +21,7 @@ use crate::{
 // payload. Raw data-row pages use the dense row decoder and retained-slot pages
 // fall back to direct field movement when another caller still asks for slots.
 pub(in crate::db::executor::projection::materialize::structural) fn project_identity_page(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     prepared_projection: &PreparedProjectionContract,
     page: StructuralCursorPage,
 ) -> Result<MaterializedProjectionRows, InternalError> {
@@ -37,7 +37,7 @@ pub(in crate::db::executor::projection::materialize::structural) fn project_iden
         |data_rows| {
             let rows = data_rows
                 .into_rows()
-                .map(|row| project_identity_data_row(&row_layout, row))
+                .map(|row| project_identity_data_row(row_layout, row))
                 .collect::<Result<Vec<_>, InternalError>>()?;
 
             Ok(MaterializedProjectionRows::from_value_rows(rows))

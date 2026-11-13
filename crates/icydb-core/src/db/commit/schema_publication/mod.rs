@@ -429,7 +429,7 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
             candidate,
             domain,
             job_change,
-            application_record,
+            application_record.as_ref(),
         ),
         StoreRecoveryCapability::StableBasePlusJournalReplay => publish_journaled_candidate(
             store_path,
@@ -450,7 +450,7 @@ fn publish_live_candidate_with_prepared_domains(
     candidate: &CandidateSchemaRevision,
     domain: StagedSchemaDomain,
     job_change: ConstraintValidationJobChange<'_>,
-    application_record: Option<SchemaApplicationRecordOp>,
+    application_record: Option<&SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
     if !matches!(job_change, ConstraintValidationJobChange::None)
         || application_record.is_some()

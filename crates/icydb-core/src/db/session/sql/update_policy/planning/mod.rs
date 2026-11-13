@@ -1,8 +1,13 @@
 //! SQL `UPDATE` policy parsing, shape classification, and admission planning.
 //! Does not own: public DTO definitions or update execution.
 
-use super::model::*;
 use crate::db::query::preparation::PreparationWork;
+use crate::db::session::sql::update_policy::model::{
+    SqlPublicBoundedUpdatePlan, SqlPublicPrimaryKeyUpdatePlan, SqlResumableUpdatePolicyReport,
+    SqlTrustedExactUpdatePlan, SqlTrustedResumableUpdatePlan, SqlUpdateExposurePolicy,
+    SqlUpdatePolicyContext, SqlUpdatePolicyRejection, SqlUpdatePolicyResult,
+    SqlValidatedUpdatePlan,
+};
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
 use crate::db::{
@@ -251,7 +256,7 @@ fn classify_write_shape(
     statement: &SqlUpdateStatement,
     context: SqlUpdatePolicyContext<'_>,
 ) -> SqlWriteStatementShape {
-    classify_write_statement_shape(SqlWriteStatementShapeInput {
+    classify_write_statement_shape(&SqlWriteStatementShapeInput {
         predicate: statement.predicate.as_ref(),
         entity: statement.entity.as_str(),
         table_alias: statement.table_alias.as_deref(),

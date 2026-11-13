@@ -384,10 +384,6 @@ fn normalize_contract(
     normalize_kind(catalogs, contract.kind(), input, depth, budget)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "accepted kind normalization remains one exhaustive auditable match across every scalar and recursive kind"
-)]
 fn normalize_kind(
     catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,

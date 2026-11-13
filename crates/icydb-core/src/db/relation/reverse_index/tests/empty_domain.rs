@@ -90,7 +90,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
             for neighbor in neighbors {
                 if backend >= 2 {
                     store
-                        .apply_canonical_entry(neighbor, Some(IndexEntryValue::presence()))
+                        .apply_canonical_entry(neighbor, Some(&IndexEntryValue::presence()))
                         .unwrap();
                 } else {
                     store.insert(neighbor, IndexEntryValue::presence());
@@ -99,7 +99,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
             let matching = key(entity, generation, relation_id, IndexKeyKind::System);
             if backend == 3 {
                 store
-                    .apply_canonical_entry(matching.clone(), Some(IndexEntryValue::presence()))
+                    .apply_canonical_entry(matching.clone(), Some(&IndexEntryValue::presence()))
                     .unwrap();
                 store.remove(&matching);
             }
@@ -117,7 +117,7 @@ fn empty_reverse_domain_ignores_other_entities_generations_relations_and_kinds()
             // prevents removal; unrelated entries cannot supply that witness.
             if backend == 2 {
                 store
-                    .apply_canonical_entry(matching.clone(), Some(IndexEntryValue::presence()))
+                    .apply_canonical_entry(matching.clone(), Some(&IndexEntryValue::presence()))
                     .unwrap();
             } else {
                 store.insert(matching.clone(), IndexEntryValue::presence());

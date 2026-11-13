@@ -443,7 +443,6 @@ pub(in crate::db) fn into_mutation_output_values(
 
 #[expect(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
     reason = "one phased owner keeps accepted authority, mutation context, precommit preparation, output capture, and commit staging inseparable"
 )]
 pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind, T>(
@@ -454,7 +453,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
     mut next_mutation: impl FnMut()
         -> Result<Option<AcceptedStructuralMutationBatchItem>, InternalError>,
     operation_timestamp: Timestamp,
-    options: AcceptedStructuralMutationCommitOptions,
+    options: &AcceptedStructuralMutationCommitOptions,
     precommit_preparation: impl FnOnce(
         Vec<AcceptedStructuralMutationRow>,
         AcceptedStructuralMutationPackingReport,
@@ -536,7 +535,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                 entity_tag: identity.entity_tag(),
                 // Field order belongs to this same immutable root. Retain only
                 // the output projection, once per entity, when requested.
-                output_field_slots: if capture_output_values {
+                output_field_slots: if *capture_output_values {
                     descriptor
                         .fields()
                         .iter()
@@ -580,7 +579,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                     raw_key.as_bytes().len(),
                     canonical_before.as_raw_row().as_bytes().len(),
                 ],
-                packing,
+                *packing,
             )?;
             match admission {
                 AcceptedStructuralMutationStagedAdmission::Admitted => {}
@@ -607,7 +606,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                 ),
                 batch_input_ordinal,
             )?;
-            let values = if capture_output_values {
+            let values = if *capture_output_values {
                 into_mutation_output_values(
                     reader,
                     &entity_states[entity_state_index].output_field_slots,
@@ -850,7 +849,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                     .map_or(0, |before| before.as_raw_row().as_bytes().len()),
                 after.as_raw_row().as_bytes().len(),
             ],
-            packing,
+            *packing,
         )?;
         match admission {
             AcceptedStructuralMutationStagedAdmission::Admitted => {}
@@ -874,7 +873,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             )
         });
         let admitted_mutation = scheduler.admit_save_after_image(
-            AcceptedMutationConstraintContext {
+            &AcceptedMutationConstraintContext {
                 entity_tag: identity.entity_tag(),
                 row_contract,
                 schema_fingerprint: catalog.fingerprint(),
@@ -888,7 +887,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             row_op.as_ref(),
             batch_input_ordinal,
         )?;
-        let values = if capture_output_values {
+        let values = if *capture_output_values {
             into_mutation_output_values(
                 reader,
                 &entity_states[entity_state_index].output_field_slots,
@@ -954,7 +953,12 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
         AcceptedStructuralMutationCommitDirective::Skip => {}
         AcceptedStructuralMutationCommitDirective::Standard if batch.is_empty() => {}
         AcceptedStructuralMutationCommitDirective::Standard => {
-            commit_structural_row_ops_with_window(db, batch, identity_ranges, operation_timestamp)?;
+            commit_structural_row_ops_with_window(
+                db,
+                batch,
+                &identity_ranges,
+                operation_timestamp,
+            )?;
         }
         AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation)
             if batch.is_empty() =>
@@ -966,7 +970,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             commit_structural_row_ops_with_mutation_progress(
                 db,
                 batch,
-                identity_ranges,
+                &identity_ranges,
                 operation,
                 operation_timestamp,
             )?;
@@ -1005,7 +1009,7 @@ pub(in crate::db) fn execute_accepted_structural_update_bounded_prefix<C: Canist
             })
         },
         operation_timestamp,
-        AcceptedStructuralMutationCommitOptions::bounded_prefix(),
+        &AcceptedStructuralMutationCommitOptions::bounded_prefix(),
         |rows, report| {
             if rows.len() != report.admitted_mutations() {
                 return Err(InternalError::executor_invariant());

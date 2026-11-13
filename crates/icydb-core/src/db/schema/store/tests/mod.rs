@@ -217,10 +217,6 @@ fn schema_store_matches_only_its_current_root_authority() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one activation fixture proves owned and borrowed warm-cache job closure"
-)]
 fn schema_store_requires_exact_job_closure_for_validating_activation() {
     let entity = EntityTag::new(0xCAFE);
     let empty = empty_accepted_schema_candidate_for_tests(
@@ -1194,10 +1190,6 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one publication fixture proves live identity checks through both bundle borrowers"
-)]
 fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corruption() {
     let entity_tag = EntityTag::new(101);
     let field_id = FieldId::new(1);

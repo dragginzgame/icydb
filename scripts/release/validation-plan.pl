@@ -7,7 +7,7 @@ use Digest::SHA qw(sha256_hex);
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL);
 use FindBin;
 use lib $FindBin::Bin;
-use lib "$FindBin::Bin/../ci";
+use lib "$FindBin::Bin/../../vendor/toko-tooling/scripts/ci";
 use ValidationPlan ();
 use ValidationScope qw(cli_private database_product exclusions);
 my $json = JSON::PP->new->canonical->utf8;
@@ -51,7 +51,7 @@ for my $path ('Makefile', 'ci/cargo-release-groups.json', 'ci/release-validation
 }
 my $groups_path = "$output.groups.json";
 write_new($groups_path, \@groups);
-my @full = split /\n/, capture('perl', 'scripts/ci/validation-evidence.pl',
+my @full = split /\n/, capture('perl', 'vendor/toko-tooling/scripts/ci/validation-evidence.pl',
     'roster', '.', $policy_path, $groups_path);
 my @full_gate = split /\n/, capture('perl', 'scripts/release/validation-stages.pl', 'full');
 my @mapped = sort (@full_gate, @{$contract->{supplemental_stages}});
@@ -61,7 +61,7 @@ $source =~ /\A[0-9a-f]{40,64}\z/ && capture('git','rev-parse','HEAD') eq "$sourc
 capture('git','status','--porcelain','--untracked-files=all') eq ''
     or die "release plan requires clean committed source\n";
 $baseline =~ /\A\Q$group\E-v\d+\.\d+\.\d+\z/ or die "wrong baseline group/tag\n";
-my $observation = $json->decode(capture('perl', 'scripts/ci/validation-evidence.pl',
+my $observation = $json->decode(capture('perl', 'vendor/toko-tooling/scripts/ci/validation-evidence.pl',
     'baseline', '.', $source, "refs/tags/$baseline"));
 $observation->{available} or die "an annotated ancestor group baseline is required\n";
 my ($base, $baseline_object) = @{$observation}{qw(baseline object)};

@@ -4,19 +4,24 @@ set -euo pipefail
 # Qualify the consumer's locked selection and execution boundary. Shared owns
 # Cargo receipts; Testkit owns server authentication and lifecycle fixtures.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-testkit-tools.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Testkit tooling fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/make" "$fixture/bin" "$fixture/.tools/host/bin"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/dev"
 cp "$ROOT/Makefile" "$fixture/"
-cp "$ROOT/make/cargo-dependencies.mk" "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/make/"
-cp "$ROOT/scripts/ci/check-make-execution.sh" "$ROOT/scripts/ci/run-formatting.sh" "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/make/"
+cp "$ROOT/vendor/toko-tooling/make/cargo-dependencies.mk" "$ROOT/vendor/toko-tooling/make/consumer.mk" "$ROOT/vendor/toko-tooling/make/tools.mk" "$ROOT/vendor/toko-tooling/make/release.mk" "$ROOT/vendor/toko-tooling/make/rust-format.mk" "$ROOT/vendor/toko-tooling/make/execution.mk" "$fixture/vendor/toko-tooling/make/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci/"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/check-make-execution.sh" "$ROOT/vendor/toko-tooling/scripts/ci/run-formatting.sh" "$fixture/vendor/toko-tooling/scripts/ci/"
 cp "$ROOT/scripts/ci/testkit-runner.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/scripts/ci/"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-host-tools.sh"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-ic-tools.sh"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/dev"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/vendor/toko-tooling/scripts/dev/install-host-tools.sh"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/dev"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/vendor/toko-tooling/scripts/dev/install-ic-tools.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/ci/verify-wasm-optimizer.sh"
 printf '[workspace]\n' > "$fixture/Cargo.toml"
 printf 'version = 4\n' > "$fixture/Cargo.lock"
@@ -38,7 +43,8 @@ if [[ "$1" == test ]]; then
 fi
 exit 99
 CARGO
-cat > "$fixture/scripts/dev/install-rust-tools.sh" <<'INSTALLER'
+mkdir -p "$fixture/vendor/toko-tooling/scripts/dev"
+cat > "$fixture/vendor/toko-tooling/scripts/dev/install-rust-tools.sh" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_ROOT/installation-requests"

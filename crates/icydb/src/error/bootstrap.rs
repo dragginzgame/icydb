@@ -82,7 +82,7 @@ fn admission_error(cause: &MemoryBootstrapAdmissionError) -> Error {
 
 fn boundary(code: RuntimeBoundaryCode, facts: Vec<(DiagnosticFactTag, u64)>) -> Error {
     Error::from_diagnostic_and_facts(
-        Error::from_runtime_boundary(code, ErrorOrigin::Runtime).diagnostic(),
+        &Error::from_runtime_boundary(code, ErrorOrigin::Runtime).diagnostic(),
         facts,
     )
 }

@@ -34,10 +34,15 @@ pub struct DiagnosticFact {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HarnessFailureKind {
+    /// A required test artifact is missing or invalid.
     Artifact,
+    /// The test fixture could not be prepared or admitted.
     Fixture,
+    /// The test infrastructure failed independently of the product result.
     Infrastructure,
+    /// The declared scenario could not be rendered for execution.
     Rendering,
+    /// The harness reached its execution timeout.
     Timeout,
 }
 
@@ -50,8 +55,11 @@ pub enum HarnessFailureKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ObservedOutcome {
+    /// The provider accepted the statement and returned a normalized result.
     Accepted(NormalizedResult),
+    /// The provider rejected the statement with a typed diagnostic.
     Rejected(DiagnosticFact),
+    /// The harness failed before producing a comparable product result.
     HarnessFailure(HarnessFailureKind),
 }
 
@@ -83,10 +91,15 @@ pub struct CorrectnessObservation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FailureOwner {
+    /// The failure is attributed to scenario rendering.
     HarnessRendering,
+    /// The test infrastructure failed independently of the product result.
     Infrastructure,
+    /// The failure is attributed to the product under test.
     Product,
+    /// The failure is attributed to the reference-provider adapter.
     ReferenceAdapter,
+    /// The available evidence does not establish the failure's owner.
     Unresolved,
 }
 
@@ -113,13 +126,21 @@ impl FailureOwner {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MismatchCategory {
+    /// Observed acceptance differs from the scenario's declared outcome.
     Acceptance,
+    /// A harness failure prevents comparison.
     Harness,
+    /// A required reference-provider observation is absent.
     MissingProvider,
+    /// The observed ordering differs from the declared contract.
     Ordering,
+    /// The observed execution route differs from the declared route.
     Route,
+    /// The compared rows contain different column counts.
     RowShape,
+    /// The observed typed rejection differs from the expected rejection.
     TypedError,
+    /// The compared values differ.
     Value,
 }
 
@@ -202,7 +223,9 @@ pub struct CorrectnessFailure {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CorrectnessVerdict {
+    /// All applicable correctness comparisons passed.
     Passed,
+    /// A typed correctness failure identifies the failed comparison.
     Failed(CorrectnessFailure),
 }
 

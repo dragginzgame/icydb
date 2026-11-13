@@ -112,6 +112,203 @@ impl AcceptedSchemaBundleKey {
     }
 }
 
+/// Borrowed catalog input for proposal reconciliation. This carries no accepted
+/// authority and can also describe a migration's unpublished working state.
+#[derive(Clone, Copy)]
+pub(in crate::db::schema) struct SchemaCatalogView<'a> {
+    pub(in crate::db::schema) revision: AcceptedSchemaRevision,
+    pub(in crate::db::schema) store_path: &'a str,
+    pub(in crate::db::schema) enum_catalog: &'a AcceptedEnumCatalog,
+    pub(in crate::db::schema) composite_catalog: &'a AcceptedCompositeCatalog,
+    pub(in crate::db::schema) source_bindings: &'a AcceptedSourceBindingCatalog,
+    pub(in crate::db::schema) entity_snapshots: &'a BTreeMap<EntityTag, PersistedSchemaSnapshot>,
+}
+
+impl SchemaCatalogView<'_> {
+    /// Validate catalog closure before bundle construction or migration reconciliation.
+    pub(in crate::db::schema) fn validate(&self) -> Result<(), InternalError> {
+        if self.revision == AcceptedSchemaRevision::NONE
+            || self.store_path.is_empty()
+            || self.store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES
+        {
+            return Err(InternalError::store_invariant());
+        }
+        let catalog_bytes = encode_accepted_enum_catalog(self.enum_catalog)?;
+        if decode_accepted_enum_catalog(&catalog_bytes)? != *self.enum_catalog {
+            return Err(InternalError::store_invariant());
+        }
+        let composite_catalog_bytes =
+            encode_accepted_composite_catalog(self.composite_catalog, self.enum_catalog)?;
+        if decode_accepted_composite_catalog(&composite_catalog_bytes, self.enum_catalog)?
+            != *self.composite_catalog
+        {
+            return Err(InternalError::store_invariant());
+        }
+        let source_binding_bytes = encode_accepted_source_bindings(
+            self.source_bindings,
+            self.enum_catalog,
+            self.composite_catalog,
+            self.entity_snapshots,
+        )?;
+        if decode_accepted_source_bindings(
+            &source_binding_bytes,
+            self.enum_catalog,
+            self.composite_catalog,
+            self.entity_snapshots,
+        )? != *self.source_bindings
+        {
+            return Err(InternalError::store_invariant());
+        }
+        for snapshot in self.entity_snapshots.values() {
+            validate_schema_snapshot_acceptance(snapshot)
+                .map_err(SchemaSnapshotAcceptanceError::into_proposal_error)?;
+            if encode_persisted_schema_snapshot(snapshot)?.len()
+                > MAX_SCHEMA_SNAPSHOT_BYTES as usize
+            {
+                return Err(InternalError::store_unsupported());
+            }
+        }
+        self.validate_decoded_semantics()
+    }
+
+    // Component decoders already enforce their current codec, bounds, order,
+    // and source-binding closure. Persisted bundle decode therefore reruns
+    // only the cross-component semantic checks instead of encoding and
+    // decoding every accepted component a second time.
+    fn validate_decoded_semantics(&self) -> Result<(), InternalError> {
+        if self.revision == AcceptedSchemaRevision::NONE
+            || self.store_path.is_empty()
+            || self.store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES
+        {
+            return Err(InternalError::store_invariant());
+        }
+        if !catalog_relation_key_contracts_are_supported(self.enum_catalog, self.composite_catalog)
+        {
+            return Err(InternalError::store_invariant());
+        }
+        // This unpublished handle is used only to validate decoded literals and
+        // types. Its placeholder identity is never persisted or cached.
+        let predicate_catalog = crate::db::schema::AcceptedValueCatalogHandle::new(
+            self.enum_catalog.clone(),
+            self.composite_catalog.clone(),
+            crate::db::schema::AcceptedStoreCatalogScope::new(),
+            self.revision,
+            crate::db::schema::AcceptedSchemaFingerprint::new([1; 32]),
+        );
+        for snapshot in self.entity_snapshots.values() {
+            let accepted_snapshot = AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
+            // Compact references can expand independently in many fields.
+            // Admit their combined traversal before constructing query metadata;
+            // nested fields share the same allowance even though projected lazily.
+            validate_query_projections(
+                snapshot.fields().iter().flat_map(|field| {
+                    std::iter::once(field.kind()).chain(
+                        field
+                            .nested_leaves()
+                            .iter()
+                            .map(crate::db::schema::PersistedNestedLeafSnapshot::kind),
+                    )
+                }),
+                self.composite_catalog,
+            )?;
+            for field in snapshot.fields() {
+                if !self
+                    .composite_catalog
+                    .matches_kind(self.enum_catalog, field.kind())
+                    || field.nested_leaves().iter().any(|leaf| {
+                        !self
+                            .composite_catalog
+                            .matches_kind(self.enum_catalog, leaf.kind())
+                    })
+                {
+                    return Err(InternalError::store_invariant());
+                }
+                if !nested_leaf_contracts_match_composite_catalog(self.composite_catalog, field)
+                    || !relation_key_contracts_are_supported(field.kind())
+                {
+                    return Err(InternalError::store_invariant());
+                }
+                let contract = AcceptedFieldDecodeContract::new(
+                    field.name(),
+                    field.kind(),
+                    field.nullable(),
+                    field.storage_decode(),
+                    field.leaf_codec(),
+                );
+                for payload in [
+                    field.insert_default().slot_payload(),
+                    field.historical_fill().slot_payload(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    validate_default_payload_for_accepted_field_contract(
+                        self.enum_catalog,
+                        self.composite_catalog,
+                        contract,
+                        payload,
+                    )?;
+                }
+            }
+            validate_filtered_predicates(&accepted_snapshot, &predicate_catalog)?;
+            validate_primary_key_capabilities(snapshot)?;
+            validate_index_capabilities(self.enum_catalog, snapshot)?;
+            crate::db::schema::validate_accepted_check_literals(
+                &accepted_snapshot,
+                self.enum_catalog,
+                self.composite_catalog,
+            )
+            .map_err(|_| InternalError::store_invariant())?;
+            if !validate_accepted_targeted_rules(
+                snapshot,
+                self.enum_catalog,
+                self.composite_catalog,
+            ) {
+                return Err(InternalError::store_invariant());
+            }
+            if !crate::db::schema::integrity::accepted_relation_sources_match_catalogs(
+                snapshot.fields(),
+                snapshot
+                    .relations()
+                    .iter()
+                    .chain(snapshot.candidate_relations()),
+                self.enum_catalog,
+                self.composite_catalog,
+            ) {
+                return Err(InternalError::store_invariant());
+            }
+        }
+        Ok(())
+    }
+
+    /// Compute the exact accepted meaning used to bind activation candidates.
+    pub(in crate::db::schema) fn semantic_fingerprint(
+        &self,
+    ) -> Result<AcceptedSchemaFingerprint, InternalError> {
+        let catalog_bytes = encode_accepted_enum_catalog(self.enum_catalog)?;
+        let composite_catalog_bytes =
+            encode_accepted_composite_catalog(self.composite_catalog, self.enum_catalog)?;
+        let source_binding_bytes = encode_accepted_source_bindings(
+            self.source_bindings,
+            self.enum_catalog,
+            self.composite_catalog,
+            self.entity_snapshots,
+        )?;
+        let mut hasher = new_hash_sha256();
+        hasher.update(ACCEPTED_SCHEMA_FINGERPRINT_PROFILE);
+        hash_len_prefixed(&mut hasher, self.store_path.as_bytes())?;
+        hash_len_prefixed(&mut hasher, &catalog_bytes)?;
+        hash_len_prefixed(&mut hasher, &composite_catalog_bytes)?;
+        hash_len_prefixed(&mut hasher, &source_binding_bytes)?;
+        hash_len(&mut hasher, self.entity_snapshots.len())?;
+        for (entity_tag, snapshot) in self.entity_snapshots {
+            hasher.update(entity_tag.value().to_be_bytes());
+            hash_len_prefixed(&mut hasher, &encode_persisted_schema_snapshot(snapshot)?)?;
+        }
+        Ok(AcceptedSchemaFingerprint::new(finalize_hash_sha256(hasher)))
+    }
+}
+
 /// One immutable store-local accepted schema revision bundle.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedSchemaRevisionBundle {
@@ -124,6 +321,18 @@ pub(in crate::db) struct AcceptedSchemaRevisionBundle {
 }
 
 impl AcceptedSchemaRevisionBundle {
+    /// Lend accepted catalog facts without creating another owned authority.
+    pub(in crate::db::schema) fn catalog(&self) -> SchemaCatalogView<'_> {
+        SchemaCatalogView {
+            revision: self.revision,
+            store_path: &self.store_path,
+            enum_catalog: &self.enum_catalog,
+            composite_catalog: &self.composite_catalog,
+            source_bindings: &self.source_bindings,
+            entity_snapshots: &self.entity_snapshots,
+        }
+    }
+
     /// Build one bundle with its exact source-addressable identity catalog.
     pub(in crate::db::schema) fn new_with_source_bindings(
         revision: AcceptedSchemaRevision,
@@ -141,7 +350,7 @@ impl AcceptedSchemaRevisionBundle {
             source_bindings,
             entity_snapshots,
         };
-        bundle.validate()?;
+        bundle.catalog().validate()?;
         Ok(bundle)
     }
 
@@ -185,188 +394,11 @@ impl AcceptedSchemaRevisionBundle {
         &self.entity_snapshots
     }
 
-    fn validate(&self) -> Result<(), InternalError> {
-        if self.revision == AcceptedSchemaRevision::NONE
-            || self.store_path.is_empty()
-            || self.store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES
-        {
-            return Err(InternalError::store_invariant());
-        }
-        let catalog_bytes = encode_accepted_enum_catalog(&self.enum_catalog)?;
-        if decode_accepted_enum_catalog(&catalog_bytes)? != self.enum_catalog {
-            return Err(InternalError::store_invariant());
-        }
-        let composite_catalog_bytes =
-            encode_accepted_composite_catalog(&self.composite_catalog, &self.enum_catalog)?;
-        if decode_accepted_composite_catalog(&composite_catalog_bytes, &self.enum_catalog)?
-            != self.composite_catalog
-        {
-            return Err(InternalError::store_invariant());
-        }
-        let source_binding_bytes = encode_accepted_source_bindings(
-            &self.source_bindings,
-            &self.enum_catalog,
-            &self.composite_catalog,
-            &self.entity_snapshots,
-        )?;
-        if decode_accepted_source_bindings(
-            &source_binding_bytes,
-            &self.enum_catalog,
-            &self.composite_catalog,
-            &self.entity_snapshots,
-        )? != self.source_bindings
-        {
-            return Err(InternalError::store_invariant());
-        }
-        for snapshot in self.entity_snapshots.values() {
-            validate_schema_snapshot_acceptance(snapshot)
-                .map_err(SchemaSnapshotAcceptanceError::into_proposal_error)?;
-            if encode_persisted_schema_snapshot(snapshot)?.len()
-                > MAX_SCHEMA_SNAPSHOT_BYTES as usize
-            {
-                return Err(InternalError::store_unsupported());
-            }
-        }
-        self.validate_decoded_semantics()
-    }
-
-    // Component decoders already enforce their current codec, bounds, order,
-    // and source-binding closure. Persisted bundle decode therefore reruns
-    // only the cross-component semantic checks instead of encoding and
-    // decoding every accepted component a second time.
-    fn validate_decoded_semantics(&self) -> Result<(), InternalError> {
-        if self.revision == AcceptedSchemaRevision::NONE
-            || self.store_path.is_empty()
-            || self.store_path.len() > MAX_SCHEMA_STORE_PATH_BYTES
-        {
-            return Err(InternalError::store_invariant());
-        }
-        if !catalog_relation_key_contracts_are_supported(
-            &self.enum_catalog,
-            &self.composite_catalog,
-        ) {
-            return Err(InternalError::store_invariant());
-        }
-        // This unpublished handle is used only to validate decoded literals and
-        // types. Its placeholder identity is never persisted or cached.
-        let predicate_catalog = crate::db::schema::AcceptedValueCatalogHandle::new(
-            self.enum_catalog.clone(),
-            self.composite_catalog.clone(),
-            crate::db::schema::AcceptedStoreCatalogScope::new(),
-            self.revision,
-            crate::db::schema::AcceptedSchemaFingerprint::new([1; 32]),
-        );
-        for snapshot in self.entity_snapshots.values() {
-            let accepted_snapshot = AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
-            // Compact references can expand independently in many fields.
-            // Admit their combined traversal before constructing query metadata;
-            // nested fields share the same allowance even though projected lazily.
-            validate_query_projections(
-                snapshot.fields().iter().flat_map(|field| {
-                    std::iter::once(field.kind()).chain(
-                        field
-                            .nested_leaves()
-                            .iter()
-                            .map(crate::db::schema::PersistedNestedLeafSnapshot::kind),
-                    )
-                }),
-                &self.composite_catalog,
-            )?;
-            for field in snapshot.fields() {
-                if !self
-                    .composite_catalog
-                    .matches_kind(&self.enum_catalog, field.kind())
-                    || field.nested_leaves().iter().any(|leaf| {
-                        !self
-                            .composite_catalog
-                            .matches_kind(&self.enum_catalog, leaf.kind())
-                    })
-                {
-                    return Err(InternalError::store_invariant());
-                }
-                if !nested_leaf_contracts_match_composite_catalog(&self.composite_catalog, field)
-                    || !relation_key_contracts_are_supported(field.kind())
-                {
-                    return Err(InternalError::store_invariant());
-                }
-                let contract = AcceptedFieldDecodeContract::new(
-                    field.name(),
-                    field.kind(),
-                    field.nullable(),
-                    field.storage_decode(),
-                    field.leaf_codec(),
-                );
-                for payload in [
-                    field.insert_default().slot_payload(),
-                    field.historical_fill().slot_payload(),
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    validate_default_payload_for_accepted_field_contract(
-                        &self.enum_catalog,
-                        &self.composite_catalog,
-                        contract,
-                        payload,
-                    )?;
-                }
-            }
-            validate_filtered_predicates(&accepted_snapshot, &predicate_catalog)?;
-            validate_primary_key_capabilities(snapshot)?;
-            validate_index_capabilities(&self.enum_catalog, snapshot)?;
-            crate::db::schema::validate_accepted_check_literals(
-                &accepted_snapshot,
-                &self.enum_catalog,
-                &self.composite_catalog,
-            )
-            .map_err(|_| InternalError::store_invariant())?;
-            if !validate_accepted_targeted_rules(
-                snapshot,
-                &self.enum_catalog,
-                &self.composite_catalog,
-            ) {
-                return Err(InternalError::store_invariant());
-            }
-            if !crate::db::schema::integrity::accepted_relation_sources_match_catalogs(
-                snapshot.fields(),
-                snapshot
-                    .relations()
-                    .iter()
-                    .chain(snapshot.candidate_relations()),
-                &self.enum_catalog,
-                &self.composite_catalog,
-            ) {
-                return Err(InternalError::store_invariant());
-            }
-        }
-        Ok(())
-    }
-
     /// Compute the exact accepted meaning used to bind activation candidates.
     pub(in crate::db::schema) fn semantic_fingerprint(
         &self,
     ) -> Result<AcceptedSchemaFingerprint, InternalError> {
-        let catalog_bytes = encode_accepted_enum_catalog(&self.enum_catalog)?;
-        let composite_catalog_bytes =
-            encode_accepted_composite_catalog(&self.composite_catalog, &self.enum_catalog)?;
-        let source_binding_bytes = encode_accepted_source_bindings(
-            &self.source_bindings,
-            &self.enum_catalog,
-            &self.composite_catalog,
-            &self.entity_snapshots,
-        )?;
-        let mut hasher = new_hash_sha256();
-        hasher.update(ACCEPTED_SCHEMA_FINGERPRINT_PROFILE);
-        hash_len_prefixed(&mut hasher, self.store_path.as_bytes())?;
-        hash_len_prefixed(&mut hasher, &catalog_bytes)?;
-        hash_len_prefixed(&mut hasher, &composite_catalog_bytes)?;
-        hash_len_prefixed(&mut hasher, &source_binding_bytes)?;
-        hash_len(&mut hasher, self.entity_snapshots.len())?;
-        for (entity_tag, snapshot) in &self.entity_snapshots {
-            hasher.update(entity_tag.value().to_be_bytes());
-            hash_len_prefixed(&mut hasher, &encode_persisted_schema_snapshot(snapshot)?)?;
-        }
-        Ok(AcceptedSchemaFingerprint::new(finalize_hash_sha256(hasher)))
+        self.catalog().semantic_fingerprint()
     }
 }
 
@@ -634,7 +666,7 @@ pub(in crate::db) struct CandidateSchemaRevision {
 }
 
 impl CandidateSchemaRevision {
-    /// Prepare a new zero-write candidate under one operation-wide allowance.
+    /// Encode an immutable, already validated bundle under one operation-wide allowance.
     /// Journal reconstruction has its own recovery contract in `from_encoded`.
     pub(in crate::db::schema) fn new(
         bundle: AcceptedSchemaRevisionBundle,
@@ -666,10 +698,10 @@ impl CandidateSchemaRevision {
         Self::new(bundle)
     }
 
-    // Keep one authority across all stages, including failed validation. These
-    // intervals account actual IC instructions, not native elapsed time. Byte
-    // visits below cover wire verification/hash input, not decoder allocations
-    // or the still-unqualified shared normalizer's intermediate construction.
+    // Keep one allowance across encoding, hashing and root construction. The bundle
+    // constructor or bounded decoder already proved immutable semantic integrity;
+    // only persisted reconstruction decodes bytes. Charge the retained hash pass,
+    // while construction intervals account actual IC instructions throughout.
     fn prepare(
         bundle: AcceptedSchemaRevisionBundle,
         construction: &MaintenanceConstructionBudget,
@@ -689,21 +721,12 @@ impl CandidateSchemaRevision {
                     Resource::PredicateExpressionSteps,
                     encoded_bundle.len() as u64,
                 )?;
-                let decoded_bundle = decode_accepted_schema_revision_bundle(&encoded_bundle)?;
-                if decoded_bundle != bundle {
-                    return Err(InternalError::store_invariant());
-                }
-                // Verification and hashing are separate passes over the bytes.
-                work.charge(
-                    Resource::PredicateExpressionSteps,
-                    encoded_bundle.len() as u64,
-                )?;
                 Ok(hash_bytes(&encoded_bundle))
             },
             std::convert::identity,
         )?;
         let (root, encoded_root) = construction.run(
-            |work| {
+            |_work| {
                 let root = AcceptedSchemaRoot {
                     revision: bundle.revision(),
                     fingerprint: bundle.semantic_fingerprint()?,
@@ -712,13 +735,6 @@ impl CandidateSchemaRevision {
                     bundle_hash,
                 };
                 let encoded_root = encode_accepted_schema_root(root)?;
-                work.charge(
-                    Resource::PredicateExpressionSteps,
-                    encoded_root.len() as u64,
-                )?;
-                if decode_accepted_schema_root(&encoded_root)? != root {
-                    return Err(InternalError::store_invariant());
-                }
                 Ok((root, encoded_root))
             },
             std::convert::identity,
@@ -962,6 +978,7 @@ pub(in crate::db::schema) fn decode_accepted_schema_revision_bundle(
         entity_snapshots,
     };
     bundle
+        .catalog()
         .validate_decoded_semantics()
         .map_err(|_| InternalError::store_corruption())?;
     Ok(bundle)
@@ -985,7 +1002,8 @@ pub(in crate::db::schema) fn decode_verified_accepted_schema_revision_bundle(
 fn encode_accepted_schema_revision_bundle(
     bundle: &AcceptedSchemaRevisionBundle,
 ) -> Result<Vec<u8>, InternalError> {
-    bundle.validate()?;
+    // Both production bundle constructors validate, and no mutable access escapes.
+    // Encoding retains byte/length bounds without repeating semantic admission.
     let catalog_bytes = encode_accepted_enum_catalog(&bundle.enum_catalog)?;
     let composite_catalog_bytes =
         encode_accepted_composite_catalog(&bundle.composite_catalog, &bundle.enum_catalog)?;

@@ -388,12 +388,13 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
     };
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
+    SchemaDdlAcceptedSnapshotDerivation::new(
+        accepted_before,
         accepted_after,
-        admission: SchemaDdlMutationAdmission {
+        SchemaDdlMutationAdmission {
             target: SchemaDdlMutationTarget::FieldPathAddition(target),
         },
-    })
+    )
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -401,13 +402,13 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
 #[cfg(feature = "sql")]
 pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
-    index: PersistedIndexSnapshot,
+    index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
     let constraint_catalog = before
         .constraint_catalog()
         .clone()
-        .with_added_unique(&index)
+        .with_added_unique(index)
         .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let mut indexes = before.indexes().to_vec();
     indexes.push(index.clone());
@@ -417,12 +418,9 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
         .with_constraint_catalog(constraint_catalog);
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
-    let admission = admit_sql_ddl_expression_index_candidate(&index)?;
+    let admission = admit_sql_ddl_expression_index_candidate(index)?;
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -440,10 +438,7 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_secondary_index_drop_candidate();
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 pub(super) fn field_path_rebuild_key(

@@ -32,6 +32,8 @@ proptest = { workspace = true }
 serde_bytes = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
+
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

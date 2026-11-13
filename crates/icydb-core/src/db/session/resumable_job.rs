@@ -138,14 +138,14 @@ impl<C: CanisterKind> DbSession<C> {
         ensure_request_can_advance(&record, request)?;
 
         if let Err(error) = self.verify_durable_read_set_revision_proof(&record.state().proof) {
-            return Self::persist_or_report_pre_page_invalidation(record, request, error);
+            return Self::persist_or_report_pre_page_invalidation(&record, request, error);
         }
 
         let advance = operation(record.state()).map_err(CompareProofAndAdvanceError::Operation)?;
         advance.validate()?;
 
         if let Err(error) = self.verify_durable_read_set_revision_proof(&record.state().proof) {
-            return Self::persist_or_report_post_page_invalidation(record, request, error);
+            return Self::persist_or_report_post_page_invalidation(&record, request, error);
         }
 
         let (candidate, receipt) = record.apply_advance(request, advance)?;
@@ -154,7 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn persist_or_report_pre_page_invalidation<E>(
-        record: ResumableJobRecord,
+        record: &ResumableJobRecord,
         request: &ResumableJobAdvanceRequest,
         error: ExhaustiveReadError,
     ) -> Result<ResumableJobAdvanceReceipt, CompareProofAndAdvanceError<E>> {
@@ -162,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn persist_or_report_post_page_invalidation<E>(
-        record: ResumableJobRecord,
+        record: &ResumableJobRecord,
         request: &ResumableJobAdvanceRequest,
         error: ExhaustiveReadError,
     ) -> Result<ResumableJobAdvanceReceipt, CompareProofAndAdvanceError<E>> {
@@ -170,7 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn persist_or_report_invalidation<E>(
-        record: ResumableJobRecord,
+        record: &ResumableJobRecord,
         request: &ResumableJobAdvanceRequest,
         error: ExhaustiveReadError,
     ) -> Result<ResumableJobAdvanceReceipt, CompareProofAndAdvanceError<E>> {

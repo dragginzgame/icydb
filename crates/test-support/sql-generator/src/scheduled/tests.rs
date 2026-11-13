@@ -51,7 +51,7 @@ fn scenario_declaration_order_does_not_change_receipt_identity() {
     let scenario_ids = one_scenario_per_shard();
     let declared = scenario_ids.iter().map(String::as_str).collect::<Vec<_>>();
     let reversed = declared.iter().copied().rev().collect::<Vec<_>>();
-    let observations = observations_for_shard(0, &declared, TierCScenarioOutcome::Passed);
+    let observations = observations_for_shard(0, &declared, &TierCScenarioOutcome::Passed);
 
     let first = TierCShardReport::try_new(0, &declared, observations.clone())
         .expect("forward declaration should validate");
@@ -84,7 +84,7 @@ fn shard_report_rejects_missing_duplicate_and_misassigned_observations() {
         Err(TierCEvidenceError::ScenarioMembershipMismatch { .. })
     ));
 
-    let mut duplicate = observations_for_shard(0, &declared, TierCScenarioOutcome::Passed);
+    let mut duplicate = observations_for_shard(0, &declared, &TierCScenarioOutcome::Passed);
     duplicate.push(duplicate[0].clone());
     assert!(matches!(
         TierCShardReport::try_new(0, &declared, duplicate),
@@ -146,7 +146,7 @@ fn strict_decode_rejects_unknown_tampered_and_oversized_artifacts() {
     let report = TierCShardReport::try_new(
         0,
         &declared,
-        observations_for_shard(0, &declared, TierCScenarioOutcome::Passed),
+        observations_for_shard(0, &declared, &TierCScenarioOutcome::Passed),
     )
     .expect("report should construct");
     let encoded = report
@@ -253,7 +253,7 @@ fn reports_for(
             TierCShardReport::try_new(
                 shard_index,
                 declared,
-                observations_for_shard(shard_index, declared, outcome(shard_index)),
+                observations_for_shard(shard_index, declared, &outcome(shard_index)),
             )
             .expect("complete shard report should construct")
         })
@@ -263,7 +263,7 @@ fn reports_for(
 fn observations_for_shard(
     shard_index: u8,
     declared: &[&str],
-    outcome: TierCScenarioOutcome,
+    outcome: &TierCScenarioOutcome,
 ) -> Vec<TierCScenarioObservation> {
     declared
         .iter()

@@ -23,7 +23,7 @@ use std::{borrow::Cow, cell::RefCell};
 
 // Preserve reader-owned error taxonomy when the unified expression evaluator
 // reports failures back through projection/query execution boundaries.
-fn reader_error(err: InternalError) -> ProjectionEvalError {
+const fn reader_error(err: &InternalError) -> ProjectionEvalError {
     ProjectionEvalError::ReaderFailed {
         class: err.class(),
         origin: err.origin(),
@@ -32,7 +32,7 @@ fn reader_error(err: InternalError) -> ProjectionEvalError {
 
 // Preserve persisted-row decode classifications for nested path traversal
 // while keeping storage decoding outside the compiled expression module.
-fn field_path_error(err: InternalError) -> ProjectionEvalError {
+const fn field_path_error(err: &InternalError) -> ProjectionEvalError {
     ProjectionEvalError::FieldPathEvaluationFailed {
         class: err.class(),
         origin: err.origin(),
@@ -119,7 +119,7 @@ impl CompiledExprValueReader for ValueRefSlotReader<'_, '_> {
         let value = self
             .paths
             .try_borrow_mut()
-            .map_err(|_| field_path_error(InternalError::query_executor_invariant()))?
+            .map_err(|_| field_path_error(&InternalError::query_executor_invariant()))?
             .resolve(root_slot, segment_bytes, || {
                 let root = (self
                     .read_slot
@@ -176,7 +176,7 @@ impl CompiledExprValueReader for ValueCowSlotReader<'_, '_> {
         let value = self
             .paths
             .try_borrow_mut()
-            .map_err(|_| field_path_error(InternalError::query_executor_invariant()))?
+            .map_err(|_| field_path_error(&InternalError::query_executor_invariant()))?
             .resolve(root_slot, segment_bytes, || {
                 let root = (self
                     .read_slot
@@ -260,7 +260,7 @@ impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
         self.slots
             .required_value_by_contract_cow(slot)
             .map(Some)
-            .map_err(reader_error)
+            .map_err(|error| reader_error(&error))
     }
 
     fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
@@ -281,7 +281,7 @@ impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
         let value = self
             .paths
             .try_borrow_mut()
-            .map_err(|_| field_path_error(InternalError::query_executor_invariant()))?
+            .map_err(|_| field_path_error(&InternalError::query_executor_invariant()))?
             .resolve(root_slot, segment_bytes, || {
                 if self.slots.get_bytes(root_slot).is_some() {
                     Ok(PathSource::Raw(self.slots.required_bytes(root_slot)?))

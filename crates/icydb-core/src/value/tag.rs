@@ -17,28 +17,51 @@ use crate::value::Value;
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValueTag {
+    /// Canonical discriminant for [`Value::Account`].
     Account = 1,
+    /// Canonical discriminant for [`Value::Blob`].
     Blob = 2,
+    /// Canonical discriminant for [`Value::Bool`].
     Bool = 3,
+    /// Canonical discriminant for [`Value::Date`].
     Date = 4,
+    /// Canonical discriminant for [`Value::Decimal`].
     Decimal = 5,
+    /// Canonical discriminant for [`Value::Duration`].
     Duration = 6,
+    /// Canonical discriminant for [`Value::Enum`].
     Enum = 7,
+    /// Canonical discriminant for [`Value::Float32`].
     Float32 = 8,
+    /// Canonical discriminant for [`Value::Float64`].
     Float64 = 9,
+    /// Canonical discriminant for [`Value::Int64`].
     Int64 = 10,
+    /// Canonical discriminant for [`Value::Int128`].
     Int128 = 11,
+    /// Canonical discriminant for [`Value::List`].
     List = 12,
+    /// Canonical discriminant for [`Value::Map`].
     Map = 13,
+    /// Canonical discriminant for [`Value::Null`].
     Null = 14,
+    /// Canonical discriminant for [`Value::Principal`].
     Principal = 15,
+    /// Canonical discriminant for [`Value::Subaccount`].
     Subaccount = 16,
+    /// Canonical discriminant for [`Value::Text`].
     Text = 17,
+    /// Canonical discriminant for [`Value::Timestamp`].
     Timestamp = 18,
+    /// Canonical discriminant for [`Value::Nat64`].
     Nat64 = 19,
+    /// Canonical discriminant for [`Value::Nat128`].
     Nat128 = 20,
+    /// Canonical discriminant for [`Value::Ulid`].
     Ulid = 21,
+    /// Canonical discriminant for [`Value::Unit`].
     Unit = 22,
+    /// Canonical discriminant for [`Value::U256`].
     U256 = 23,
 }
 

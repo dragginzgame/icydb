@@ -10,7 +10,7 @@ if [[ "$#" != 0 && ( "$#" != 1 || "$1" != --check ) ]]; then
 fi
 export PATH="$ROOT/.tools/host/bin:$PATH"
 export CARGO_HOME="$ROOT/.cache/cargo/icydb"
-if bash "$ROOT/scripts/dev/install-rust-tools.sh" --consumer "$ROOT" \
+if bash "$ROOT/vendor/toko-tooling/scripts/dev/install-rust-tools.sh" --consumer "$ROOT" \
   --package ic-testkit --lockfile "$ROOT/testing/canic-adapter/Cargo.lock" --bin ic-testkit-server --profile release --features cli "$@"; then
   exit 0
 else

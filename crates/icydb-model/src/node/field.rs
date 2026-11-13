@@ -11,17 +11,20 @@ pub struct FieldList {
 
 impl FieldList {
     #[must_use]
+    /// Wrap a static field list, preserving declaration order.
     pub const fn new(fields: &'static [Field]) -> Self {
         Self { fields }
     }
 
     #[must_use]
+    /// Borrow the fields in declaration order.
     pub const fn fields(&self) -> &'static [Field] {
         self.fields
     }
 
     // get
     #[must_use]
+    /// Find the first field with the given authored name.
     pub fn get(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|field| field.name() == name)
     }
@@ -43,16 +46,21 @@ impl VisitableNode for FieldList {
 
 #[derive(Clone, Debug, Serialize)]
 pub enum FieldGeneration {
+    /// Generate an omitted field value on insertion using this argument expression.
     Insert(Arg),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+/// Engine-managed timestamp behavior attached to a field.
 pub enum FieldWriteManagement {
+    /// Set the creation timestamp when inserting a row.
     CreatedAt,
+    /// Set the modification timestamp when writing a row.
     UpdatedAt,
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// Authoring field shape, default, generation and write-management policies.
 pub struct Field {
     name: &'static str,
     value: Value,
@@ -69,6 +77,7 @@ pub struct Field {
 
 impl Field {
     #[must_use]
+    /// Declare a field with its value shape, default and write policies.
     pub const fn new(
         name: &'static str,
         value: Value,
@@ -92,21 +101,25 @@ impl Field {
     }
 
     #[must_use]
+    /// Borrow the field cardinality and element declaration.
     pub const fn value(&self) -> &Value {
         &self.value
     }
 
     #[must_use]
+    /// Borrow the authored default expression, if present.
     pub const fn default(&self) -> Option<&Arg> {
         self.default.as_ref()
     }
 
     #[must_use]
+    /// Borrow the insertion-time generation expression, if present.
     pub const fn generated(&self) -> Option<&FieldGeneration> {
         self.generated.as_ref()
     }
 
     #[must_use]
+    /// Return the engine-managed timestamp policy, if declared.
     pub const fn write_management(&self) -> Option<FieldWriteManagement> {
         self.write_management
     }

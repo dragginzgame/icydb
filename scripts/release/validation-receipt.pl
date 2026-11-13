@@ -6,7 +6,7 @@ use JSON::PP;
 use Digest::SHA qw(sha256_hex);
 use File::Temp qw(tempdir);
 use FindBin;
-use lib "$FindBin::Bin/../ci";
+use lib "$FindBin::Bin/../../vendor/toko-tooling/scripts/ci";
 use ValidationPlan ();
 my $json=JSON::PP->new->canonical->utf8;
 my ($plan_path,$run,$proof_path)=@ARGV;
@@ -36,7 +36,7 @@ my $plan=$json->decode($raw);
 # Shared re-admits exact plan/policy, checkpoints, event order and retained logs.
 my $proof_raw=bytes($proof_path);
 my $proof=$json->decode($proof_raw);
-command('perl','scripts/ci/validation-evidence.pl','check','.', $plan_path,
+command('perl','vendor/toko-tooling/scripts/ci/validation-evidence.pl','check','.', $plan_path,
     $plan->{source},$plan->{group},$run,"$plan_path.context.json",$proof_path);
 command('git','rev-parse','HEAD') eq "$plan->{source}\n" or die "stale source\n";
 command('git','status','--porcelain','--untracked-files=all') eq '' or die "dirty release inputs\n";

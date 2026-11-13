@@ -119,7 +119,7 @@ fn query_projection_preserves_reused_newtype_members() {
         let bytes = encode_accepted_composite_catalog(&accepted, &enums).unwrap();
         let decoded = decode_accepted_composite_catalog(&bytes, &enums).unwrap();
         assert_eq!(decoded, accepted);
-        assert_query_type(&decoded, &composite(level + 1), expected.clone());
+        assert_query_type(&decoded, &composite(level + 1), &expected);
 
         if level == 8 {
             assert_eq!(shapes.len(), 9);
@@ -155,7 +155,7 @@ fn query_projection_preserves_reused_newtype_members() {
 fn assert_query_type(
     catalog: &AcceptedCompositeCatalog,
     kind: &AcceptedFieldKind,
-    expected: crate::db::schema::FieldType,
+    expected: &crate::db::schema::FieldType,
 ) {
     use crate::db::schema::{
         field_type_from_persisted_kind, query_field_is_queryable,
@@ -165,7 +165,7 @@ fn assert_query_type(
 
     validate_query_projections([kind], catalog).unwrap();
     let direct = query_field_type_from_persisted_kind(kind, catalog);
-    assert_eq!(direct, expected);
+    assert_eq!(&direct, expected);
     assert_eq!(
         query_field_is_queryable(kind, catalog),
         expected.is_queryable()
@@ -340,12 +340,12 @@ fn direct_query_types_preserve_newtypes_collections_and_whole_tree_fallback() {
             FieldType::List(Box::new(FieldType::Composite)),
         ),
     ] {
-        assert_query_type(&catalog, &kind, expected);
+        assert_query_type(&catalog, &kind, &expected);
     }
     // In particular, the newtype around a list of records must stay Composite,
     // rather than leaking a partially unwrapped, queryable list.
     for id in [3, 4, 5, 6, 7, 99] {
-        assert_query_type(&catalog, &composite(id), FieldType::Composite);
+        assert_query_type(&catalog, &composite(id), &FieldType::Composite);
     }
 }
 
@@ -366,7 +366,7 @@ fn direct_query_type_drops_relation_metadata_only_from_the_type_output() {
         key_kind: Box::new(key),
     };
     let input = relation(composite(1));
-    assert_query_type(&catalog, &input, FieldType::Scalar(ScalarKind::Text));
+    assert_query_type(&catalog, &input, &FieldType::Scalar(ScalarKind::Text));
     assert_eq!(
         query_field_kind_from_persisted_kind(&input, &catalog),
         relation(AcceptedFieldKind::Text { max_len: Some(64) }),
@@ -395,7 +395,7 @@ fn direct_query_type_preserves_the_exact_shared_depth_boundary() {
             kind = AcceptedFieldKind::List(Box::new(kind));
             expected = FieldType::List(Box::new(expected));
         }
-        assert_query_type(&catalog, &kind, expected);
+        assert_query_type(&catalog, &kind, &expected);
     }
 }
 
@@ -423,13 +423,13 @@ fn queryability_preserves_relation_and_newtype_whole_tree_fallback() {
     assert_query_type(
         &catalog,
         &list_of_records,
-        FieldType::List(Box::new(FieldType::Composite)),
+        &FieldType::List(Box::new(FieldType::Composite)),
     );
-    assert_query_type(&catalog, &composite(2), FieldType::Composite);
-    assert_query_type(&catalog, &relation(composite(2)), FieldType::Composite);
+    assert_query_type(&catalog, &composite(2), &FieldType::Composite);
+    assert_query_type(&catalog, &relation(composite(2)), &FieldType::Composite);
     assert_query_type(
         &catalog,
         &relation(composite(3)),
-        FieldType::List(Box::new(FieldType::Scalar(ScalarKind::Nat))),
+        &FieldType::List(Box::new(FieldType::Scalar(ScalarKind::Nat))),
     );
 }

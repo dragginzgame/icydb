@@ -10,7 +10,7 @@ fi
 if [[ ${BASH_SOURCE[0]} == "$0" && ${1:-} == --batch ]]; then
     # Group membership has one policy owner. Check local dependency edges too:
     # a batch must never publish a consumer before a selected supplier.
-    jq -e -L "$release_root/scripts/ci" --arg groups "${RELEASE_GROUPS:-}" --arg first "$RELEASE_GROUP" '
+    jq -e -L "$release_root/vendor/toko-tooling/scripts/ci" --arg groups "${RELEASE_GROUPS:-}" --arg first "$RELEASE_GROUP" '
         include "cargo-release-groups"; release_policy |
         (.groups | map(.name)) as $known | ($groups | split(",")) as $selected |
         $selected[0] == $first and ($selected | length > 0) and
@@ -34,7 +34,7 @@ if [[ ${BASH_SOURCE[0]} == "$0" && ${1:-} == --batch ]]; then
     fi
     exit 0
 fi
-release_selection="$(jq -er -L "$release_root/scripts/ci" --arg group "$RELEASE_GROUP" '
+release_selection="$(jq -er -L "$release_root/vendor/toko-tooling/scripts/ci" --arg group "$RELEASE_GROUP" '
     include "cargo-release-groups"; release_policy |
     [.groups[] | select(.name == $group)] |
     if length == 1 then .[0] | [.primary,.changelog] | @tsv

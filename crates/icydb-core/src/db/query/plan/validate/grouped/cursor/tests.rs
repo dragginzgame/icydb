@@ -51,7 +51,7 @@ fn validate(
     })
 }
 
-fn assert_policy(error: QueryError, expected: GroupPlanError) {
+fn assert_policy(error: QueryError, expected: &GroupPlanError) {
     let QueryError::Plan(error) = error else {
         panic!("expected plan error")
     };
@@ -61,10 +61,10 @@ fn assert_policy(error: QueryError, expected: GroupPlanError) {
     let PlanPolicyError::Group(error) = *error else {
         panic!("expected grouped error")
     };
-    assert_eq!(*error, expected);
+    assert_eq!(error.as_ref(), expected);
 }
 
-fn assert_resource(error: QueryError, resource: Resource) {
+fn assert_resource(error: &QueryError, resource: Resource) {
     assert!(matches!(error, QueryError::Execute(_)));
     assert_budget_resource(&error.diagnostic_facts(), resource);
 }
@@ -88,7 +88,7 @@ fn absent_order_is_free_and_canonical_order_keeps_finite_limit_policy() {
             &group,
         )
         .unwrap_err(),
-        GroupPlanError::OrderRequiresLimit,
+        &GroupPlanError::OrderRequiresLimit,
     );
     logical.order = None;
     let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
@@ -121,7 +121,7 @@ fn later_heap_trigger_changes_earlier_term_admission_before_limit_policy() {
             &group,
         )
         .unwrap_err(),
-        GroupPlanError::OrderRequiresLimit,
+        &GroupPlanError::OrderRequiresLimit,
     );
     // Once Top-K is selected, a later unknown field must still reject before LIMIT.
     logical
@@ -138,7 +138,7 @@ fn later_heap_trigger_changes_earlier_term_admission_before_limit_policy() {
             &group,
         )
         .unwrap_err(),
-        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
+        &GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
     );
 }
 
@@ -156,7 +156,7 @@ fn grouped_order_steps_are_exact_cumulative_and_preserve_resource_errors() {
         assert_eq!(baseline.observed(Resource::TemporaryBytes), 0);
         for lane in [Lane::PublicRead, Lane::Diagnostic] {
             assert_resource(
-                validate(
+                &validate(
                     &request_with_limit(Resource::PredicateExpressionSteps, exact - 1),
                     lane,
                     &logical,
@@ -168,7 +168,7 @@ fn grouped_order_steps_are_exact_cumulative_and_preserve_resource_errors() {
             let root = request_with_limit(Resource::PredicateExpressionSteps, exact);
             validate(&root, lane, &logical, &group).unwrap();
             assert_resource(
-                validate(&root, lane, &logical, &group).unwrap_err(),
+                &validate(&root, lane, &logical, &group).unwrap_err(),
                 Resource::PredicateExpressionSteps,
             );
             validate(
@@ -197,7 +197,7 @@ fn unsupported_labels_are_bounded_and_first_term_errors_are_preserved() {
         let (logical, group) = fixture(terms, None);
         let label = logical.order.as_ref().unwrap().fields[0].rendered_label();
         assert_resource(
-            validate(
+            &validate(
                 &request_with_limit(Resource::TemporaryBytes, 0),
                 Lane::Diagnostic,
                 &logical,
@@ -214,7 +214,7 @@ fn unsupported_labels_are_bounded_and_first_term_errors_are_preserved() {
                 &group,
             )
             .unwrap_err(),
-            GroupPlanError::OrderExpressionNotAdmissible { term: label },
+            &GroupPlanError::OrderExpressionNotAdmissible { term: label },
         );
     }
 }
@@ -249,7 +249,7 @@ fn canonical_group_key_prefix_requires_one_direction_but_top_k_keeps_each_term()
                         &group,
                     )
                     .unwrap_err(),
-                    GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
+                    &GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
                 );
             }
             // Terms after the complete unique group key cannot reorder groups.

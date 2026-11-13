@@ -11,7 +11,7 @@ fn decode_single_covering_projection_value_rejects_multiple_components() {
         vec![ValueTag::Bool.to_u8(), 0],
     ]);
 
-    let error = decode_single_covering_projection_value(components)
+    let error = decode_single_covering_projection_value(&components)
         .expect_err("multi-component vectors must violate the single-component invariant");
 
     assert_eq!(error.class(), ErrorClass::InvariantViolation);

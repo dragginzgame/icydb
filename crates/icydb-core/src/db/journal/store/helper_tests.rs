@@ -188,9 +188,9 @@ impl JournalTailStore {
     pub(in crate::db) fn insert_raw_batch_for_tests(
         &mut self,
         sequence: JournalSequence,
-        bytes: Vec<u8>,
+        bytes: &[u8],
     ) -> Result<(), InternalError> {
-        self.append_raw_batch(sequence, bytes.as_slice())
+        self.append_raw_batch(sequence, bytes)
     }
 
     pub(super) fn append_raw_batch(

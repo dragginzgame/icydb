@@ -143,14 +143,14 @@ fn fixed_update_binding_preserves_payload_bytes_across_rows_and_noops() {
 
     let (contract, constraints) = replacement_owned_contract(&replacement_owned_snapshot());
     let payload = encode_canonical_value_for_accepted_field_contract(
-        contract
+        &contract
             .required_accepted_field_persistence_contract(1)
             .unwrap(),
         &Value::Nat64(77),
     )
     .unwrap();
     let null = encode_canonical_value_for_accepted_field_contract(
-        contract
+        &contract
             .required_accepted_field_persistence_contract(6)
             .unwrap(),
         &Value::Null,
@@ -215,7 +215,7 @@ fn fixed_update_binding_preserves_payload_bytes_across_rows_and_noops() {
 fn fixed_update_binding_rejects_malformed_wrong_contract_and_managed_payloads() {
     let (contract, _) = replacement_owned_contract(&replacement_owned_snapshot());
     let payload = encode_canonical_value_for_accepted_field_contract(
-        contract
+        &contract
             .required_accepted_field_persistence_contract(1)
             .unwrap(),
         &Value::Nat64(77),
@@ -473,7 +473,7 @@ fn replacement_preserves_generated_historical_fill() {
         .into_raw_row();
     let fill = Value::Timestamp(Timestamp::from_millis(42));
     let payload = encode_canonical_value_for_accepted_field_contract(
-        old_contract
+        &old_contract
             .required_accepted_field_persistence_contract(3)
             .unwrap(),
         &fill,
@@ -634,20 +634,16 @@ fn narrow_integer_writes_preserve_defaults_updates_and_primary_keys() {
             Value::Nat64(u64::from(u32::MAX) + 1),
         ),
     ] {
-        assert_narrow_integer_write(kind, width, initial, boundary, invalid);
+        assert_narrow_integer_write(kind, width, &initial, boundary, &invalid);
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one width matrix shares insert/default, unchanged-update, boundary rejection and primary-key assertions"
-)]
 fn assert_narrow_integer_write(
     kind: AcceptedFieldKind,
     width: usize,
-    initial: Value,
+    initial: &Value,
     boundary: Value,
-    invalid: Value,
+    invalid: &Value,
 ) {
     use crate::db::key_taxonomy::PrimaryKeyComponent;
     use icydb_diagnostic_code::DiagnosticMutationOperation;
@@ -678,7 +674,7 @@ fn assert_narrow_integer_write(
         _ => panic!("integer fixture"),
     };
     let patch = AcceptedMutationIntentPatch::new()
-        .set_authored(FieldSlot::from_validated_index(0), input(&initial));
+        .set_authored(FieldSlot::from_validated_index(0), input(initial));
     let write = AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1));
     let row = resolve_insert_structural_patch_with_accepted_contract(
         &contract,
@@ -702,9 +698,9 @@ fn assert_narrow_integer_write(
     let reader =
         StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
             .unwrap();
-    assert_eq!(reader.required_cached_value(1).unwrap(), &initial);
+    assert_eq!(reader.required_cached_value(1).unwrap(), initial);
     assert_eq!(reader.required_bytes(1).unwrap().len(), 2 + width);
-    let key = PrimaryKeyComponent::from_runtime_value(&initial)
+    let key = PrimaryKeyComponent::from_runtime_value(initial)
         .unwrap()
         .into();
     reader.validate_primary_key_value(&key).unwrap();
@@ -762,12 +758,12 @@ fn assert_narrow_integer_write(
                 0,
             ),
         );
-        if value == invalid {
+        if value == *invalid {
             assert!(result.is_err());
             continue;
         }
         let updated = result.unwrap().into_parts().0.into_raw_row();
-        if value == initial {
+        if value == *initial {
             assert_eq!(updated.as_bytes(), row.as_bytes());
         }
         let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(

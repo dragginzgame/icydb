@@ -2,7 +2,7 @@
 /.github/workflows/ @dragginzgame
 /.github/actions/ @dragginzgame
 /.github/dependabot.yml @dragginzgame
-/.githooks/ @dragginzgame
+/vendor/toko-tooling/ @dragginzgame
 /scripts/ci/ @dragginzgame
 /Makefile @dragginzgame
 /rust-toolchain.toml @dragginzgame

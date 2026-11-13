@@ -332,7 +332,7 @@ pub(crate) fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
 
 #[cfg_attr(doc, doc = "Render one SQL DDL payload into deterministic lines.")]
 #[must_use]
-pub(super) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> Vec<String> {
+pub(super) fn render_sql_ddl_lines(input: &SqlDdlRenderInput<'_>) -> Vec<String> {
     vec![format!(
         "surface=ddl entity={} mutation_kind={} target_index={} target_store={} field_path={} status={} rows_scanned={} index_keys_written={}",
         input.entity,

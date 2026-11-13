@@ -64,7 +64,7 @@ fn set_backup(session: &DbSession<MigrationExecutionCanister>, target: u64) {
     }
 }
 
-fn assert_plan_changed(error: InternalError) {
+fn assert_plan_changed(error: &InternalError) {
     assert_eq!(
         error.diagnostic().detail(),
         Some(&DiagnosticDetail::SchemaMigration {
@@ -132,7 +132,7 @@ fn terminal_handoff_drains_old_journals_before_starting_a_successor() {
     }
     assert!(idle_pages > 0);
     assert_plan_changed(
-        advance(&db, &first).expect_err("active successor must reject a different plan"),
+        &advance(&db, &first).expect_err("active successor must reject a different plan"),
     );
     forget_recovered_domain_for_tests(&db).expect("recovery should reset");
     drive_startup_recovery_to_completion(&db);

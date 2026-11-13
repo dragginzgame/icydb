@@ -8,17 +8,17 @@ use crate::{
 
 #[test]
 fn grouped_count_metadata_reads_no_rows_or_index_entries() {
-    assert_grouped_count_reads_no_rows(initialize());
+    assert_grouped_count_reads_no_rows(&initialize());
 }
 
 #[test]
 fn grouped_count_metadata_reads_composite_prefix_without_rows() {
-    assert_grouped_count_reads_no_rows(initialize_with_composite_payload_index());
+    assert_grouped_count_reads_no_rows(&initialize_with_composite_payload_index());
 }
 
-fn assert_grouped_count_reads_no_rows(session: super::DbSession<super::TestCanister>) {
+fn assert_grouped_count_reads_no_rows(session: &super::DbSession<super::TestCanister>) {
     for payload in [20, 10, 10] {
-        insert_exact_key_fixture(&session, payload);
+        insert_exact_key_fixture(session, payload);
     }
     for _ in 0..2 {
         let data_reads = DataStore::current_get_call_count();

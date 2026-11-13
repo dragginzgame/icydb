@@ -177,7 +177,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
     assemble_query_model_plan(
         query,
         indexes,
-        schema_info,
+        &schema_info,
         normalized_predicate,
         canonical_order,
         primary_key_input_resource,
@@ -194,7 +194,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
 pub(in crate::db::query::plan) fn assemble_query_model_plan(
     query: &QueryModel,
     rerank_indexes: &[SemanticIndexAccessContract],
-    schema_info: Rc<SchemaInfo>,
+    schema_info: &SchemaInfo,
     normalized_predicate: Option<Predicate>,
     canonical_order: Option<OrderSpec>,
     primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
@@ -204,7 +204,7 @@ pub(in crate::db::query::plan) fn assemble_query_model_plan(
 ) -> Result<AccessPlannedQuery, QueryError> {
     let logical_inputs = query.planning_logical_inputs();
     let primary_key_strip = strip_redundant_primary_key_predicate_for_exact_access(
-        &schema_info,
+        schema_info,
         &access_plan_value,
         normalized_predicate,
     );
@@ -220,7 +220,7 @@ pub(in crate::db::query::plan) fn assemble_query_model_plan(
 
     // Phase 3: assemble logical plan from normalized scalar/grouped intent.
     let logical_query = logical_query_from_logical_inputs(
-        logical_inputs,
+        &logical_inputs,
         normalized_predicate,
         canonical_order,
         query.consistency(),
@@ -237,7 +237,7 @@ pub(in crate::db::query::plan) fn assemble_query_model_plan(
     );
     let preferred_access = rerank_access_plan_by_residual_burden_with_semantic_indexes(
         rerank_indexes,
-        &schema_info,
+        schema_info,
         &plan,
         work,
     )
@@ -253,7 +253,7 @@ pub(in crate::db::query::plan) fn assemble_query_model_plan(
     attach_primary_key_input_resource_if_exact_access(&mut plan, primary_key_input_resource);
     simplify_limit_one_page_for_by_key_access(&mut plan);
 
-    finalize_query_model_plan(&schema_info, plan, work)
+    finalize_query_model_plan(schema_info, plan, work)
 }
 
 fn finalize_query_model_plan(
@@ -574,12 +574,12 @@ fn direct_count_index_supports_exact_prefix(
 /// Build the no-predicate scalar-load fast path using explicit schema authority.
 pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
     query: &QueryModel,
-    schema_info: Rc<SchemaInfo>,
+    schema_info: &SchemaInfo,
     work: &PreparationWork<'_>,
 ) -> Result<Option<AccessPlannedQuery>, QueryError> {
     // Phase 1: keep this path deliberately narrow so it only bypasses work the
     // general planner would do for a full-scan primary-order scalar load.
-    if !query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
+    if !query.trivial_scalar_load_fast_path_eligible_with_schema(schema_info) {
         return Ok(None);
     }
 
@@ -589,9 +589,9 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
     let canonical_order =
         query
             .planning_access_inputs()
-            .canonical_order(&schema_info, false, work)?;
+            .canonical_order(schema_info, false, work)?;
     let logical_query = logical_query_from_logical_inputs(
-        logical_inputs,
+        &logical_inputs,
         None,
         canonical_order,
         query.consistency(),
@@ -609,10 +609,10 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
 
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
-    plan.finalize_planner_route_profile_for_model_with_schema(&schema_info, work)
+    plan.finalize_planner_route_profile_for_model_with_schema(schema_info, work)
         .map_err(QueryError::execute)?;
-    let projection = plan.prepare_projection(&schema_info, work)?;
-    plan.finalize_static_execution_planning_contract_with_schema(&schema_info, projection, work)?;
+    let projection = plan.prepare_projection(schema_info, work)?;
+    plan.finalize_static_execution_planning_contract_with_schema(schema_info, projection, work)?;
 
     Ok(Some(plan))
 }

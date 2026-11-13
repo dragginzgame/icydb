@@ -80,6 +80,7 @@ pub struct Canister {
 
 impl Canister {
     #[must_use]
+    /// Declare a canister namespace and optional migration constructor, starting at attempt zero.
     pub const fn new(
         def: Def,
         memory_namespace: &'static str,
@@ -107,11 +108,13 @@ impl Canister {
     }
 
     #[must_use]
+    /// Borrow the Rust definition identity used to register this declaration.
     pub const fn def(&self) -> &Def {
         &self.def
     }
 
     #[must_use]
+    /// Return the explicit namespace used for durable memory keys.
     pub const fn memory_namespace(&self) -> &'static str {
         self.memory_namespace
     }
@@ -130,16 +133,19 @@ impl Canister {
     }
 
     #[must_use]
+    /// Construct the commit-control memory key in this canister namespace.
     pub fn commit_stable_key(&self) -> String {
         stable_memory_key(self.memory_namespace(), "commit", "control")
     }
 
     #[must_use]
+    /// Construct the integrity-progress memory key in this canister namespace.
     pub fn integrity_progress_stable_key(&self) -> String {
         stable_memory_key(self.memory_namespace(), "integrity", "progress")
     }
 
     #[must_use]
+    /// Construct the startup-control memory key in this canister namespace.
     pub fn startup_stable_key(&self) -> String {
         stable_memory_key(self.memory_namespace(), "startup", "control")
     }

@@ -26,7 +26,7 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_scan_c
 ) -> Result<(StructuralCursorPage, usize), InternalError> {
     let MaterializedExecutionAttempt { payload, metrics } = execute_prepared_scalar_kernel(
         prepared,
-        ScalarRouteTerminal::MaterializedPage,
+        &ScalarRouteTerminal::MaterializedPage,
         |execution_inputs, route_plan, continuation| {
             ExecutionKernel::materialize_with_optional_residual_retry(
                 execution_inputs,

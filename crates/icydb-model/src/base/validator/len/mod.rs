@@ -16,6 +16,7 @@ use std::{
 
 #[expect(clippy::len_without_is_empty)]
 pub trait HasLen {
+    /// Count collection elements, blob bytes, or Unicode scalar values for strings.
     fn len(&self) -> usize;
 }
 
@@ -79,12 +80,14 @@ impl<K, V> HasLen for BTreeMap<K, V> {
 // ============================================================================
 //
 
+/// Require the measured length to equal a configured target.
 #[validator]
 pub struct Equal {
     target: usize,
 }
 
 impl Equal {
+    /// Configure the target length; failed conversion to `usize` uses zero.
     pub fn new(target: impl TryInto<usize>) -> Self {
         Self {
             target: target.try_into().unwrap_or_default(),
@@ -112,6 +115,7 @@ pub struct Min {
 }
 
 impl Min {
+    /// Configure the target length; failed conversion to `usize` uses zero.
     pub fn new(target: impl TryInto<usize>) -> Self {
         Self {
             target: target.try_into().unwrap_or_default(),
@@ -142,6 +146,7 @@ pub struct Max {
 }
 
 impl Max {
+    /// Configure the target length; failed conversion to `usize` uses zero.
     pub fn new(target: impl TryInto<usize>) -> Self {
         Self {
             target: target.try_into().unwrap_or_default(),
@@ -173,6 +178,7 @@ pub struct Range {
 }
 
 impl Range {
+    /// Configure inclusive bounds; each failed conversion to `usize` uses zero.
     pub fn new(min: impl TryInto<usize>, max: impl TryInto<usize>) -> Self {
         Self {
             min: min.try_into().unwrap_or_default(),

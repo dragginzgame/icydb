@@ -52,7 +52,7 @@ pub fn request_execution(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    request_execution::expand_request_execution(args.into(), input.into())
+    request_execution::expand_request_execution(&args.into(), input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
@@ -70,7 +70,7 @@ pub fn test(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    request_execution::expand_test(args.into(), input.into())
+    request_execution::expand_test(&args.into(), input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

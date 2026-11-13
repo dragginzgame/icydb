@@ -16,10 +16,6 @@ fn package(root: &Path, name: &str, dependencies: &str) {
 // Exercise real Cargo's alias, target and feature graph selection. These tiny
 // local packages model identities only, never compatibility with real Canic.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one real retained-build fixture qualifies aliases, targets, features and custody"
-)]
 fn retained_artifact_admission_uses_exact_target_features_and_source() {
     let root = ic_host_fs::testing::create_fixture_directory(
         &env::temp_dir(),

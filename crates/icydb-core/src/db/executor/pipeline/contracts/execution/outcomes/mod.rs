@@ -62,7 +62,7 @@ pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
 impl ExecutionOutcomeMetrics {
     // Accumulate residual-retry work counters while retaining terminal-state
     // metrics from the latest attempt.
-    pub(in crate::db::executor) const fn merge_residual_retry_attempt(self, latest: Self) -> Self {
+    pub(in crate::db::executor) const fn merge_residual_retry_attempt(self, latest: &Self) -> Self {
         Self {
             rows_scanned: self.rows_scanned.saturating_add(latest.rows_scanned),
             post_access_rows: latest.post_access_rows,

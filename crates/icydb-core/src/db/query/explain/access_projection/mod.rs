@@ -233,10 +233,6 @@ impl AccessPlanProjection<Value> for ExplainAccessProjection<'_, '_> {
 
 // Serialize the borrowed DTO directly: a fold producing child Strings cannot
 // stream into the parent's bounded destination or stop at its first failure.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive DTO match keeps canonical JSON field order and fallible streaming together"
-)]
 pub(in crate::db::query::explain) fn write_access_json(
     access: &ExplainAccessPath,
     out: &mut dyn Write,

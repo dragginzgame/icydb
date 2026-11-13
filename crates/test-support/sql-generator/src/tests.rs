@@ -289,10 +289,6 @@ fn every_invalid_kind_is_singly_invalid_and_deterministic() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one end-to-end receipt test keeps declaration, shard, merge, and distribution proof together"
-)]
 fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
     let witnesses = scheduled_select_witnesses().expect("schedule should derive");
     let cases = TIER_C_ROOT_SEEDS
@@ -423,10 +419,6 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one receipt test proves the complete mutation schedule and its distributions together"
-)]
 fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
     let witnesses = scheduled_mutation_witnesses().expect("mutation schedule should derive");
     let sequences = TIER_C_ROOT_SEEDS

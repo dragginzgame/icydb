@@ -82,7 +82,7 @@ fn initialize_composite_store(key_fields: &[&str], kind: &AcceptedFieldKind) {
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
         bindings,
     );
-    initialize_schema_candidate(candidate);
+    initialize_schema_candidate(&candidate);
 }
 
 const fn key_values(seed: u8, account: bool) -> (InputValue, OutputValue) {

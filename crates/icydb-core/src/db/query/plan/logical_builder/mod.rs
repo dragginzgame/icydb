@@ -116,7 +116,7 @@ pub(in crate::db::query) struct LogicalQuery {
 /// request. Shape-only inspections and stripped filters never allocate copies.
 /// Canonical order is transferred from access planning without another copy.
 pub(in crate::db::query) fn logical_query_from_logical_inputs(
-    inputs: LogicalPlanningInputs<'_>,
+    inputs: &LogicalPlanningInputs<'_>,
     normalized_predicate: Option<Predicate>,
     canonical_order: Option<OrderSpec>,
     consistency: MissingRowPolicy,
@@ -132,12 +132,12 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
     } = inputs;
 
     Ok(LogicalQuery {
-        mode,
+        mode: *mode,
         filter_expr: filter_expr.map(|expr| work.copy_expr(expr)).transpose()?,
-        filter_predicate_covers_expr,
+        filter_predicate_covers_expr: *filter_predicate_covers_expr,
         normalized_predicate,
         order: canonical_order,
-        distinct,
+        distinct: *distinct,
         group: group
             .map(|group| {
                 Ok::<_, QueryError>(GroupSpec {

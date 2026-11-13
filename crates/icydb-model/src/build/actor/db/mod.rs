@@ -18,7 +18,7 @@ use quote::quote;
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let private_surfaces = private_surfaces(builder);
 
-    store::generate_store_wiring(builder, private_surfaces)
+    store::generate_store_wiring(builder, &private_surfaces)
 }
 
 /// Emit private SQL and accepted-schema capabilities without public methods.

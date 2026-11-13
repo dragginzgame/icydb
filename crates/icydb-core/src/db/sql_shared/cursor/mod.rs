@@ -9,10 +9,7 @@ use crate::{
     value::Value,
 };
 
-#[cfg_attr(
-    doc,
-    doc = "SqlTokenCursor\n\nShared SQL token cursor used by standalone predicate parsing and feature-gated statement parsing."
-)]
+#[doc = "SqlTokenCursor\n\nShared SQL token cursor used by standalone predicate parsing and feature-gated statement parsing."]
 #[derive(Clone, Debug)]
 pub(crate) struct SqlTokenCursor {
     tokens: Vec<Token>,

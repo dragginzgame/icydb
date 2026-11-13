@@ -324,11 +324,13 @@ impl Store {
     }
 
     #[must_use]
+    /// Borrow the Rust definition identity used to register this declaration.
     pub const fn def(&self) -> &Def {
         &self.def
     }
 
     #[must_use]
+    /// Return the Rust path of the canister owning this store.
     pub const fn canister(&self) -> &'static str {
         self.canister
     }
@@ -513,14 +515,19 @@ impl Store {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Durable allocation roles within one store.
 pub enum StoreMemoryRole {
+    /// Persisted entity-row storage.
     Data,
+    /// Persisted secondary-index storage.
     Index,
+    /// Persisted accepted-schema storage.
     Schema,
 }
 
 impl StoreMemoryRole {
     #[must_use]
+    /// Return the stable allocation-role label used in memory keys.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Data => "data",
@@ -672,6 +679,7 @@ impl StableMemoryAllocation {
 }
 
 #[must_use]
+/// Construct `icydb.<namespace>.<allocation>.<role>.v1`; callers validate the segments before admission.
 pub fn stable_memory_key(memory_namespace: &str, allocation: &str, role: &str) -> String {
     format!("icydb.{memory_namespace}.{allocation}.{role}.v1")
 }
@@ -702,7 +710,7 @@ impl ValidateNode for Store {
                         validate_journaled_memory_config(&mut errs, self, *config, canister);
                     }
                 },
-                Err(e) => errs.add(e),
+                Err(e) => errs.addf(format_args!("{e}")),
             }
         }
 

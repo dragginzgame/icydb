@@ -196,10 +196,6 @@ fn direct_grouping_fixture_is_executable() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn scalar_path_grouping_matches_direct_and_preserves_null_semantics() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
@@ -494,10 +490,6 @@ fn complete_mixed_direct_path_index_admits_one_ordered_prefix() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn omission_capable_path_index_requires_a_non_null_query_proof() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture

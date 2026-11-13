@@ -26,7 +26,7 @@ impl Value {
 
 /// ICRC-3 nested value declarations.
 pub mod value {
-    use super::*;
+    use crate::{base::types::ic::icrc3::Value, prelude::*};
 
     /// Map from text keys to ICRC-3 values.
     #[map(key(prim = "Text", unbounded), value(item(is = "Value")))]

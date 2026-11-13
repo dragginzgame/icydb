@@ -36,7 +36,7 @@ impl AdmittedProjectionPage {
 }
 
 pub(in crate::db) fn project(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     prepared_projection: &PreparedProjectionContract,
     page: StructuralCursorPage,
 ) -> Result<MaterializedProjectionRows, InternalError> {
@@ -60,7 +60,7 @@ pub(in crate::db) fn project(
             let rows = data_rows
                 .into_rows()
                 .map(|row| {
-                    project_data_row(&row_layout, prepared_projection, row).map(RowView::into_owned)
+                    project_data_row(row_layout, prepared_projection, row).map(RowView::into_owned)
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
 
@@ -74,7 +74,7 @@ pub(in crate::db) fn project(
 /// The first row that cannot enter the remaining page envelope is discarded
 /// and left beyond the returned logical boundary, so resume cannot skip it.
 pub(in crate::db::executor::projection) fn project_admitted_page(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     prepared_projection: &PreparedProjectionContract,
     page: StructuralCursorPage,
     resolved_order: Option<&ResolvedOrder>,
@@ -113,9 +113,9 @@ pub(in crate::db::executor::projection) fn project_admitted_page(
             let mut output_stopped = false;
             for row in data_rows.into_rows().take(row_limit.unwrap_or(usize::MAX)) {
                 let boundary = resolved_order
-                    .map(|order| row.cursor_boundary(&row_layout, order))
+                    .map(|order| row.cursor_boundary(row_layout, order))
                     .transpose()?;
-                let projected = project_data_row(&row_layout, prepared_projection, row)?;
+                let projected = project_data_row(row_layout, prepared_projection, row)?;
                 if !output_work.borrow_mut().admit_row(projected.values())? {
                     output_stopped = true;
                     break;

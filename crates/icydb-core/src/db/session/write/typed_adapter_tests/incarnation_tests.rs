@@ -18,7 +18,7 @@ fn select_foreign_incarnation() -> [u8; 16] {
     let replacement =
         commit::prepare_commit_control_replacement(memory, incarnation, [0x55; 32], 0, &[])
             .unwrap();
-    commit::apply_prepared_commit_control_replacement(replacement);
+    replacement.apply();
     assert_eq!(commit::database_incarnation_id().unwrap(), incarnation);
     incarnation.to_bytes()
 }

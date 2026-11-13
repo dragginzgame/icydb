@@ -58,7 +58,7 @@ fn primary_keys() -> Vec<PrimaryKeyValue> {
 
 #[test]
 fn projected_relation_targets_preserve_known_scalar_and_composite_identities() {
-    let relation = relation(5, AcceptedFieldKind::Nat64);
+    let relation = relation(5, &AcceptedFieldKind::Nat64);
     for value in primary_keys() {
         let expected = DecodedDataStoreKey::new(relation.target().entity_tag(), &value)
             .to_raw()
@@ -74,7 +74,7 @@ fn projected_relation_targets_preserve_known_scalar_and_composite_identities() {
 
 #[test]
 fn stored_relation_delete_keys_validate_bytes_and_skip_foreign_entities() {
-    let relation = relation(5, AcceptedFieldKind::Nat64);
+    let relation = relation(5, &AcceptedFieldKind::Nat64);
     for value in primary_keys() {
         let raw = DecodedDataStoreKey::new(relation.target().entity_tag(), &value)
             .to_raw()
@@ -132,7 +132,7 @@ fn reverse_relation_raw_framing_matches_general_keys_and_prefix_bounds() {
     let mut refusals = 0;
     for relation_id in [1, u32::MAX] {
         for generation in [0, u64::MAX] {
-            let mut relation = relation(5, AcceptedFieldKind::Nat64);
+            let mut relation = relation(5, &AcceptedFieldKind::Nat64);
             relation.reverse_identity = AcceptedRelationReverseIdentity::new(
                 RelationId::new(relation_id).unwrap(),
                 generation,
@@ -180,7 +180,7 @@ fn reverse_relation_raw_framing_retains_complete_key_size_refusal() {
         path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
-    let relation = relation(5, AcceptedFieldKind::Nat64);
+    let relation = relation(5, &AcceptedFieldKind::Nat64);
     let account = PrimaryKeyComponent::Account(Account::from_owner_and_subaccount(
         Principal::MAX,
         Some(Subaccount::MAX),

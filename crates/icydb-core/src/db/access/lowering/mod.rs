@@ -183,7 +183,7 @@ pub(in crate::db) struct LoweredIndexScanContract {
 
 impl LoweredIndexScanContract {
     #[must_use]
-    fn from_access_contract(index: crate::db::access::SemanticIndexAccessContract) -> Self {
+    fn from_access_contract(index: &crate::db::access::SemanticIndexAccessContract) -> Self {
         Self {
             name: Arc::from(index.name()),
             store_path: Arc::from(index.store_path()),
@@ -346,7 +346,7 @@ impl LoweredIndexPrefixRawBounds {
 impl LoweredIndexPrefixSpec {
     #[must_use]
     fn new(
-        index: crate::db::access::SemanticIndexAccessContract,
+        index: &crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
         prefix_components: Vec<Vec<u8>>,
@@ -392,7 +392,7 @@ impl LoweredIndexPrefixSpec {
 
     pub(in crate::db) fn from_raw_component_prefix(
         entity_tag: EntityTag,
-        index: crate::db::access::SemanticIndexAccessContract,
+        index: &crate::db::access::SemanticIndexAccessContract,
         key_kind: IndexKeyKind,
         prefix_components: Vec<Vec<u8>>,
         budget: &dyn ConstructionBudget,
@@ -481,7 +481,7 @@ pub(in crate::db) struct LoweredIndexRangeSpec {
 impl LoweredIndexRangeSpec {
     #[must_use]
     fn new(
-        index: crate::db::access::SemanticIndexAccessContract,
+        index: &crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
         prefix_components: Vec<Vec<u8>>,
@@ -518,7 +518,7 @@ impl LoweredIndexRangeSpec {
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
 fn lower_index_range_bounds_for_scope(
     entity_tag: EntityTag,
-    index: crate::db::access::SemanticIndexAccessContract,
+    index: &crate::db::access::SemanticIndexAccessContract,
     schema_info: &SchemaInfo,
     prefix: &[Value],
     lower: &Bound<Value>,
@@ -528,7 +528,7 @@ fn lower_index_range_bounds_for_scope(
     let index_id =
         IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
 
-    let encoded_prefix = encode_index_prefix_values(schema_info, &index, prefix.iter(), budget)
+    let encoded_prefix = encode_index_prefix_values(schema_info, index, prefix.iter(), budget)
         .map_err(|error| match error {
             LoweredAccessError::IndexPrefix => LoweredAccessError::IndexRange,
             error => error,
@@ -617,7 +617,7 @@ fn lower_index_specs_for_path<K>(
         AccessPath::IndexPrefix { index, values } => {
             lower_index_prefix_values_for_specs(
                 entity_tag,
-                index.clone(),
+                index,
                 values.iter(),
                 schema_info,
                 index_prefix_specs,
@@ -627,7 +627,7 @@ fn lower_index_specs_for_path<K>(
         AccessPath::IndexMultiLookup { index, values } => {
             lower_single_component_index_prefix_values_for_specs(
                 entity_tag,
-                index.clone(),
+                index,
                 values,
                 schema_info,
                 index_prefix_specs,
@@ -638,7 +638,7 @@ fn lower_index_specs_for_path<K>(
             for branch_value in spec.branch_values() {
                 lower_index_prefix_values_for_specs(
                     entity_tag,
-                    spec.index(),
+                    &spec.index(),
                     spec.branch_prefix_values(branch_value),
                     schema_info,
                     index_prefix_specs,
@@ -654,7 +654,7 @@ fn lower_index_specs_for_path<K>(
             );
             let (lower, upper, prefix_components) = lower_index_range_bounds_for_scope(
                 entity_tag,
-                spec.index(),
+                &spec.index(),
                 schema_info,
                 spec.prefix_values(),
                 spec.lower(),
@@ -662,7 +662,7 @@ fn lower_index_specs_for_path<K>(
                 budget,
             )?;
             index_range_specs.push(LoweredIndexRangeSpec::new(
-                spec.index(),
+                &spec.index(),
                 lower,
                 upper,
                 prefix_components,
@@ -692,7 +692,7 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
         crate::db::query::plan::CountCardinalityPrefixValues::One(value) => {
             lower_single_component_user_index_prefix_cardinality_keys(
                 entity_tag,
-                access.index().clone(),
+                access.index(),
                 std::slice::from_ref(*value),
                 schema_info,
                 budget,
@@ -701,7 +701,7 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
         crate::db::query::plan::CountCardinalityPrefixValues::Many(values) => {
             lower_single_component_user_index_prefix_cardinality_keys(
                 entity_tag,
-                access.index().clone(),
+                access.index(),
                 values,
                 schema_info,
                 budget,
@@ -710,7 +710,7 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
         crate::db::query::plan::CountCardinalityPrefixValues::ExactPrefixes(prefixes) => {
             lower_user_index_prefix_cardinality_keys(
                 entity_tag,
-                access.index().clone(),
+                access.index(),
                 prefixes,
                 schema_info,
                 budget,
@@ -721,7 +721,7 @@ pub(in crate::db) fn lower_exact_user_index_prefix_cardinality_keys_for_prefix_a
 
 fn lower_user_index_prefix_cardinality_keys(
     entity_tag: EntityTag,
-    index: crate::db::access::SemanticIndexAccessContract,
+    index: &crate::db::access::SemanticIndexAccessContract,
     prefixes: &[Vec<Value>],
     schema_info: &SchemaInfo,
     budget: &dyn ConstructionBudget,
@@ -743,7 +743,7 @@ fn lower_user_index_prefix_cardinality_keys(
         }
         // Transfer encoder-owned payloads; retained accounting observes their
         // actual capacity instead of paying for a second, tight byte copy.
-        let components = encode_index_prefix_values(schema_info, &index, prefix.iter(), budget)?
+        let components = encode_index_prefix_values(schema_info, index, prefix.iter(), budget)?
             .into_iter()
             .map(EncodedValue::into_bytes)
             .collect();
@@ -755,7 +755,7 @@ fn lower_user_index_prefix_cardinality_keys(
 
 fn lower_single_component_user_index_prefix_cardinality_keys(
     entity_tag: EntityTag,
-    index: crate::db::access::SemanticIndexAccessContract,
+    index: &crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
     schema_info: &SchemaInfo,
     budget: &dyn ConstructionBudget,
@@ -771,7 +771,7 @@ fn lower_single_component_user_index_prefix_cardinality_keys(
         .map_err(LoweredAccessError::Construction)?;
     for value in values {
         let components =
-            encode_index_prefix_values(schema_info, &index, std::iter::once(value), budget)?
+            encode_index_prefix_values(schema_info, index, std::iter::once(value), budget)?
                 .into_iter()
                 .map(EncodedValue::into_bytes)
                 .collect();
@@ -783,18 +783,18 @@ fn lower_single_component_user_index_prefix_cardinality_keys(
 
 fn lower_index_prefix_values_for_specs<'a>(
     entity_tag: EntityTag,
-    index: crate::db::access::SemanticIndexAccessContract,
+    index: &crate::db::access::SemanticIndexAccessContract,
     values: impl Iterator<Item = &'a Value>,
     schema_info: &SchemaInfo,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
     budget: &dyn ConstructionBudget,
 ) -> Result<(), LoweredAccessError> {
-    let encoded_values = encode_index_prefix_values(schema_info, &index, values, budget)?;
-    let scan_contract = LoweredIndexScanContract::from_access_contract(index.clone());
+    let encoded_values = encode_index_prefix_values(schema_info, index, values, budget)?;
+    let scan_contract = LoweredIndexScanContract::from_access_contract(index);
 
     push_lowered_index_prefix_spec_from_encoded_components(
         entity_tag,
-        &index,
+        index,
         scan_contract,
         encoded_values,
         specs,
@@ -860,21 +860,21 @@ fn push_lowered_index_prefix_spec_from_encoded_components(
 
 fn lower_single_component_index_prefix_values_for_specs(
     entity_tag: EntityTag,
-    index: crate::db::access::SemanticIndexAccessContract,
+    index: &crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
     schema_info: &SchemaInfo,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
     budget: &dyn ConstructionBudget,
 ) -> Result<(), LoweredAccessError> {
-    let scan_contract = LoweredIndexScanContract::from_access_contract(index.clone());
+    let scan_contract = LoweredIndexScanContract::from_access_contract(index);
     let defer_raw_bounds = values.len() >= DEFERRED_MULTI_LOOKUP_PREFIX_BOUND_MIN_VALUES;
 
     for value in values {
         let encoded =
-            encode_index_prefix_values(schema_info, &index, std::iter::once(value), budget)?;
+            encode_index_prefix_values(schema_info, index, std::iter::once(value), budget)?;
         push_lowered_index_prefix_spec_from_encoded_components(
             entity_tag,
-            &index,
+            index,
             scan_contract.clone(),
             encoded,
             specs,

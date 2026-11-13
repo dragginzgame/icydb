@@ -31,14 +31,15 @@ fn replacement_wakeup() {
     REPLACEMENT_WAKEUPS.with(|count| count.set(count.get() + 1));
 }
 
-fn initialize_wakeup_test() -> StartupRecoveryWakeupRestore {
+fn initialize_wakeup_test() -> impl Drop {
     select_commit_memory_allocation(MEMORY_ID.into(), STABLE_KEY);
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     initialize_current_database_control_for_tests(&memory);
     CAPTURED_WAKEUPS.with(|count| count.set(0));
     REPLACEMENT_WAKEUPS.with(|count| count.set(0));
-    StartupRecoveryWakeupRestore(
+    core::mem::DropGuard::new(
         STARTUP_RECOVERY_WAKEUP.with(|hook| hook.replace(Some(captured_wakeup))),
+        |previous| STARTUP_RECOVERY_WAKEUP.with(|hook| hook.set(previous)),
     )
 }
 

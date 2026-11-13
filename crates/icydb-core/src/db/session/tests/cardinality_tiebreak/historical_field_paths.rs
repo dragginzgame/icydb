@@ -196,8 +196,8 @@ fn historical_field_paths_scalar_projection(fill: Option<Value>) {
     assert_admitted_rows(
         &session,
         "SELECT profile.rank, profile.rank FROM PlannerRow",
-        FieldRef::new("id").in_list([1, 2, 3, 4, 5].map(InputValue::nat64)),
-        vec![
+        &FieldRef::new("id").in_list([1, 2, 3, 4, 5].map(InputValue::nat64)),
+        &[
             vec![historical_rank.clone(); 2],
             vec![historical_rank.clone(); 2],
             vec![OutputValue::null(); 2],
@@ -220,8 +220,8 @@ fn historical_field_paths_scalar_projection(fill: Option<Value>) {
     assert_admitted_rows(
         &session,
         "SELECT profile.rank FROM PlannerRow",
-        FieldRef::new("id").in_list([1, 2, 3, 4, 5].map(InputValue::nat64)),
-        vec![
+        &FieldRef::new("id").in_list([1, 2, 3, 4, 5].map(InputValue::nat64)),
+        &[
             vec![historical_rank.clone()],
             vec![historical_rank],
             vec![OutputValue::null()],
@@ -299,8 +299,8 @@ fn historical_field_paths_single_path_group(fill: Option<Value>) {
 fn assert_admitted_rows(
     session: &DbSession<TestCanister>,
     select: &str,
-    primary_key_filter: FilterExpr,
-    expected: Vec<Vec<OutputValue>>,
+    primary_key_filter: &FilterExpr,
+    expected: &[Vec<OutputValue>],
 ) {
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -314,10 +314,10 @@ fn assert_admitted_rows(
         // Scalar SQL filters do not always expose a planner predicate. Supply
         // the accepted structural key guard through its normal preparation owner.
         let query = with_preparation_work(|work| {
-            query.filter_for_schema(catalog.accepted_schema_info(), &primary_key_filter, work)
+            query.filter_for_schema(catalog.accepted_schema_info(), primary_key_filter, work)
         })
         .unwrap();
-        let mut expected = expected.clone();
+        let mut expected = expected.to_vec();
         if direction == "DESC" {
             expected.reverse();
         }
@@ -397,8 +397,8 @@ fn historical_field_paths_filters_preserve_missing_and_terminal_null(fill: Optio
             assert_admitted_rows(
                 &session,
                 &select,
-                FieldRef::new("id").eq(InputValue::nat64(id)),
-                if ids.contains(&id) {
+                &FieldRef::new("id").eq(InputValue::nat64(id)),
+                &if ids.contains(&id) {
                     vec![vec![OutputValue::nat64(id)]]
                 } else {
                     vec![]

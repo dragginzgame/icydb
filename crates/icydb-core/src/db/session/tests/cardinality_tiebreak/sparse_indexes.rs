@@ -5,7 +5,7 @@ use crate::types::Principal;
 use icydb_diagnostic_code::{DiagnosticDetail, QueryReadAdmissionCode};
 
 fn initialize_sparse_indexes(complete_index: bool) -> DbSession<TestCanister> {
-    initialize_schema_candidate(sparse_schema_candidate(complete_index))
+    initialize_schema_candidate(&sparse_schema_candidate(complete_index))
 }
 
 fn sparse_schema_candidate(complete_index: bool) -> CandidateSchemaRevision {

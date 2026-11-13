@@ -23,7 +23,7 @@ impl Imp<List> for FromTrait {
         Some(vec_collection_from_strategy(
             node.def(),
             item,
-            quote!(
+            &quote!(
                 entries
                     .into_iter()
                     .map(::std::convert::Into::into)
@@ -71,7 +71,7 @@ impl Imp<Set> for FromTrait {
         Some(vec_collection_from_strategy(
             node.def(),
             item,
-            quote!(
+            &quote!(
                 entries
                     .into_iter()
                     .map(::std::convert::Into::into)
@@ -86,7 +86,7 @@ impl Imp<Set> for FromTrait {
 fn vec_collection_from_strategy(
     def: &Def,
     item: &TokenStream,
-    body: TokenStream,
+    body: &TokenStream,
     extra_constraint: Option<TokenStream>,
     paths: &CratePaths,
 ) -> TraitStrategy {
@@ -103,7 +103,7 @@ fn vec_collection_from_strategy(
     TraitStrategy::from_impl(implementor.impl_tokens(paths))
 }
 
-fn vec_collection_from_tokens(body: TokenStream) -> TokenStream {
+fn vec_collection_from_tokens(body: &TokenStream) -> TokenStream {
     quote! {
         fn from(entries: ::std::vec::Vec<I>) -> Self {
             Self(#body)

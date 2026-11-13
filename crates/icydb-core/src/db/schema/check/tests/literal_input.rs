@@ -1,6 +1,7 @@
 //! Literal decoding shares the row-program caller's existing byte allowance.
 
 use super::*;
+use crate::db::schema::AcceptedConstraintKind;
 use crate::db::{
     QueryError, query::preparation::PreparationWork, tests::support::request_with_limit,
 };
@@ -226,10 +227,12 @@ fn accepted_and_pending_checks_share_cumulative_maintenance_decode_bytes_with_ta
                 2,
             )
         } else {
-            catalog.with_added_check(
+            catalog.with_added_row_constraint(
                 "decode_gate".into(),
                 ConstraintOrigin::Generated,
-                expression.clone(),
+                AcceptedConstraintKind::Check {
+                    expression: Box::new(expression.clone()),
+                },
             )
         }
         .unwrap();
@@ -292,10 +295,12 @@ fn literal_free_checks_need_no_decode_allowance_and_corrupt_payloads_preserve_ty
     let constraints = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "corrupt_payload".into(),
             ConstraintOrigin::Generated,
-            expression,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(expression),
+            },
         )
         .unwrap();
     let schema =

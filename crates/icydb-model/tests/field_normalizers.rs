@@ -3,6 +3,7 @@
 use icydb_model::{normalize, prelude::*};
 
 #[normalizer]
+/// Append a marker to prove that a field normalizer ran.
 pub struct Suffix;
 
 impl icydb_model::visitor::Normalizer<String> for Suffix {
@@ -47,12 +48,15 @@ impl icydb_model::visitor::Normalizer<String> for Suffix {
         )
     )
 ))]
+/// Text fields exercising scalar, optional and repeated normalizer attachments.
 pub struct TextFields;
 
 #[canister(memory_namespace = "field_normalizers")]
+/// Canister identity for generated hook fixtures.
 pub struct HookCanister;
 
 #[store(canister = "HookCanister", storage(heap()))]
+/// Heap-backed store for generated hook fixtures.
 pub struct HookStore;
 
 #[entity(
@@ -72,6 +76,7 @@ pub struct HookStore;
         field(name = "child", value(item(is = "TextFields")))
     )
 )]
+/// Entity fixture exercising text normalization across field cardinalities.
 pub struct HookRow;
 
 #[test]
@@ -129,6 +134,7 @@ fn entity_hooks_preserve_unattached_fields_and_nested_traversal() {
 }
 
 #[normalizer]
+/// Report a diagnostic without accepting the visited value.
 pub struct Reject;
 
 impl icydb_model::visitor::Normalizer<String> for Reject {
@@ -151,6 +157,7 @@ impl icydb_model::visitor::Normalizer<String> for Reject {
         value(many, item(prim = "Text", unbounded, normalizer(path = "Reject")))
     )
 ))]
+/// Fields whose normalizers fail to exercise path-scoped diagnostics.
 pub struct RejectedFields;
 
 #[test]

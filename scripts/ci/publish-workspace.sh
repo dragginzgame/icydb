@@ -66,7 +66,7 @@ wait_for_registry_version() {
     local deadline=$((SECONDS + PUBLISH_TIMEOUT_SECS)) status
 
     while [ "$SECONDS" -lt "$deadline" ]; do
-        if bash "$ROOT_DIR/scripts/ci/check-crates-io-version.sh" "$crate" "$version"; then
+        if bash "$ROOT_DIR/vendor/toko-tooling/scripts/ci/check-crates-io-version.sh" "$crate" "$version"; then
             echo "Observed $crate $version on crates.io"
             return 0
         else
@@ -165,7 +165,7 @@ if [ "$PUBLISH_VALIDATE_ONLY" = "1" ]; then
 fi
 
 for crate in "${PUBLISH_ORDER[@]:start}"; do
-    if bash "$ROOT_DIR/scripts/ci/check-crates-io-version.sh" "$crate" "$version"; then
+    if bash "$ROOT_DIR/vendor/toko-tooling/scripts/ci/check-crates-io-version.sh" "$crate" "$version"; then
         echo "Skipping $crate $version (already on crates.io)"
         continue
     else

@@ -22,7 +22,7 @@ build = ["model_api/build"]
 [dependencies]
 model_api = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

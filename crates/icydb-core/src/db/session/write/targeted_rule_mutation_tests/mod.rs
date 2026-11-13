@@ -4,6 +4,7 @@ use super::{
     DbSession, DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicWriteCell,
     TypedEntityDescriptor, TypedFieldType,
 };
+use crate::db::schema::AcceptedConstraintKind;
 use crate::{
     db::{
         TypedFieldDescriptor,
@@ -206,10 +207,6 @@ fn targeted_constraint_id(error: &InternalError) -> u32 {
     u32::try_from(value).expect("accepted constraint ID fits u32")
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one end-to-end fixture proves every maintained write frontend converges on the same accepted targeted-rule schedule"
-)]
 #[test]
 fn targeted_rules_converge_across_dynamic_typed_sql_default_timestamp_and_batch_writes() {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
@@ -290,15 +287,17 @@ fn targeted_rules_converge_across_dynamic_typed_sql_default_timestamp_and_batch_
     let constraint_catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_targeted_rule(
+        .with_added_row_constraint(
             "profile_degree_multiple".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedRuleTarget::new(
-                FieldId::new(2),
-                AcceptedNamedTypeIdentity::Composite(degree_type),
-            ),
-            AcceptedRuleOperation::MultipleOf {
-                divisor: nat64_literal(&enum_catalog, &composite_catalog, 5),
+            AcceptedConstraintKind::TargetedRule {
+                target: AcceptedRuleTarget::new(
+                    FieldId::new(2),
+                    AcceptedNamedTypeIdentity::Composite(degree_type),
+                ),
+                operation: Box::new(AcceptedRuleOperation::MultipleOf {
+                    divisor: nat64_literal(&enum_catalog, &composite_catalog, 5),
+                }),
             },
         )
         .expect("targeted mutation rule should allocate");

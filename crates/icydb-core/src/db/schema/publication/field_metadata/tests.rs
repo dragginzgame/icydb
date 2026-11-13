@@ -118,7 +118,7 @@ fn field_default_validates_complete_candidate_and_rejects_unchanged_default() {
     let derivation = derive_sql_ddl_field_default_accepted_after(
         &before,
         "retained",
-        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
+        &SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
     )
     .expect("text default should derive")
     .with_declared_schema_version(&before, SchemaVersion::new(2))

@@ -387,7 +387,7 @@ fn expression_component_bytes_from_slots(
         return Ok(None);
     };
 
-    encode_value_index_component(value)
+    encode_value_index_component_ref(&value)
 }
 
 fn resolve_field_path_component<'a>(
@@ -581,11 +581,6 @@ fn push_index_key_component(
 
     components.push(component);
     Ok(())
-}
-
-// Encode one owned runtime value into canonical index bytes.
-fn encode_value_index_component(value: Value) -> Result<Option<Vec<u8>>, InternalError> {
-    encode_value_index_component_ref(&value)
 }
 
 // Encode one borrowed runtime value into canonical index bytes without

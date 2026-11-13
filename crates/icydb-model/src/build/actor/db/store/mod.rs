@@ -36,7 +36,7 @@ struct CanisterMemoryWiring<'a> {
 /// Emit generated stores, optional frontends, and session accessors.
 pub(super) fn generate_store_wiring(
     builder: &ActorBuilder,
-    frontend_surfaces: TokenStream,
+    frontend_surfaces: &TokenStream,
 ) -> TokenStream {
     let icydb = &builder.icydb;
     let canister = &builder.canister;
@@ -52,8 +52,8 @@ pub(super) fn generate_store_wiring(
         icydb,
         store_registry,
         frontend_surfaces,
-        schema_bootstrap,
-        CanisterMemoryWiring {
+        &schema_bootstrap,
+        &CanisterMemoryWiring {
             commit: &commit_stable_key,
             startup: &startup_stable_key,
             integrity_progress: &integrity_progress_stable_key,
@@ -307,9 +307,9 @@ fn store_cell_ident(store_ordinal: usize, role: &str) -> Ident {
 fn store_cell_tokens(
     icydb: &TokenStream,
     cell_ident: &Ident,
-    store_ty: TokenStream,
+    store_ty: &TokenStream,
     stable_key: &str,
-    initializer: Ident,
+    initializer: &Ident,
 ) -> TokenStream {
     quote! {
         ::std::thread_local! {
@@ -406,30 +406,30 @@ fn journaled_store_registry_entry_tokens(
     let journal_def = store_cell_tokens(
         icydb,
         &journal_cell_ident,
-        quote!(#icydb::__macro::JournalTailStore),
+        &quote!(#icydb::__macro::JournalTailStore),
         journal_stable_key,
-        format_ident!("init"),
+        &format_ident!("init"),
     );
     let data_def = store_cell_tokens(
         icydb,
         &data_cell_ident,
-        quote!(#icydb::__macro::DataStore),
+        &quote!(#icydb::__macro::DataStore),
         data_stable_key,
-        format_ident!("init_journaled"),
+        &format_ident!("init_journaled"),
     );
     let index_def = store_cell_tokens(
         icydb,
         &index_cell_ident,
-        quote!(#icydb::__macro::IndexStore),
+        &quote!(#icydb::__macro::IndexStore),
         index_stable_key,
-        format_ident!("init_journaled"),
+        &format_ident!("init_journaled"),
     );
     let schema_def = store_cell_tokens(
         icydb,
         &schema_cell_ident,
-        quote!(#icydb::__macro::SchemaStore),
+        &quote!(#icydb::__macro::SchemaStore),
         schema_stable_key,
-        format_ident!("init_journaled"),
+        &format_ident!("init_journaled"),
     );
     let store_init = quote! {
         reg.register_journaled_store(
@@ -461,16 +461,12 @@ fn journaled_store_registry_entry_tokens(
 }
 
 /// Assemble the outer canister store wiring around the generated registry.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one generated block keeps the store registry, memory declarations, and startup wiring visibly co-located"
-)]
 fn store_wiring_tokens(
     icydb: &TokenStream,
     store_registry: StoreRegistryTokens,
-    frontend_surfaces: TokenStream,
-    schema_bootstrap: TokenStream,
-    memory: CanisterMemoryWiring<'_>,
+    frontend_surfaces: &TokenStream,
+    schema_bootstrap: &TokenStream,
+    memory: &CanisterMemoryWiring<'_>,
 ) -> TokenStream {
     let StoreRegistryTokens {
         memory_authority,

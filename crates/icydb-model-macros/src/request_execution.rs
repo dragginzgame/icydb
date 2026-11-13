@@ -7,10 +7,10 @@ use syn::{ItemFn, parse_quote};
 use crate::crate_path::icydb_runtime_path;
 
 pub(crate) fn expand_request_execution(
-    args: TokenStream,
+    args: &TokenStream,
     input: TokenStream,
 ) -> syn::Result<TokenStream> {
-    reject_arguments(&args)?;
+    reject_arguments(args)?;
     let mut item = syn::parse2::<ItemFn>(input)?;
     let icydb =
         icydb_runtime_path().map_err(|error| syn::Error::new(item.sig.ident.span(), error))?;
@@ -35,8 +35,8 @@ pub(crate) fn expand_request_execution(
     Ok(quote!(#item))
 }
 
-pub(crate) fn expand_test(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
-    reject_arguments(&args)?;
+pub(crate) fn expand_test(args: &TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    reject_arguments(args)?;
     let mut item = syn::parse2::<ItemFn>(input)?;
     if item.sig.asyncness.is_some() {
         return Err(syn::Error::new_spanned(

@@ -453,7 +453,7 @@ fn heap_only_malformed_marker_becomes_a_durable_database_control_failure() {
     )
     .expect("commit memory should open");
     initialize_current_database_control_for_tests(&memory);
-    persist_raw_commit_marker_for_tests(vec![0xff])
+    persist_raw_commit_marker_for_tests(&[0xff])
         .expect("malformed marker payload should persist inside valid control authority");
 
     assert_eq!(
@@ -628,7 +628,7 @@ fn persisted_journal_record_corruption_becomes_a_durable_journal_failure() {
         encode_journal_batch(&changed_batch).expect("changed journal batch should encode");
     JOURNAL_RECOVERY_FAILURE_TAIL.with(|tail| {
         tail.borrow_mut()
-            .insert_raw_batch_for_tests(JournalSequence::new(2), changed_encoded)
+            .insert_raw_batch_for_tests(JournalSequence::new(2), &changed_encoded)
             .expect("changed journal authority should insert");
     });
     assert_eq!(
@@ -642,10 +642,6 @@ fn persisted_journal_record_corruption_becomes_a_durable_journal_failure() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one lifecycle test keeps pending, ready, marker, and receipt precedence in one scenario"
-)]
 fn completed_recovery_stays_recovering_until_exact_generated_schema_receipt_then_is_ready() {
     const SUBMISSION: &str = "generated/0123456789abcdef";
 

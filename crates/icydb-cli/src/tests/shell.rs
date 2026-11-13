@@ -462,7 +462,7 @@ fn sql_response_preserves_preformatted_grouped_cells_and_cursor() {
 
 #[test]
 fn sql_response_keeps_endpoint_and_decode_failures_as_errors() {
-    let error = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+    let error = icydb::Error::from_diagnostic(&icydb::diagnostic::Diagnostic::new(
         icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
         icydb::diagnostic::ErrorOrigin::Query,
         Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission {

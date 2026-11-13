@@ -330,7 +330,7 @@ fn accepted_enum_catalog_local_kind_shape_agrees_across_construction_and_codec()
             },
             AcceptedFieldKind::Map {
                 key: Box::new(AcceptedFieldKind::Nat64),
-                value: Box::new(leaf.clone()),
+                value: Box::new(leaf),
             },
         ] {
             let built = AcceptedEnumCatalog::from_initial_definitions(BTreeMap::from([(

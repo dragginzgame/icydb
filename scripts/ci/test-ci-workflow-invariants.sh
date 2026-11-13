@@ -16,8 +16,8 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 export YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-workflow-policy.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Workflow fixture failure retained"' EXIT
@@ -25,9 +25,19 @@ mkdir -p "$fixture/.github/workflows" "$fixture/scripts/ci" "$fixture/scripts/re
   "$fixture/ci" "$fixture/testing/integration/src"
 cp "$ROOT/Makefile" "$fixture/"
 cp "$ROOT/.github/CODEOWNERS" "$fixture/.github/"
-cp "$ROOT/scripts/ci/"{check-ci-workflow-invariants.sh,ci-workflow-invariants.jq,dependency-pins.jq,run-icydb-validation-targets.sh} "$fixture/scripts/ci/"
+mkdir -p "$fixture/scripts/ci/"
+cp "$ROOT/scripts/ci/check-ci-workflow-invariants.sh" "$fixture/scripts/ci/"
+mkdir -p "$fixture/scripts/ci/"
+cp "$ROOT/scripts/ci/ci-workflow-invariants.jq" "$fixture/scripts/ci/"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci/"
+cp "$ROOT/vendor/toko-tooling/scripts/ci/dependency-pins.jq" "$fixture/vendor/toko-tooling/scripts/ci/"
+mkdir -p "$fixture/scripts/ci/"
+cp "$ROOT/scripts/ci/run-icydb-validation-targets.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/release/validation-stages.pl" "$fixture/scripts/release/"
-cp "$ROOT/ci/"{release-validation.json,release-validation-contract.json} "$fixture/ci/"
+mkdir -p "$fixture/ci/"
+cp "$ROOT/ci/release-validation.json" "$fixture/ci/"
+mkdir -p "$fixture/ci/"
+cp "$ROOT/ci/release-validation-contract.json" "$fixture/ci/"
 cp "$ROOT/testing/integration/src/lib.rs" "$fixture/testing/integration/src/"
 core_subject="$fixture/.github/workflows/ci.yml"
 adapter_subject="$fixture/.github/workflows/canic-adapter.yml"
@@ -126,7 +136,7 @@ status=0
 PATH="$fixture/static-bin:$PATH" RUNNER_TEMP="$runner_temp" TMPDIR="$fixture/uncollected" \
   bash -e "$fixture/static-recipe.sh" > "$fixture/static-recipe.log" 2>&1 || status=$?
 [[ "$status" == 23 ]]
-bash "$ROOT/scripts/ci/archive-evidence.sh" "$fixture/static-evidence.tar.gz" \
+bash "$ROOT/vendor/toko-tooling/scripts/ci/archive-evidence.sh" "$fixture/static-evidence.tar.gz" \
   "$runner_temp" portable-fixtures > "$fixture/static-archive.log"
 mkdir "$fixture/static-extracted"
 tar -xzf "$fixture/static-evidence.tar.gz" -C "$fixture/static-extracted"
@@ -239,7 +249,7 @@ reset
 mutate '(.jobs.rust.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make tools-check LOCAL_TOOL_CHECK_TARGETS="; "true")'
 check fail incomplete-common-admission
 reset
-mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/retain-failure-evidence"))'
+mutate '.jobs.rust.steps |= map(select(.uses != "./vendor/toko-tooling/.github/actions/retain-failure-evidence"))'
 check fail missing-tooling-failure-retention
 reset
 mutate 'del(.env.IC_TOOLS)'
@@ -258,7 +268,7 @@ for job in rust wire_browser wasm_size_report; do
 done
 for job in static rust macos_host wasm_size_report; do
   reset
-  mutate "(.jobs.$job.steps[] | select(.uses == \"./.github/actions/retain-failure-evidence\")) |= del(.with.\"ic-tools\")"
+  mutate "(.jobs.$job.steps[] | select(.uses == \"./vendor/toko-tooling/.github/actions/retain-failure-evidence\")) |= del(.with.\"ic-tools\")"
   check fail "missing-$job-evidence-ic-selection"
 done
 reset
@@ -383,7 +393,7 @@ cp "$ROOT/Makefile" "$fixture/Makefile"
 # Current providers are credited only by these unfiltered selections. Mutate
 # actual Make inputs: target existence or a similarly named command is insufficient.
 for selection in \
-  'empty-native-oracle-admitted|bash scripts/ci/run-nonempty-cargo-test.sh|cargo test' \
+  'empty-native-oracle-admitted|bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh|cargo test' \
   'absent-workspace-target|^_ci-workspace-tests:$|_unselected-tests:' \
   'echoed-only-provider|cargo test --locked --no-fail-fast|echo cargo test --locked --no-fail-fast' \
   'missing-cargo-provider|cargo test --locked --no-fail-fast|:' \

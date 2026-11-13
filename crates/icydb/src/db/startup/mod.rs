@@ -55,11 +55,11 @@ impl StartupFailure {
         &self.diagnostic
     }
 
-    fn from_core(failure: icydb_core::db::StartupFailure) -> Self {
+    fn from_core(failure: &icydb_core::db::StartupFailure) -> Self {
         Self {
             kind: failure.kind(),
             diagnostic: Error::from_diagnostic_and_facts(
-                failure.diagnostic().clone(),
+                failure.diagnostic(),
                 failure.facts().to_vec(),
             ),
         }
@@ -73,7 +73,7 @@ pub fn __observe_generated_startup_state<C: icydb_core::traits::CanisterKind>(
     submission_key: &str,
 ) -> Result<DatabaseStartupState, StartupFailure> {
     icydb_core::db::observe_generated_startup_state::<C>(stores, submission_key)
-        .map_err(StartupFailure::from_core)
+        .map_err(|failure| StartupFailure::from_core(&failure))
 }
 
 /// Map memory-bootstrap failure into the bounded startup control result.

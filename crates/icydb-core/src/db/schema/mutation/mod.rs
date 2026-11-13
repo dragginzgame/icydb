@@ -65,8 +65,6 @@ pub(in crate::db) use ddl_admission::{
 
 #[cfg(any(test, feature = "sql"))]
 mod delta;
-#[cfg(feature = "sql")]
-pub(in crate::db::schema) use delta::required_empty_entity_field_addition_matches;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use delta::schema_mutation_request_for_snapshots;
 
@@ -114,9 +112,9 @@ pub(in crate::db) use user_index_domain::{StagedUserIndexDomainError, UniqueCons
 ///
 /// SchemaMutationRequest
 ///
-/// Catalog-level mutation shapes shared by SQL DDL snapshot comparison and
-/// accepted index-target construction. Transition policy validates the shape
-/// before it becomes a publishable or physical-work plan.
+/// Catalog-level additions shared by DDL admission and accepted index-target
+/// construction. Snapshot admission validates historical fills before the
+/// derived operation is carried to publication.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,7 +126,6 @@ pub(in crate::db) use user_index_domain::{StagedUserIndexDomainError, UniqueCons
     )
 )]
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
-    ExactMatch,
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
     AddFieldPathIndex {
         target: SchemaFieldPathIndexRebuildTarget,

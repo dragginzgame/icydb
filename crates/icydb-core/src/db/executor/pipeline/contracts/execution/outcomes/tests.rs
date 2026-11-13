@@ -11,7 +11,7 @@ fn retry_metrics_accumulate_scan_work_and_keep_latest_output_count() {
             rows_scanned: previous_scan,
             post_access_rows: previous_rows,
         }
-        .merge_residual_retry_attempt(ExecutionOutcomeMetrics {
+        .merge_residual_retry_attempt(&ExecutionOutcomeMetrics {
             rows_scanned: latest_scan,
             post_access_rows: latest_rows,
         });

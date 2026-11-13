@@ -1,3 +1,5 @@
+//! Compile-time contract for trusted SQL queries.
+
 use icydb::{
     Error,
     db::{DbSession, SqlStatementDispatch, sql::SqlQueryResult, sql_statement_dispatch},

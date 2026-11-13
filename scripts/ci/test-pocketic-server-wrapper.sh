@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Supervision and evidence tests use a harmless substitute, never PocketIC.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-pocketic-wrapper.XXXXXX")"
 control_pid=""
 fixture_complete=false

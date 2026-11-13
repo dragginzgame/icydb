@@ -252,7 +252,7 @@ fn malformed_key_payloads_match_direct_validation_without_cached_errors() {
         let contract = key_contract(kind, storage, false);
         let encode = |slot, value: &Value| {
             encode_canonical_value_for_accepted_field_contract(
-                contract
+                &contract
                     .required_accepted_field_persistence_contract(slot)
                     .unwrap(),
                 value,

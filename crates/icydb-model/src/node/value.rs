@@ -20,11 +20,13 @@ impl Value {
     }
 
     #[must_use]
+    /// Return whether this value is required, optional or repeated.
     pub const fn cardinality(&self) -> Cardinality {
         self.cardinality
     }
 
     #[must_use]
+    /// Borrow the value element type and its item-level policy.
     pub const fn item(&self) -> &Item {
         &self.item
     }

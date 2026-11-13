@@ -126,10 +126,10 @@ impl GroupedTerminalAggregateState {
 
     // Preserve numeric and budget failures; classify invalid grouped input or
     // filter expressions through one shared evaluator boundary.
-    fn expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
+    fn expression_evaluation_failed(err: &ProjectionEvalError) -> InternalError {
         match err {
             ProjectionEvalError::Numeric(err) => err.into_internal_error(),
-            ProjectionEvalError::Budget(err) => err.into(),
+            ProjectionEvalError::Budget(err) => (*err).into(),
             _ => InternalError::query_invalid_logical_plan(),
         }
     }
@@ -146,7 +146,7 @@ impl GroupedTerminalAggregateState {
 
         expression
             .evaluate(row_view)
-            .map_err(Self::expression_evaluation_failed)
+            .map_err(|err| Self::expression_evaluation_failed(&err))
     }
 
     // Read one direct field-target input when the aggregate only needs to

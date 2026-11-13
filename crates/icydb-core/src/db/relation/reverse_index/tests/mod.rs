@@ -72,7 +72,7 @@ fn test_field_contract<'a>(
     AcceptedFieldDecodeContract::new(name, kind, false, FieldStorageDecode::ByKind, leaf_codec)
 }
 
-fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelationInfo {
+fn relation(field_index: usize, key_kind: &AcceptedFieldKind) -> AcceptedRelationInfo {
     let field_kind = AcceptedFieldKind::Relation {
         target_path: "Target".to_string(),
         target_entity_name: "Target".to_string(),
@@ -102,7 +102,7 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
             "Target",
             EntityTag::new(77),
             "TargetStore",
-            std::slice::from_ref(&key_kind),
+            std::slice::from_ref(key_kind),
         )
         .expect("target identity should build"),
         cardinality: AcceptedRelationCardinality::Single,
@@ -111,7 +111,7 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
 
 #[test]
 fn accepted_relation_target_identity_carries_ordered_primary_key_metadata() {
-    let relation = relation(3, AcceptedFieldKind::Nat64);
+    let relation = relation(3, &AcceptedFieldKind::Nat64);
 
     assert_eq!(
         relation.target().primary_key().component_kinds(),
@@ -169,7 +169,7 @@ fn relation_target_keys_make_none_one_and_many_explicit() {
 
 #[test]
 fn accepted_relation_info_carries_ordered_local_component_metadata() {
-    let relation = relation(3, AcceptedFieldKind::Nat64);
+    let relation = relation(3, &AcceptedFieldKind::Nat64);
     let [component] = relation
         .local_components()
         .expect("direct relation should expose local components")
@@ -185,7 +185,7 @@ fn accepted_relation_info_carries_ordered_local_component_metadata() {
 
 #[test]
 fn accepted_relation_violation_preserves_catalog_identity() {
-    let relation = relation(3, AcceptedFieldKind::Nat64);
+    let relation = relation(3, &AcceptedFieldKind::Nat64);
     let error = relation.write_violation(
         [0x44; 16],
         EntityTag::new(9),
@@ -374,7 +374,7 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
 #[test]
 fn scalar_relation_target_key_kind_validation_accepts_128_bit_lanes() {
     for key_kind in [AcceptedFieldKind::Int128, AcceptedFieldKind::Nat128] {
-        let relation = relation(3, key_kind);
+        let relation = relation(3, &key_kind);
 
         validate_scalar_relation_target_primary_key_kind(&relation)
             .expect("128-bit scalar relation target key kinds should validate");
@@ -388,7 +388,7 @@ fn relation_scalar_slot_fast_path_excludes_structural_128_bit_lanes() {
         AcceptedFieldKind::Nat64,
         AcceptedFieldKind::Ulid,
     ] {
-        let relation = relation(3, key_kind);
+        let relation = relation(3, &key_kind);
         assert!(
             relation_scalar_slot_fast_path_key_kind_supported(
                 relation
@@ -400,7 +400,7 @@ fn relation_scalar_slot_fast_path_excludes_structural_128_bit_lanes() {
     }
 
     for key_kind in [AcceptedFieldKind::Int128, AcceptedFieldKind::Nat128] {
-        let relation = relation(3, key_kind);
+        let relation = relation(3, &key_kind);
         assert!(
             !relation_scalar_slot_fast_path_key_kind_supported(
                 relation
@@ -432,7 +432,7 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
             PrimaryKeyComponent::Nat128(u128::MAX - 91),
         ),
     ] {
-        let relation = relation(ordinal, key_kind);
+        let relation = relation(ordinal, &key_kind);
         let target_key = PrimaryKeyValue::Scalar(target_component);
         let raw = reverse_index_key_for_target_and_source_primary_key_value(
             &source,
@@ -486,7 +486,7 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
         path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
-    let relation = relation(5, AcceptedFieldKind::Nat64);
+    let relation = relation(5, &AcceptedFieldKind::Nat64);
     let source_primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
     let target_key = PrimaryKeyValue::Composite(
         CompositePrimaryKeyValue::try_from_components(&[
@@ -540,7 +540,7 @@ fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() 
         path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
-    let relation = relation(5, AcceptedFieldKind::Nat64);
+    let relation = relation(5, &AcceptedFieldKind::Nat64);
     let scalar_target = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7));
     let scalar_source = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
     let composite_target = PrimaryKeyValue::Composite(
@@ -607,8 +607,8 @@ fn reverse_relation_domains_are_owned_by_exact_relation_id_not_source_slot() {
         path: "Source".into(),
         entity_tag: EntityTag::new(9),
     };
-    let first = relation(5, AcceptedFieldKind::Nat64);
-    let mut second = relation(5, AcceptedFieldKind::Nat64);
+    let first = relation(5, &AcceptedFieldKind::Nat64);
+    let mut second = relation(5, &AcceptedFieldKind::Nat64);
     second.reverse_identity = AcceptedRelationReverseIdentity::new(
         RelationId::new(2).expect("test relation identity should be non-zero"),
         second.physical_generation(),

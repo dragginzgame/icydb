@@ -112,7 +112,7 @@ impl GroupField {
         if root.is_empty() || components.clone().any(str::is_empty) {
             return None;
         }
-        let accepted_kind = schema.accepted_nested_query_field_kind(root, components)?;
+        let accepted_kind = schema.accepted_nested_query_field_kind(root, &components)?;
         let semantics = classify_accepted_field_kind(accepted_kind);
         if !semantics.is_scalar()
             || !semantics.is_sql_comparable()

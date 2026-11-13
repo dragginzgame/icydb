@@ -45,7 +45,7 @@ fn full_and_prefix_reads_share_chunk_order_but_keep_distinct_completeness_rules(
                 .is_none()
         );
         store
-            .insert_raw_batch_for_tests(sequence, encoded.clone())
+            .insert_raw_batch_for_tests(sequence, &encoded)
             .unwrap();
         assert_eq!(
             store.raw_batch_bytes_for_sequence(sequence).unwrap(),
@@ -73,9 +73,7 @@ fn full_and_prefix_reads_share_chunk_order_but_keep_distinct_completeness_rules(
     let mut store =
         JournalTailStore::init(test_memory(241)).expect("fixture storage should initialize");
     let prefix = encoded[..JOURNAL_TAIL_CHUNK_BYTES as usize].to_vec();
-    store
-        .insert_raw_batch_for_tests(sequence, prefix.clone())
-        .unwrap();
+    store.insert_raw_batch_for_tests(sequence, &prefix).unwrap();
     assert_eq!(
         store.raw_batch_prefix_bytes_for_sequence(sequence).unwrap(),
         Some(prefix)
@@ -153,7 +151,7 @@ fn prior_identity_inspection_does_not_trust_a_corrupted_matching_header() {
     );
     let page = store
         .inspect_page(
-            JournalInspectionCheckpoint::BeforeBatch { sequence: 2 },
+            &JournalInspectionCheckpoint::BeforeBatch { sequence: 2 },
             JournalInspectionLimits::for_tests(2, MAX_JOURNAL_BATCH_BYTES as usize * 2),
         )
         .unwrap();

@@ -31,7 +31,7 @@ fn order(names: &[&str]) -> OrderSpec {
     }
 }
 
-fn assert_order_error(actual: QueryError, expected: OrderPlanError) {
+fn assert_order_error(actual: &QueryError, expected: OrderPlanError) {
     let expected = QueryError::from(PlanError::from(expected));
     assert_eq!(actual.diagnostic_code(), expected.diagnostic_code());
     assert_eq!(actual.diagnostic_facts(), expected.diagnostic_facts());
@@ -136,7 +136,7 @@ fn duplicate_positions_and_label_equivalence_are_preserved() {
         })
         .unwrap_err();
         assert_order_error(
-            error,
+            &error,
             OrderPlanError::duplicate_order_field(first, duplicate),
         );
     }
@@ -150,7 +150,7 @@ fn missing_composite_key_keeps_its_component_index_and_empty_order_exit() {
         validate_primary_key_tie_break(&keys, &order(&["tenant", "ID"]), work)
     })
     .unwrap_err();
-    assert_order_error(error, OrderPlanError::missing_primary_key_tie_break(1));
+    assert_order_error(&error, OrderPlanError::missing_primary_key_tie_break(1));
     let empty = request_with_limit(Resource::PredicateExpressionSteps, 0);
     PreparationWork::run(&empty.scope(), Lane::Diagnostic, |work| {
         validate_primary_key_tie_break(&keys, &order(&[]), work)

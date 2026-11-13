@@ -20,7 +20,7 @@ fn sibling_group_paths_preserve_borrows_tuple_order_and_diagnostics() {
         "profile",
         vec!["missing".into()],
         1,
-        AcceptedFieldKind::Int32,
+        &AcceptedFieldKind::Int32,
     );
     let direct = GroupField::Direct(FieldSlot::from_test_accepted_kind(
         0,
@@ -85,7 +85,7 @@ fn nested_sibling_group_paths_preserve_parent_boundaries() {
             "profile",
             vec![parent.into(), leaf.into()],
             1,
-            AcceptedFieldKind::Int32,
+            &AcceptedFieldKind::Int32,
         )
     })
     .collect();
@@ -172,7 +172,7 @@ fn rank_path() -> GroupField {
         "profile",
         vec!["rank".to_string()],
         1,
-        AcceptedFieldKind::Int32,
+        &AcceptedFieldKind::Int32,
     )
 }
 

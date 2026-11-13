@@ -99,9 +99,8 @@ pub fn pinned_wasm_optimizer() -> Result<AdmittedTool, String> {
 /// PATH. The returned handle carries the checked version/digest into later runs.
 pub fn admit_wasm_optimizer(requested: &Path, current_dir: &Path) -> Result<AdmittedTool, String> {
     // The consumer supplies PATH only for an explicit bare-name override.
-    let search_directories = env::var_os("PATH")
-        .map(|path| env::split_paths(&path).collect::<Vec<_>>())
-        .unwrap_or_default();
+    let search_directories =
+        env::var_os("PATH").map_or_default(|path| env::split_paths(&path).collect::<Vec<_>>());
     let executable =
         resolve_executable(requested, current_dir, &search_directories).map_err(|error| {
             format!("failed to resolve wasm optimizer: {error}; run make install-ic-tools")

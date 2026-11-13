@@ -26,7 +26,7 @@ fn migration_commands_decode_without_canister_type_metadata() {
                 },
                 SchemaMigrationCommand::Advance {
                     expected_database: database,
-                    expected_head: head.clone(),
+                    expected_head: head,
                     expected_plan: plan,
                 },
             ] {

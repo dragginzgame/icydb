@@ -56,12 +56,12 @@ impl FastPathRouteHandler {
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         match self {
             Self::PrimaryKey => inputs.runtime().try_execute_pk_order_stream(
-                inputs.executable_access().clone(),
+                &inputs.executable_access().clone(),
                 inputs.stream_bindings().continuation,
                 route_plan.scan_hints.physical_fetch_hint,
             ),
             Self::SecondaryPrefix => inputs.runtime().try_execute_secondary_index_order_stream(
-                inputs.executable_access().clone(),
+                &inputs.executable_access().clone(),
                 *inputs.stream_bindings(),
                 route_plan.scan_hints.physical_fetch_hint,
                 index_predicate_execution,
@@ -69,7 +69,7 @@ impl FastPathRouteHandler {
             Self::IndexRange { fetch: Some(fetch) } => inputs
                 .runtime()
                 .try_execute_index_range_limit_pushdown_stream(
-                    inputs.executable_access().clone(),
+                    &inputs.executable_access().clone(),
                     inputs.plan().access.single_index_range_specs().first(),
                     inputs.stream_bindings().continuation,
                     fetch,

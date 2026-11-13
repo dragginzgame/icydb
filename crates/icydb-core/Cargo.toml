@@ -26,7 +26,6 @@ base64 = { workspace = true }
 blake3 = { workspace = true }
 ic-entropy = { workspace = true }
 ic-metrics = { workspace = true, optional = true }
-ic-platform-runtime = { workspace = true, features = ["ic0"] }
 ic-storage = { workspace = true }
 ic-wire = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
@@ -45,6 +44,10 @@ getrandom = { workspace = true }
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_json = { workspace = true, optional = true }
 
+# Direct IC system calls exist only in the Wasm runtime branches.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ic-platform-runtime = { workspace = true, features = ["ic0"] }
+
 [dev-dependencies]
 ic-platform-types = { workspace = true }
 ic-storage = { workspace = true, features = ["test-support"] }
@@ -52,8 +55,10 @@ icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 proptest = { workspace = true }
 syn = { workspace = true, features = ["full", "visit"] }
-toko-tooling.workspace = true
 trybuild = { workspace = true }
+
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true
 
 [[test]]
 name = "compile"

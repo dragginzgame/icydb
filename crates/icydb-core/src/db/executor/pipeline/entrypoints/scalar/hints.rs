@@ -64,7 +64,7 @@ fn unpaged_top_n_seek_fetch(
 // consumes the returned route without patching its hint/spec copies again.
 pub(super) fn finalize_scalar_route_for_execution(
     mut prepared: PreparedScalarRouteRuntime,
-    terminal: ScalarRouteTerminal,
+    terminal: &ScalarRouteTerminal,
 ) -> PreparedScalarRouteRuntime {
     let route = &prepared.route_plan;
     let plan = prepared.plan_core.plan();

@@ -531,12 +531,12 @@ fn entity_namespace_names_include_unchanged_stores() {
         ExistingProposalStore {
             path: "test::Users",
             identity: user_store,
-            bundle: user.bundle(),
+            bundle: user.bundle().catalog(),
         },
         ExistingProposalStore {
             path: "test::Other",
             identity: other_store,
-            bundle: other.bundle(),
+            bundle: other.bundle().catalog(),
         },
     ];
     let cross_store = SchemaProposal::try_compose(
@@ -1104,7 +1104,7 @@ fn existing_targeted_rule_addition_reserves_source_bound_activation() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: initial.store,
-            bundle: initial_candidates[0].bundle(),
+            bundle: initial_candidates[0].bundle().catalog(),
         }],
     )
     .expect("N6 should lower the targeted rule through accepted activation")
@@ -1133,10 +1133,6 @@ fn existing_targeted_rule_addition_reserves_source_bound_activation() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the stable identity, write gate, and direct promotion assertions form one lifecycle"
-)]
 fn targeted_rule_semantic_edit_stages_and_promotes_under_stable_accepted_identity() {
     let initial = targeted_rule_proposal_fixture(
         ExpectedAcceptedHead::Empty,
@@ -1187,7 +1183,7 @@ fn targeted_rule_semantic_edit_stages_and_promotes_under_stable_accepted_identit
         &[ExistingProposalStore {
             path: "test::Store",
             identity: initial.store,
-            bundle: initial_bundle,
+            bundle: initial_bundle.catalog(),
         }],
     )
     .expect("same-identity semantic edit should stage through accepted activation")
@@ -1344,7 +1340,7 @@ fn targeted_rule_local_name_replacement_is_explicit_remove_and_fresh_add() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: initial.store,
-            bundle: initial_bundle,
+            bundle: initial_bundle.catalog(),
         }],
     )
     .expect("explicit remove/add should lower")
@@ -1405,7 +1401,7 @@ fn existing_scalar_default_change_preserves_structural_owner_identity() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: store,
-            bundle: initial_bundle,
+            bundle: initial_bundle.catalog(),
         }],
     )
     .expect("existing future-default proposal should lower");
@@ -1467,7 +1463,7 @@ fn existing_generated_check_addition_reserves_one_source_bound_activation() {
     let stores = [ExistingProposalStore {
         path: "test::Store",
         identity: store,
-        bundle: initial_bundle,
+        bundle: initial_bundle.catalog(),
     }];
     let candidates = lower_existing_schema_proposal(&addition, &stores)
         .expect("generated check addition should lower");
@@ -1502,12 +1498,15 @@ fn existing_generated_check_addition_reserves_one_source_bound_activation() {
     assert!(after.constraint_activations().iter().any(|constraint| {
         constraint.id() == added_id
             && constraint.origin() == ConstraintOrigin::Generated
+            && constraint.base_schema_fingerprint()
+                == initial_bundle.semantic_fingerprint().unwrap()
+            && constraint.activation_epoch() == initial_bundle.revision().get() + 1
             && matches!(constraint.kind(), ConstraintActivationKind::Check { .. })
     }));
     let pending_stores = [ExistingProposalStore {
         path: "test::Store",
         identity: store,
-        bundle: added_bundle,
+        bundle: added_bundle.catalog(),
     }];
     for removal in [
         SchemaRemoval::Entity(entity_source.clone()),
@@ -1551,12 +1550,12 @@ fn removals_require_one_unambiguous_accepted_entity_source() {
         ExistingProposalStore {
             path: "test::Store",
             identity: store,
-            bundle: candidates[0].bundle(),
+            bundle: candidates[0].bundle().catalog(),
         },
         ExistingProposalStore {
             path: "test::Other",
             identity: TargetStoreIdentity::from_bytes([0x23; 32]),
-            bundle: candidates[0].bundle(),
+            bundle: candidates[0].bundle().catalog(),
         },
     ];
     let removal = SchemaRemoval::Field {
@@ -1587,7 +1586,7 @@ fn generated_removals_reject_missing_bindings_for_every_member_kind() {
     let stores = [ExistingProposalStore {
         path: "test::Store",
         identity,
-        bundle: candidates[0].bundle(),
+        bundle: candidates[0].bundle().catalog(),
     }];
     for removal in [
         SchemaRemoval::Field {
@@ -1653,7 +1652,7 @@ fn existing_generated_check_removal_retires_only_its_source_bound_owner() {
     let stores = [ExistingProposalStore {
         path: "test::Store",
         identity: store,
-        bundle: initial_bundle,
+        bundle: initial_bundle.catalog(),
     }];
     assert!(
         lower_generated_existing_schema_proposal(&removal, &stores).is_err(),
@@ -1758,7 +1757,7 @@ fn existing_generated_field_removal_rejects_an_index_dependency() {
             &[ExistingProposalStore {
                 path: "test::Store",
                 identity: store,
-                bundle: initial_candidates[0].bundle(),
+                bundle: initial_candidates[0].bundle().catalog(),
             }],
         )
         .is_err(),
@@ -1814,7 +1813,7 @@ fn existing_generated_index_removal_uses_stable_source_identity() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: store,
-            bundle: initial_bundle,
+            bundle: initial_bundle.catalog(),
         }],
     )
     .expect("generated index removal should lower");
@@ -1873,7 +1872,7 @@ fn existing_check_removal_and_default_change_advance_schema_version_once() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: store,
-            bundle: initial_candidates[0].bundle(),
+            bundle: initial_candidates[0].bundle().catalog(),
         }],
     )
     .expect("combined metadata change should lower");
@@ -2208,7 +2207,6 @@ fn assert_payload_enum_and_nullable_tuple(
 
 #[test]
 // Keep the complete downstream schema shape visible in one regression.
-#[expect(clippy::too_many_lines)]
 fn initial_lowering_publishes_and_round_trips_collection_named_type_cycles() {
     let field_key = TypeSourceKey::try_new("FieldKey").expect("type source should admit");
     let values = TypeSourceKey::try_new("Values").expect("type source should admit");
@@ -2723,7 +2721,6 @@ fn nested_leaf_lowering_enforces_snapshot_count_before_expanding_shared_records(
 
 #[test]
 // Keep both named definitions and the resulting leaf projection together.
-#[expect(clippy::too_many_lines)]
 fn initial_lowering_cuts_mutual_record_leaf_expansion_at_the_resolved_back_edge() {
     let left = TypeSourceKey::try_new("Left").expect("type source should admit");
     let right = TypeSourceKey::try_new("Right").expect("type source should admit");
@@ -2964,7 +2961,7 @@ fn existing_named_type_redeclaration_and_creation_preserve_current_catalogs() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: store,
-            bundle: initial_candidates[0].bundle(),
+            bundle: initial_candidates[0].bundle().catalog(),
         }],
     )
     .expect("exact current named-type definitions should remain valid");
@@ -2996,7 +2993,7 @@ fn existing_named_type_redeclaration_and_creation_preserve_current_catalogs() {
         &[ExistingProposalStore {
             path: "test::Store",
             identity: store,
-            bundle: initial_candidates[0].bundle(),
+            bundle: initial_candidates[0].bundle().catalog(),
         }],
     )
     .unwrap();
@@ -3066,10 +3063,6 @@ fn recursive_holder_entity(
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the regression proves external-reference rejection, partial-cycle rejection, and multi-store component removal together"
-)]
 fn existing_recursive_named_type_removal_is_closed_and_store_local() {
     let node_type = TypeSourceKey::try_new("Node").expect("node type source should admit");
     let record_type = TypeSourceKey::try_new("Record").expect("record type source should admit");
@@ -3155,12 +3148,12 @@ fn existing_recursive_named_type_removal_is_closed_and_store_local() {
                 ExistingProposalStore {
                     path: "cycle::LeftStore",
                     identity: left_store,
-                    bundle: initial_left.bundle(),
+                    bundle: initial_left.bundle().catalog(),
                 },
                 ExistingProposalStore {
                     path: "cycle::RightStore",
                     identity: right_store,
-                    bundle: initial_right.bundle(),
+                    bundle: initial_right.bundle().catalog(),
                 },
             ],
         )
@@ -3178,12 +3171,12 @@ fn existing_recursive_named_type_removal_is_closed_and_store_local() {
             ExistingProposalStore {
                 path: "cycle::LeftStore",
                 identity: left_store,
-                bundle: initial_left.bundle(),
+                bundle: initial_left.bundle().catalog(),
             },
             ExistingProposalStore {
                 path: "cycle::RightStore",
                 identity: right_store,
-                bundle: initial_right.bundle(),
+                bundle: initial_right.bundle().catalog(),
             },
         ],
     )
@@ -3200,12 +3193,12 @@ fn existing_recursive_named_type_removal_is_closed_and_store_local() {
             ExistingProposalStore {
                 path: "cycle::LeftStore",
                 identity: left_store,
-                bundle: left_without_entity.bundle(),
+                bundle: left_without_entity.bundle().catalog(),
             },
             ExistingProposalStore {
                 path: "cycle::RightStore",
                 identity: right_store,
-                bundle: initial_right.bundle(),
+                bundle: initial_right.bundle().catalog(),
             },
         ],
     )
@@ -3216,12 +3209,12 @@ fn existing_recursive_named_type_removal_is_closed_and_store_local() {
         ExistingProposalStore {
             path: "cycle::LeftStore",
             identity: left_store,
-            bundle: left_without_entity.bundle(),
+            bundle: left_without_entity.bundle().catalog(),
         },
         ExistingProposalStore {
             path: "cycle::RightStore",
             identity: right_store,
-            bundle: right_without_entity.bundle(),
+            bundle: right_without_entity.bundle().catalog(),
         },
     ];
     for (submission_key, source) in [

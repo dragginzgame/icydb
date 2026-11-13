@@ -146,10 +146,6 @@ fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one stored wide-integer matrix keeps write, predicate and projection parity together"
-)]
 fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
     for (kind, values) in [
         (
@@ -210,7 +206,7 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
                     (">=", FieldRef::new("operand").gte(input.clone())),
                     (
                         "IN",
-                        FieldRef::new("operand").in_list([input.clone(), input.clone()]),
+                        FieldRef::new("operand").in_list([input.clone(), input]),
                     ),
                 ] {
                     let control = new_request_session()

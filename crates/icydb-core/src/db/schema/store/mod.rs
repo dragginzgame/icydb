@@ -1712,9 +1712,9 @@ impl SchemaStore {
         let mut canonical_second = None;
         for entry in canonical.range(first_key..=second_key) {
             if *entry.key() == first_key {
-                canonical_first = Some(entry.value().clone());
+                canonical_first = Some(entry.value());
             } else if *entry.key() == second_key {
-                canonical_second = Some(entry.value().clone());
+                canonical_second = Some(entry.value());
             } else {
                 return Err(InternalError::store_corruption());
             }

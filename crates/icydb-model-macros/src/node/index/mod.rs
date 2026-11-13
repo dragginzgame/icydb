@@ -643,7 +643,7 @@ fn source_instruction_tokens(
             } else {
                 quote! { #model::schema::SourceCheckInstruction::Or }
             };
-            fold_source_children(children, entity, operator, paths)
+            fold_source_children(children, entity, &operator, paths)
         }
         Predicate::Not(inner) => {
             let mut instructions = source_instruction_tokens(inner, entity, paths)?;
@@ -697,7 +697,7 @@ fn source_instruction_tokens(
 fn fold_source_children(
     children: &[Predicate],
     entity: &Entity,
-    operator: TokenStream,
+    operator: &TokenStream,
     paths: &CratePaths,
 ) -> Result<Vec<TokenStream>, DarlingError> {
     let mut children = children.iter();

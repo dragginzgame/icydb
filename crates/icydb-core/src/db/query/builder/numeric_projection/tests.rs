@@ -9,7 +9,7 @@ use crate::{
 };
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryProjectionCode};
 
-fn assert_query_projection_error(err: QueryError, reason: QueryProjectionCode) {
+fn assert_query_projection_error(err: &QueryError, reason: QueryProjectionCode) {
     let diagnostic = err.diagnostic();
 
     assert_eq!(
@@ -41,7 +41,7 @@ fn round_projection_rejects_negative_scale_with_compact_projection_code() {
     let err = RoundProjectionExpr::new("age", Expr::Field(FieldId::new("age")), Value::Int64(-1))
         .expect_err("negative ROUND scale should fail closed");
 
-    assert_query_projection_error(err, QueryProjectionCode::NumericScaleArguments);
+    assert_query_projection_error(&err, QueryProjectionCode::NumericScaleArguments);
 }
 
 #[test]
@@ -53,5 +53,5 @@ fn round_projection_rejects_non_integer_scale_with_compact_projection_code() {
     )
     .expect_err("non-integer ROUND scale should fail closed");
 
-    assert_query_projection_error(err, QueryProjectionCode::NumericScaleArguments);
+    assert_query_projection_error(&err, QueryProjectionCode::NumericScaleArguments);
 }

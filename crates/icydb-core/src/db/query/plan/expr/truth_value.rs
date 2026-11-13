@@ -39,5 +39,7 @@ pub(in crate::db) fn collapse_true_only_boolean_admission<E>(
     value: Value,
     invalid: impl FnOnce(Box<Value>) -> E,
 ) -> Result<bool, E> {
-    admit_true_only_boolean_value(&value, |found| invalid(Box::new(found.clone())))
+    // Preserve one truth-admission policy while moving rejected owned values
+    // into the diagnostic instead of cloning their potentially large payload.
+    admit_true_only_boolean_value(&value, |_| ()).map_err(|()| invalid(Box::new(value)))
 }

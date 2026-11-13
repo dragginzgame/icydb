@@ -90,7 +90,7 @@ pub(in crate::db) fn execute_schema_check_addition(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     request: &SchemaAddCheckRequest,
     next_schema_version: SchemaVersion,
 ) -> Result<(usize, crate::db::schema::ConstraintId), InternalError> {
@@ -99,7 +99,7 @@ pub(in crate::db) fn execute_schema_check_addition(
         entity_tag,
         entity_path,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
     )?;
     let activation_epoch = current_revision
         .checked_next()
@@ -173,7 +173,7 @@ pub(in crate::db) fn execute_schema_unique_index_activation(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     candidate_index: &PersistedIndexSnapshot,
     next_schema_version: SchemaVersion,
 ) -> Result<crate::db::schema::ConstraintId, InternalError> {
@@ -185,7 +185,7 @@ pub(in crate::db) fn execute_schema_unique_index_activation(
         entity_tag,
         entity_path,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
     )?;
     let activation_epoch = current_revision
         .checked_next()
@@ -228,7 +228,7 @@ pub(in crate::db) fn execute_schema_unique_index_activation_abort(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     removal: (ConstraintId, &PersistedIndexSnapshot),
     next_schema_version: SchemaVersion,
 ) -> Result<(), InternalError> {
@@ -238,7 +238,7 @@ pub(in crate::db) fn execute_schema_unique_index_activation_abort(
         entity_tag,
         entity_path,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
     )?;
     let before = current
         .entity_snapshots()
@@ -284,7 +284,7 @@ pub(in crate::db) fn execute_schema_check_drop(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     request: &SchemaDropConstraintRequest,
     next_schema_version: SchemaVersion,
 ) -> Result<(), InternalError> {
@@ -293,7 +293,7 @@ pub(in crate::db) fn execute_schema_check_drop(
         entity_tag,
         entity_path,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
     )?;
     let before = current
         .entity_snapshots()
@@ -325,7 +325,7 @@ pub(in crate::db) fn execute_schema_check_drop(
     let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_sql_ddl_constraint_removal(
         store,
-        &accepted_before_identity,
+        accepted_before_identity,
         current_revision,
         &candidate,
         entity_tag,

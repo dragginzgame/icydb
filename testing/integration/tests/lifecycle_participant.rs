@@ -193,10 +193,6 @@ fn upgrade_preserving_stable_extent(
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one causal lifecycle proof reports all upgrade phases before enforcing their cost ceilings"
-)]
 fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_work() {
     // Compile every upgrade artifact before starting the governed server; cold
     // builds must not leave a live test instance idle between lifecycle phases.

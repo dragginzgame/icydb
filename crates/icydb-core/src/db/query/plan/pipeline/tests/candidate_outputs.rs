@@ -579,10 +579,6 @@ fn recursive_candidate_lists_and_dispatch_obey_request_admission() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one branch-list matrix keeps cumulative admission and final selection together"
-)]
 fn and_branch_lists_propagate_cumulative_admission_and_preserve_selection() {
     use crate::db::query::plan::planner::{
         PlannerError, plan_access_selection_with_order_and_semantic_indexes,

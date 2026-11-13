@@ -189,7 +189,7 @@ impl AcceptedFixedUpdatePatch {
                     encode_authored_value_for_accepted_field_contract(
                         constraint_context,
                         slot,
-                        contract.required_accepted_field_persistence_contract(slot)?,
+                        &contract.required_accepted_field_persistence_contract(slot)?,
                         input,
                     )?
                 }
@@ -303,7 +303,7 @@ impl AcceptedFixedUpdatePatch {
                 // shorter. Compare their frozen accepted fill in the same
                 // canonical encoding as the retained assignment.
                 None => Cow::Owned(encode_canonical_value_for_accepted_field_contract(
-                    row.contract()
+                    &row.contract()
                         .required_accepted_field_persistence_contract(slot)?,
                     row.required_cached_value(slot)?,
                 )?),
@@ -392,7 +392,7 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader_with_accepted_con
 fn encode_authored_value_for_accepted_field_contract(
     constraint_context: AcceptedRowConstraintWriteContext<'_>,
     slot: usize,
-    encoding: AcceptedFieldPersistenceContract<'_>,
+    encoding: &AcceptedFieldPersistenceContract<'_>,
     input: InputValue,
 ) -> Result<Vec<u8>, InternalError> {
     if input.is_null() {
@@ -447,7 +447,7 @@ fn resolve_insert_active_slot(
             let payload = encode_authored_value_for_accepted_field_contract(
                 constraint_context,
                 slot,
-                encoding,
+                &encoding,
                 input,
             )?;
 
@@ -461,7 +461,7 @@ fn resolve_insert_active_slot(
             let payload = encode_authored_value_for_accepted_field_contract(
                 constraint_context,
                 slot,
-                encoding,
+                &encoding,
                 input,
             )?;
 
@@ -487,7 +487,7 @@ fn resolve_insert_active_slot(
         let value =
             accepted_insert_generated_value(generation, slot, write_context, identity_allocation)?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        let payload = encode_canonical_value_for_accepted_field_contract(encoding, &value)?;
+        let payload = encode_canonical_value_for_accepted_field_contract(&encoding, &value)?;
 
         return Ok((
             payload,
@@ -497,7 +497,7 @@ fn resolve_insert_active_slot(
     if let Some(management) = write_policy.write_management() {
         let value = accepted_insert_managed_value(management, write_context);
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        let payload = encode_canonical_value_for_accepted_field_contract(encoding, &value)?;
+        let payload = encode_canonical_value_for_accepted_field_contract(&encoding, &value)?;
 
         return Ok((
             payload,
@@ -631,7 +631,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
                     let payload = encode_authored_value_for_accepted_field_contract(
                         constraint_context,
                         slot,
-                        encoding,
+                        &encoding,
                         input,
                     )?;
                     return Ok((payload, AcceptedFieldWriteProvenance::Authored));
@@ -660,7 +660,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
             }
             let value = baseline.required_cached_value(slot)?;
             let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-            let payload = encode_canonical_value_for_accepted_field_contract(encoding, value)?;
+            let payload = encode_canonical_value_for_accepted_field_contract(&encoding, value)?;
             let provenance = if baseline.get_bytes(slot).is_some() {
                 AcceptedFieldWriteProvenance::Preserved
             } else {
@@ -730,7 +730,7 @@ fn finish_existing_row_patch(
         }
         let before = baseline.required_cached_value(slot)?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
-        let before = encode_canonical_value_for_accepted_field_contract(encoding, before)?;
+        let before = encode_canonical_value_for_accepted_field_contract(&encoding, before)?;
         if payload.as_deref() != Some(before.as_slice()) {
             logical_changed = true;
             break;
@@ -748,7 +748,7 @@ fn finish_existing_row_patch(
         )?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
         payloads[slot] = Some(encode_canonical_value_for_accepted_field_contract(
-            encoding,
+            &encoding,
             &Value::Timestamp(write_context.operation_timestamp()),
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
@@ -796,7 +796,7 @@ fn resolve_existing_replace_active_slot(
 
     let encoding = contract.required_accepted_field_persistence_contract(slot)?;
     let payload = encode_canonical_value_for_accepted_field_contract(
-        encoding,
+        &encoding,
         baseline.required_cached_value(slot)?,
     )?;
     match intent {

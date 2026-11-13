@@ -214,7 +214,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
             mutation,
             read_view,
             row_contract,
-            AcceptedIndexKeyAuthority::AcceptedFieldPath(
+            &AcceptedIndexKeyAuthority::AcceptedFieldPath(
                 accepted_index,
                 inputs.predicate_program.as_ref(),
             ),
@@ -237,7 +237,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
             mutation,
             read_view,
             row_contract,
-            AcceptedIndexKeyAuthority::AcceptedExpression(
+            &AcceptedIndexKeyAuthority::AcceptedExpression(
                 accepted_index,
                 inputs.predicate_program.as_ref(),
             ),
@@ -260,7 +260,7 @@ fn plan_accepted_index_mutation_for_slot_reader_structural(
     mutation: Option<MutationDiagnosticContext>,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    accepted_index: AcceptedIndexKeyAuthority<'_>,
+    accepted_index: &AcceptedIndexKeyAuthority<'_>,
     inputs: &PreparedIndexInputs,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&dyn CanonicalSlotReader>,

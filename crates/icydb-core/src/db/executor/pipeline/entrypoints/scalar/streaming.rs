@@ -31,7 +31,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
 ) -> Result<(), InternalError> {
     let KernelRowsExecutionAttempt { rows, .. } = execute_prepared_scalar_kernel(
         prepared,
-        ScalarRouteTerminal::KernelRows,
+        &ScalarRouteTerminal::KernelRows,
         |execution_inputs, route_plan, continuation| {
             ExecutionKernel::materialize_kernel_rows_with_optional_residual_retry(
                 execution_inputs,

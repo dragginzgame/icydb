@@ -243,7 +243,7 @@ fn maximal_mutation_progress_operation() -> MutationProgressRecordOp {
 #[test]
 fn commit_control_slot_rejects_corrupt_magic() {
     let store = super::CommitStore::init(std::rc::Rc::new(test_memory(233)));
-    let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+    let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(&[])
         .expect("current empty commit-control slot should encode");
     malformed[0] = b'X';
     store.set_raw_marker_bytes_for_tests(malformed);
@@ -442,14 +442,14 @@ fn marker_layout_controls() -> Vec<DatabaseControlOp> {
 #[test]
 fn marker_layout_preserves_control_bytes_capacity_and_appended_batch_ranges() {
     // Freeze the current hard-cut control framing, including the optional
-    // captured lineage in application records. Round-tripping alone cannot
-    // establish byte identity.
+    // captured lineage in application records and the direct-completion migration
+    // envelope. Round-tripping alone cannot establish byte identity.
     const PAYLOAD_HASHES: [&str; 5] = [
         "785a342748f1d6235c52d82f188d7f2809277d44991dff3aafbe74ccf71d6cf8",
         "7f935bee6c7716f5d10ce7d959d6088ce28b1fe48e75233e9c2c698c313f85da",
         "c3a2b206e01a8a47a9bcabc06dee57b99283bc754f1b8f2278b583285b9264fc",
-        "4f8913200c605bdacbcf8b1bacaa5cab18fcf06e32f19312740ce3881156d17b",
-        "3ad832545f94b545653f064426317ca7dedd006fcc781e170c5c4bb78c90b403",
+        "8d72f9682c8611b3100d4eb097bc9c83cd9acae61f21e3a8e9557e25aa9743c9",
+        "345c13660c1bd34599ee80d3f8e952e75a367b7b0943b4379b4786a4bde378a9",
     ];
     let marker_id = [0xAB; 16];
     let batches = [1, 2].map(|id| {
@@ -701,7 +701,7 @@ fn commit_marker_rejects_oversized_stored_payload_as_corruption() {
 #[test]
 fn clear_verified_rejects_malformed_control_slot() {
     let store = super::CommitStore::init(std::rc::Rc::new(test_memory(232)));
-    let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+    let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(&[])
         .expect("current empty commit-control slot should encode");
     let marker_length_offset = malformed.len() - size_of::<u32>();
     malformed[marker_length_offset..].copy_from_slice(&1_u32.to_le_bytes());
@@ -722,7 +722,7 @@ fn commit_slot_writes_and_clears_preserve_database_boot_record() {
     let store = super::CommitStore::init(memory.clone());
     let mut boot_before = [0_u8; crate::db::database_format::DATABASE_BOOT_RECORD_BYTES];
     memory.read(0, &mut boot_before);
-    let control_slot = super::CommitStore::encode_raw_control_slot_for_tests(vec![0xaa])
+    let control_slot = super::CommitStore::encode_raw_control_slot_for_tests(&[0xaa])
         .expect("test control slot should encode");
 
     store.set_raw_marker_bytes_for_tests(control_slot);
@@ -866,7 +866,7 @@ fn ordinary_reopen_preserves_database_incarnation() {
 #[test]
 fn database_control_rejects_zero_incarnation() {
     let store = super::CommitStore::init(std::rc::Rc::new(test_memory(226)));
-    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(&[])
         .expect("current empty commit-control slot should encode");
     control_slot[5..21].fill(0);
     store.set_raw_marker_bytes_for_tests(control_slot);
@@ -882,7 +882,7 @@ fn database_control_rejects_zero_incarnation() {
 #[test]
 fn database_control_rejects_zero_cursor_authentication_key() {
     let store = super::CommitStore::init(std::rc::Rc::new(test_memory(234)));
-    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(&[])
         .expect("current empty commit-control slot should encode");
     control_slot[21..53].fill(0);
     store.set_raw_marker_bytes_for_tests(control_slot);
@@ -936,7 +936,7 @@ fn database_control_frame_future_version_fails_closed() {
 #[test]
 fn commit_control_slot_future_version_fails_closed() {
     let store = super::CommitStore::init(std::rc::Rc::new(test_memory(228)));
-    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
+    let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(&[])
         .expect("current empty commit-control slot should encode");
     control_slot[4] = control_slot[4].saturating_add(1);
     store.set_raw_marker_bytes_for_tests(control_slot);

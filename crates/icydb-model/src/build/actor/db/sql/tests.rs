@@ -2,7 +2,7 @@ use quote::quote;
 
 use super::SqlSurfaceTokens;
 
-fn compact_tokens(tokens: proc_macro2::TokenStream) -> String {
+fn compact_tokens(tokens: &proc_macro2::TokenStream) -> String {
     tokens
         .to_string()
         .chars()
@@ -14,7 +14,7 @@ fn compact_tokens(tokens: proc_macro2::TokenStream) -> String {
 fn generated_sql_capability_contains_every_private_handler_and_no_export() {
     let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
     surface.push_entity("Character");
-    let surface = compact_tokens(quote!(#surface));
+    let surface = compact_tokens(&quote!(#surface));
 
     for handler in [
         "sql_query_public",
@@ -42,7 +42,7 @@ fn generated_sql_capability_contains_every_private_handler_and_no_export() {
 fn generated_sql_capability_keeps_both_sealed_update_admissions() {
     let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
     surface.push_entity("Character");
-    let surface = compact_tokens(quote!(#surface));
+    let surface = compact_tokens(&quote!(#surface));
 
     assert!(surface.contains("execute_sql_public_primary_key_update(&dispatch)"));
     assert!(surface.contains("execute_sql_public_bounded_update(&dispatch)"));
@@ -54,7 +54,7 @@ fn generated_sql_capability_keeps_both_sealed_update_admissions() {
 fn generated_sql_capability_uses_trusted_query_and_admin_ddl() {
     let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
     surface.push_entity("Character");
-    let surface = compact_tokens(quote!(#surface));
+    let surface = compact_tokens(&quote!(#surface));
 
     assert!(surface.contains("execute_trusted_sql_query_dispatch(&dispatch,&[])"));
     assert!(surface.contains("execute_public_sql_query_page_dispatch(&dispatch,&[],continuation)"));
@@ -66,7 +66,7 @@ fn generated_sql_capability_uses_trusted_query_and_admin_ddl() {
 fn generated_sql_query_capability_keeps_introspection_gate() {
     let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
     surface.push_entity("Character");
-    let surface = compact_tokens(quote!(#surface));
+    let surface = compact_tokens(&quote!(#surface));
 
     assert!(surface.contains("if!INTROSPECTION&&dispatch.requires_introspection()"));
     assert!(surface.contains("SqlIntrospectionDisabled"));
@@ -75,7 +75,7 @@ fn generated_sql_query_capability_keeps_introspection_gate() {
 #[test]
 fn generated_fixture_load_reuses_reset_then_calls_handler_once() {
     let surface = SqlSurfaceTokens::empty(quote!(::icydb));
-    let handler = compact_tokens(surface.handler_tokens());
+    let handler = compact_tokens(&surface.handler_tokens());
     let reset = handler
         .find("__icydb_endpoint_handler_fixtures_reset()?")
         .expect("fixture load should propagate reset failure");
@@ -90,10 +90,10 @@ fn generated_fixture_load_reuses_reset_then_calls_handler_once() {
 #[test]
 fn empty_and_entity_sql_capabilities_keep_exact_dispatch_boundaries() {
     let empty_surface = SqlSurfaceTokens::empty(quote!(::icydb));
-    let empty = compact_tokens(quote!(#empty_surface));
+    let empty = compact_tokens(&quote!(#empty_surface));
     let mut entity = SqlSurfaceTokens::empty(quote!(::icydb));
     entity.push_entity("Character");
-    let entity = compact_tokens(quote!(#entity));
+    let entity = compact_tokens(&quote!(#entity));
 
     assert!(empty.contains("SqlQueryNoConfiguredEntities"));
     assert!(!empty.contains("execute_trusted_sql_query_dispatch"));

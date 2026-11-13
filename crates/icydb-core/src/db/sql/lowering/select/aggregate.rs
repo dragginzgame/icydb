@@ -106,7 +106,7 @@ fn lower_having_clauses_with_policy(
         let contains_omitted_else_case = expr.contains_omitted_else_case();
         lowered.push(LoweredHavingClause {
             contains_omitted_else_case,
-            analyzed: lower_having_expr(expr, work)?,
+            analyzed: lower_having_expr(&expr, work)?,
         });
     }
 
@@ -136,10 +136,10 @@ impl LoweredHavingClause {
 }
 
 fn lower_having_expr(
-    expr: SqlExpr,
+    expr: &SqlExpr,
     work: &PreparationWork<'_>,
 ) -> Result<AnalyzedLoweredExpr, SqlLoweringError> {
-    let expr = lower_sql_expr(&expr, SqlExprPhase::PostAggregate, work)?;
+    let expr = lower_sql_expr(expr, SqlExprPhase::PostAggregate, work)?;
 
     Ok(AnalyzedLoweredExpr::new(expr))
 }

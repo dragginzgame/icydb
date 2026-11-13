@@ -540,6 +540,6 @@ collection identity and arithmetic conversion retain their separate contracts.
 Literal normalization and fingerprint encoding may use Decimal only when that
 conversion preserves the exact compared value.
 
-Database boot identity `ICYDBID\0` and cursor identity `ICYN`, both version 1, reject previous images/tokens; no
+Database boot identity `ICYDBU18` and cursor identity `ICYN`, both version 1, reject previous images/tokens; no
 legacy interpretation or automatic deletion is performed. Same-format recovery
 retains its existing contract.

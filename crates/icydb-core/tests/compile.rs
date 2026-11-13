@@ -1,3 +1,5 @@
+//! Compile-time acceptance and rejection coverage for the public Core API.
+
 #[test]
 fn compile_ui() {
     let t = trybuild::TestCases::new();

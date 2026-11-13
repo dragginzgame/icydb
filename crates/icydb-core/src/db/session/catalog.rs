@@ -145,10 +145,8 @@ impl<C: CanisterKind> DbSession<C> {
                 .storage_mode()
                 .as_str()
                 .to_string();
-            let accepted = self.accepted_schema_catalog_context_for_runtime_entity(
-                runtime_entity.clone(),
-                store,
-            )?;
+            let accepted =
+                self.accepted_schema_catalog_context_for_runtime_entity(&runtime_entity, store)?;
             let snapshot = accepted.snapshot().persisted_snapshot();
 
             entities.push(EntityCatalogDescription::new(
@@ -156,7 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
                 snapshot.entity_path().to_string(),
                 runtime_entity.store_path().to_string(),
                 storage,
-                EntityCatalogCounts::new(
+                &EntityCatalogCounts::new(
                     u32::try_from(snapshot.fields().len()).unwrap_or(u32::MAX),
                     u32::try_from(snapshot.indexes().len()).unwrap_or(u32::MAX),
                     u32::try_from(snapshot.relations().len()).unwrap_or(u32::MAX),

@@ -27,12 +27,10 @@
         "icydb-model-macros",
         "icydb-schema",
         "icydb-testing-sql-generator",
-        "icydb-testing-sqlite-reference",
-        "model_api",
-        "runtime_api"
+        "icydb-testing-sqlite-reference"
       ],
       "metadata_files": [
-        "releases/database/0.310.md"
+        "releases/database/0.311.md"
       ]
     },
     {
@@ -43,9 +41,7 @@
         "icydb-cli"
       ],
       "changelog": "releases/cli/CHANGELOG.md",
-      "dependencies": [
-        "icydb-cli"
-      ],
+      "dependencies": [],
       "metadata_files": [
         "releases/cli/0.296.md"
       ]

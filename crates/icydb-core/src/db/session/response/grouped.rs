@@ -54,5 +54,5 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
 // string. The byte payload already came from the cursor-owned grouped encoder,
 // so this is only unpadded URL-safe Base64 display formatting.
 pub(in crate::db) fn grouped_cursor_from_bytes(cursor: Option<Vec<u8>>) -> Option<String> {
-    cursor.as_deref().map(encode_cursor)
+    cursor.map(|bytes| encode_cursor(&bytes))
 }

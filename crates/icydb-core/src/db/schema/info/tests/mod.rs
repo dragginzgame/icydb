@@ -490,7 +490,7 @@ fn borrowed_group_validation_matches_current_resolution_without_rebinding() {
                 .map(|segment| (*segment).to_string())
                 .collect(),
             slot,
-            AcceptedFieldKind::Int32,
+            &AcceptedFieldKind::Int32,
         )
     };
     let candidates = [
@@ -698,7 +698,7 @@ fn query_projection_recurses_but_keeps_structural_composites_closed() {
         schema
             .nested_fields("profile")
             .unwrap()
-            .field_type(std::iter::once("name")),
+            .field_type(&std::iter::once("name")),
         Some(FieldType::Scalar(ScalarKind::Text))
     );
     assert!(matches!(
@@ -753,7 +753,7 @@ fn nested_query_membership_preserves_leaf_and_projection_contracts() {
 
     // Membership borrows the stored newtype kind; only type consumers project it.
     assert!(matches!(
-        schema.accepted_nested_query_field_kind("profile", std::iter::once("name")),
+        schema.accepted_nested_query_field_kind("profile", &std::iter::once("name")),
         Some(AcceptedFieldKind::Composite { .. })
     ));
     assert_eq!(

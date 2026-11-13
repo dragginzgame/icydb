@@ -10,7 +10,7 @@ use crate::prelude::*;
 /// CountryCode
 /// two-letter country codes defined in ISO 3166-1
 ///
-/// https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+/// <https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>
 ///
 
 #[newtype(
@@ -26,7 +26,7 @@ pub struct CountryCode {}
 /// LanguageCode
 /// two letter language code
 ///
-/// https://en.wikipedia.org/wiki/ISO_639-1
+/// <https://en.wikipedia.org/wiki/ISO_639-1>
 ///
 
 #[newtype(
@@ -42,7 +42,7 @@ pub struct LanguageCode {}
 /// PhoneNumber
 /// standardised international phone number
 ///
-/// https://en.wikipedia.org/wiki/E.164
+/// <https://en.wikipedia.org/wiki/E.164>
 ///
 
 #[newtype(

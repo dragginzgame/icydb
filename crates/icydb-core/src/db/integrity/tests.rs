@@ -195,7 +195,7 @@ fn quick_selected_authority_failure_is_not_a_clean_completion() {
     let plan = plan();
     let error = InternalError::accepted_row_constraint_program_corrupt();
     let result = uninspectable_quick_integrity(
-        plan.identity(),
+        &plan.identity(),
         DatabaseIncarnationId::for_tests(11),
         IntegrityAuthorityDiagnostic::from_internal(&error),
     );

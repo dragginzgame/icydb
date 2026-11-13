@@ -148,7 +148,7 @@ fn comparisons_charge_cumulatively_without_allocating_in_every_lane() {
                 .diagnostic_facts()
                 .contains(&(DiagnosticFactTag::ExecutionLane, lane.raw()))
         );
-        assert_budget_error(error, Resource::PredicateExpressionSteps);
+        assert_budget_error(&error, Resource::PredicateExpressionSteps);
         assert_eq!(request.observed(Resource::PredicateExpressionSteps), 8);
         assert_eq!(request.observed(Resource::TemporaryBytes), 0);
     }
@@ -170,7 +170,7 @@ fn missing_key_rejects_at_backing_or_payload_before_installation() {
             assert_eq!(result.unwrap().unwrap().fields.len(), 2);
             assert_eq!(request.observed(Resource::TemporaryBytes), limit);
         } else {
-            assert_budget_error(result.unwrap_err(), Resource::TemporaryBytes);
+            assert_budget_error(&result.unwrap_err(), Resource::TemporaryBytes);
         }
         assert_eq!(
             request.observed(Resource::PredicateExpressionSteps),

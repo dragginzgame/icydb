@@ -169,7 +169,7 @@ fn tier_c_native_shard_emits_exact_receipt() {
         "a selected Tier C shard must execute at least one IcyDB scenario",
     );
     write_artifact(
-        shard_path(&artifact_dir, shard_index),
+        &shard_path(&artifact_dir, shard_index),
         report
             .to_canonical_json(&declared_refs)
             .expect("Tier C shard should encode canonically"),
@@ -207,7 +207,7 @@ fn tier_c_native_receipts_merge_exactly_and_require_clean_evidence() {
             .expect("merged Tier C receipt should decode canonically"),
         merged,
     );
-    write_artifact(artifact_dir.join(MERGED_FILE), encoded);
+    write_artifact(&artifact_dir.join(MERGED_FILE), encoded);
 }
 
 #[test]
@@ -1224,10 +1224,10 @@ fn shard_path(artifact_dir: &FsPath, shard_index: u8) -> PathBuf {
     artifact_dir.join(format!("{SHARD_FILE_PREFIX}{shard_index}.json"))
 }
 
-fn write_artifact(path: PathBuf, bytes: Vec<u8>) {
+fn write_artifact(path: &FsPath, bytes: Vec<u8>) {
     let parent = path.parent().expect("Tier C artifact should have a parent");
     fs::create_dir_all(parent)
         .unwrap_or_else(|error| panic!("failed to create {}: {error}", parent.display()));
-    fs::write(&path, bytes)
+    fs::write(path, bytes)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
 }

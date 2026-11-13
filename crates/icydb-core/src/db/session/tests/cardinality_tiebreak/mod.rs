@@ -1594,7 +1594,7 @@ pub(in crate::db::session) fn ranking_candidates_for_tests() -> (
     crate::db::executor::EntityAuthority,
     Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
-    candidate_fixture_for_tests(crate::db::FilterExpr::and(vec![
+    candidate_fixture_for_tests(&crate::db::FilterExpr::and(vec![
         crate::db::FilterExpr::eq("common", "everyone"),
         crate::db::FilterExpr::eq("rare", "group-a"),
     ]))
@@ -1607,14 +1607,14 @@ pub(in crate::db::session) fn probe_candidates_for_tests(
     crate::db::executor::EntityAuthority,
     Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
-    candidate_fixture_for_tests(crate::db::FilterExpr::in_list(
+    candidate_fixture_for_tests(&crate::db::FilterExpr::in_list(
         "common",
         (0..value_count).map(|value| format!("probe-{value:04}")),
     ))
 }
 
 fn candidate_fixture_for_tests(
-    predicate: crate::db::FilterExpr,
+    predicate: &crate::db::FilterExpr,
 ) -> (
     DbSession<TestCanister>,
     crate::db::executor::EntityAuthority,
@@ -1627,7 +1627,7 @@ fn candidate_fixture_for_tests(
     let query = crate::db::query::preparation::with_preparation_work(|work| {
         StructuralQuery::new(MissingRowPolicy::Ignore).filter_for_schema(
             catalog.accepted_schema_info(),
-            &predicate,
+            predicate,
             work,
         )
     })
@@ -1689,12 +1689,12 @@ fn new_request_session(root: &crate::db::RequestExecutionRoot) -> DbSession<Test
 }
 
 fn initialize() -> DbSession<TestCanister> {
-    initialize_schema_candidate(schema_candidate(STORE_PATH))
+    initialize_schema_candidate(&schema_candidate(STORE_PATH))
 }
 
 // Reset only fresh heap fixtures and publish their validated candidate through the
 // common request identity. Journaled/recovery fixtures retain their own lifecycle.
-fn initialize_schema_candidate(candidate: CandidateSchemaRevision) -> DbSession<TestCanister> {
+fn initialize_schema_candidate(candidate: &CandidateSchemaRevision) -> DbSession<TestCanister> {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
@@ -1711,7 +1711,7 @@ fn initialize_schema_candidate(candidate: CandidateSchemaRevision) -> DbSession<
         STORE_PATH,
         store,
         AcceptedSchemaRevision::NONE,
-        &candidate,
+        candidate,
     )
     .expect("cardinality tie-break schema should publish");
 
@@ -1735,7 +1735,7 @@ fn initialize_field_schema(
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
         bindings,
     );
-    initialize_schema_candidate(candidate)
+    initialize_schema_candidate(&candidate)
 }
 
 // These fixtures use field 1 as their sole primary key and start at the initial

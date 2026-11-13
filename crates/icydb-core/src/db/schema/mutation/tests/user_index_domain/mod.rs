@@ -1127,7 +1127,7 @@ fn insert_projection_entries(
                         *slots,
                     )
                 }
-                SchemaMutationRequest::ExactMatch | SchemaMutationRequest::AppendOnlyFields(_) => {
+                SchemaMutationRequest::AppendOnlyFields(_) => {
                     panic!("test index should lower to an index target")
                 }
             }
@@ -1168,10 +1168,6 @@ fn index_store_entries(store: &IndexStore) -> Vec<(RawIndexStoreKey, IndexEntryV
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "One end-to-end matrix checks codec, membership and unique collisions together"
-)]
 fn complete_domain_generated_numeric_filters_enforce_unique_membership_after_codec() {
     use crate::db::schema::{
         AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckValueExprV1,

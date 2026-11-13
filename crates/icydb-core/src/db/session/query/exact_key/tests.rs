@@ -1,7 +1,7 @@
 use super::*;
 
 fn assert_byte_bound(
-    error: InternalError,
+    error: &InternalError,
     boundary: icydb_diagnostic_code::RuntimeBoundaryCode,
     actual: usize,
     limit: usize,
@@ -38,7 +38,7 @@ fn exact_key_byte_admission_reports_each_bounded_resource() {
     )
     .expect_err("input key bytes above the cap should reject");
     assert_byte_bound(
-        input_error,
+        &input_error,
         icydb_diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchInputBytesExceeded,
         MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES + 1,
         MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES,
@@ -53,7 +53,7 @@ fn exact_key_byte_admission_reports_each_bounded_resource() {
     )
     .expect_err("stored row bytes above the cap should reject");
     assert_byte_bound(
-        stored_error,
+        &stored_error,
         icydb_diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchStoredBytesExceeded,
         MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES + 1,
         MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
@@ -125,7 +125,7 @@ fn exact_key_result_sizing_uses_the_logical_limit_above_transport_size() {
             result.expect("native result admission is independent of transport delivery");
         } else {
             assert_byte_bound(
-                result.expect_err("logical overflow must retain its typed boundary"),
+                &result.expect_err("logical overflow must retain its typed boundary"),
                 icydb_diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded,
                 expected,
                 MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES,

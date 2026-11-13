@@ -7,7 +7,7 @@ cd "$ROOT"
 # shellcheck source=scripts/ci/invariant-common.sh
 source "$ROOT/scripts/ci/invariant-common.sh"
 require_rg "critical runtime no-production-panics invariant"
-bash "$ROOT/scripts/ci/verify-toko-tooling-snapshot.sh" \
+bash "$ROOT/vendor/toko-tooling/scripts/ci/verify-toko-tooling-snapshot.sh" \
   --consumer "$ROOT" --manifest .toko-tooling.snapshot
 
 # Require each inventory independently, including ignored recovery sources.

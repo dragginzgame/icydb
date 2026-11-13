@@ -106,7 +106,7 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
 
 (select($file == ".github/workflows/ci.yml" or $file == ".github/workflows/canic-adapter.yml") |
   (.jobs | to_entries[] | .key as $job | .value.steps[]? |
-    select(.uses=="./.github/actions/retain-failure-evidence") |
+    select(.uses=="./vendor/toko-tooling/.github/actions/retain-failure-evidence") |
     require(.with["ic-tools"]=="${{ env.IC_TOOLS }}"; "\($job) evidence needs its IC selection")),
   require(.jobs.macos_host | has_run("(^|\\n)\\s*make install-dev\\s*($|\\n)"); "native host requires workstation preparation"),
   require(.env.IC_TOOLS=="icp ic-wasm wasm-opt"; "workstation needs its complete IC selection"),
@@ -136,7 +136,7 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
       and .with["restore-keys"] == null
       and (.with.key | contains("matrix.os") and contains("runner.arch") and contains("env.RUST_CURRENT")
         and contains("Cargo.lock") and contains("qualification/Cargo.lock") and contains("**/Cargo.toml")
-        and contains(".cargo/config*") and contains("ci/tool-versions.env")));
+        and contains(".cargo/config*") and contains("vendor/toko-tooling/ci/tool-versions.env")));
       "native compiler cache needs host/compiler/graph isolation and cold-cache fallback"),
     require(any($host.steps[]; .name == "Qualify native library and CLI builds" and .if == null
       and (.["continue-on-error"] // false) == false and .env.RUSTC_WRAPPER == "sccache");
@@ -155,7 +155,7 @@ require(.env.RUST_CURRENT == null and .env.RUSTUP_TOOLCHAIN == null;
       and (run_text|contains("make install-tools LOCAL_TOOL_INSTALL_TARGETS="))
       and (run_text|contains("make tools-check LOCAL_TOOL_CHECK_TARGETS="))); "product \($job) needs explicit common setup and admission")),
   (["static","rust","macos_host"][] as $job |
-    require(any(.jobs[$job].steps[]?; .if=="failure()" and .uses=="./.github/actions/retain-failure-evidence"
+    require(any(.jobs[$job].steps[]?; .if=="failure()" and .uses=="./vendor/toko-tooling/.github/actions/retain-failure-evidence"
       and .with["temp-root"]=="${{ runner.temp }}" and .with["repository-root"]=="${{ github.workspace }}"
       and .with["ic-tools"]=="${{ env.IC_TOOLS }}"); "product \($job) must retain tooling failures"))),
 

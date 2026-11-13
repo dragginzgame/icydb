@@ -4,8 +4,8 @@ root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$root"
 # shellcheck source=scripts/release/group.sh
 source scripts/release/group.sh
-# shellcheck source=scripts/ci/release-receipts.sh
-source scripts/ci/release-receipts.sh
+# shellcheck source=vendor/toko-tooling/scripts/ci/release-receipts.sh
+source vendor/toko-tooling/scripts/ci/release-receipts.sh
 fallback() {
     printf 'Release validation: FULL (%s): %s\n' "$RELEASE_GROUP" "$1" >&2
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

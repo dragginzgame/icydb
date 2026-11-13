@@ -191,3 +191,32 @@ fn explicit_root_compatibility_rejects_a_different_active_root() {
     });
     assert!(second.__is_compatible_with_current());
 }
+
+#[test]
+fn current_request_scope_restores_after_nested_return_and_unwind() {
+    let original = current_request_scope();
+    let outer = RequestExecutionRoot::__new_runtime_root();
+    let inner = RequestExecutionRoot::__new_runtime_root();
+    outer.__with_current_scope(|| {
+        assert!(outer.__is_current());
+        inner.__with_current_scope(|| {
+            assert!(inner.__is_current());
+            assert!(!outer.__is_current());
+        });
+        assert!(outer.__is_current());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            inner.__with_current_scope(|| {
+                assert!(inner.__is_current());
+                panic!("exercise scope restoration");
+            });
+        }));
+        assert!(result.is_err());
+        assert!(outer.__is_current());
+        assert!(!inner.__is_current());
+    });
+    match (original, current_request_scope()) {
+        (Some(before), Some(after)) => assert!(before.same_counters(&after)),
+        (None, None) => {}
+        _ => panic!("ambient request scope was not restored"),
+    }
+}

@@ -29,13 +29,13 @@ fn infer(expr: &Expr, root: &RequestExecutionRoot, lane: Lane) -> Result<ExprTyp
     })
 }
 
-fn assert_resource(error: QueryError, resource: Resource) {
+fn assert_resource(error: &QueryError, resource: Resource) {
     assert!(matches!(error, QueryError::Execute(_)));
     assert_budget_resource(&error.diagnostic_facts(), resource);
     assert_eq!(error.query_field_context(), None);
 }
 
-fn assert_missing(error: QueryError, field: &str) {
+fn assert_missing(error: &QueryError, field: &str) {
     let expected = QueryError::from(PlanError::from(ExprPlanError::unknown_expr_field(field)))
         .attach_query_field(QueryFieldRole::Projection);
     assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
@@ -58,9 +58,9 @@ fn inference_admits_argument_storage_and_cumulative_visits_without_rewriting() {
             assert!(exact > 0);
             let request = request_with_limit(resource, exact);
             assert_eq!(infer(&expr, &request, lane).unwrap(), expected);
-            assert_resource(infer(&expr, &request, lane).unwrap_err(), resource);
+            assert_resource(&infer(&expr, &request, lane).unwrap_err(), resource);
             assert_resource(
-                infer(&expr, &request_with_limit(resource, exact - 1), lane).unwrap_err(),
+                &infer(&expr, &request_with_limit(resource, exact - 1), lane).unwrap_err(),
                 resource,
             );
             assert_eq!(
@@ -105,7 +105,7 @@ fn inference_preserves_case_function_and_binary_first_errors() {
         ),
     ] {
         assert_missing(
-            infer(
+            &infer(
                 &expr,
                 &request_with_limit(Resource::TemporaryBytes, 16_000_000),
                 Lane::Diagnostic,
@@ -123,7 +123,7 @@ fn inference_labels_are_admitted_and_literal_payloads_stay_unvisited() {
         Expr::FieldPath(FieldPath::new("missing", vec!["child".into()])),
     ] {
         assert_resource(
-            infer(
+            &infer(
                 &expr,
                 &request_with_limit(Resource::TemporaryBytes, 0),
                 Lane::PublicRead,
@@ -132,7 +132,7 @@ fn inference_labels_are_admitted_and_literal_payloads_stay_unvisited() {
             Resource::TemporaryBytes,
         );
         assert_missing(
-            infer(
+            &infer(
                 &expr,
                 &request_with_limit(Resource::TemporaryBytes, 16_000_000),
                 Lane::PublicRead,
@@ -187,9 +187,9 @@ fn projection_type_gate_preserves_resource_failures_and_field_context() {
         })
         .unwrap_err();
         if limit == 0 {
-            assert_resource(error, Resource::TemporaryBytes);
+            assert_resource(&error, Resource::TemporaryBytes);
         } else {
-            assert_missing(error, "missing");
+            assert_missing(&error, "missing");
         }
     }
 }

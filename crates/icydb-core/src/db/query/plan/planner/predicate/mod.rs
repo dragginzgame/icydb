@@ -35,10 +35,6 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::cmp::Ordering;
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "planner predicate selection still centralizes the bounded family-routing policy in one owner-local entrypoint"
-)]
 pub(super) fn plan_predicate(
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,

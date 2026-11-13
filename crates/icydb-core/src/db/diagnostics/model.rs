@@ -98,7 +98,7 @@ macro_rules! store_role_snapshot_accessors {
     };
 }
 
-#[cfg_attr(doc, doc = "StorageReport\n\nLive storage snapshot payload.")]
+#[doc = "StorageReport\n\nLive storage snapshot payload."]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -183,7 +183,7 @@ impl StorageReport {
     }
 }
 
-#[cfg_attr(doc, doc = "SchemaStoreSnapshot\n\nSchema-store diagnostic row.")]
+#[doc = "SchemaStoreSnapshot\n\nSchema-store diagnostic row."]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -215,8 +215,10 @@ pub struct SchemaStoreSnapshot {
     derive(ic_wire::Wire)
 )]
 pub enum StoreSnapshotStorageMode {
+    /// The store uses volatile process-local backing.
     Heap,
     #[default]
+    /// The store uses durable journaled backing.
     Journaled,
 }
 
@@ -277,18 +279,6 @@ impl StoreSnapshotSchemaMetadata {
             fingerprint: Some(schema_fingerprint),
         }
     }
-
-    const fn schema_version(&self) -> Option<u32> {
-        self.version
-    }
-
-    const fn schema_fingerprint_method_version(&self) -> Option<u8> {
-        self.fingerprint_method_version
-    }
-
-    fn schema_fingerprint(&self) -> Option<String> {
-        self.fingerprint.clone()
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -329,9 +319,9 @@ impl StoreRoleSnapshotFields {
             schema_metadata: capabilities.schema_metadata(),
             memory_id,
             stable_key,
-            schema_version: schema_metadata.schema_version(),
-            schema_fingerprint_method_version: schema_metadata.schema_fingerprint_method_version(),
-            schema_fingerprint: schema_metadata.schema_fingerprint(),
+            schema_version: schema_metadata.version,
+            schema_fingerprint_method_version: schema_metadata.fingerprint_method_version,
+            schema_fingerprint: schema_metadata.fingerprint,
         }
     }
 }
@@ -402,7 +392,7 @@ impl SchemaStoreSnapshot {
     }
 }
 
-#[cfg_attr(doc, doc = "DataStoreSnapshot\n\nData-store snapshot row.")]
+#[doc = "DataStoreSnapshot\n\nData-store snapshot row."]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -472,7 +462,7 @@ impl DataStoreSnapshot {
     }
 }
 
-#[cfg_attr(doc, doc = "IndexStoreSnapshot\n\nIndex-store snapshot row.")]
+#[doc = "IndexStoreSnapshot\n\nIndex-store snapshot row."]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -566,7 +556,7 @@ impl IndexStoreSnapshot {
     }
 }
 
-#[cfg_attr(doc, doc = "EntitySnapshot\n\nPer-entity storage snapshot row.")]
+#[doc = "EntitySnapshot\n\nPer-entity storage snapshot row."]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),

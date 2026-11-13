@@ -24,6 +24,7 @@ fn cast_decimal_val<N: NumericValue>(value: &N, ctx: &mut dyn VisitorContext) ->
 
 macro_rules! cmp_validator {
     ($name:ident, $op:tt, $msg:expr) => {
+        #[doc = concat!("Require the numeric value to satisfy `value ", stringify!($op), " target`.")]
         #[validator]
         pub struct $name {
             target: Decimal,
@@ -78,6 +79,10 @@ pub struct Range {
 
 impl Range {
     /// Configure bounds; unrepresentable bounds report an issue on validation.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Generated attachments pass literal, constant and function-result bounds by value"
+    )]
     pub fn new<N: NumericValue>(min: N, max: N) -> Self {
         let min = try_cast_decimal(&min);
         let max = try_cast_decimal(&max);
@@ -118,6 +123,10 @@ pub struct MultipleOf {
 
 impl MultipleOf {
     /// Configure a divisor; unrepresentable divisors report an issue on validation.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Generated validator attachments pass literal, constant and function-result arguments by value"
+    )]
     pub fn new<N: NumericValue>(target: N) -> Self {
         let target = try_cast_decimal(&target);
 

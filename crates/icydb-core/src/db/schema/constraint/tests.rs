@@ -63,10 +63,12 @@ fn dense_field_remapping_preserves_constraint_identity_and_allows_new_not_null_o
             .unwrap();
     }
     catalog = catalog
-        .with_added_check(
+        .with_added_row_constraint(
             "authored_check".into(),
             ConstraintOrigin::SqlDdl,
-            AcceptedCheckExprV1::True,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::True),
+            },
         )
         .unwrap();
     let authored = catalog.constraints().last().unwrap().clone();
@@ -247,10 +249,12 @@ fn aborted_activation_retires_its_identity_without_reuse() {
 #[test]
 fn removed_generated_check_retires_its_identity_without_reuse() {
     let catalog = AcceptedConstraintCatalog::default()
-        .with_added_check(
+        .with_added_row_constraint(
             "first".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::True,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::True),
+            },
         )
         .expect("generated check should admit");
     let retired = catalog.constraints()[0].id();
@@ -263,19 +267,23 @@ fn removed_generated_check_retires_its_identity_without_reuse() {
     assert_eq!(removed.allocator(), allocator);
 
     let next = removed
-        .with_added_check(
+        .with_added_row_constraint(
             "second".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::True,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::True),
+            },
         )
         .expect("new generated check should admit");
     assert!(next.constraints()[0].id() > retired);
 
     let sql_owned = AcceptedConstraintCatalog::default()
-        .with_added_check(
+        .with_added_row_constraint(
             "sql_owned".to_string(),
             ConstraintOrigin::SqlDdl,
-            AcceptedCheckExprV1::True,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::True),
+            },
         )
         .expect("SQL-owned check should admit");
     let sql_owned_id = sql_owned.constraints()[0].id();

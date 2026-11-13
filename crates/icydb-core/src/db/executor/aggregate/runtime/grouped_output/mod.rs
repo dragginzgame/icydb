@@ -11,7 +11,10 @@ use crate::{
         RuntimeGroupedRow,
         aggregate::{GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec},
         pipeline::contracts::GroupedCursorPage,
-        projection::*,
+        projection::{
+            CompiledGroupedProjectionPlan, GroupedRowView, ProjectionEvalError,
+            compile_grouped_projection_plan_if_needed,
+        },
     },
     error::InternalError,
     value::Value,

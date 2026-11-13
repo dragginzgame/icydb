@@ -2496,7 +2496,7 @@ fn apply_statement(
                     }
                 }
             }
-            apply_insert_rows(snapshot, state_before, resolved, &statement.returning)
+            apply_insert_rows(snapshot, state_before, &resolved, &statement.returning)
         }
         MutationOperation::InsertFromQuery {
             predicate,
@@ -2513,7 +2513,7 @@ fn apply_statement(
                     MutationRow::authored_scalar(key, row.predicate_text(), row.predicate_number())
                 })
                 .collect::<Vec<_>>();
-            apply_insert_rows(snapshot, state_before, rows, &statement.returning)
+            apply_insert_rows(snapshot, state_before, &rows, &statement.returning)
         }
         MutationOperation::Update {
             predicate,
@@ -2663,7 +2663,7 @@ fn resolve_default_nullable_text(
 fn apply_insert_rows(
     snapshot: &MutationSnapshot,
     state_before: &[MutationRow],
-    rows: Vec<MutationRow>,
+    rows: &[MutationRow],
     returning: &MutationReturning,
 ) -> Result<MutationStepOutcome, SqlGeneratorError> {
     let existing = state_before
@@ -2686,7 +2686,7 @@ fn apply_insert_rows(
     state_after = canonical_rows(state_after);
     Ok(MutationStepOutcome::Accepted {
         affected_rows: row_count(rows.len())?,
-        returned_rows: project_rows(snapshot, &rows, returning)?,
+        returned_rows: project_rows(snapshot, rows, returning)?,
         index_after: snapshot.secondary_index_entries(&state_after)?,
         state_after,
     })

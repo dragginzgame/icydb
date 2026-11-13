@@ -8,5 +8,5 @@ for path in "$RELEASE_CHANGELOG" "releases/$RELEASE_GROUP/${version%.*}.md"; do
     awk -v heading="## [$version] - ${RELEASE_DATE:?}" \
         '$0 == heading { n++ } END { if (n != 1) exit 1 }' "$path"
 done
-bash scripts/ci/cargo-release-group.sh check "$RELEASE_GROUP"
-YQ="${YQ:-$PWD/.tools/host/bin/yq}" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
+bash vendor/toko-tooling/scripts/ci/cargo-release-group.sh check "$RELEASE_GROUP"
+YQ="${YQ:-$PWD/.tools/host/bin/yq}" bash vendor/toko-tooling/scripts/ci/check-dependency-pins.sh --cargo-inheritance

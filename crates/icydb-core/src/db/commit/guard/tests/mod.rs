@@ -6,14 +6,6 @@ use crate::db::{
     database_format::initialize_current_database_control_for_tests,
 };
 
-struct StartupRecoveryWakeupRestore(Option<fn()>);
-
-impl Drop for StartupRecoveryWakeupRestore {
-    fn drop(&mut self) {
-        STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(self.0));
-    }
-}
-
 #[test]
 fn missing_startup_recovery_wakeup_rejects_before_marker_publication() {
     const MEMORY_ID: u8 = 242;
@@ -26,7 +18,9 @@ fn missing_startup_recovery_wakeup_rejects_before_marker_publication() {
     initialize_current_database_control_for_tests(&memory);
 
     let previous = STARTUP_RECOVERY_WAKEUP.with(|installed| installed.replace(None));
-    let _restore = StartupRecoveryWakeupRestore(previous);
+    let _restore = core::mem::DropGuard::new(previous, |previous| {
+        STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(previous));
+    });
     let marker = CommitMarker::from_parts([0x6d; 16], Vec::new())
         .expect("empty control marker should admit");
 

@@ -1760,6 +1760,7 @@ impl InternalError {
         )
     }
 
+    /// Report a missing store resource without retaining its potentially large key.
     pub fn store_not_found(_key: impl Sized) -> Self {
         Self {
             class: ErrorClass::NotFound,
@@ -1868,37 +1869,64 @@ impl fmt::Debug for InternalError {
 )]
 pub enum ConstraintValuePathComponent {
     /// Persisted root field whose admitted value was traversed.
-    RootField { field_id: u32 },
+    RootField {
+        /// Accepted root field identity.
+        field_id: u32,
+    },
 
     /// Accepted record member selected by immutable composite/member identity.
     RecordMember {
+        /// Accepted composite type identity.
         composite_type_id: u32,
+        /// Accepted record-member identity.
         member_id: u32,
     },
 
     /// Tuple element selected by accepted composite identity and ordinal.
     TupleElement {
+        /// Accepted composite type identity.
         composite_type_id: u32,
+        /// Zero-based tuple member position.
         ordinal: u32,
     },
 
     /// Transparent accepted newtype boundary.
-    Newtype { composite_type_id: u32 },
+    Newtype {
+        /// Accepted composite type identity.
+        composite_type_id: u32,
+    },
 
     /// Selected accepted enum variant.
-    EnumVariant { enum_type_id: u32, variant_id: u32 },
+    EnumVariant {
+        /// Accepted nominal enum type identity.
+        enum_type_id: u32,
+        /// Accepted enum variant identity.
+        variant_id: u32,
+    },
 
     /// List element in admitted order.
-    ListElement { index: u32 },
+    ListElement {
+        /// Zero-based position of the rejected element or component.
+        index: u32,
+    },
 
     /// Set element in canonical admitted order.
-    SetElement { index: u32 },
+    SetElement {
+        /// Zero-based position of the rejected element or component.
+        index: u32,
+    },
 
     /// Map key in canonical entry order.
-    MapEntryKey { index: u32 },
+    MapEntryKey {
+        /// Zero-based position of the rejected element or component.
+        index: u32,
+    },
 
     /// Map value in canonical entry order.
-    MapEntryValue { index: u32 },
+    MapEntryValue {
+        /// Zero-based position of the rejected element or component.
+        index: u32,
+    },
 }
 
 impl fmt::Display for ConstraintValuePathComponent {
@@ -2240,8 +2268,11 @@ fn constraint_value_path_fact(
 pub enum ErrorDetail {
     /// Compact code/detail plus safe numeric context for one public failure.
     DiagnosticFacts(Box<DiagnosticFactDetail>),
+    /// Structured failure originating in storage.
     Store(StoreError),
+    /// Structured query admission or execution failure.
     Query(QueryErrorDetail),
+    /// Structured recovery or boot-admission failure.
     Recovery(RecoveryErrorDetail),
     // Future-proofing:
     // Index(IndexError),
@@ -2254,16 +2285,29 @@ pub enum ErrorDetail {
 ///
 
 pub enum RecoveryErrorDetail {
-    UnsupportedFormatVersion { found: Option<u16>, required: u16 },
+    /// The boot record does not identify the maintained database format.
+    UnsupportedFormatVersion {
+        /// Decoded format version, when a recognizable version is available.
+        found: Option<u16>,
+        /// Only format version admitted by this binary.
+        required: u16,
+    },
 
-    MalformedFormatMarker { reason: RecoveryFormatMarkerError },
+    /// The database boot marker fails structural admission.
+    MalformedFormatMarker {
+        /// Typed cause of the rejection.
+        reason: RecoveryFormatMarkerError,
+    },
 }
 
 /// Store boot-marker corruption classification.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum RecoveryFormatMarkerError {
+    /// The boot marker has an unrecognized discriminator.
     Magic,
+    /// The boot marker checksum does not match its payload.
     Checksum,
+    /// The boot marker carries an invalid initialization state.
     State,
 }
 
@@ -2285,25 +2329,36 @@ impl RecoveryFormatMarkerError {
 ///
 
 pub enum StoreError {
+    /// The requested resource was not found.
     NotFound,
 
+    /// The store contains malformed or inconsistent data.
     Corrupt,
 
+    /// An engine invariant was violated.
     InvariantViolation,
 
+    /// The schema authority changed before DDL publication.
     SchemaDdlPublicationRaceLost,
 
+    /// The DDL change requires a physical migration.
     SchemaDdlRewriteRequiresMigration,
 
+    /// Schema migration admission or execution failed with a typed reason.
     SchemaMigration {
+        /// Typed cause of the rejection.
         reason: diagnostic_code::SchemaMigrationCode,
     },
 
+    /// The next row-layout version cannot be represented.
     SchemaRowLayoutVersionExhausted,
 
+    /// The next mutation revision cannot be represented.
     JournalMutationRevisionExhausted,
 
+    /// The schema transition exceeds a bounded resource allowance.
     SchemaTransitionBudgetExceeded {
+        /// Typed or numeric identity of the exhausted resource.
         resource: SchemaTransitionBudgetResource,
     },
 
@@ -2326,40 +2381,58 @@ pub enum QueryErrorDetail {
     /// The exact-count shape is supported, but its metadata is unavailable.
     ExactCountMetadataUnavailable,
 
+    /// Numeric evaluation exceeded the supported range.
     NumericOverflow,
 
+    /// The result cannot be represented in the requested numeric type.
     NumericNotRepresentable,
 
+    /// The SQL statement uses an unsupported feature.
     UnsupportedSqlFeature {
+        /// Unsupported SQL feature identity.
         feature: diagnostic_code::SqlFeatureCode,
     },
 
+    /// The parsed SQL statement could not be lowered to the query contract.
     SqlLowering {
+        /// Typed cause of the rejection.
         reason: diagnostic_code::SqlLoweringCode,
     },
 
+    /// The requested projection is outside the supported query contract.
     UnsupportedProjection {
+        /// Typed cause of the rejection.
         reason: diagnostic_code::QueryProjectionCode,
     },
 
+    /// The aggregate target field is absent from accepted authority.
     UnknownAggregateTargetField,
 
+    /// Read admission rejected the requested query shape or budget.
     QueryReadAdmission {
+        /// Typed cause of the rejection.
         reason: diagnostic_code::QueryReadAdmissionCode,
     },
 
+    /// The SQL statement does not match the requested execution surface.
     SqlSurfaceMismatch {
+        /// Typed mismatch between the requested and parsed SQL surfaces.
         mismatch: diagnostic_code::SqlSurfaceMismatchCode,
     },
 
+    /// The SQL write violates an execution-boundary requirement.
     SqlWriteBoundary {
+        /// Typed SQL write-boundary failure.
         boundary: diagnostic_code::SqlWriteBoundaryCode,
     },
 
+    /// Catalog-native admission rejected the requested schema change.
     SchemaDdlAdmission {
+        /// Catalog-native admission failure.
         error: SchemaDdlAdmissionError,
     },
 
+    /// The query refers to a schema revision that is no longer current.
     StaleSchemaRevision,
 }
 
@@ -2397,50 +2470,73 @@ pub enum SchemaTransitionBudgetResource {
 #[derive(Clone, Copy, Eq, thiserror::Error, PartialEq)]
 #[error("{COMPACT_QUERY_DIAGNOSTIC_MESSAGE}")]
 pub enum SchemaDdlAdmissionError {
+    /// The mutation omits its expected source schema version.
     MissingExpectedSchemaVersion,
 
+    /// The mutation omits its proposed target schema version.
     MissingNextSchemaVersion,
 
+    /// The expected source version no longer matches accepted authority.
     StaleExpectedSchemaVersion,
 
+    /// The expected source version is not a valid schema version.
     InvalidExpectedSchemaVersion,
 
+    /// The proposed target version is not a valid schema version.
     InvalidNextSchemaVersion,
 
+    /// The accepted schema would change without advancing its version.
     AcceptedSchemaChangeWithoutVersionBump,
 
+    /// The version advances without an accepted schema change.
     EmptyVersionBump,
 
+    /// The proposed version skips the required immediate successor.
     VersionGap,
 
+    /// The proposed version moves backwards.
     VersionRollback,
 
+    /// Source and target use incompatible fingerprint methods.
     FingerprintMethodMismatch,
 
+    /// The requested schema transition class is not supported.
     UnsupportedTransitionClass,
 
+    /// The transition needs a physical runner that was not supplied.
     PhysicalRunnerMissing,
 
+    /// The proposed schema failed validation.
     ValidationFailed,
 
+    /// Accepted authority changed before publication could commit.
     PublicationRaceLost,
 
+    /// The new field's default does not satisfy its accepted type contract.
     InvalidAddColumnDefault,
 
+    /// The replacement default does not satisfy the field contract.
     InvalidAlterColumnDefault,
 
+    /// No further row-layout version can be allocated.
     RowLayoutVersionExhausted,
 
+    /// DDL cannot remove a generated index.
     GeneratedIndexDropRejected,
 
+    /// The schema change requires a physical migration.
     SchemaRewriteRequiresMigration,
 
+    /// The schema transition exceeds a bounded resource allowance.
     SchemaTransitionBudgetExceeded {
+        /// Typed or numeric identity of the exhausted resource.
         resource: SchemaTransitionBudgetResource,
     },
 
+    /// DDL cannot change a generated field's default.
     GeneratedFieldDefaultChangeRejected,
 
+    /// DDL cannot change a generated field's nullability.
     GeneratedFieldNullabilityChangeRejected,
 }
 
@@ -2823,12 +2919,19 @@ impl SchemaDdlAdmissionError {
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ErrorClass {
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::Corruption`].
     Corruption,
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::IncompatiblePersistedFormat`].
     IncompatiblePersistedFormat,
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::NotFound`].
     NotFound,
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::Internal`].
     Internal,
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::Conflict`].
     Conflict,
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::Unsupported`].
     Unsupported,
+    /// Classification corresponding to [`diagnostic_code::ErrorClass::InvariantViolation`].
     InvariantViolation,
 }
 
@@ -2877,16 +2980,27 @@ impl fmt::Debug for ErrorClass {
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ErrorOrigin {
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Serialize`].
     Serialize,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Store`].
     Store,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Index`].
     Index,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Identity`].
     Identity,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Query`].
     Query,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Planner`].
     Planner,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Cursor`].
     Cursor,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Recovery`].
     Recovery,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Response`].
     Response,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Executor`].
     Executor,
+    /// Classification corresponding to [`diagnostic_code::ErrorOrigin::Interface`].
     Interface,
 }
 

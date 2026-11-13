@@ -84,7 +84,7 @@ fn historical_contract(
 
 fn old_row(contract: &StructuralRowContract) -> RawRow {
     let key = encode_canonical_value_for_accepted_field_contract(
-        contract
+        &contract
             .required_accepted_field_persistence_contract(0)
             .unwrap(),
         &Value::Nat64(1),
@@ -127,7 +127,7 @@ fn historical_scalar_views_and_projection_agree_with_materialization() {
         for codec in [LeafCodec::Scalar(scalar), LeafCodec::Structural] {
             let encoding = historical_contract(kind.clone(), codec, SchemaHistoricalFill::Null);
             let payload = encode_canonical_value_for_accepted_field_contract(
-                encoding
+                &encoding
                     .required_accepted_field_persistence_contract(1)
                     .unwrap(),
                 &value,
@@ -216,7 +216,7 @@ fn historical_update_compares_canonical_null_and_text_fills() {
         let kind = AcceptedFieldKind::Text { max_len: Some(6) };
         let encoding = historical_contract(kind.clone(), codec, SchemaHistoricalFill::Null);
         let payload = encode_canonical_value_for_accepted_field_contract(
-            encoding
+            &encoding
                 .required_accepted_field_persistence_contract(1)
                 .unwrap(),
             &text,
@@ -240,7 +240,7 @@ fn historical_update_compares_canonical_null_and_text_fills() {
                 .into_raw_row();
             for target in [Value::Null, text.clone(), Value::Text("new".into())] {
                 let payload = encode_canonical_value_for_accepted_field_contract(
-                    contract
+                    &contract
                         .required_accepted_field_persistence_contract(1)
                         .unwrap(),
                     &target,
@@ -275,7 +275,7 @@ fn historical_update_rejects_forbidden_and_malformed_fills() {
         ] {
             let contract = historical_contract(AcceptedFieldKind::Nat64, codec, fill);
             let payload = encode_canonical_value_for_accepted_field_contract(
-                contract
+                &contract
                     .required_accepted_field_persistence_contract(1)
                     .unwrap(),
                 &Value::Nat64(7),
@@ -306,14 +306,14 @@ fn row_layout_slot_counts_preserve_current_and_historical_admission() {
     );
     let current = RowLayoutVersion::INITIAL.checked_next().unwrap();
     let key = encode_canonical_value_for_accepted_field_contract(
-        contract
+        &contract
             .required_accepted_field_persistence_contract(0)
             .unwrap(),
         &Value::Nat64(1),
     )
     .unwrap();
     let added = encode_canonical_value_for_accepted_field_contract(
-        contract
+        &contract
             .required_accepted_field_persistence_contract(1)
             .unwrap(),
         &Value::Nat64(7),

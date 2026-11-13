@@ -15,7 +15,7 @@ category = "tests"
 [dependencies]
 ic-platform-runtime = { workspace = true, features = ["ic0"] }
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

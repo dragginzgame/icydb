@@ -440,7 +440,6 @@ fn inspect_one_row<C: CanisterKind>(
 
 #[expect(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
     reason = "one exhaustive verifier-family dispatch keeps checkpoint vocabulary and physical classification visibly aligned"
 )]
 fn inspect_row_atom<C: CanisterKind>(
@@ -890,10 +889,6 @@ fn start_atom_for_row(
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive transition table keeps every verifier-family and ordinal handoff fail-closed"
-)]
 fn next_row_atom(
     atom: RowAtom,
     plan: &AcceptedInspectionPlan,

@@ -11,10 +11,7 @@ use serde::Deserialize;
 /// Compact count metadata for one `SHOW ENTITIES` row.
 ///
 
-#[cfg_attr(
-    doc,
-    doc = "EntityCatalogCounts\n\nCompact count metadata for one SHOW ENTITIES row."
-)]
+#[doc = "EntityCatalogCounts\n\nCompact count metadata for one SHOW ENTITIES row."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityCatalogCounts {
     columns: u32,
@@ -36,10 +33,7 @@ impl EntityCatalogCounts {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntityCatalogDescription\n\nRuntime catalog entry for one accepted entity."
-)]
+#[doc = "EntityCatalogDescription\n\nRuntime catalog entry for one accepted entity."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -64,7 +58,7 @@ impl EntityCatalogDescription {
         entity_path: String,
         store_path: String,
         storage: String,
-        counts: EntityCatalogCounts,
+        counts: &EntityCatalogCounts,
     ) -> Self {
         Self {
             entity_name,
@@ -133,10 +127,7 @@ impl EntityCatalogDescription {
 /// One runtime-registered store entry for `SHOW STORES`.
 ///
 
-#[cfg_attr(
-    doc,
-    doc = "StoreCatalogDescription\n\nRuntime catalog entry for one registered store."
-)]
+#[doc = "StoreCatalogDescription\n\nRuntime catalog entry for one registered store."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -176,10 +167,7 @@ impl StoreCatalogDescription {
 /// One runtime-registered stable-memory allocation entry for `SHOW MEMORY`.
 ///
 
-#[cfg_attr(
-    doc,
-    doc = "MemoryCatalogDescription\n\nRuntime catalog entry for one stable-memory allocation."
-)]
+#[doc = "MemoryCatalogDescription\n\nRuntime catalog entry for one stable-memory allocation."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),

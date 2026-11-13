@@ -422,7 +422,7 @@ impl CompiledAcceptedRowConstraints {
         // Preserve CHECK-before-NOT-NULL compilation while filling it once.
         debug_assert!(constraints.is_empty());
         debug_assert!(constraints.capacity() >= check_sources.len() + not_null_sources.len());
-        for &(id, expression, validated) in &check_sources {
+        for (id, expression, validated) in check_sources {
             constraints.push(CompiledAcceptedRowConstraint::Check(
                 CompiledAcceptedCheck {
                     id,
@@ -431,7 +431,7 @@ impl CompiledAcceptedRowConstraints {
                 },
             ));
         }
-        for &(id, field_id, accepted) in &not_null_sources {
+        for (id, field_id, accepted) in not_null_sources {
             let slot = slot_for_field(snapshot, field_id)
                 .map_err(AcceptedRowConstraintEvaluationError::InvalidExpression)?;
             constraints.push(CompiledAcceptedRowConstraint::NotNull {

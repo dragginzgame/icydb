@@ -71,7 +71,7 @@ impl<C: CanisterKind> DbSession<C> {
         let statement = parse_integrity_sql(sql).map_err(QueryError::from_sql_parse_error)?;
         let (request, quick_catalog) = self.lower_integrity_sql_request(statement)?;
 
-        self.execute_admin_integrity_with_quick_catalog(request, owner, quick_catalog)
+        self.execute_admin_integrity_with_quick_catalog(request, owner, quick_catalog.as_ref())
             .map_err(SqlIntegrityError::from)
     }
 

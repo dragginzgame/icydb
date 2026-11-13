@@ -36,8 +36,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 awk -v version="${RELEASE_VERSION:?}" -v date="${RELEASE_DATE:?}" \
-    -f scripts/ci/finalize-release-changelog.awk "$RELEASE_CHANGELOG" >/dev/null
-bash scripts/ci/cargo-release-group.sh prepare "$RELEASE_GROUP"
+    -f vendor/toko-tooling/scripts/ci/finalize-release-changelog.awk "$RELEASE_CHANGELOG" >/dev/null
+bash vendor/toko-tooling/scripts/ci/cargo-release-group.sh prepare "$RELEASE_GROUP"
 bash scripts/release/prepare-extra.sh
 bash scripts/release/finalize-notes.sh
 bash scripts/release/check-metadata.sh

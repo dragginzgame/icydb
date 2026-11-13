@@ -73,7 +73,7 @@ fn initialize_profiles() -> DbSession<TestCanister> {
         bindings,
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
     );
-    let session = initialize_schema_candidate(candidate);
+    let session = initialize_schema_candidate(&candidate);
     seed_profiles(&session);
     session
 }

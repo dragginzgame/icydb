@@ -2,7 +2,7 @@ use quote::quote;
 
 use super::SchemaSurfaceTokens;
 
-fn compact_tokens(tokens: proc_macro2::TokenStream) -> String {
+fn compact_tokens(tokens: &proc_macro2::TokenStream) -> String {
     tokens
         .to_string()
         .chars()
@@ -15,7 +15,7 @@ fn generated_schema_capability_resolves_current_entity_names_privately() {
     let mut surface_tokens = SchemaSurfaceTokens::empty(quote!(::icydb));
     surface_tokens.push_entity("Character");
 
-    let surface = compact_tokens(quote!(#surface_tokens));
+    let surface = compact_tokens(&quote!(#surface_tokens));
 
     assert!(surface.contains("fn__icydb_endpoint_handler_schema("));
     assert!(surface.contains("try_describe_entity_by_source_key(\"Character\")"));

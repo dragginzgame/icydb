@@ -16,9 +16,13 @@ use crate::value::CoercionFamily;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CoercionId {
+    /// Compare operands without widening or text folding.
     Strict,
+    /// Admit compatible numeric representations through widening.
     NumericWiden,
+    /// Apply the canonical case-insensitive text fold.
     TextCasefold,
+    /// Apply element-level coercion to collection operands.
     CollectionElement,
 }
 

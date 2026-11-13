@@ -41,7 +41,7 @@ impl<'a> ValueStorageSlice<'a> {
     fn from_raw(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
         let tag = *raw.first().ok_or_else(FieldDecodeError::new)?;
         if value_storage_tag_has_payload(tag) {
-            Ok(Self::from_scalar_root(CompleteBinaryValue::parse(raw)?))
+            Ok(Self::from_scalar_root(&CompleteBinaryValue::parse(raw)?))
         } else {
             if skip_value_storage_binary_value(raw, 0)? != raw.len() {
                 return Err(FieldDecodeError::new());
@@ -60,7 +60,7 @@ impl<'a> ValueStorageSlice<'a> {
         let tag = *bytes.first().ok_or_else(FieldDecodeError::new)?;
         if value_storage_tag_has_payload(tag) {
             Ok(Self::from_scalar_root(
-                CompleteBinaryValue::from_skip_bounded(bytes)?,
+                &CompleteBinaryValue::from_skip_bounded(bytes)?,
             ))
         } else {
             Ok(Self::other(bytes))
@@ -68,7 +68,7 @@ impl<'a> ValueStorageSlice<'a> {
     }
 
     #[inline]
-    const fn from_scalar_root(root: CompleteBinaryValue<'a>) -> Self {
+    const fn from_scalar_root(root: &CompleteBinaryValue<'a>) -> Self {
         Self {
             bytes: root.bytes(),
             scalar_len: root.len(),

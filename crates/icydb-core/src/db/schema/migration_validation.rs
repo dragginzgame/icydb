@@ -186,10 +186,6 @@ struct EntityValidationPage {
     clippy::too_many_arguments,
     reason = "one migration page keeps all engine-owned budgets explicit"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the page loop keeps transform, constraint, relation, and unique precedence explicit"
-)]
 fn validate_entity_page<C: CanisterKind>(
     db: &Db<C>,
     store: StoreHandle,
@@ -594,7 +590,7 @@ pub(in crate::db::schema) fn stage_migration_index_entries(
                 // only their exact keys; ordinary live entries belong to the
                 // journal and must not move ahead of its fold watermark.
                 match index.get_canonical(&key) {
-                    None => index.apply_canonical_entry(key, Some(IndexEntryValue::presence()))?,
+                    None => index.apply_canonical_entry(key, Some(&IndexEntryValue::presence()))?,
                     Some(value) if value == IndexEntryValue::presence() => {}
                     Some(_) => return Err(InternalError::store_corruption()),
                 }

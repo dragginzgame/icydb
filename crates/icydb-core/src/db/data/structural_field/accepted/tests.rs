@@ -54,7 +54,7 @@ fn collection_elements_reject_null_without_changing_root_null_admission() {
             (
                 AcceptedFieldKind::Map {
                     key: Box::new(AcceptedFieldKind::Bool),
-                    value: Box::new(inner.clone()),
+                    value: Box::new(inner),
                 },
                 Value::Map(vec![(Value::Bool(true), Value::Null)]),
             ),

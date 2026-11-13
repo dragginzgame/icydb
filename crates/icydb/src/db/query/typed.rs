@@ -316,7 +316,7 @@ where
         } = result;
         let output_rows = self
             .session
-            .prepare_typed_output_rows(&self.binding, entity, columns, output_rows)
+            .prepare_typed_output_rows(&self.binding, entity, &columns, output_rows)
             .map_err(TypedExhaustiveQueryError::Operation)?;
         let mut rows = Vec::with_capacity(output_rows.len());
         for row in output_rows {

@@ -14,8 +14,8 @@ ignored = ["toko-tooling"]
 [dependencies]
 remain = { workspace = true }
 
-[dev-dependencies]
-toko-tooling.workspace = true
-
 [lints]
 workspace = true
+
+[target.'cfg(any())'.dev-dependencies]
+toko-tooling.workspace = true

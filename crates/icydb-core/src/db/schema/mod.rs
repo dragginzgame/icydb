@@ -104,14 +104,14 @@ pub(in crate::db) use application::{
 pub(in crate::db) use application_lowering::lower_field_type;
 #[cfg(feature = "migration")]
 pub(in crate::db) use application_lowering::lower_scalar_type;
-#[cfg(feature = "migration")]
-pub(in crate::db::schema) use application_lowering::{
-    AcceptedFieldLowering, lower_migration_index, lower_migration_nested_leaves,
-    lower_new_migration_index,
-};
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
     lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
+};
+#[cfg(feature = "migration")]
+pub(in crate::db::schema) use application_lowering::{
+    SchemaDraft, bind_row_constraint_kind, lower_migration_index, lower_migration_nested_leaves,
+    lower_new_migration_index, reconcile_schema_drafts,
 };
 #[cfg(feature = "migration")]
 pub(in crate::db::schema) use application_lowering::{
@@ -313,6 +313,8 @@ pub(in crate::db) use migration_record::{
 pub(in crate::db) use mutation::MAX_SCHEMA_PROJECTION_ENTRIES;
 #[cfg(feature = "migration")]
 pub(in crate::db) use mutation::MigrationIndexProjection;
+#[cfg(test)]
+pub(in crate::db::schema) use mutation::SchemaMutationRequest;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use mutation::SchemaTransitionSourceBudget;
 pub(in crate::db) use mutation::{
@@ -349,10 +351,6 @@ pub(in crate::db) use mutation::{
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget, StagedUserIndexDomainError,
-};
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db::schema) use mutation::{
-    SchemaMutationRequest, schema_mutation_request_for_snapshots,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use mutation::{
@@ -415,8 +413,6 @@ pub(in crate::db) use store::{
     PreparedSchemaPositionRetirement, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
 };
 
-#[cfg(feature = "sql")]
-pub(in crate::db::schema) use transition::{SchemaTransitionPlan, plan_sql_ddl_addition};
 pub(crate) use types::FieldType;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
@@ -449,3 +445,5 @@ pub(in crate::db) use helper_tests::build_record_newtype_composite_catalog_for_t
 pub(in crate::db) use helper_tests::validate_accepted_enum_catalog_format_for_tests;
 #[cfg(test)]
 pub(in crate::db) use helper_tests::validate_accepted_schema_bundle_format_for_tests;
+
+pub(in crate::db::schema) use enum_catalog::SchemaCatalogView;

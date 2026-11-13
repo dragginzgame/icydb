@@ -31,7 +31,7 @@ use crate::{
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap};
 
 pub(in crate::db) use identity::QueryPlanVisibility;
 use identity::{QueryPlanCacheKey, SchemaCacheIdentity};
@@ -457,10 +457,6 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "keep early filterless reuse, normalized lookup and their shared miss handoff in one owner"
-    )]
     fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
         &self,
         authority: EntityAuthority,
@@ -499,7 +495,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 filterless_key.ok_or_else(QueryError::invariant)?,
                 schema_identity,
-                schema_info,
+                &schema_info,
                 query,
                 planning_context,
             );
@@ -727,7 +723,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         cache_key: QueryPlanCacheKey,
         schema_identity: SchemaCacheIdentity,
-        schema_info: Rc<SchemaInfo>,
+        schema_info: &SchemaInfo,
         query: &StructuralQuery,
         planning_context: HardExecutionContext,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {

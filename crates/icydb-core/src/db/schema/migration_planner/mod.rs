@@ -14,15 +14,13 @@ use icydb_schema::{
 
 use crate::{
     db::schema::{
-        AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedConstraintKind,
-        AcceptedConstraintSnapshot, AcceptedEnumCatalog, AcceptedFieldLowering,
-        AcceptedNamedTypeIdentity, AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog,
-        CandidateSchemaRevision, ConstraintId, ConstraintOrigin, ExistingProposalStore,
-        PersistedFieldSnapshot, PersistedIndexSnapshot, PersistedRelationEdgeSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldSlot, SchemaHistoricalFill, SchemaIndexId,
-        SchemaRowLayout, SchemaVersion, bind_source_check_expr, lower_existing_schema_proposal,
-        lower_migration_index, lower_migration_nested_leaves, lower_new_migration_index,
-        lower_relation_source,
+        AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
+        AcceptedNamedTypeIdentity, CandidateSchemaRevision, ConstraintId, ConstraintOrigin,
+        ExistingProposalStore, PersistedFieldSnapshot, PersistedIndexSnapshot,
+        PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, SchemaDraft, SchemaFieldSlot,
+        SchemaHistoricalFill, SchemaIndexId, SchemaRowLayout, SchemaVersion,
+        bind_row_constraint_kind, lower_existing_schema_proposal, lower_migration_index,
+        lower_migration_nested_leaves, lower_new_migration_index, lower_relation_source,
         migration_lineage::{
             AcceptedEntitySourceLineageCatalog, AcceptedEntitySourceLineageState,
             AcceptedEntitySourceVersion,
@@ -31,7 +29,7 @@ use crate::{
             CompiledMigrationEntityProgram, compile_migration_programs,
             transition_requires_row_rewrite,
         },
-        relation_edge_from_source,
+        reconcile_schema_drafts, relation_edge_from_source,
     },
     error::{ErrorOrigin, InternalError},
     types::EntityTag,
@@ -157,84 +155,6 @@ struct ResolvedTransition<'a> {
     transition: &'a EntityMigration,
 }
 
-struct WorkingStore<'a> {
-    path: &'static str,
-    identity: TargetStoreIdentity,
-    before: &'a AcceptedSchemaRevisionBundle,
-    enums: AcceptedEnumCatalog,
-    composites: AcceptedCompositeCatalog,
-    bindings: AcceptedSourceBindingCatalog,
-    snapshots: BTreeMap<EntityTag, PersistedSchemaSnapshot>,
-    touched: BTreeSet<EntityTag>,
-}
-
-impl<'a> WorkingStore<'a> {
-    fn new(store: &ExistingProposalStore<'a>) -> Self {
-        Self {
-            path: store.path,
-            identity: store.identity,
-            before: store.bundle,
-            enums: store.bundle.enum_catalog().clone(),
-            composites: store.bundle.composite_catalog().clone(),
-            bindings: store.bundle.source_bindings().clone(),
-            snapshots: store.bundle.entity_snapshots().clone(),
-            touched: BTreeSet::new(),
-        }
-    }
-
-    // Borrow the current rekeyed catalogs only after any identity allocation.
-    const fn field_lowering(&self) -> AcceptedFieldLowering<'_> {
-        AcceptedFieldLowering {
-            bindings: &self.bindings,
-            enum_catalog: &self.enums,
-            composite_catalog: &self.composites,
-        }
-    }
-
-    fn exact_bundle(&self) -> Result<AcceptedSchemaRevisionBundle, SchemaMigrationPlanningError> {
-        AcceptedSchemaRevisionBundle::new_with_source_bindings(
-            self.before.revision(),
-            self.path,
-            self.enums.clone(),
-            self.composites.clone(),
-            self.bindings.clone(),
-            self.snapshots.clone(),
-        )
-        .map_err(|_| SchemaMigrationPlanningError::RekeyedCatalogInvalid)
-    }
-
-    // Final assembly consumes the working catalogues after reconciliation has borrowed them.
-    fn into_candidate(
-        self,
-    ) -> Result<Option<CandidateSchemaRevision>, SchemaMigrationPlanningError> {
-        if self.touched.is_empty() {
-            return Ok(None);
-        }
-        let revision = self
-            .before
-            .revision()
-            .checked_next()
-            .ok_or(SchemaMigrationPlanningError::VersionGap)?;
-        let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-            revision,
-            self.path,
-            self.enums,
-            self.composites,
-            self.bindings,
-            self.snapshots,
-        )
-        .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?;
-        CandidateSchemaRevision::new(bundle)
-            .map(Some)
-            .map_err(|error| {
-                SchemaMigrationPlanningError::candidate_failure(
-                    error,
-                    SchemaMigrationPlanningError::CandidateMismatch,
-                )
-            })
-    }
-}
-
 /// Derive one explicit adoption without publishing it.
 #[cfg(any(feature = "migration", test))]
 pub(in crate::db::schema) fn plan_entity_source_adoption(
@@ -284,18 +204,14 @@ pub(in crate::db::schema) fn plan_entity_source_adoption(
 /// Installation and ordinary creation share this owner; old lineage is untouched.
 pub(in crate::db::schema) fn plan_new_entity_source_lineage(
     proposal: &SchemaProposal,
-    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    source_exists: impl Fn(&EntitySourceKey) -> bool,
     candidates: &[CandidateSchemaRevision],
 ) -> Result<Vec<PlannedEntitySourceLineage>, SchemaMigrationPlanningError> {
     let entities = proposal_entities(proposal);
     let assignments = proposal_assignments(proposal);
     let mut planned = Vec::with_capacity(entities.len());
     for (source, entity) in entities {
-        if current_bundles
-            .iter()
-            .flatten()
-            .any(|bundle| bundle.source_bindings().entity(source).is_some())
-        {
+        if source_exists(source) {
             continue;
         }
         let store_identity = assignments
@@ -358,29 +274,11 @@ pub(in crate::db::schema) fn plan_schema_migration(
 
     let mut working = BTreeMap::new();
     for store in stores {
-        working.insert(store.path, WorkingStore::new(store));
+        working.insert(store.path, SchemaDraft::new(store));
     }
     apply_rename_bindings(&resolved, &mut working)?;
     rebuild_transitioned_snapshots(&resolved, &mut working)?;
-    // The ordinary lowerer is the remaining-change authority. Its returned
-    // candidate may deliberately contain staged activation state, which is
-    // already the exact accepted plan and must not be lowered a second time.
-    let (reconciled, mut lineage) = reconcile_rekeyed_view(proposal, &working)?;
-    let mut reconciled_by_store = BTreeMap::new();
-    for candidate in reconciled {
-        reconciled_by_store.insert(candidate.store_path().to_string(), candidate);
-    }
-    let mut candidates = Vec::new();
-    for store in working.into_values() {
-        if let Some(candidate) = reconciled_by_store.remove(store.path) {
-            candidates.push(candidate);
-        } else if let Some(candidate) = store.into_candidate()? {
-            candidates.push(candidate);
-        }
-    }
-    if !reconciled_by_store.is_empty() {
-        return Err(SchemaMigrationPlanningError::CandidateMismatch);
-    }
+    let (candidates, mut lineage) = reconcile_migration_drafts(proposal, working)?;
     let programs = compile_migration_programs(proposal, stores, candidates.as_slice())
         .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?;
     if physical == programs.is_empty() {
@@ -562,7 +460,7 @@ fn resolve_entity<'a>(
     let mut resolved = stores.iter().filter_map(|store| {
         store
             .bundle
-            .source_bindings()
+            .source_bindings
             .entity(source)
             .map(|entity| (store, entity))
     });
@@ -572,7 +470,7 @@ fn resolve_entity<'a>(
 
 fn apply_rename_bindings(
     transitions: &[ResolvedTransition<'_>],
-    stores: &mut BTreeMap<&'static str, WorkingStore<'_>>,
+    stores: &mut BTreeMap<&'static str, SchemaDraft>,
 ) -> Result<(), SchemaMigrationPlanningError> {
     let mut shared = BTreeSet::new();
     for binding in transitions {
@@ -592,19 +490,15 @@ fn apply_rename_bindings(
         for rename in binding.transition.renames() {
             apply_rename_binding(binding, rename, store, &mut shared)?;
         }
-        store.touched.insert(binding.entity_tag);
+        store.changed = true;
     }
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the closed rename matrix is kept exhaustive in one kind-dispatch boundary"
-)]
 fn apply_rename_binding(
     binding: &ResolvedTransition<'_>,
     rename: &SchemaMigrationRename,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     shared: &mut BTreeSet<(&'static str, u8, String, String, String)>,
 ) -> Result<(), SchemaMigrationPlanningError> {
     match rename {
@@ -639,15 +533,17 @@ fn apply_rename_binding(
                 .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)?;
             match identity {
                 AcceptedNamedTypeIdentity::Enum(id) => {
-                    store.enums = store
-                        .enums
+                    store.catalogs.enum_catalog = store
+                        .catalogs
+                        .enum_catalog
                         .clone()
                         .with_renamed_type(id, to.to_string())
                         .map_err(|_| SchemaMigrationPlanningError::KindMismatch)?;
                 }
                 AcceptedNamedTypeIdentity::Composite(id) => {
-                    store.composites = store
-                        .composites
+                    store.catalogs.composite_catalog = store
+                        .catalogs
+                        .composite_catalog
                         .clone()
                         .with_renamed_type(id, to.to_string())
                         .map_err(|_| SchemaMigrationPlanningError::KindMismatch)?;
@@ -686,8 +582,9 @@ fn apply_rename_binding(
                 .bindings
                 .rekey_enum_variant(type_id, from, to.clone(), variant)
                 .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)?;
-            store.enums = store
-                .enums
+            store.catalogs.enum_catalog = store
+                .catalogs
+                .enum_catalog
                 .clone()
                 .with_renamed_variant(type_id, variant, to.to_string())
                 .map_err(|_| SchemaMigrationPlanningError::KindMismatch)?;
@@ -725,10 +622,16 @@ fn apply_rename_binding(
                 .bindings
                 .rekey_composite_field(type_id, from, to.clone(), field)
                 .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)?;
-            store.composites = store
-                .composites
+            store.catalogs.composite_catalog = store
+                .catalogs
+                .composite_catalog
                 .clone()
-                .with_renamed_record_field(type_id, field, to.to_string(), &store.enums)
+                .with_renamed_record_field(
+                    type_id,
+                    field,
+                    to.to_string(),
+                    &store.catalogs.enum_catalog,
+                )
                 .map_err(|_| SchemaMigrationPlanningError::KindMismatch)?;
             Ok(())
         }
@@ -773,7 +676,7 @@ fn migration_target_type(transition: &EntityMigration, accepted: &TypeSourceKey)
 
 fn rekey_rule_constraint(
     binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     accepted_type: &TypeSourceKey,
     accepted_rule: &RuleSourceKey,
     current_rule: &RuleSourceKey,
@@ -827,19 +730,17 @@ pub(in crate::db::schema) fn inverse_field_source(
 
 fn rebuild_transitioned_snapshots(
     transitions: &[ResolvedTransition<'_>],
-    stores: &mut BTreeMap<&'static str, WorkingStore<'_>>,
+    stores: &mut BTreeMap<&'static str, SchemaDraft>,
 ) -> Result<(), SchemaMigrationPlanningError> {
-    // First establish every current entity path, field label, and index
-    // contract. Cross-entity relation targets can then resolve simultaneously
-    // against the complete rekeyed view.
+    // Establish all paths, fields, indexes and reserved relation identities
+    // before resolving cross-entity edges. Each pass consumes the same snapshot.
     for binding in transitions {
         let store = stores
             .get_mut(binding.store_path)
             .ok_or(SchemaMigrationPlanningError::CandidateMismatch)?;
         let before = store
             .snapshots
-            .get(&binding.entity_tag)
-            .cloned()
+            .remove(&binding.entity_tag)
             .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
         if !before.constraint_activations().is_empty()
             || !before.candidate_indexes().is_empty()
@@ -847,95 +748,58 @@ fn rebuild_transitioned_snapshots(
         {
             return Err(SchemaMigrationPlanningError::UnexplainedSchemaDifference);
         }
-        let target_version = next_schema_version(&before)?;
-        let rebuilt = rebuild_fields(binding, store, &before)?;
-        let constraint_catalog = rebuild_physical_field_constraints(
-            before.constraint_catalog(),
-            before.fields(),
-            rebuilt.fields.as_slice(),
-        )?;
-        let provisional = rebuild_snapshot_shell(
-            binding,
-            &before,
-            target_version,
-            rebuilt.layout,
-            rebuilt.fields,
-            before.indexes().to_vec(),
-            before.relations().to_vec(),
-            constraint_catalog,
-        );
-        let indexes = rebuild_indexes(binding, store, &before, &provisional)?;
-        let constraint_catalog = rebuild_physical_index_constraints(
-            provisional.constraint_catalog(),
+        let target = rebuild_fields(binding, store, &before)?;
+        let indexes = rebuild_indexes(binding, store, &before, &target)?;
+        let constraints = rebuild_physical_index_constraints(
+            target.constraint_catalog(),
             before.indexes(),
-            indexes.as_slice(),
+            &indexes,
         )?;
-        let with_indexes = provisional
+        let target = target
             .with_indexes(indexes)
-            .with_constraint_catalog(constraint_catalog);
-        install_reserved_migration_relation_ids(binding, store, with_indexes)?;
+            .with_constraint_catalog(constraints);
+        let allocator = reserve_new_migration_relations(binding, store, &target)?;
+        store.snapshots.insert(
+            binding.entity_tag,
+            target.with_relation_id_allocator(allocator),
+        );
     }
 
+    // Row constraints depend on this entity's completed edges and the shared
+    // value catalogs, not other entities' constraints. Complete both together;
+    // a third store traversal and another snapshot reconstruction are unnecessary.
     for binding in transitions {
         let relations = rebuild_relations(binding, stores)?;
         let store = stores
             .get_mut(binding.store_path)
             .ok_or(SchemaMigrationPlanningError::CandidateMismatch)?;
-        let current = store
+        let target = store
             .snapshots
-            .get(&binding.entity_tag)
-            .cloned()
+            .remove(&binding.entity_tag)
             .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
         let constraints = rebuild_physical_relation_constraints(
-            current.constraint_catalog(),
-            current.relations(),
-            relations.as_slice(),
+            target.constraint_catalog(),
+            target.relations(),
+            &relations,
         )?;
-        let with_relations = current
+        let target = target
             .with_relations(relations)
             .with_constraint_catalog(constraints);
-        store.snapshots.insert(binding.entity_tag, with_relations);
-    }
-
-    for binding in transitions {
-        let store = stores
-            .get_mut(binding.store_path)
-            .ok_or(SchemaMigrationPlanningError::CandidateMismatch)?;
-        let current = store
-            .snapshots
-            .get(&binding.entity_tag)
-            .cloned()
-            .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
-        let constraints = rebuild_constraints(binding, store, &current)?;
-        let target = current.with_constraint_catalog(constraints);
-        store.snapshots.insert(binding.entity_tag, target);
+        let constraints = rebuild_constraints(binding, store, &target)?;
+        store.snapshots.insert(
+            binding.entity_tag,
+            target.with_constraint_catalog(constraints),
+        );
     }
     Ok(())
-}
-
-fn install_reserved_migration_relation_ids(
-    binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
-    snapshot: PersistedSchemaSnapshot,
-) -> Result<(), SchemaMigrationPlanningError> {
-    let allocator = reserve_new_migration_relations(binding, store, &snapshot)?;
-    store.snapshots.insert(
-        binding.entity_tag,
-        snapshot.with_relation_id_allocator(allocator),
-    );
-    Ok(())
-}
-
-struct RebuiltMigrationFields {
-    fields: Vec<PersistedFieldSnapshot>,
-    layout: SchemaRowLayout,
 }
 
 fn rebuild_fields(
     binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     before: &PersistedSchemaSnapshot,
-) -> Result<RebuiltMigrationFields, SchemaMigrationPlanningError> {
+) -> Result<PersistedSchemaSnapshot, SchemaMigrationPlanningError> {
+    let version = next_schema_version(before)?;
     let transform_targets = binding
         .transition
         .transforms()
@@ -987,9 +851,11 @@ fn rebuild_fields(
                         )
                         .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?
                 } else {
-                    let nested_leaves =
-                        lower_migration_nested_leaves(fields[position].kind(), &store.composites)
-                            .map_err(|_| SchemaMigrationPlanningError::RekeyedCatalogInvalid)?;
+                    let nested_leaves = lower_migration_nested_leaves(
+                        fields[position].kind(),
+                        &store.catalogs.composite_catalog,
+                    )
+                    .map_err(|_| SchemaMigrationPlanningError::RekeyedCatalogInvalid)?;
                     fields[position].clone_with_migration_metadata(
                         proposed.name().as_str().to_string(),
                         nested_leaves,
@@ -1037,35 +903,16 @@ fn rebuild_fields(
     } else {
         before.row_layout().clone()
     };
-    Ok(RebuiltMigrationFields { fields, layout })
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the shell boundary makes every candidate catalog component explicit"
-)]
-fn rebuild_snapshot_shell(
-    binding: &ResolvedTransition<'_>,
-    before: &PersistedSchemaSnapshot,
-    version: SchemaVersion,
-    row_layout: SchemaRowLayout,
-    fields: Vec<PersistedFieldSnapshot>,
-    indexes: Vec<PersistedIndexSnapshot>,
-    relations: Vec<PersistedRelationEdgeSnapshot>,
-    constraints: AcceptedConstraintCatalog,
-) -> PersistedSchemaSnapshot {
-    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+    let constraints =
+        rebuild_physical_field_constraints(before.constraint_catalog(), before.fields(), &fields)?;
+    Ok(before.clone().with_entity_structure(
         version,
         binding.entity.source_key().to_string(),
         binding.entity.name().as_str().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        row_layout,
+        layout,
         fields,
-        indexes,
-    )
-    .with_constraint_catalog(constraints)
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(relations)
+        constraints,
+    ))
 }
 
 fn rebuild_physical_field_constraints(
@@ -1131,13 +978,9 @@ fn next_schema_version(
         .ok_or(SchemaMigrationPlanningError::VersionGap)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one pass owns existing, renamed, and newly reserved physical index identity"
-)]
 fn rebuild_indexes(
     binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     before: &PersistedSchemaSnapshot,
     provisional: &PersistedSchemaSnapshot,
 ) -> Result<Vec<PersistedIndexSnapshot>, SchemaMigrationPlanningError> {
@@ -1145,8 +988,7 @@ fn rebuild_indexes(
     let mut claimed = BTreeSet::new();
     let physical = transition_requires_row_rewrite(binding.transition);
     let generation = store
-        .before
-        .revision()
+        .revision
         .checked_next()
         .ok_or(SchemaMigrationPlanningError::VersionGap)?
         .get();
@@ -1193,8 +1035,8 @@ fn rebuild_indexes(
                             next_ordinal,
                             generation,
                             store.path,
-                            &store.enums,
-                            &store.composites,
+                            &store.catalogs.enum_catalog,
+                            &store.catalogs.composite_catalog,
                             binding.entity_tag,
                             provisional,
                             &store.bindings,
@@ -1218,8 +1060,8 @@ fn rebuild_indexes(
         let target = lower_migration_index(
             proposed,
             accepted,
-            &store.enums,
-            &store.composites,
+            &store.catalogs.enum_catalog,
+            &store.catalogs.composite_catalog,
             binding.entity_tag,
             provisional,
             &store.bindings,
@@ -1248,7 +1090,7 @@ fn rebuild_indexes(
 
 fn infer_and_rekey_index(
     binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     before: &PersistedSchemaSnapshot,
     provisional: &PersistedSchemaSnapshot,
     proposed: &icydb_schema::IndexFragment,
@@ -1266,8 +1108,8 @@ fn infer_and_rekey_index(
         let target = lower_migration_index(
             proposed,
             accepted,
-            &store.enums,
-            &store.composites,
+            &store.catalogs.enum_catalog,
+            &store.catalogs.composite_catalog,
             binding.entity_tag,
             provisional,
             &store.bindings,
@@ -1335,7 +1177,7 @@ fn index_contract_matches_ignoring_name(
 
 fn rebuild_relations(
     binding: &ResolvedTransition<'_>,
-    stores: &BTreeMap<&'static str, WorkingStore<'_>>,
+    stores: &BTreeMap<&'static str, SchemaDraft>,
 ) -> Result<Vec<PersistedRelationEdgeSnapshot>, SchemaMigrationPlanningError> {
     let store = stores
         .get(binding.store_path)
@@ -1347,8 +1189,7 @@ fn rebuild_relations(
     let mut relations = before.relations().to_vec();
     let physical = transition_requires_row_rewrite(binding.transition);
     let generation = store
-        .before
-        .revision()
+        .revision
         .checked_next()
         .ok_or(SchemaMigrationPlanningError::VersionGap)?
         .get();
@@ -1429,7 +1270,7 @@ fn rebuild_relations(
 
 fn reserve_new_migration_relations(
     binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<crate::db::schema::RelationIdAllocator, SchemaMigrationPlanningError> {
     let mut allocator = snapshot.relation_id_allocator();
@@ -1476,9 +1317,9 @@ fn rebuild_physical_relation_constraints(
 }
 
 fn resolve_working_entity<'a>(
-    stores: &'a BTreeMap<&'static str, WorkingStore<'_>>,
+    stores: &'a BTreeMap<&'static str, SchemaDraft>,
     source: &EntitySourceKey,
-) -> Option<(&'a WorkingStore<'a>, EntityTag, &'a PersistedSchemaSnapshot)> {
+) -> Option<(&'a SchemaDraft, EntityTag, &'a PersistedSchemaSnapshot)> {
     let mut resolved = stores.values().filter_map(|store| {
         let entity = store.bindings.entity(source)?;
         Some((store, entity, store.snapshots.get(&entity)?))
@@ -1489,7 +1330,7 @@ fn resolve_working_entity<'a>(
 
 fn rebuild_constraints(
     binding: &ResolvedTransition<'_>,
-    store: &mut WorkingStore<'_>,
+    store: &mut SchemaDraft,
     target: &PersistedSchemaSnapshot,
 ) -> Result<AcceptedConstraintCatalog, SchemaMigrationPlanningError> {
     if !transition_requires_row_rewrite(binding.transition) {
@@ -1518,7 +1359,15 @@ fn rebuild_constraints(
             {
                 let proposed = proposed_by_id.get(&constraint.id()).copied()?;
                 observed.insert(constraint.id());
-                let kind = compile_migration_constraint_kind(binding, store, target, proposed);
+                let kind = bind_row_constraint_kind(
+                    proposed,
+                    binding.entity_tag,
+                    &store.bindings,
+                    target,
+                    &store.catalogs.enum_catalog,
+                    &store.catalogs.composite_catalog,
+                )
+                .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform);
                 return Some(kind.map(|kind| {
                     AcceptedConstraintSnapshot::new(
                         constraint.id(),
@@ -1548,30 +1397,22 @@ fn rebuild_constraints(
         {
             continue;
         }
-        let kind = compile_migration_constraint_kind(binding, store, target, proposed)?;
-        catalog = match kind {
-            AcceptedConstraintKind::Check { expression } => catalog
-                .with_added_check(
-                    proposed.name().as_str().to_string(),
-                    ConstraintOrigin::Generated,
-                    *expression,
-                )
-                .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?,
-            AcceptedConstraintKind::TargetedRule { target, operation } => catalog
-                .with_added_targeted_rule(
-                    proposed.name().as_str().to_string(),
-                    ConstraintOrigin::Generated,
-                    target,
-                    *operation,
-                )
-                .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?,
-            AcceptedConstraintKind::PrimaryKey
-            | AcceptedConstraintKind::NotNull { .. }
-            | AcceptedConstraintKind::Unique { .. }
-            | AcceptedConstraintKind::Relation { .. } => {
-                return Err(SchemaMigrationPlanningError::UnsupportedTransform);
-            }
-        };
+        let kind = bind_row_constraint_kind(
+            proposed,
+            binding.entity_tag,
+            &store.bindings,
+            target,
+            &store.catalogs.enum_catalog,
+            &store.catalogs.composite_catalog,
+        )
+        .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?;
+        catalog = catalog
+            .with_added_row_constraint(
+                proposed.name().as_str().to_string(),
+                ConstraintOrigin::Generated,
+                kind,
+            )
+            .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)?;
         let id = ConstraintId::new(catalog.allocator().high_water())
             .ok_or(SchemaMigrationPlanningError::UnsupportedTransform)?;
         store
@@ -1610,7 +1451,7 @@ fn resolve_constraint_name(
 
 fn rebuild_metadata_constraints(
     binding: &ResolvedTransition<'_>,
-    store: &WorkingStore<'_>,
+    store: &SchemaDraft,
     target: &PersistedSchemaSnapshot,
 ) -> Result<AcceptedConstraintCatalog, SchemaMigrationPlanningError> {
     let mut current_row_names = BTreeMap::new();
@@ -1647,46 +1488,9 @@ fn rebuild_metadata_constraints(
     ))
 }
 
-fn compile_migration_constraint_kind(
-    binding: &ResolvedTransition<'_>,
-    store: &WorkingStore<'_>,
-    target: &PersistedSchemaSnapshot,
-    proposed: &icydb_schema::ConstraintFragment,
-) -> Result<AcceptedConstraintKind, SchemaMigrationPlanningError> {
-    match proposed.kind() {
-        ConstraintFragmentKind::Check(expression) => bind_source_check_expr(
-            expression,
-            binding.entity_tag,
-            &store.bindings,
-            target,
-            &store.enums,
-            &store.composites,
-        )
-        .map(|expression| AcceptedConstraintKind::Check {
-            expression: Box::new(expression),
-        })
-        .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform),
-        ConstraintFragmentKind::TargetedRule(rule) => {
-            super::application_lowering::bind_targeted_rule(
-                rule,
-                binding.entity_tag,
-                &store.bindings,
-                target,
-                &store.enums,
-                &store.composites,
-            )
-            .map(|(target, operation)| AcceptedConstraintKind::TargetedRule {
-                target,
-                operation: Box::new(operation),
-            })
-            .map_err(|_| SchemaMigrationPlanningError::UnsupportedTransform)
-        }
-    }
-}
-
-fn reconcile_rekeyed_view(
+fn reconcile_migration_drafts(
     proposal: &SchemaProposal,
-    stores: &BTreeMap<&'static str, WorkingStore<'_>>,
+    mut drafts: BTreeMap<&'static str, SchemaDraft>,
 ) -> Result<
     (
         Vec<CandidateSchemaRevision>,
@@ -1694,29 +1498,48 @@ fn reconcile_rekeyed_view(
     ),
     SchemaMigrationPlanningError,
 > {
-    let bundles = stores
-        .values()
-        .map(WorkingStore::exact_bundle)
-        .collect::<Result<Vec<_>, _>>()?;
-    let exact_stores = stores
-        .values()
-        .zip(&bundles)
-        .map(|(store, bundle)| ExistingProposalStore {
-            path: store.path,
-            identity: store.identity,
-            bundle,
+    for draft in drafts.values() {
+        draft
+            .catalog()
+            .validate()
+            .map_err(|_| SchemaMigrationPlanningError::RekeyedCatalogInvalid)?;
+    }
+    // Capture source identity before reconciliation can introduce an entity that
+    // reuses a renamed predecessor's source key. No catalog clone is needed.
+    let existing_sources = proposal_entities(proposal)
+        .keys()
+        .filter(|source| {
+            drafts
+                .values()
+                .any(|draft| draft.bindings.entity(source).is_some())
         })
-        .collect::<Vec<_>>();
-    let candidates = lower_existing_schema_proposal(proposal, &exact_stores).map_err(|error| {
+        .map(|source| (*source).clone())
+        .collect::<BTreeSet<_>>();
+    reconcile_schema_drafts(proposal, &mut drafts).map_err(|error| {
         SchemaMigrationPlanningError::candidate_failure(
             error,
             SchemaMigrationPlanningError::UnexplainedSchemaDifference,
         )
     })?;
-    // Use the rekeyed accepted view so renamed entities retain their tag and
-    // lineage, even when an addition reuses the predecessor's source name.
-    let current = bundles.into_iter().map(Some).collect::<Vec<_>>();
-    let lineage = plan_new_entity_source_lineage(proposal, &current, &candidates)?;
+    let mut candidates = Vec::new();
+    for draft in drafts.into_values() {
+        let semantic = if draft.reconciled {
+            SchemaMigrationPlanningError::UnexplainedSchemaDifference
+        } else {
+            SchemaMigrationPlanningError::CandidateMismatch
+        };
+        if let Some(candidate) = draft
+            .into_candidate()
+            .map_err(|error| SchemaMigrationPlanningError::candidate_failure(error, semantic))?
+        {
+            candidates.push(candidate);
+        }
+    }
+    let lineage = plan_new_entity_source_lineage(
+        proposal,
+        |source| existing_sources.contains(source),
+        &candidates,
+    )?;
     Ok((candidates, lineage))
 }
 

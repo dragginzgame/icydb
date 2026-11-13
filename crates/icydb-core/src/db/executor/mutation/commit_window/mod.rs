@@ -523,7 +523,7 @@ fn open_commit_window_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CanonicalRowCommitOp>,
     deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
-    identity_ranges: Vec<IdentityRangeAdvance>,
+    identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: Option<MutationProgressRecordOp>,
     operation_timestamp: Timestamp,
 ) -> Result<OpenCommitWindow, InternalError> {
@@ -556,7 +556,7 @@ fn open_commit_window_structural<C: CanisterKind>(
         db,
         row_ops,
         &prepared_row_ops,
-        identity_ranges.as_slice(),
+        identity_ranges,
         mutation_progress,
         operation_timestamp,
     )?;
@@ -679,7 +679,7 @@ fn apply_prepared_state_effects<C: CanisterKind>(
 pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
     db: &Db<C>,
     batch: AcceptedMutationConstraintBatch,
-    identity_ranges: Vec<IdentityRangeAdvance>,
+    identity_ranges: &[IdentityRangeAdvance],
     operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
     commit_structural_row_ops(db, batch, identity_ranges, None, operation_timestamp)
@@ -689,7 +689,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
 pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: CanisterKind>(
     db: &Db<C>,
     batch: AcceptedMutationConstraintBatch,
-    identity_ranges: Vec<IdentityRangeAdvance>,
+    identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: MutationProgressRecordOp,
     operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
@@ -706,7 +706,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
 fn commit_structural_row_ops<C: CanisterKind>(
     db: &Db<C>,
     batch: AcceptedMutationConstraintBatch,
-    identity_ranges: Vec<IdentityRangeAdvance>,
+    identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: Option<MutationProgressRecordOp>,
     operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
@@ -727,10 +727,6 @@ fn commit_structural_row_ops<C: CanisterKind>(
 // Journaled stores embed logical journal records in the marker so journal
 // publication can happen before live projections are updated. Heap stores
 // remain live-only and absent from durable recovery payloads.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one builder must bind row records, range ordinals, journal sequence, and marker identity before publication"
-)]
 fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CanonicalRowCommitOp>,

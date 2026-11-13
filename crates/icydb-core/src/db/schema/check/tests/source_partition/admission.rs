@@ -1,6 +1,7 @@
 //! Source classification uses the compiler caller's cumulative authority.
 
 use super::*;
+use crate::db::schema::AcceptedConstraintKind;
 use crate::db::{
     QueryError, query::preparation::PreparationWork, tests::support::request_with_limit,
 };
@@ -36,13 +37,15 @@ fn check_resolution_schema(extra_fields: u16) -> AcceptedSchemaSnapshot {
     let constraints = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "resolution_policy".into(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::Compare {
-                left: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
-                op: AcceptedCheckCompareOpV1::Gte,
-                right: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::Compare {
+                    left: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
+                    op: AcceptedCheckCompareOpV1::Gte,
+                    right: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
+                }),
             },
         )
         .unwrap();
@@ -119,10 +122,12 @@ fn check_tree_snapshot(expression: AcceptedCheckExprV1, accepted: bool) -> Persi
     let snapshot = snapshot();
     let constraints = snapshot.constraint_catalog().clone();
     let constraints = if accepted {
-        constraints.with_added_check(
+        constraints.with_added_row_constraint(
             "tree_policy".into(),
             ConstraintOrigin::Generated,
-            expression,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(expression),
+            },
         )
     } else {
         constraints.with_added_check_activation(
@@ -500,15 +505,17 @@ fn compiled_dependency_backing_uses_the_same_cumulative_caller_authority() {
         let mut constraints = snapshot.constraint_catalog().clone();
         for ordinal in 0..16 {
             constraints = constraints
-                .with_added_check(
+                .with_added_row_constraint(
                     format!("dependency_{ordinal}"),
                     ConstraintOrigin::Generated,
-                    if dependent {
-                        AcceptedCheckExprV1::IsNotNull(AcceptedCheckValueExprV1::Field(
-                            FieldId::new(2),
-                        ))
-                    } else {
-                        AcceptedCheckExprV1::True
+                    AcceptedConstraintKind::Check {
+                        expression: Box::new(if dependent {
+                            AcceptedCheckExprV1::IsNotNull(AcceptedCheckValueExprV1::Field(
+                                FieldId::new(2),
+                            ))
+                        } else {
+                            AcceptedCheckExprV1::True
+                        }),
                     },
                 )
                 .unwrap();
@@ -593,10 +600,12 @@ fn integrity_scope_schemas(
                 fingerprint,
                 2,
             ),
-            (false, true) => catalog.with_added_check(
+            (false, true) => catalog.with_added_row_constraint(
                 "scope_check".into(),
                 ConstraintOrigin::Generated,
-                AcceptedCheckExprV1::True,
+                AcceptedConstraintKind::Check {
+                    expression: Box::new(AcceptedCheckExprV1::True),
+                },
             ),
             (true, false) => catalog.with_added_targeted_rule_activation(
                 "scope_targeted".into(),
@@ -606,11 +615,13 @@ fn integrity_scope_schemas(
                 fingerprint,
                 2,
             ),
-            (true, true) => catalog.with_added_targeted_rule(
+            (true, true) => catalog.with_added_row_constraint(
                 "scope_targeted".into(),
                 ConstraintOrigin::Generated,
-                target,
-                operation,
+                AcceptedConstraintKind::TargetedRule {
+                    target,
+                    operation: Box::new(operation),
+                },
             ),
         }
         .unwrap();
@@ -685,10 +696,12 @@ fn compiled_checks_require_backing_even_when_source_capacity_is_reused() {
     let mut previous_bytes = None;
     for count in 1..=4 {
         constraints = constraints
-            .with_added_check(
+            .with_added_row_constraint(
                 format!("true_{count}"),
                 ConstraintOrigin::Generated,
-                AcceptedCheckExprV1::True,
+                AcceptedConstraintKind::Check {
+                    expression: Box::new(AcceptedCheckExprV1::True),
+                },
             )
             .unwrap();
         let accepted = AcceptedSchemaSnapshot::try_new(
@@ -724,12 +737,14 @@ fn mixed_source_fixture() -> TargetedRuleFixture {
     let catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "accepted_true".into(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::Not(Box::new(AcceptedCheckExprV1::Not(Box::new(
-                AcceptedCheckExprV1::True,
-            )))),
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::Not(Box::new(
+                    AcceptedCheckExprV1::Not(Box::new(AcceptedCheckExprV1::True)),
+                ))),
+            },
         )
         .unwrap()
         .with_added_check_activation(

@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+routing_only=false
+if [[ $# != 0 ]]; then
+    [[ $# == 2 && "$1" == --case && "$2" == routing ]] || {
+        echo 'usage: test-standard-release.sh [--case routing]' >&2
+        exit 2
+    }
+    routing_only=true
+fi
 # Disposable Make invocations own their flags and cache selections. In a real
 # release gate, inherited command-line assignments otherwise override fixture
 # environment values (and can select the caller's group instead of its ledger).
@@ -8,8 +16,8 @@ unset RELEASE_GROUPS RELEASE_SETUP_MODE
 export RELEASE_BATCH_ACTIVE=1 RELEASE_PUBLISH_TARGET=''
 export RELEASE_GROUP=database
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$root/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$root/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
 # Surface inner Make diagnostics before removing disposable fixture inputs.
 # Preserve incomplete evidence even when Bash 3.2 reports a zero exit status.
@@ -25,24 +33,29 @@ export TMPDIR="${fixture%/*}"
 # The actual release prerequisites admit the current Git root before cleanup.
 # Own that root here so dispatch controls cannot resolve the parent checkout.
 git -C "$fixture" init --quiet
-release_inputs=(scripts/release/group.sh scripts/release/verify.sh scripts/ci/release-receipts.sh ci/cargo-release-groups.json scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv make/cargo-dependencies.mk make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
+release_inputs=(scripts/release/group.sh scripts/release/verify.sh vendor/toko-tooling/scripts/ci/release-receipts.sh ci/cargo-release-groups.json vendor/toko-tooling/scripts/ci/cargo-release-groups.jq scripts/ci/actionlint-checksums.tsv vendor/toko-tooling/make/cargo-dependencies.mk vendor/toko-tooling/make/consumer.mk vendor/toko-tooling/make/tools.mk vendor/toko-tooling/make/release.mk vendor/toko-tooling/make/rust-format.mk vendor/toko-tooling/make/execution.mk vendor/toko-tooling/scripts/ci/check-make-execution.sh vendor/toko-tooling/scripts/ci/run-formatting.sh vendor/toko-tooling/ci/tool-versions.env)
 # Dispatch qualification substitutes both native admission owners; their real
 # metadata/snapshot admission is qualified separately against this checkout.
 routing_source="$fixture/routing-source"
 mkdir -p "$routing_source"
-bash "$root/scripts/ci/prepare-script-fixture.sh" "$root" "$routing_source" Makefile "${release_inputs[@]}"
+bash "$root/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh" "$root" "$routing_source" Makefile "${release_inputs[@]}"
 mkdir -p "$routing_source/scripts/ci"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$routing_source/scripts/ci/check-qualification-tooling.sh"
 release_inputs+=(scripts/ci/check-qualification-tooling.sh)
-bash "$root/scripts/ci/check-release-commands.sh" "$routing_source" "${release_inputs[@]}"
+bash "$root/vendor/toko-tooling/scripts/ci/check-release-commands.sh" "$routing_source" "${release_inputs[@]}"
 # Exercise this consumer's actual Make adapters after the checker changes cwd.
 mkdir "$fixture/relative-temp"
 ln -s "$fixture/relative-temp" "$fixture/temp-alias"
 for selected_tmp in relative-temp temp-alias; do
-    (cd "$fixture"; TMPDIR="$selected_tmp" bash "$root/scripts/ci/check-release-commands.sh" \
+    (cd "$fixture"; TMPDIR="$selected_tmp" bash "$root/vendor/toko-tooling/scripts/ci/check-release-commands.sh" \
         "$routing_source" "${release_inputs[@]}") > "$fixture/$selected_tmp.log" 2>&1
     [[ -z "$(ls -A "$fixture/relative-temp")" ]] || exit 1
 done
+if [[ "$routing_only" == true ]]; then
+    fixture_complete=true
+    echo 'Vendor release-command routing passed (substitute runners; no release effects).'
+    exit 0
+fi
 mkdir -p "$fixture/bin"
 real_bash="$(command -v bash)"
 export RELEASE_FIXTURE_BASH="$real_bash"
@@ -55,7 +68,7 @@ fi
 if [[ "$1" == */scripts/ci/check-qualification-tooling.sh || "$1" == scripts/ci/check-qualification-tooling.sh ]]; then
     exit 0
 fi
-if [[ "$1" == */scripts/dev/toko-tooling.sh ]]; then
+if [[ "$1" == */vendor/toko-tooling/scripts/dev/toko-tooling.sh ]]; then
     [[ "$#" == 6 && "$2 $3" == 'check --consumer' && "$4" == "$RELEASE_FIXTURE_ROOT" && "$5 $6" == '--manifest .toko-tooling.snapshot' ]]
     printf 'tooling admission\n' >> "$EVENTS"
     exit "${FAIL_TOOLING:-0}"
@@ -89,9 +102,9 @@ for kind in patch minor major resume; do
         if [[ "$failure" == 0 ]]; then [[ "$status" == 0 ]]; else [[ "$status" != 0 ]]; fi
         printf 'tooling admission\n' > "$fixture/expected"
         if [[ "$kind" == resume ]]; then
-            printf '%s resume 0.269.1 origin main\n' "$root/scripts/ci/run-release.sh" >> "$fixture/expected"
+            printf '%s resume 0.269.1 origin main\n' "$root/vendor/toko-tooling/scripts/ci/run-release.sh" >> "$fixture/expected"
         else
-            printf '%s %s origin main\n' "$root/scripts/ci/run-release.sh" "$kind" >> "$fixture/expected"
+            printf '%s %s origin main\n' "$root/vendor/toko-tooling/scripts/ci/run-release.sh" "$kind" >> "$fixture/expected"
         fi
         cmp "$fixture/expected" "$EVENTS"
     done
@@ -110,7 +123,7 @@ RELEASE_FIXTURE_PERL="$(command -v perl)"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/perl"
 cat >> "$fixture/bin/perl" <<'FROZEN'
 set -euo pipefail
-if [[ "$1" == */scripts/ci/run-release-batch.pl ]]; then
+if [[ "$1" == */vendor/toko-tooling/scripts/ci/run-release-batch.pl ]]; then
     printf '%s\n' "$*" >> "$EVENTS"
 else
     exec "$RELEASE_FIXTURE_PERL" "$@"
@@ -122,7 +135,7 @@ env -u RELEASE_GROUPS -u RELEASE_BATCH_ACTIVE PATH="$fixture/bin:$PATH" "$real_m
     -f "$root/Makefile" release-patch RELEASE_GROUP=database RELEASE_REMOTE=reviewed \
     RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-default.log" 2>&1
 printf 'tooling admission\n%s --root %s --groups database --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
-    "$root/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
+    "$root/vendor/toko-tooling/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 for groups in database cli database,cli; do
     for kind in patch minor major; do
@@ -132,7 +145,7 @@ for groups in database cli database,cli; do
             RELEASE_PUBLISH_TARGET=publish RELEASE_REMOTE=reviewed RELEASE_BRANCH=main \
             RELEASE_DELIVERY=direct > "$fixture/frozen-$groups-$kind.log" 2>&1
         printf 'tooling admission\n%s --root %s --groups %s --kind %s --remote reviewed --branch main --delivery direct --publish-target publish --setup-target release-candidate-setup\n' \
-            "$root/scripts/ci/run-release-batch.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
+            "$root/vendor/toko-tooling/scripts/ci/run-release-batch.pl" "$fixture" "$groups" "$kind" > "$fixture/expected"
         cmp "$fixture/expected" "$EVENTS"
     done
 done
@@ -141,13 +154,13 @@ PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" 
     RELEASE_GROUP=cli RELEASE_GROUPS=cli RELEASE_BATCH_ACTIVE=0 RELEASE_PUBLISH_TARGET= \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main RELEASE_DELIVERY=direct > "$fixture/frozen-git-only.log" 2>&1
 printf 'tooling admission\n%s --root %s --groups cli --kind patch --remote reviewed --branch main --delivery direct --setup-target release-candidate-setup\n' \
-    "$root/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
+    "$root/vendor/toko-tooling/scripts/ci/run-release-batch.pl" "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 : > "$EVENTS"
 PATH="$fixture/bin:$PATH" "$real_make" --no-print-directory -f "$root/Makefile" release-patch \
     RELEASE_GROUP=database RELEASE_GROUPS=database,cli RELEASE_BATCH_ACTIVE=1 \
     RELEASE_REMOTE=reviewed RELEASE_BRANCH=main > "$fixture/frozen-child.log" 2>&1
-printf 'tooling admission\n%s patch reviewed main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
+printf 'tooling admission\n%s patch reviewed main\n' "$root/vendor/toko-tooling/scripts/ci/run-release.sh" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 # Shared owns saved-batch operations; they need no new group selection.
 for operation in status resume reconcile retire; do
@@ -156,7 +169,7 @@ for operation in status resume reconcile retire; do
         -f "$root/Makefile" "release-batch-$operation" BATCH=batch_reviewed \
         RELEASE_DELIVERY=direct > "$fixture/batch-$operation.log" 2>&1
     printf '%s --root %s --%s batch_reviewed --delivery direct\n' \
-        "$root/scripts/ci/run-release-batch.pl" "$fixture" "$operation" > "$fixture/expected"
+        "$root/vendor/toko-tooling/scripts/ci/run-release-batch.pl" "$fixture" "$operation" > "$fixture/expected"
     cmp "$fixture/expected" "$EVENTS"
 done
 # A selected group cannot opt out of capture; retired settings refuse before
@@ -201,7 +214,7 @@ for failure in none scripts/release/test-release-groups.sh; do
         "$real_make" --no-print-directory -C "$root" -f "$root/Makefile" check-portable-automation \
         RELEASE_EDITOR_ENV= > "$fixture/roster-${failure##*/}.log" 2>&1 || status=$?
     [[ "$(head -n 1 "$EVENTS")" == scripts/ci/check-qualification-tooling.sh ]]
-    [[ "$(sed -n '2p' "$EVENTS")" == scripts/dev/toko-tooling.sh ]]
+    [[ "$(sed -n '2p' "$EVENTS")" == vendor/toko-tooling/scripts/dev/toko-tooling.sh ]]
     for proof in scripts/ci/test-toko-tooling-adapters.sh scripts/release/test-standard-release.sh \
         scripts/release/test-release-groups.sh; do
         [[ "$(grep -Fxc "$proof" "$EVENTS")" == 1 ]]
@@ -257,7 +270,7 @@ for kind in patch minor major resume; do
         : > "$EVENTS"
         status=0
         MAKEFLAGS="$flags" PATH="$fixture/refusal-bin:$PATH" \
-            "$real_bash" "$root/scripts/ci/run-release.sh" "${args[@]}" origin main \
+            "$real_bash" "$root/vendor/toko-tooling/scripts/ci/run-release.sh" "${args[@]}" origin main \
             > "$fixture/refused.log" 2>&1 || status=$?
         [[ "$status" -ne 0 && ! -s "$EVENTS" ]]
     done
@@ -267,9 +280,11 @@ done
 mkdir -p scripts/ci
 mkdir -p scripts/release ci
 cp "$root/scripts/release/verify.sh" "$root/scripts/release/group.sh" scripts/release/
-cp "$root/scripts/ci/release-receipts.sh" "$root/scripts/ci/cargo-release-groups.jq" scripts/ci/
+mkdir -p "vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/release-receipts.sh" "$root/vendor/toko-tooling/scripts/ci/cargo-release-groups.jq" "vendor/toko-tooling/scripts/ci/"
 cp "$root/ci/cargo-release-groups.json" ci/
-cp "$root/scripts/ci/finalize-release-changelog.awk" scripts/ci/
+mkdir -p "vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/finalize-release-changelog.awk" "vendor/toko-tooling/scripts/ci/"
 mkdir -p releases/database
 printf '# Changelog\n\n## [0.1.1]\n\nFixture notes.\n' > releases/database/CHANGELOG.md
 export CACHE_READY="$fixture/cache-ready"
@@ -419,10 +434,11 @@ for ready in prepared missing; do
 done
 # Saved-source admission selects the archived lock even when working metadata
 # selects a newer editor. Failed Git/tool producers cannot supply a path.
-mkdir -p "$fixture/selection/scripts/release" "$fixture/selection/scripts/dev" "$fixture/selection/scripts/ci" \
+mkdir -p "$fixture/selection/scripts/release" "$fixture/selection/vendor/toko-tooling/scripts/dev" "$fixture/selection/scripts/ci" \
     "$fixture/selection/bin" "$fixture/selection-tmp"
 cp "$root/scripts/release/select-editor.sh" "$fixture/selection/scripts/release/"
-cp "$root/scripts/ci/compare-stable-versions.pl" "$root/scripts/ci/StableVersion.pm" "$fixture/selection/scripts/ci/"
+mkdir -p "$fixture/selection/vendor/toko-tooling/scripts/ci/"
+cp "$root/vendor/toko-tooling/scripts/ci/compare-stable-versions.pl" "$root/vendor/toko-tooling/scripts/ci/StableVersion.pm" "$fixture/selection/vendor/toko-tooling/scripts/ci/"
 printf '[[package]]\nname = "ic-build"\nversion = "0.21.0"\n' > "$fixture/selection/Cargo.lock"
 printf '#!%s\n' "$real_bash" > "$fixture/selection/bin/git"
 cat >> "$fixture/selection/bin/git" <<'GIT'
@@ -440,8 +456,9 @@ esac
 cat "$SAVED_LOCK"
 [[ "${FAIL_SOURCE:-0}" == 0 ]]
 GIT
-printf '#!%s\n' "$real_bash" > "$fixture/selection/scripts/dev/install-rust-tools.sh"
-cat >> "$fixture/selection/scripts/dev/install-rust-tools.sh" <<'INSTALL'
+mkdir -p "$fixture/selection/vendor/toko-tooling/scripts/dev"
+printf '#!%s\n' "$real_bash" > "$fixture/selection/vendor/toko-tooling/scripts/dev/install-rust-tools.sh"
+cat >> "$fixture/selection/vendor/toko-tooling/scripts/dev/install-rust-tools.sh" <<'INSTALL'
 set -euo pipefail
 [[ "$1" == --consumer && "$3 $4" == '--package ic-build' && "$5" == --lockfile ]]
 if [[ "$EXPECT_EDITOR_CLI" == 1 ]]; then

@@ -31,7 +31,7 @@ fn compare(value: Value) -> Expr {
     }
 }
 
-fn assert_resource(error: QueryError, resource: Resource) {
+fn assert_resource(error: &QueryError, resource: Resource) {
     assert_budget_resource(&error.diagnostic_facts(), resource);
 }
 
@@ -47,11 +47,11 @@ fn extraction_admits_owned_leaf_once_without_copying_the_source_expression() {
     let exact = request_with_limit(Resource::TemporaryBytes, bytes);
     assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
     assert_resource(
-        extract(&exact, &expr).unwrap_err(),
+        &extract(&exact, &expr).unwrap_err(),
         Resource::TemporaryBytes,
     );
     assert_resource(
-        extract(
+        &extract(
             &request_with_limit(Resource::TemporaryBytes, bytes - 1),
             &expr,
         )
@@ -69,7 +69,7 @@ fn extraction_exhaustion_never_becomes_an_unsupported_predicate() {
         Resource::NestedValueSteps,
     ] {
         assert_resource(
-            extract(&request_with_limit(resource, 0), &expr).unwrap_err(),
+            &extract(&request_with_limit(resource, 0), &expr).unwrap_err(),
             resource,
         );
     }
@@ -142,10 +142,10 @@ fn membership_and_truth_shells_share_cumulative_construction_admission() {
             let exact = request_with_limit(resource, amount);
             assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
             assert_resource(
-                extract(&request_with_limit(resource, amount - 1), &expr).unwrap_err(),
+                &extract(&request_with_limit(resource, amount - 1), &expr).unwrap_err(),
                 resource,
             );
-            assert_resource(extract(&exact, &expr).unwrap_err(), resource);
+            assert_resource(&extract(&exact, &expr).unwrap_err(), resource);
         }
     }
 }
@@ -177,7 +177,7 @@ fn nullable_false_truth_guards_obey_cumulative_construction_admission() {
         let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
         assert_resource(
-            extract(
+            &extract(
                 &request_with_limit(Resource::TemporaryBytes, bytes - 1),
                 &expr,
             )
@@ -185,7 +185,7 @@ fn nullable_false_truth_guards_obey_cumulative_construction_admission() {
             Resource::TemporaryBytes,
         );
         assert_resource(
-            extract(&exact, &expr).unwrap_err(),
+            &extract(&exact, &expr).unwrap_err(),
             Resource::TemporaryBytes,
         );
     }
@@ -217,10 +217,10 @@ fn boolean_coalesce_truth_sets_preserve_exact_cumulative_admission() {
                 let exact = request_with_limit(resource, observed);
                 assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
                 assert_resource(
-                    extract(&request_with_limit(resource, observed - 1), &expr).unwrap_err(),
+                    &extract(&request_with_limit(resource, observed - 1), &expr).unwrap_err(),
                     resource,
                 );
-                assert_resource(extract(&exact, &expr).unwrap_err(), resource);
+                assert_resource(&extract(&exact, &expr).unwrap_err(), resource);
             }
         }
     }

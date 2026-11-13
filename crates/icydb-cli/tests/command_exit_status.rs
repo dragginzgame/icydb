@@ -47,10 +47,6 @@ struct IcpFixture {
 }
 
 impl IcpFixture {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "keep the single executable fixture script with its temporary-path setup"
-    )]
     fn new() -> Self {
         let parent = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
         fs::create_dir_all(&parent).unwrap();
@@ -509,25 +505,25 @@ fn report_commands_preserve_endpoint_frames_and_query_update_selection() {
             vec!["metrics"],
             RpcMethod::Metrics,
             true,
-            response_hex(Ok(icydb::metrics::MetricsReport::default())),
+            response_hex(&Ok(icydb::metrics::MetricsReport::default())),
         ),
         (
             vec!["metrics", "--reset"],
             RpcMethod::MetricsReset,
             false,
-            response_hex(Ok(())),
+            response_hex(&Ok(())),
         ),
         (
             vec!["snapshot"],
             RpcMethod::Snapshot,
             true,
-            response_hex(Ok(icydb::db::StorageReport::default())),
+            response_hex(&Ok(icydb::db::StorageReport::default())),
         ),
         (
             vec!["schema", "show"],
             RpcMethod::Schema,
             true,
-            response_hex(Ok(Vec::<EntitySchemaDescription>::new())),
+            response_hex(&Ok(Vec::<EntitySchemaDescription>::new())),
         ),
     ] {
         let fixture = IcpFixture::new();
@@ -552,8 +548,8 @@ fn report_commands_preserve_endpoint_frames_and_query_update_selection() {
     }
 }
 
-fn response_hex<T: serde::Serialize>(response: Result<T, Error>) -> String {
-    let bytes = icydb_schema::wire::encode_one(&response).unwrap();
+fn response_hex<T: serde::Serialize>(response: &Result<T, Error>) -> String {
+    let bytes = icydb_schema::wire::encode_one(response).unwrap();
     let mut hex = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(&mut hex, "{byte:02x}").unwrap();
@@ -611,15 +607,15 @@ fn diagnostic_invalid_live_reports_keep_source_metadata_resolution() {
         })
         .collect();
     let replies = [
-        response_hex(Ok(diagnostic_report(
+        response_hex(&Ok(diagnostic_report(
             "x".repeat(icydb_schema::MAX_SOURCE_KEY_BYTES + 1),
             Vec::new(),
         ))),
-        response_hex(Ok(diagnostic_report(
+        response_hex(&Ok(diagnostic_report(
             "schema::LiveAccount".into(),
             constraints,
         ))),
-        response_hex::<Vec<EntitySchemaDescription>>(Err(Error::from_runtime_boundary(
+        response_hex::<Vec<EntitySchemaDescription>>(&Err(Error::from_runtime_boundary(
             RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
             ErrorOrigin::Runtime,
         ))),
@@ -646,7 +642,7 @@ fn diagnostic_invalid_live_reports_keep_source_metadata_resolution() {
 
 #[test]
 fn diagnostic_live_lookup_preserves_numeric_fallback_and_exact_artifact_priority() {
-    let malformed = response_hex(Ok(diagnostic_report(
+    let malformed = response_hex(&Ok(diagnostic_report(
         "x".repeat(icydb_schema::MAX_SOURCE_KEY_BYTES + 1),
         Vec::new(),
     )));
@@ -680,7 +676,7 @@ fn diagnostic_live_lookup_preserves_numeric_fallback_and_exact_artifact_priority
 
 #[test]
 fn diagnostic_valid_live_reports_and_invalid_explicit_artifacts_keep_their_boundaries() {
-    let reply = response_hex(Ok(diagnostic_report(
+    let reply = response_hex(&Ok(diagnostic_report(
         "schema::LiveAccount".into(),
         Vec::new(),
     )));
@@ -776,7 +772,7 @@ fn diagnostic_lookup_labels_keep_terminal_lines_and_exact_schema_matching() {
                 report[0]["entity_name"] = label.into();
                 report[0]["accepted_schema_fingerprint"] = serde_json::json!(vec![fingerprint; 16]);
                 let report: Vec<EntitySchemaDescription> = serde_json::from_value(report).unwrap();
-                let reply = response_hex(Ok(report));
+                let reply = response_hex(&Ok(report));
                 let artifact = fixture.directory.join("labels.json");
                 let mut json = diagnostic_artifact_json();
                 json["entities"][0]["entity_name"] = label.into();
@@ -902,7 +898,7 @@ fn diagnostic_fact_count_remains_domain_admission_after_typed_parsing() {
     for _ in 0..=icydb::diagnostic::MAX_PUBLIC_DIAGNOSTIC_FACTS {
         command.args(["--fact", "250=18446744073709551615"]);
     }
-    assert_failure(command.output().unwrap());
+    assert_failure(&command.output().unwrap());
     assert!(!fixture.directory.join("calls").exists());
 }
 
@@ -1278,13 +1274,13 @@ fn manifest_file_admission_preserves_regular_symlinks_and_utf8_refusal() {
 }
 
 fn success_response() -> String {
-    response_hex(Ok(SqlQueryResult::Count {
+    response_hex(&Ok(SqlQueryResult::Count {
         entity: "Character".into(),
         row_count: 1,
     }))
 }
 
-fn assert_failure(output: Output) {
+fn assert_failure(output: &Output) {
     assert_eq!(output.status.code(), Some(1));
     assert!(
         output.stdout.is_empty(),
@@ -1640,7 +1636,7 @@ fn target_labels_are_terminal_safe_and_icp_arguments_keep_original_bytes() {
             let environment = format!("env-{label}");
             let canister = format!("app-{label}");
             let arguments = fixture.directory.join("observed-argv");
-            let mut command = fixture.command(&response_hex(Ok(())));
+            let mut command = fixture.command(&response_hex(&Ok(())));
             command.env("ICP_FIXTURE_ARGV", &arguments).env(
                 "ICP_FIXTURE_LIST_RESPONSE",
                 serde_json::json!({"canisters": [&canister]}).to_string(),
@@ -2291,7 +2287,7 @@ fn upgrade_stops_after_failed_build_missing_override_or_failed_install() {
         } else {
             command.env("ICP_FIXTURE_UPGRADE_FAILURE", failure);
         }
-        assert_failure(command.output().unwrap());
+        assert_failure(&command.output().unwrap());
         assert!(!fixture.directory.join("installed").exists());
         let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
         assert_eq!(
@@ -2331,11 +2327,11 @@ fn one_shot_sql_endpoint_errors_fail_for_every_call_lane_and_argument_form() {
         for (sql, method, query) in STATEMENTS {
             for explicit in [false, true] {
                 let fixture = IcpFixture::new();
-                let response = response_hex::<SqlQueryResult>(Err(Error::from_runtime_boundary(
+                let response = response_hex::<SqlQueryResult>(&Err(Error::from_runtime_boundary(
                     boundary,
                     ErrorOrigin::Interface,
                 )));
-                assert_failure(fixture.one_shot(&response, sql, explicit));
+                assert_failure(&fixture.one_shot(&response, sql, explicit));
                 fixture.assert_call(method, query);
             }
         }
@@ -2349,7 +2345,7 @@ fn one_shot_sql_success_keeps_stdout_and_success_status() {
         row_count: 1,
     };
     let expected = "surface=count entity=Character row_count=1\n\n";
-    let response = response_hex(Ok(result));
+    let response = response_hex(&Ok(result));
     for (sql, method, query) in STATEMENTS {
         for explicit in [false, true] {
             let fixture = IcpFixture::new();
@@ -2382,7 +2378,7 @@ fn one_shot_sql_null_display_matches_query_and_update_returning() {
         "+---------+--------+--------+\n\n",
         "1 row,\n\n",
     );
-    let response = response_hex(Ok(result));
+    let response = response_hex(&Ok(result));
     for (sql, method, query) in [
         ("SELECT name FROM Character", "icydb_query", true),
         (
@@ -2424,7 +2420,7 @@ fn one_shot_sql_transport_and_invalid_wire_fail_for_every_call_lane() {
                 !query,
                 "{stderr}"
             );
-            assert_failure(output);
+            assert_failure(&output);
             fixture.assert_call(method, query);
             assert_eq!(fixture.call_arguments(method).len(), 1);
         }
@@ -2661,7 +2657,7 @@ fn interactive_sql_history_failures_do_not_block_completed_statements() {
 fn interactive_sql_continues_to_success_after_endpoint_rejection() {
     for (sql, method, query) in STATEMENTS {
         let fixture = IcpFixture::new();
-        let response = response_hex::<SqlQueryResult>(Err(Error::from_runtime_boundary(
+        let response = response_hex::<SqlQueryResult>(&Err(Error::from_runtime_boundary(
             RuntimeBoundaryCode::SqlSurfacePolicyDenied,
             ErrorOrigin::Interface,
         )));
@@ -2696,13 +2692,12 @@ fn interactive_sql_continues_to_success_after_endpoint_rejection() {
     }
 }
 
-const PROGRESS_PHASES: [SchemaMigrationPhase; 8] = [
+const PROGRESS_PHASES: [SchemaMigrationPhase; 7] = [
     SchemaMigrationPhase::Idle,
     SchemaMigrationPhase::Prepared,
     SchemaMigrationPhase::Validating,
     SchemaMigrationPhase::ReadyToRewrite,
     SchemaMigrationPhase::RewritingRows,
-    SchemaMigrationPhase::RebuildingIndexes,
     SchemaMigrationPhase::FinalValidation,
     SchemaMigrationPhase::Publishing,
 ];
@@ -2740,10 +2735,10 @@ fn migration_status_value(phase: SchemaMigrationPhase, rows: u64) -> serde_json:
 fn migration_response(phase: SchemaMigrationPhase, rows: u64) -> String {
     let status: SchemaMigrationStatusPage =
         serde_json::from_value(migration_status_value(phase, rows)).unwrap();
-    response_hex(Ok(status))
+    response_hex(&Ok(status))
 }
 
-fn assert_migration_outcome(output: Output, phase: SchemaMigrationPhase, exit: i32) {
+fn assert_migration_outcome(output: &Output, phase: SchemaMigrationPhase, exit: i32) {
     assert_eq!(output.status.code(), Some(exit), "{phase:?}: {output:?}");
     assert_eq!(output.stderr.is_empty(), exit == 0, "{phase:?}: {output:?}");
     let stdout = std::str::from_utf8(&output.stdout)
@@ -2800,7 +2795,7 @@ fn migration_run_requires_applied_for_existing_and_new_terminal_results() {
                 .migration_command(&status, &replies, "run")
                 .output()
                 .unwrap();
-            assert_migration_outcome(output, phase, exit);
+            assert_migration_outcome(&output, phase, exit);
             assert_eq!(fixture.migration_calls(), replies.len());
         }
     }
@@ -2824,7 +2819,7 @@ fn migration_run_accepts_repeated_public_pages_until_applied() {
         .migration_command(&initial, &replies, "run")
         .output()
         .unwrap();
-    assert_migration_outcome(output, SchemaMigrationPhase::Applied, 0);
+    assert_migration_outcome(&output, SchemaMigrationPhase::Applied, 0);
     assert_eq!(fixture.migration_calls(), replies.len());
 }
 
@@ -2842,10 +2837,10 @@ fn migration_run_limits_calls_and_another_invocation_resumes_progress() {
 
         // A valid extra response detects an off-by-one call and lets a second
         // invocation prove that the ceiling does not discard resumable progress.
-        assert_migration_outcome(command.output().unwrap(), phase, 1);
+        assert_migration_outcome(&command.output().unwrap(), phase, 1);
         assert_eq!(fixture.migration_calls(), 1_024);
 
-        assert_migration_outcome(command.output().unwrap(), SchemaMigrationPhase::Applied, 0);
+        assert_migration_outcome(&command.output().unwrap(), SchemaMigrationPhase::Applied, 0);
         assert_eq!(fixture.migration_calls(), 1_025);
     }
 }
@@ -2860,7 +2855,7 @@ fn migration_run_accepts_applied_on_its_last_allowed_call() {
         .migration_command(&status, &replies, "run")
         .output()
         .unwrap();
-    assert_migration_outcome(output, SchemaMigrationPhase::Applied, 0);
+    assert_migration_outcome(&output, SchemaMigrationPhase::Applied, 0);
     assert_eq!(fixture.migration_calls(), 1_024);
 }
 
@@ -2882,7 +2877,7 @@ fn migration_advance_distinguishes_bounded_progress_from_unsuccessful_terminals(
             phase,
             SchemaMigrationPhase::Rejected | SchemaMigrationPhase::Aborted
         ));
-        assert_migration_outcome(output, phase, exit);
+        assert_migration_outcome(&output, phase, exit);
         assert_eq!(fixture.migration_calls(), 1);
     }
 }
@@ -2923,7 +2918,7 @@ fn migration_abort_requires_aborted_and_preserves_paged_rejected_cleanup() {
             .output()
             .unwrap();
         assert_migration_outcome(
-            output,
+            &output,
             terminal,
             i32::from(terminal != SchemaMigrationPhase::Aborted),
         );
@@ -2946,10 +2941,10 @@ fn migration_abort_limits_calls_and_another_invocation_resumes_cleanup() {
 
         // An additional valid response makes an off-by-one call observable without
         // leaving the unbounded implementation spinning on an infinite substitute.
-        assert_migration_outcome(command.output().unwrap(), phase, 1);
+        assert_migration_outcome(&command.output().unwrap(), phase, 1);
         assert_eq!(fixture.migration_calls(), 1_024);
 
-        assert_migration_outcome(command.output().unwrap(), SchemaMigrationPhase::Aborted, 0);
+        assert_migration_outcome(&command.output().unwrap(), SchemaMigrationPhase::Aborted, 0);
         assert_eq!(fixture.migration_calls(), 1_025);
     }
 }
@@ -2965,7 +2960,7 @@ fn migration_abort_accepts_terminal_receipt_on_its_last_allowed_call() {
         .arg("--yes")
         .output()
         .unwrap();
-    assert_migration_outcome(output, SchemaMigrationPhase::Aborted, 0);
+    assert_migration_outcome(&output, SchemaMigrationPhase::Aborted, 0);
     assert_eq!(fixture.migration_calls(), 1_024);
 }
 
@@ -2984,7 +2979,7 @@ fn migration_status_inspects_every_phase_without_claiming_operation_success() {
             .migration_command(&status, &[], "status")
             .output()
             .unwrap();
-        assert_migration_outcome(output, phase, 0);
+        assert_migration_outcome(&output, phase, 0);
         assert_eq!(fixture.migration_calls(), 0);
     }
 }
@@ -3003,12 +2998,12 @@ fn migration_loops_reject_changed_database_or_plan_after_repeated_pages() {
             value[field] = serde_json::json!(vec![9_u8; 32]);
             let status: SchemaMigrationStatusPage = serde_json::from_value(value).unwrap();
             let initial = migration_response(SchemaMigrationPhase::Prepared, 0);
-            let replies = [initial.clone(), initial.clone(), response_hex(Ok(status))];
+            let replies = [initial.clone(), initial.clone(), response_hex(&Ok(status))];
             let mut command = fixture.migration_command(&initial, &replies, operation);
             if operation == "abort" {
                 command.arg("--yes");
             }
-            assert_failure(command.output().unwrap());
+            assert_failure(&command.output().unwrap());
             assert_eq!(fixture.migration_calls(), replies.len());
         }
     }
@@ -3035,7 +3030,7 @@ fn migration_confirmation_missing_plans_and_adoption_keep_existing_contracts() {
         if operation == "abort" {
             command.arg("--yes");
         }
-        assert_failure(command.output().unwrap());
+        assert_failure(&command.output().unwrap());
         assert_eq!(fixture.migration_calls(), 0);
     }
     let fixture = IcpFixture::new();
@@ -3046,14 +3041,14 @@ fn migration_confirmation_missing_plans_and_adoption_keep_existing_contracts() {
         .arg("--yes")
         .output()
         .unwrap();
-    assert_migration_outcome(output, SchemaMigrationPhase::Adopted, 0);
+    assert_migration_outcome(&output, SchemaMigrationPhase::Adopted, 0);
     assert_eq!(fixture.migration_calls(), 1);
 }
 
 #[test]
 fn migration_commands_preserve_remote_transport_and_invalid_reply_failures() {
     let remote_error =
-        response_hex::<SchemaMigrationStatusPage>(Err(Error::from_runtime_boundary(
+        response_hex::<SchemaMigrationStatusPage>(&Err(Error::from_runtime_boundary(
             RuntimeBoundaryCode::SchemaSurfaceControllerRequired,
             ErrorOrigin::Interface,
         )));
@@ -3085,7 +3080,7 @@ fn migration_commands_preserve_remote_transport_and_invalid_reply_failures() {
                 if operation == "status" && !read_failure {
                     continue;
                 }
-                assert_failure(command.output().unwrap());
+                assert_failure(&command.output().unwrap());
                 assert_eq!(
                     fixture.migration_calls(),
                     if read_failure { 0 } else { replies.len() }
@@ -3103,7 +3098,7 @@ fn migration_commands_preserve_remote_transport_and_invalid_reply_failures() {
             if matches!(operation, "abort" | "adopt") {
                 command.arg("--yes");
             }
-            assert_failure(command.output().unwrap());
+            assert_failure(&command.output().unwrap());
             assert_eq!(fixture.migration_calls(), usize::from(failure == "update"));
         }
     }

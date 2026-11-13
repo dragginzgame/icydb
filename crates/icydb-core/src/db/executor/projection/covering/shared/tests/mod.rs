@@ -184,11 +184,11 @@ fn hybrid_components_preserve_supported_values_and_component_positions() {
         .collect::<Vec<_>>();
     let indices = [1, 3, 4, 6, 7, 9];
     assert_eq!(
-        decode_hybrid_covering_components(&indices, components.into()).unwrap(),
+        decode_hybrid_covering_components(&indices, &components).unwrap(),
         Some(indices.into_iter().zip(values).collect())
     );
     assert_eq!(
-        decode_hybrid_covering_components(&[], Vec::new().into()).unwrap(),
+        decode_hybrid_covering_components(&[], &[]).unwrap(),
         Some(Vec::new())
     );
 }
@@ -200,7 +200,7 @@ fn hybrid_components_decline_the_whole_projection_after_a_supported_component() 
         .map(|value| EncodedValue::try_new(value).unwrap().into_bytes())
         .collect::<Vec<_>>();
     assert!(
-        decode_hybrid_covering_components(&[0, 1], components.into())
+        decode_hybrid_covering_components(&[0, 1], &components)
             .unwrap()
             .is_none()
     );
@@ -215,7 +215,7 @@ fn hybrid_components_preserve_typed_malformed_payload_errors() {
         vec![ValueTag::Bool.to_u8(), 2],
         vec![ValueTag::Bool.to_u8(), 1, 0],
     ] {
-        let error = decode_hybrid_covering_components(&[0], vec![component].into()).unwrap_err();
+        let error = decode_hybrid_covering_components(&[0], &[component]).unwrap_err();
         assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
         assert_eq!(error.diagnostic().detail(), expected.diagnostic().detail());
     }

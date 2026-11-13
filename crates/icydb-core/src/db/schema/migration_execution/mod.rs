@@ -9,6 +9,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Bound,
+    rc::Rc,
 };
 
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, SchemaMigrationCode};
@@ -38,13 +39,14 @@ use crate::{
         registry::{StoreHandle, StoreRecoveryCapability},
         relation::{
             RelationConstraintProjection, ReverseRelationSourceInfo,
-            accepted_relation_target_contract,
+            accepted_relation_target_contract, migration_relation_domain,
         },
         schema::{
-            AcceptedCatalogSnapshotSelection, CompiledAcceptedRowConstraints,
-            MigrationIndexProjection, PersistedSchemaMigrationIndexCursor,
+            AcceptedCatalogSnapshotSelection, AcceptedSchemaSnapshot,
+            CompiledAcceptedRowConstraints, MigrationIndexProjection, PersistedIndexSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaMigrationIndexCursor,
             PersistedSchemaMigrationProgress, PersistedSchemaMigrationRowCursor,
-            SchemaMigrationRecordOp, accepted_commit_schema_fingerprint,
+            PersistedSchemaSnapshot, SchemaMigrationRecordOp, accepted_commit_schema_fingerprint,
             apply_schema_migration_record_op, migration_planner::PlannedSchemaMigration,
             migration_transform::CompiledMigrationEntityProgram,
         },
@@ -510,7 +512,7 @@ pub(in crate::db::schema) fn prepare_candidate_row_rewrite(
 
 pub(in crate::db::schema) fn publish_migration_rewrite_page(
     mut effects: Vec<MigrationPhysicalEffect>,
-    operation: SchemaMigrationRecordOp,
+    operation: &SchemaMigrationRecordOp,
 ) -> Result<(), InternalError> {
     effects.sort_by(|left, right| {
         left.store_path
@@ -601,7 +603,7 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
         if take_migration_rewrite_interruption(MigrationRewriteInterruption::PhysicalApplied) {
             return Err(InternalError::executor_invariant());
         }
-        apply_schema_migration_record_op(&operation)
+        apply_schema_migration_record_op(operation)
     })
 }
 
@@ -891,12 +893,11 @@ fn candidate_for_program<'a>(
         .ok_or_else(InternalError::store_invariant)
 }
 
-pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
+fn migration_candidate_selections<C: CanisterKind>(
     db: &Db<C>,
     program: &CompiledMigrationEntityProgram,
     candidate: &crate::db::schema::CandidateSchemaRevision,
-    work: &dyn crate::db::resource::construction::ConstructionBudget,
-) -> Result<PreparedCandidateEntity, InternalError> {
+) -> Result<(AcceptedCatalogSnapshotSelection, Rc<AcceptedSchemaSnapshot>), InternalError> {
     let candidate_selection = AcceptedCatalogSnapshotSelection::from_candidate(
         candidate,
         program.entity(),
@@ -904,14 +905,6 @@ pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
         program.store_path(),
     )?
     .ok_or_else(InternalError::store_invariant)?;
-    let candidate_schema = candidate_selection.snapshot();
-    let candidate_snapshot = candidate_schema.persisted_snapshot();
-    let candidate_contract =
-        crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
-            program.candidate_path(),
-            &candidate_selection,
-        )?
-        .into_row_contract();
     let store = db.store_handle(program.store_path())?;
     let before_schema = store
         .with_schema(|schema| {
@@ -923,36 +916,80 @@ pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
         })?
         .ok_or_else(InternalError::store_corruption)?
         .snapshot();
-    let indexes = candidate_snapshot
+    Ok((candidate_selection, before_schema))
+}
+
+// Select physical generations once for projection, counting and cleanup.
+fn migration_indexes<'a>(
+    before: &'a PersistedSchemaSnapshot,
+    candidate: &'a PersistedSchemaSnapshot,
+) -> impl Iterator<Item = &'a PersistedIndexSnapshot> {
+    candidate
         .indexes()
         .iter()
         .filter(|index| {
-            before_schema
-                .persisted_snapshot()
+            before
                 .indexes()
                 .iter()
-                .find(|before| before.schema_id() == index.schema_id())
-                .is_none_or(|before| before.physical_generation() != index.physical_generation())
+                .find(|old| old.schema_id() == index.schema_id())
+                .is_none_or(|old| old.physical_generation() != index.physical_generation())
         })
-        .chain(candidate_snapshot.candidate_indexes())
+        .chain(candidate.candidate_indexes())
+}
+
+fn migration_relations<'a>(
+    before: &'a PersistedSchemaSnapshot,
+    candidate: &'a PersistedSchemaSnapshot,
+) -> impl Iterator<Item = (&'a PersistedRelationEdgeSnapshot, bool)> {
+    candidate
+        .relations()
+        .iter()
+        .filter(|edge| {
+            before
+                .relations()
+                .iter()
+                .find(|old| old.id() == edge.id())
+                .is_none_or(|old| old.physical_generation() != edge.physical_generation())
+        })
+        .map(|edge| (edge, false))
+        .chain(
+            candidate
+                .candidate_relations()
+                .iter()
+                .map(|edge| (edge, true)),
+        )
+}
+
+pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
+    db: &Db<C>,
+    program: &CompiledMigrationEntityProgram,
+    candidate: &crate::db::schema::CandidateSchemaRevision,
+    work: &dyn crate::db::resource::construction::ConstructionBudget,
+) -> Result<PreparedCandidateEntity, InternalError> {
+    let (candidate_selection, before_schema) =
+        migration_candidate_selections(db, program, candidate)?;
+    let candidate_schema = candidate_selection.snapshot();
+    let candidate_snapshot = candidate_schema.persisted_snapshot();
+    let candidate_contract =
+        crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
+            program.candidate_path(),
+            &candidate_selection,
+        )?
+        .into_row_contract();
+    let indexes = migration_indexes(before_schema.persisted_snapshot(), candidate_snapshot)
         .map(|index| {
             MigrationIndexProjection::new(program.entity(), index, &candidate_contract, work)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let source = ReverseRelationSourceInfo::new(program.candidate_path(), program.entity());
-    let relations = candidate_snapshot
-        .relations()
-        .iter()
-        .filter(|edge| {
-            before_schema
-                .persisted_snapshot()
-                .relations()
-                .iter()
-                .find(|before| before.id() == edge.id())
-                .is_none_or(|before| before.physical_generation() != edge.physical_generation())
-        })
-        .map(|edge| {
-            RelationConstraintProjection::new_active(
+    let relations = migration_relations(before_schema.persisted_snapshot(), candidate_snapshot)
+        .map(|(edge, staged)| {
+            let bind = if staged {
+                RelationConstraintProjection::new
+            } else {
+                RelationConstraintProjection::new_active
+            };
+            bind(
                 db,
                 source.clone(),
                 candidate_snapshot,
@@ -961,16 +998,6 @@ pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
                 accepted_relation_target_contract(db, edge.target_path())?,
             )
         })
-        .chain(candidate_snapshot.candidate_relations().iter().map(|edge| {
-            RelationConstraintProjection::new(
-                db,
-                source.clone(),
-                candidate_snapshot,
-                &candidate_contract,
-                edge,
-                accepted_relation_target_contract(db, edge.target_path())?,
-            )
-        }))
         .collect::<Result<Vec<_>, _>>()?;
     if relations.iter().any(|relation| {
         relation.target_store().storage_capabilities().recovery()
@@ -1000,35 +1027,15 @@ pub(in crate::db::schema) fn migration_derived_domain_count<C: CanisterKind>(
     db: &Db<C>,
     planned: &PlannedSchemaMigration,
 ) -> Result<u32, InternalError> {
-    // All entity projections belong to this zero-write preparation operation.
-    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
-        |work| {
-            let mut count = 0_u32;
-            for program in planned.programs() {
-                let candidate = candidate_for_program(planned, program)?;
-                let prepared = prepare_candidate_entity(db, program, candidate, work)?;
-                count = count
-                    .checked_add(
-                        u32::try_from(
-                            prepared
-                                .indexes
-                                .len()
-                                .saturating_add(prepared.relations.len()),
-                        )
-                        .map_err(|_| InternalError::store_invariant())?,
-                    )
-                    .ok_or_else(InternalError::store_invariant)?;
-            }
-            Ok(count)
-        },
-        std::convert::identity,
-    )
-}
-
-struct MigrationDerivedDomain {
-    store_path: &'static str,
-    store: StoreHandle,
-    index_id: IndexId,
+    // Count logical domains before cleanup coalesces shared physical namespaces.
+    let mut count = 0_u32;
+    visit_migration_domains(db, planned, |_, _, _| {
+        count = count
+            .checked_add(1)
+            .ok_or_else(InternalError::store_invariant)?;
+        Ok(())
+    })?;
+    Ok(count)
 }
 
 /// Delete one bounded page of planner-invisible candidate generations.
@@ -1041,15 +1048,15 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
     before_progress: &PersistedSchemaMigrationProgress,
     store_identities: &BTreeMap<&'static str, TargetStoreIdentity>,
 ) -> Result<(PersistedSchemaMigrationProgress, bool), InternalError> {
-    let domains = migration_derived_domains(db, planned)?;
     let mut by_store = BTreeMap::<&'static str, (StoreHandle, BTreeSet<IndexId>)>::new();
-    for domain in domains {
+    visit_migration_domains(db, planned, |path, store, index_id| {
         by_store
-            .entry(domain.store_path)
-            .or_insert_with(|| (domain.store, BTreeSet::new()))
+            .entry(path)
+            .or_insert_with(|| (store, BTreeSet::new()))
             .1
-            .insert(domain.index_id);
-    }
+            .insert(index_id);
+        Ok(())
+    })?;
     let cursor = before_progress.index_cursor();
     let cursor_path = cursor
         .map(|cursor| {
@@ -1147,46 +1154,45 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
     Ok((progress, exhausted))
 }
 
-fn migration_derived_domains<C: CanisterKind>(
+fn visit_migration_domains<C: CanisterKind>(
     db: &Db<C>,
     planned: &PlannedSchemaMigration,
-) -> Result<Vec<MigrationDerivedDomain>, InternalError> {
-    // Admission finishes before the caller starts mutating derived domains.
-    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
-        |work| {
-            let mut domains = Vec::new();
-            for program in planned.programs() {
-                let candidate = candidate_for_program(planned, program)?;
-                let prepared = prepare_candidate_entity(db, program, candidate, work)?;
-                let source_store = db.store_handle(program.store_path())?;
-                domains.extend(
-                    prepared
-                        .indexes
-                        .iter()
-                        .map(|projection| MigrationDerivedDomain {
-                            store_path: program.store_path(),
-                            store: source_store,
-                            index_id: projection.index_id(),
-                        }),
-                );
-                for relation in &prepared.relations {
-                    domains.push(MigrationDerivedDomain {
-                        store_path: relation.target_store_path(),
-                        store: relation.target_store(),
-                        index_id: relation.index_id(),
-                    });
-                }
+    mut visit: impl FnMut(&'static str, StoreHandle, IndexId) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    // The caller has recompiled the exact admitted candidate/head. Domain discovery
+    // needs generation and store authority; row semantics remain with row projection.
+    // Resolve every binding before cleanup starts mutating any store.
+    for program in planned.programs() {
+        let candidate = candidate_for_program(planned, program)?;
+        let (selection, before) = migration_candidate_selections(db, program, candidate)?;
+        let snapshot = selection.snapshot();
+        let snapshot = snapshot.persisted_snapshot();
+        let source_store = db.store_handle(program.store_path())?;
+        for index in migration_indexes(before.persisted_snapshot(), snapshot) {
+            if index.physical_generation() == 0 {
+                return Err(InternalError::store_invariant());
             }
-            icydb_schema::compact_sort_unstable_by(&mut domains, |left, right| {
-                (left.store_path, left.index_id).cmp(&(right.store_path, right.index_id))
-            });
-            domains.dedup_by(|left, right| {
-                left.store_path == right.store_path && left.index_id == right.index_id
-            });
-            Ok(domains)
-        },
-        std::convert::identity,
-    )
+            visit(
+                program.store_path(),
+                source_store,
+                IndexId::new_with_generation(
+                    program.entity(),
+                    index.ordinal(),
+                    index.physical_generation(),
+                ),
+            )?;
+        }
+        for (edge, staged) in migration_relations(before.persisted_snapshot(), snapshot) {
+            if staged && edge.physical_generation() == 0 {
+                return Err(InternalError::store_corruption());
+            }
+            let (store_path, store, index_id) =
+                migration_relation_domain(db, program.entity(), edge)?;
+            require_journaled(store)?;
+            visit(store_path, store, index_id)?;
+        }
+    }
+    Ok(())
 }
 
 fn require_journaled(store: StoreHandle) -> Result<(), InternalError> {

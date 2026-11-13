@@ -63,14 +63,10 @@ fn source_digest_ignores_declared_version_but_not_entity_meaning() {
 
 // Zebra -> Alpha crosses Middle in canonical target order. Payload keeps a
 // reachable named-type contract in the owner's source meaning.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one predecessor/successor fixture keeps the complete dependency contract visible"
-)]
 fn dependency_proposal(
     renamed: bool,
     payload: ScalarType,
-    target: FieldInsertPolicy,
+    target: &FieldInsertPolicy,
 ) -> SchemaProposal {
     let name = |value| SchemaName::try_new(value).unwrap();
     let key = |value| EntitySourceKey::try_new(value).unwrap();
@@ -190,10 +186,10 @@ fn dependency_proposal(
 #[test]
 fn entity_rename_dependency_proof_preserves_canonical_order_and_complete_meaning() {
     let holder = EntitySourceKey::try_new("Holder").unwrap();
-    let before = dependency_proposal(false, ScalarType::Nat64, FieldInsertPolicy::Required)
+    let before = dependency_proposal(false, ScalarType::Nat64, &FieldInsertPolicy::Required)
         .entity_source_digest(&holder)
         .unwrap();
-    let renamed = dependency_proposal(true, ScalarType::Nat64, FieldInsertPolicy::Required);
+    let renamed = dependency_proposal(true, ScalarType::Nat64, &FieldInsertPolicy::Required);
     assert_ne!(before, renamed.entity_source_digest(&holder).unwrap());
     assert_eq!(
         before,
@@ -210,7 +206,7 @@ fn entity_rename_dependency_proof_preserves_canonical_order_and_complete_meaning
     ] {
         assert_ne!(
             before,
-            dependency_proposal(true, payload, target)
+            dependency_proposal(true, payload, &target)
                 .entity_source_digest_before_entity_renames(&holder)
                 .unwrap()
         );

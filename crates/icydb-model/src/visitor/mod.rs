@@ -30,6 +30,7 @@ pub use traits::{
 // Structured error type for visitor-based normalization and validation.
 //
 
+/// Failure of a normalization or validation traversal, including all reported issues.
 #[derive(Debug, ThisError)]
 #[error("{operation} failed: {issues}")]
 pub struct VisitorError {
@@ -49,6 +50,7 @@ impl VisitorError {
     }
 
     #[must_use]
+    /// Borrow all diagnostics attached to this traversal failure.
     pub const fn issues(&self) -> &VisitorIssues {
         &self.issues
     }
@@ -63,16 +65,19 @@ impl VisitorError {
 // may be lifted into an `InternalError` as needed.
 //
 
+/// Visitor diagnostics grouped by rendered field paths.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct VisitorIssues(BTreeMap<String, Vec<Issue>>);
 
 impl VisitorIssues {
     #[must_use]
+    /// Create an empty collection of diagnostics.
     pub const fn new() -> Self {
         Self(BTreeMap::new())
     }
 
     #[must_use]
+    /// Whether no paths have reported issues.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -84,10 +89,12 @@ impl VisitorIssues {
     }
 
     #[must_use]
+    /// Borrow issues recorded at exactly this rendered path.
     pub fn get(&self, path: impl AsRef<str>) -> Option<&[Issue]> {
         self.0.get(path.as_ref()).map(Vec::as_slice)
     }
 
+    /// Append an issue to the given path, preserving report order within it.
     pub fn push(&mut self, path: String, issue: Issue) {
         self.0.entry(path).or_default().push(issue);
     }
@@ -143,12 +150,16 @@ pub(crate) trait Visitor {
 // VisitorCore (object-safe traversal)
 // ============================================================================
 
-// Object-safe visitor contract for immutable traversal dispatch.
+/// Object-safe visitor contract for immutable traversal dispatch.
 pub trait VisitorCore {
+    /// Visit a node before traversing its children.
     fn enter(&mut self, node: &dyn Visitable);
+    /// Visit a node after traversing its children.
     fn exit(&mut self, node: &dyn Visitable);
 
+    /// Enter a child path segment; the default does not track paths.
     fn push(&mut self, _: PathSegment) {}
+    /// Leave the most recently pushed segment; the default does nothing.
     fn pop(&mut self) {}
 }
 
@@ -161,6 +172,7 @@ pub trait VisitorCore {
 // boundary.
 //
 
+/// Typed field access callbacks used by generated structural traversal.
 pub struct VisitableFieldDescriptor<T> {
     name: &'static str,
     drive: fn(&T, &mut dyn VisitorCore),
@@ -189,7 +201,7 @@ impl<T> VisitableFieldDescriptor<T> {
     }
 }
 
-// Drive one generated field table through immutable visitor traversal.
+/// Drive one generated field table through immutable visitor traversal.
 pub fn drive_visitable_fields<T>(
     visitor: &mut dyn VisitorCore,
     node: &T,
@@ -200,7 +212,7 @@ pub fn drive_visitable_fields<T>(
     }
 }
 
-// Drive one generated field table through mutable visitor traversal.
+/// Drive one generated field table through mutable visitor traversal.
 pub fn drive_visitable_fields_mut<T>(
     visitor: &mut dyn VisitorMutCore,
     node: &mut T,
@@ -220,6 +232,7 @@ pub fn drive_visitable_fields_mut<T>(
 // at the boundary.
 //
 
+/// Typed field callback used by generated node-local normalization.
 pub struct NormalizeFieldDescriptor<T> {
     normalize: fn(&mut T, &mut dyn VisitorContext),
 }
@@ -232,7 +245,7 @@ impl<T> NormalizeFieldDescriptor<T> {
     }
 }
 
-// Drive one generated field table through normalization dispatch.
+/// Drive one generated field table through normalization dispatch.
 pub fn drive_normalize_fields<T>(
     node: &mut T,
     ctx: &mut dyn VisitorContext,
@@ -252,6 +265,7 @@ pub fn drive_normalize_fields<T>(
 // at the boundary.
 //
 
+/// Typed field callback used by generated node-local validation.
 pub struct ValidateFieldDescriptor<T> {
     validate: fn(&T, &mut dyn VisitorContext),
 }
@@ -264,7 +278,7 @@ impl<T> ValidateFieldDescriptor<T> {
     }
 }
 
-// Drive one generated field table through validation dispatch.
+/// Drive one generated field table through validation dispatch.
 pub fn drive_validate_fields<T>(
     node: &T,
     ctx: &mut dyn VisitorContext,
@@ -390,6 +404,7 @@ where
 // Traversal (immutable)
 // ============================================================================
 
+/// Visit a node and its children, balancing path entry and exit for nonempty segments.
 pub fn perform_visit<S: Into<PathSegment>>(
     visitor: &mut dyn VisitorCore,
     node: &dyn Visitable,
@@ -425,12 +440,16 @@ pub(crate) trait VisitorMut {
 // VisitorMutCore
 // ============================================================================
 
-// Object-safe mutable visitor contract used by traversal drivers.
+/// Object-safe mutable visitor contract used by traversal drivers.
 pub trait VisitorMutCore {
+    /// Visit a mutable node before traversing its children.
     fn enter_mut(&mut self, node: &mut dyn Visitable);
+    /// Visit a mutable node after traversing its children.
     fn exit_mut(&mut self, node: &mut dyn Visitable);
 
+    /// Enter a child path segment; the default does not track paths.
     fn push(&mut self, _: PathSegment) {}
+    /// Leave the most recently pushed segment; the default does nothing.
     fn pop(&mut self) {}
 }
 
@@ -508,6 +527,7 @@ where
 //
 // Path segments are pushed/popped around the traversal unless the segment is
 // `PathSegment::Empty`.
+/// Mutably visit a node and its children with balanced path entry and exit.
 pub fn perform_visit_mut<S: Into<PathSegment>>(
     visitor: &mut dyn VisitorMutCore,
     node: &mut dyn Visitable,

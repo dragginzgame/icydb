@@ -4,9 +4,11 @@ use icydb_model::{build::get_schema, node::Entity, prelude::*};
 use icydb_schema::{Account, Principal, ScalarLiteral, SourceCheckInstruction, Subaccount, Ulid};
 
 #[canister(memory_namespace = "schema_literals")]
+/// Canister containing the literal round-trip fixtures.
 pub struct LiteralCanister;
 
 #[store(canister = "LiteralCanister", storage(journaled(key = "main")))]
+/// Journaled store for literal and expression declarations.
 pub struct LiteralStore;
 
 #[entity(
@@ -44,6 +46,7 @@ pub struct LiteralStore;
     ),
     traits(add(Default))
 )]
+/// Row covering exact scalar defaults and source-expression literals.
 pub struct LiteralRow;
 
 #[test]

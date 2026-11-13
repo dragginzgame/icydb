@@ -131,7 +131,7 @@ impl ExactCardinalityTarget<'_> {
 /// Execute one fail-closed metadata-only exact cardinality read.
 pub(in crate::db) fn execute_exact_cardinality_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     lane: DiagnosticExecutionLane,
     target: ExactCardinalityTarget<'_>,
 ) -> Result<Option<u64>, InternalError>
@@ -140,7 +140,7 @@ where
 {
     let entity_path = authority.entity_path_handle();
     let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
-    let context = direct_read_execution_context(&authority, lane, EXACT_COUNT_SHAPE_DOMAIN);
+    let context = direct_read_execution_context(authority, lane, EXACT_COUNT_SHAPE_DOMAIN);
     with_read_execution_budget(db.request_execution_scope(), context, || {
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
@@ -152,7 +152,7 @@ where
             #[cfg(feature = "sql")]
             ExactCardinalityTarget::UserIndexFirstComponentDistinct(index_id) => {
                 exact_user_index_first_component_cardinality(
-                    store, &authority, index_id, None, None,
+                    store, authority, index_id, None, None,
                 )?
             }
             #[cfg(feature = "sql")]
@@ -162,7 +162,7 @@ where
                 upper,
             } => exact_user_index_first_component_cardinality(
                 store,
-                &authority,
+                authority,
                 index_id,
                 Some(lower),
                 Some(upper),
@@ -187,7 +187,7 @@ where
 #[cfg(feature = "sql")]
 pub(in crate::db) fn execute_exact_indexed_numeric_aggregate_for_canister<C>(
     db: &Db<C>,
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     lane: DiagnosticExecutionLane,
     index_id: IndexId,
     output_kinds: &[AggregateKind],
@@ -202,10 +202,10 @@ where
     let entity_path = authority.entity_path_handle();
     let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
     let context =
-        direct_read_execution_context(&authority, lane, EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN);
+        direct_read_execution_context(authority, lane, EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN);
     with_read_execution_budget(db.request_execution_scope(), context, || {
         let Some(metadata) = execute_exact_first_component_metadata(
-            &authority,
+            authority,
             index_id,
             || db.recovered_store(authority.store_path()),
             || {

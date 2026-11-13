@@ -261,10 +261,7 @@ impl SqlShowRelationsOutput {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntitySchemaDescription\n\nStable describe payload for one entity model."
-)]
+#[doc = "EntitySchemaDescription\n\nStable describe payload for one entity model."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -522,10 +519,7 @@ pub(in crate::db) fn describe_accepted_identity(
     )
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntityConstraintDescription\n\nOne accepted structural constraint entry in a describe payload."
-)]
+#[doc = "EntityConstraintDescription\n\nOne accepted structural constraint entry in a describe payload."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -704,10 +698,7 @@ impl EntityConstraintDescription {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntityFieldDescription\n\nOne field entry in a describe payload."
-)]
+#[doc = "EntityFieldDescription\n\nOne field entry in a describe payload."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -932,10 +923,7 @@ impl EntityFieldDescription {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntityIndexDescription\n\nOne index entry in a describe payload."
-)]
+#[doc = "EntityIndexDescription\n\nOne index entry in a describe payload."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -985,10 +973,7 @@ impl EntityIndexDescription {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntityRelationDescription\n\nOne relation entry in a describe payload."
-)]
+#[doc = "EntityRelationDescription\n\nOne relation entry in a describe payload."]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
@@ -1052,18 +1037,18 @@ impl EntityRelationDescription {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "EntityRelationCardinality\n\nDescribe source multiplicity: List includes list/map-value traversal; Set denotes set-only traversal."
-)]
+#[doc = "EntityRelationCardinality\n\nDescribe source multiplicity: List includes list/map-value traversal; Set denotes set-only traversal."]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg_attr(
     all(feature = "wire-schema", not(target_family = "wasm")),
     derive(ic_wire::Wire)
 )]
 pub enum EntityRelationCardinality {
+    /// A relation has at most one target value per source row.
     Single,
+    /// Relation targets retain list ordering and multiplicity.
     List,
+    /// Relation targets are represented as a set.
     Set,
 }
 
@@ -1722,10 +1707,7 @@ fn classify_compact_column_key(
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Build field descriptors using accepted persisted schema slot metadata."
-)]
+#[doc = "Build field descriptors using accepted persisted schema slot metadata."]
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
@@ -1776,7 +1758,7 @@ fn describe_entity_fields_with_runtime_contract(
             describe_persisted_nested_leaves(
                 &mut fields,
                 field.nested_leaves(),
-                field_origin_label(field.generated()),
+                &field_origin_label(field.generated()),
                 value_catalog,
             )?;
         }
@@ -1843,7 +1825,7 @@ fn push_described_field_row(
 fn describe_persisted_nested_leaves(
     fields: &mut Vec<EntityFieldDescription>,
     nested_leaves: &[PersistedNestedLeafSnapshot],
-    origin: String,
+    origin: &str,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<(), InternalError> {
     for (index, leaf) in nested_leaves.iter().enumerate() {
@@ -1857,7 +1839,7 @@ fn describe_persisted_nested_leaves(
             summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
             leaf.nullable(),
             query_field_is_queryable(leaf.kind(), value_catalog.composite_catalog()),
-            origin.clone(),
+            origin.to_owned(),
         );
 
         push_described_field_row(
@@ -2110,7 +2092,7 @@ fn accepted_payload_facts(
 ) -> Result<RenderedTemporalPayload, InternalError> {
     let persistence = AcceptedFieldPersistenceContract::new(value_catalog, field.decode_contract())
         .map_err(|_| InternalError::store_invariant())?;
-    let admitted = decode_admitted_value_from_accepted_field_contract(persistence, payload)?;
+    let admitted = decode_admitted_value_from_accepted_field_contract(&persistence, payload)?;
     let output = output_value_from_runtime(value_catalog.enum_catalog(), admitted.into_value())
         .map_err(|_| InternalError::store_invariant())?;
     let hash = short_default_payload_fingerprint(payload);
@@ -2178,10 +2160,7 @@ fn short_default_payload_fingerprint(payload: &[u8]) -> String {
     out
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Render one stable field-kind label from accepted persisted schema metadata."
-)]
+#[doc = "Render one stable field-kind label from accepted persisted schema metadata."]
 fn summarize_persisted_field_kind(
     kind: &AcceptedFieldKind,
     value_catalog: &AcceptedValueCatalogHandle,

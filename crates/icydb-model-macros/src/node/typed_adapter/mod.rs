@@ -11,8 +11,8 @@ use crate::{
 fn named_adapter_impl_tokens(
     ident: &Ident,
     source: &LitStr,
-    encode_body: TokenStream,
-    decode_body: TokenStream,
+    encode_body: &TokenStream,
+    decode_body: &TokenStream,
     paths: &CratePaths,
 ) -> TokenStream {
     let model = &paths.model;
@@ -50,7 +50,7 @@ fn named_adapter_impl_tokens(
 fn transparent_adapter_tokens(
     ident: &Ident,
     source: &LitStr,
-    inner: TokenStream,
+    inner: &TokenStream,
     paths: &CratePaths,
 ) -> TokenStream {
     let model = &paths.model;
@@ -62,7 +62,7 @@ fn transparent_adapter_tokens(
             .map(Self)
     };
 
-    named_adapter_impl_tokens(ident, source, encode, decode, paths)
+    named_adapter_impl_tokens(ident, source, &encode, &decode, paths)
 }
 
 pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStream {
@@ -146,7 +146,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
         }
     };
 
-    named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
+    named_adapter_impl_tokens(&ident, &source, &encode, &decode, paths)
 }
 
 pub(crate) fn record_adapter_tokens(node: &Record, paths: &CratePaths) -> TokenStream {
@@ -200,20 +200,20 @@ pub(crate) fn record_adapter_tokens(node: &Record, paths: &CratePaths) -> TokenS
         })
     };
 
-    named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
+    named_adapter_impl_tokens(&ident, &source, &encode, &decode, paths)
 }
 
 pub(crate) fn newtype_adapter_tokens(node: &Newtype, paths: &CratePaths) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
-    transparent_adapter_tokens(&ident, &source, node.item.type_expr(paths), paths)
+    transparent_adapter_tokens(&ident, &source, &node.item.type_expr(paths), paths)
 }
 
 pub(crate) fn list_adapter_tokens(node: &List, paths: &CratePaths) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let item = node.item.type_expr(paths);
-    transparent_adapter_tokens(&ident, &source, quote!(::std::vec::Vec<#item>), paths)
+    transparent_adapter_tokens(&ident, &source, &quote!(::std::vec::Vec<#item>), paths)
 }
 
 pub(crate) fn set_adapter_tokens(node: &Set, paths: &CratePaths) -> TokenStream {
@@ -223,7 +223,7 @@ pub(crate) fn set_adapter_tokens(node: &Set, paths: &CratePaths) -> TokenStream 
     transparent_adapter_tokens(
         &ident,
         &source,
-        quote!(::std::collections::BTreeSet<#item>),
+        &quote!(::std::collections::BTreeSet<#item>),
         paths,
     )
 }
@@ -236,7 +236,7 @@ pub(crate) fn map_adapter_tokens(node: &Map, paths: &CratePaths) -> TokenStream 
     transparent_adapter_tokens(
         &ident,
         &source,
-        quote!(::std::collections::BTreeMap<#key, #value>),
+        &quote!(::std::collections::BTreeMap<#key, #value>),
         paths,
     )
 }
@@ -281,7 +281,7 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple, paths: &CratePaths) -> TokenStr
         ::std::result::Result::Ok(Self(#(#output_values),*))
     };
 
-    named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
+    named_adapter_impl_tokens(&ident, &source, &encode, &decode, paths)
 }
 
 #[cfg(test)]

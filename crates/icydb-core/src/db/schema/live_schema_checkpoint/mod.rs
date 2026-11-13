@@ -303,8 +303,7 @@ impl LiveSchemaCheckpointStore {
             .map(|checkpoint| checkpoint.candidate().bundle());
         let current_inventory = current
             .as_ref()
-            .map(|checkpoint| checkpoint.identity_states().clone())
-            .unwrap_or_default();
+            .map_or_default(|checkpoint| checkpoint.identity_states().clone());
         let identity_states = prepare_identity_state_transition(
             incarnation,
             current_bundle,

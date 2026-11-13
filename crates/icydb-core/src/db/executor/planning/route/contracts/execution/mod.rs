@@ -198,7 +198,9 @@ impl LoadOrderRouteDecision {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouteExecutionMode {
+    /// Rows can flow through the route without full result materialization.
     Streaming,
+    /// The route requires materializing intermediate results.
     Materialized,
 }
 

@@ -24,7 +24,8 @@ pub(in crate::db::schema) const MAX_SCHEMA_MIGRATION_RECORD_INDEXES: usize = 4_0
 pub(in crate::db::schema) const MAX_SCHEMA_MIGRATION_CURSOR_BYTES: usize = 64 * 1024;
 pub(in crate::db::schema) const MAX_SCHEMA_MIGRATION_FINDINGS: usize = 64;
 
-const MIGRATION_MAGIC: &[u8; 8] = b"ICYSMIG1";
+// Direct rewrite completion has its own envelope; old records are rejected intact.
+const MIGRATION_MAGIC: &[u8; 8] = b"ICYSMGC1";
 const MIGRATION_VERSION: u8 = 1;
 const MIGRATION_HEADER_BYTES: usize = 8 + 1 + 4;
 const MIGRATION_CHECKSUM_BYTES: usize = 4;
@@ -40,7 +41,6 @@ pub(in crate::db::schema) enum PersistedSchemaMigrationPhase {
     Validating,
     ReadyToRewrite,
     RewritingRows,
-    RebuildingIndexes,
     FinalValidation,
     Publishing,
     Applied,
@@ -56,7 +56,6 @@ impl PersistedSchemaMigrationPhase {
             Self::Validating
                 | Self::ReadyToRewrite
                 | Self::RewritingRows
-                | Self::RebuildingIndexes
                 | Self::FinalValidation
                 | Self::Publishing
                 | Self::Rejected
@@ -83,12 +82,11 @@ impl PersistedSchemaMigrationPhase {
             Self::Validating => 1,
             Self::ReadyToRewrite => 2,
             Self::RewritingRows => 3,
-            Self::RebuildingIndexes => 4,
-            Self::FinalValidation => 5,
-            Self::Publishing => 6,
-            Self::Applied => 7,
-            Self::Rejected => 8,
-            Self::Aborted => 9,
+            Self::FinalValidation => 4,
+            Self::Publishing => 5,
+            Self::Applied => 6,
+            Self::Rejected => 7,
+            Self::Aborted => 8,
         }
     }
 
@@ -98,12 +96,11 @@ impl PersistedSchemaMigrationPhase {
             1 => Ok(Self::Validating),
             2 => Ok(Self::ReadyToRewrite),
             3 => Ok(Self::RewritingRows),
-            4 => Ok(Self::RebuildingIndexes),
-            5 => Ok(Self::FinalValidation),
-            6 => Ok(Self::Publishing),
-            7 => Ok(Self::Applied),
-            8 => Ok(Self::Rejected),
-            9 => Ok(Self::Aborted),
+            4 => Ok(Self::FinalValidation),
+            5 => Ok(Self::Publishing),
+            6 => Ok(Self::Applied),
+            7 => Ok(Self::Rejected),
+            8 => Ok(Self::Aborted),
             _ => Err(InternalError::store_corruption()),
         }
     }
@@ -120,8 +117,7 @@ impl PersistedSchemaMigrationPhase {
                     Self::Validating,
                     Self::ReadyToRewrite | Self::Rejected | Self::Aborted
                 ) | (Self::ReadyToRewrite, Self::RewritingRows | Self::Aborted)
-                    | (Self::RewritingRows, Self::RebuildingIndexes)
-                    | (Self::RebuildingIndexes, Self::FinalValidation)
+                    | (Self::RewritingRows, Self::FinalValidation)
                     | (Self::FinalValidation, Self::Publishing)
                     | (Self::Publishing, Self::Applied)
                     | (Self::Rejected, Self::Aborted)
@@ -772,7 +768,6 @@ impl SchemaMigrationRecord {
             && matches!(
                 self.phase,
                 PersistedSchemaMigrationPhase::RewritingRows
-                    | PersistedSchemaMigrationPhase::RebuildingIndexes
                     | PersistedSchemaMigrationPhase::FinalValidation
                     | PersistedSchemaMigrationPhase::Publishing
                     | PersistedSchemaMigrationPhase::Applied

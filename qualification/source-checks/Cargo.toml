@@ -17,14 +17,14 @@ category = "build_tooling"
 
 [[bin]]
 name = "check_runtime_panics"
-path = "../../scripts/ci/check-runtime-panics.rs"
+path = "../../vendor/toko-tooling/scripts/ci/check-runtime-panics.rs"
 
 [dependencies]
 clap = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 syn = { workspace = true, features = ["full", "visit"] }
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true
 
 [lints]

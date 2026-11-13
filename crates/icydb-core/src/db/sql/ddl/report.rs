@@ -99,9 +99,13 @@ impl SqlDdlPreparationReport {
 /// Current engine-owned state of one bounded constraint-validation job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlConstraintValidationState {
+    /// The validation job is scanning source rows.
     Forward,
+    /// The validation job is verifying its captured revision proof.
     Verify,
+    /// The validation job restarted after its prior proof was invalidated.
     Restarted,
+    /// The constraint has completed validation.
     Validated,
 }
 
@@ -121,9 +125,13 @@ impl SqlConstraintValidationState {
 /// Revision proof status associated with one validation response.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlConstraintValidationRevisionStatus {
+    /// Source revisions are being tracked during validation.
     Tracking,
+    /// The source revision proof has been captured.
     Captured,
+    /// The captured source revision proof no longer matches current state.
     Invalidated,
+    /// The validation revision proof is complete.
     Complete,
 }
 
@@ -256,19 +264,33 @@ impl SqlConstraintValidationPage {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlMutationKind {
+    /// Add an accepted CHECK constraint.
     AddCheckConstraint,
+    /// Add a field with an admitted default for historical rows.
     AddDefaultedField,
+    /// Add a field without a historical-fill default.
     AddField,
+    /// Set the field default used by future writes.
     SetFieldDefault,
+    /// Remove the field's default for future writes.
     DropFieldDefault,
+    /// Require the field to have a non-null value.
     SetFieldNotNull,
+    /// Allow null values in the field.
     DropFieldNotNull,
+    /// Remove the field from the accepted schema.
     DropField,
+    /// Change a field's public name while preserving its identity.
     RenameField,
+    /// Add an index over accepted field paths.
     AddFieldPathIndex,
+    /// Add an index over admitted scalar expressions.
     AddExpressionIndex,
+    /// Remove a user-owned secondary index.
     DropSecondaryIndex,
+    /// Remove a user-owned CHECK constraint.
     DropCheckConstraint,
+    /// Validate an existing constraint against stored rows.
     ValidateConstraint,
 }
 
@@ -302,14 +324,23 @@ impl SqlDdlMutationKind {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlExecutionStatus {
+    /// The mutation is prepared but has not been published.
     PreparedOnly,
+    /// The accepted schema mutation has been published.
     Published,
+    /// The constraint activation has been published.
     ActivationPublished,
+    /// A bounded constraint-validation job has started.
     ValidationStarted,
+    /// A bounded page of constraint validation has completed.
     ValidationAdvanced,
+    /// Validation found rows that do not satisfy the constraint.
     ValidationFindings,
+    /// Constraint validation restarted after its proof became stale.
     ValidationRestarted,
+    /// The constraint has completed validation.
     Validated,
+    /// The requested mutation requires no state change.
     NoOp,
 }
 

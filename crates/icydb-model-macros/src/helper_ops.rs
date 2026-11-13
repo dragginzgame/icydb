@@ -124,17 +124,17 @@ pub(crate) fn derive_neg(input: TokenStream) -> TokenStream {
 }
 
 pub(crate) fn derive_product(input: TokenStream) -> TokenStream {
-    derive_iterator_op(input, "Product", quote!(::std::iter::Product), "product")
+    derive_iterator_op(input, "Product", &quote!(::std::iter::Product), "product")
 }
 
 pub(crate) fn derive_sum(input: TokenStream) -> TokenStream {
-    derive_iterator_op(input, "Sum", quote!(::std::iter::Sum), "sum")
+    derive_iterator_op(input, "Sum", &quote!(::std::iter::Sum), "sum")
 }
 
 fn derive_iterator_op(
     input: TokenStream,
     label: &'static str,
-    trait_path: TokenStream,
+    trait_path: &TokenStream,
     method: &'static str,
 ) -> TokenStream {
     let newtype = match helper_newtype::parse_newtype(input, label) {

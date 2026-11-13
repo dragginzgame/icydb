@@ -5,6 +5,7 @@ use crate::prelude::*;
 //
 
 #[derive(Clone, Debug, Serialize)]
+/// Rust module path and identifier forming a schema declaration identity.
 pub struct Def {
     module_path: &'static str,
     ident: &'static str,
@@ -33,6 +34,7 @@ impl Def {
     // the path to the actual Type
     // ie. design::game::Rarity
     #[must_use]
+    /// Construct the fully qualified Rust type path.
     pub fn path(&self) -> String {
         format!("{}::{}", self.module_path(), self.ident())
     }

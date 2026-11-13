@@ -20,6 +20,7 @@ fn hex_text_rejects_width_unicode_and_nonhex_boundaries() {
     for text in [
         String::new(),
         "0x".into(),
+        format!("0x0x{}", "0".repeat(64)),
         "0".repeat(63),
         "0".repeat(65),
         "g".repeat(64),

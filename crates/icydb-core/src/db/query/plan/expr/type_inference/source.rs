@@ -45,7 +45,7 @@ pub(super) fn infer_field_path_expr_type(
         return Ok(ExprType::Unknown);
     }
 
-    let field_type = nested_fields.field_type(path.segments().iter().map(String::as_str));
+    let field_type = nested_fields.field_type(&path.segments().iter().map(String::as_str));
 
     if let Some(field_type) = field_type {
         return Ok(expr_type_from_field_type(&field_type));

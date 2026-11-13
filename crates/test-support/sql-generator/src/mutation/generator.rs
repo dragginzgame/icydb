@@ -302,10 +302,6 @@ impl MutationRecipe {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one exhaustive typed match freezes all 15 scheduled mutation recipes"
-    )]
     fn material(
         self,
         sub_seed: u64,

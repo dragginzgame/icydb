@@ -36,17 +36,17 @@ fn public_128_bit_integers_use_compact_native_wire_values() {
     }
 }
 
-fn assert_integer_json_roundtrip<T>(value: T, text: &str)
+fn assert_integer_json_roundtrip<T>(value: &T, text: &str)
 where
     T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
 {
-    let json = serde_json::to_string(&value).expect("JSON should encode");
+    let json = serde_json::to_string(value).expect("JSON should encode");
     assert_eq!(
         json,
         serde_json::to_string(text).expect("text should encode")
     );
     assert_eq!(
-        serde_json::from_str::<T>(&json).expect("JSON should round-trip"),
+        &serde_json::from_str::<T>(&json).expect("JSON should round-trip"),
         value
     );
 }
@@ -61,7 +61,7 @@ fn u256_native_wire_and_json_boundaries() {
         (U256::MAX, 33, 33_002),
     ] {
         assert_wire_sizes(value, one, batch);
-        assert_integer_json_roundtrip(value, &value.to_string());
+        assert_integer_json_roundtrip(&value, &value.to_string());
     }
 }
 

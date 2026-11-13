@@ -127,7 +127,7 @@ impl<'a> SchemaNestedFields<'a> {
     // Match borrowed segments without copying paths or projecting leaf types.
     fn leaf<'path>(
         &self,
-        segments: impl Iterator<Item = &'path str> + Clone,
+        segments: &(impl Iterator<Item = &'path str> + Clone),
     ) -> Option<&'a PersistedNestedLeafSnapshot> {
         self.leaves
             .iter()
@@ -138,7 +138,7 @@ impl<'a> SchemaNestedFields<'a> {
     #[must_use]
     pub(in crate::db) fn field_type<'path>(
         &self,
-        segments: impl Iterator<Item = &'path str> + Clone,
+        segments: &(impl Iterator<Item = &'path str> + Clone),
     ) -> Option<FieldType> {
         let leaf = self.leaf(segments)?;
         Some(query_field_type_from_persisted_kind(
@@ -507,7 +507,7 @@ impl SchemaInfo {
 
         let (root, nested) = split_nested_query_field(name)?;
         self.nested_fields(root)?
-            .field_type(nested.split('.'))
+            .field_type(&nested.split('.'))
             .map(Cow::Owned)
     }
 
@@ -519,7 +519,7 @@ impl SchemaInfo {
         }
         split_nested_query_field(name).is_some_and(|(root, nested)| {
             self.nested_fields(root)
-                .is_some_and(|fields| fields.leaf(nested.split('.')).is_some())
+                .is_some_and(|fields| fields.leaf(&nested.split('.')).is_some())
         })
     }
 
@@ -703,7 +703,7 @@ impl SchemaInfo {
         segments: &[String],
     ) -> Option<SqlCapabilities> {
         let fields = self.nested_fields(name)?;
-        let leaf = fields.leaf(segments.iter().map(String::as_str))?;
+        let leaf = fields.leaf(&segments.iter().map(String::as_str))?;
         let query_kind = query_field_kind_from_persisted_kind(
             leaf.kind(),
             self.value_catalog.composite_catalog(),
@@ -726,7 +726,7 @@ impl SchemaInfo {
     pub(in crate::db) fn accepted_nested_query_field_kind<'a>(
         &self,
         name: &str,
-        segments: impl Iterator<Item = &'a str> + Clone,
+        segments: &(impl Iterator<Item = &'a str> + Clone),
     ) -> Option<&AcceptedFieldKind> {
         self.nested_fields(name)?
             .leaf(segments)

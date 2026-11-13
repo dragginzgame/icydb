@@ -73,21 +73,17 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn exact_count_request_is_scalar_metadata_shape(request: &DynamicQuery) -> bool {
-        if !request.order_terms().is_empty()
-            || !request.selected_fields().is_empty()
-            || request.row_limit().is_some()
-            || request.has_grouping()
-            || request.grouped_execution_limits().is_some()
-            || request.continuation_cursor().is_some()
-        {
-            return false;
-        }
         #[cfg(test)]
         if request.projection_is_distinct() {
             return false;
         }
 
-        true
+        request.order_terms().is_empty()
+            && request.selected_fields().is_empty()
+            && request.row_limit().is_none()
+            && !request.has_grouping()
+            && request.grouped_execution_limits().is_none()
+            && request.continuation_cursor().is_none()
     }
 
     fn exact_count_plan_against_catalog(
@@ -150,9 +146,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_exact_count_against_catalog(
         &self,
         request: &DynamicQuery,
-        catalog: AcceptedSchemaCatalogContext,
+        catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<u64, QueryError> {
-        let plan = self.exact_count_plan_against_catalog(request, &catalog)?;
+        let plan = self.exact_count_plan_against_catalog(request, catalog)?;
         let authority = catalog.accepted_entity_authority();
         let target = match &plan {
             ExactCountPlan::Entity => ExactCardinalityTarget::Entity,
@@ -162,7 +158,7 @@ impl<C: CanisterKind> DbSession<C> {
         };
         execute_exact_cardinality_for_canister(
             &self.db,
-            authority,
+            &authority,
             DiagnosticExecutionLane::PublicRead,
             target,
         )
@@ -183,7 +179,7 @@ impl<C: CanisterKind> DbSession<C> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
             .map_err(QueryError::execute)?;
-        self.execute_exact_count_against_catalog(request, catalog)
+        self.execute_exact_count_against_catalog(request, &catalog)
     }
 
     /// Execute one exact count through a typed binding's immutable accepted
@@ -200,7 +196,7 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        self.execute_exact_count_against_catalog(request, catalog)
+        self.execute_exact_count_against_catalog(request, &catalog)
             .map(Some)
     }
 }

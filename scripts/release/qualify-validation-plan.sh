@@ -28,9 +28,9 @@ for candidate_run in "$attempt"/logs/validation.*; do
 done
 [[ -n "$run" ]] || { echo 'missing plan invocation' >&2; exit 1; }
 # Shared owns evidence admission and atomic byte custody; IcyDB owns authority.
-# shellcheck source=scripts/ci/release-receipts.sh
-source scripts/ci/release-receipts.sh
-release_receipt_write "$attempt/evidence.json" perl scripts/ci/validation-evidence.pl verify \
+# shellcheck source=vendor/toko-tooling/scripts/ci/release-receipts.sh
+source vendor/toko-tooling/scripts/ci/release-receipts.sh
+release_receipt_write "$attempt/evidence.json" perl vendor/toko-tooling/scripts/ci/validation-evidence.pl verify \
     "$root" "$attempt/plan.json" "$RELEASE_SOURCE" "$RELEASE_GROUP" "$run" "$attempt/plan.json.context.json"
 release_receipt_write "$attempt/receipt.json" perl scripts/release/validation-receipt.pl \
     "$attempt/plan.json" "$run" "$attempt/evidence.json"

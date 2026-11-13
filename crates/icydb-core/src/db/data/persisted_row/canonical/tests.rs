@@ -17,10 +17,6 @@ use crate::{
 };
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep accepted encode/decode and reverse-projection controls paired for each collection and key kind"
-)]
 fn nullable_relation_collections_preserve_null_empty_and_populated_slots() {
     let catalog = AcceptedValueCatalogHandle::new_for_tests(
         empty_accepted_enum_catalog_for_tests(),
@@ -73,7 +69,7 @@ fn nullable_relation_collections_preserve_null_empty_and_populated_slots() {
                     if !nullable && matches!(value, Value::Null) {
                         assert!(
                             encode_canonical_value_for_accepted_field_contract(
-                                encoding.clone(),
+                                &encoding.clone(),
                                 &value
                             )
                             .is_err()
@@ -85,7 +81,7 @@ fn nullable_relation_collections_preserve_null_empty_and_populated_slots() {
                         continue;
                     }
                     let bytes = encode_canonical_value_for_accepted_field_contract(
-                        encoding.clone(),
+                        &encoding.clone(),
                         &value,
                     )
                     .unwrap();
@@ -98,7 +94,7 @@ fn nullable_relation_collections_preserve_null_empty_and_populated_slots() {
                         validate_non_scalar_accepted_slot_value(&bytes, field).unwrap();
                         assert_eq!(
                             encode_canonical_value_for_accepted_field_contract(
-                                encoding.clone(),
+                                &encoding.clone(),
                                 &decoded
                             )
                             .unwrap(),

@@ -14,8 +14,7 @@ use crate::{
             AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
             AcceptedSchemaSnapshot, CandidateSchemaRevision, ConstraintActivationState,
             ConstraintId, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaStore, SchemaTransitionPlan, StagedUserIndexDomainReplacement,
-            mutation::required_empty_entity_field_addition_matches, plan_sql_ddl_addition,
+            SchemaStore, StagedUserIndexDomainReplacement,
         },
     },
     error::InternalError,
@@ -69,11 +68,11 @@ fn publish_sql_ddl_constraint_removal(
 
 fn publish_accepted_entity_snapshot_revision(
     store: StoreHandle,
-    expected_identity: AcceptedCatalogIdentity,
+    expected_identity: &AcceptedCatalogIdentity,
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
     let Some((expected_revision, candidate)) =
-        prepare_accepted_entity_snapshot_revision(store, &expected_identity, accepted_after)?
+        prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
     else {
         return Ok(());
     };
@@ -87,12 +86,12 @@ fn publish_accepted_entity_snapshot_revision(
 
 fn publish_accepted_entity_snapshot_revision_with_user_index_domain(
     store: StoreHandle,
-    expected_identity: AcceptedCatalogIdentity,
+    expected_identity: &AcceptedCatalogIdentity,
     accepted_after: &PersistedSchemaSnapshot,
     replacement: StagedUserIndexDomainReplacement,
 ) -> Result<(), InternalError> {
     let Some((expected_revision, candidate)) =
-        prepare_accepted_entity_snapshot_revision(store, &expected_identity, accepted_after)?
+        prepare_accepted_entity_snapshot_revision(store, expected_identity, accepted_after)?
     else {
         return Err(InternalError::store_invariant());
     };
@@ -178,20 +177,16 @@ fn candidate_with_snapshot(
 pub(in crate::db) fn execute_schema_field_path_index_addition(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
-    let SchemaTransitionPlan::AddFieldPathIndex { target } = envelope.require_transition_plan()?
-    else {
-        return Err(InternalError::store_unsupported());
-    };
-    if Some(&target) != derivation.admission().field_path_target() {
+    )?;
+    if derivation.admission().field_path_target().is_none() {
         return Err(InternalError::store_unsupported());
     }
 
@@ -203,20 +198,16 @@ pub(in crate::db) fn execute_schema_field_path_index_addition(
 pub(in crate::db) fn execute_schema_expression_index_addition(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
-    let SchemaTransitionPlan::AddExpressionIndex { target } = envelope.require_transition_plan()?
-    else {
-        return Err(InternalError::store_unsupported());
-    };
-    if Some(&target) != derivation.admission().expression_target() {
+    )?;
+    if derivation.admission().expression_target().is_none() {
         return Err(InternalError::store_unsupported());
     }
 
@@ -227,11 +218,11 @@ pub(in crate::db) fn execute_schema_expression_index_addition(
 // Kind-specific target checks remain at their entrypoints before any staging.
 fn stage_and_publish_sql_ddl_index_addition(
     envelope: &SqlDdlPublicationEnvelope<'_>,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
 ) -> Result<(usize, usize), InternalError> {
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        &accepted_before_identity,
+        accepted_before_identity,
         envelope.before(),
         envelope.after(),
     )?;
@@ -262,15 +253,15 @@ pub(in crate::db) fn execute_schema_field_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
+    )?;
     let Some(target) = derivation.admission().field_addition_target() else {
         return Err(InternalError::store_unsupported());
     };
@@ -287,18 +278,7 @@ pub(in crate::db) fn execute_schema_field_addition(
         added_field.historical_fill(),
         crate::db::schema::SchemaHistoricalFill::Reject
     ) {
-        if !required_empty_entity_field_addition_matches(
-            envelope.before(),
-            envelope.after(),
-            added_field,
-        ) {
-            return Err(InternalError::store_unsupported());
-        }
         require_exact_empty_sql_ddl_entity(store, entity_tag)?;
-    } else {
-        let SchemaTransitionPlan::AppendOnlyFields = envelope.require_transition_plan()? else {
-            return Err(InternalError::store_unsupported());
-        };
     }
 
     envelope.publish()
@@ -319,7 +299,7 @@ pub(super) fn require_exact_empty_sql_ddl_entity(
 
 pub(super) struct SqlDdlPublicationEnvelope<'a> {
     store: StoreHandle,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &'a AcceptedCatalogIdentity,
     before: &'a PersistedSchemaSnapshot,
     after: &'a PersistedSchemaSnapshot,
 }
@@ -328,15 +308,18 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
     pub(super) fn new(
         store: StoreHandle,
         accepted_before: &'a AcceptedSchemaSnapshot,
-        accepted_before_identity: &AcceptedCatalogIdentity,
+        accepted_before_identity: &'a AcceptedCatalogIdentity,
         derivation: &'a SchemaDdlAcceptedSnapshotDerivation,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        if !derivation.matches_before(accepted_before, accepted_before_identity)? {
+            return Err(InternalError::store_unsupported());
+        }
+        Ok(Self {
             store,
-            accepted_before_identity: accepted_before_identity.clone(),
+            accepted_before_identity,
             before: accepted_before.persisted_snapshot(),
             after: derivation.accepted_after().persisted_snapshot(),
-        }
+        })
     }
 
     pub(super) const fn store(&self) -> StoreHandle {
@@ -351,14 +334,10 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.after
     }
 
-    pub(super) fn require_transition_plan(&self) -> Result<SchemaTransitionPlan, InternalError> {
-        plan_sql_ddl_addition(self.before, self.after).ok_or_else(InternalError::store_unsupported)
-    }
-
     pub(super) fn publish(&self) -> Result<(), InternalError> {
         publish_accepted_entity_snapshot_revision(
             self.store,
-            self.accepted_before_identity.clone(),
+            self.accepted_before_identity,
             self.after,
         )
     }
@@ -369,21 +348,21 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
 pub(in crate::db) fn execute_schema_secondary_index_drop(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
+    )?;
     if !derivation.admission().is_secondary_drop() {
         return Err(InternalError::store_unsupported());
     }
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
-        &accepted_before_identity,
+        accepted_before_identity,
         envelope.before(),
         envelope.after(),
     )?;

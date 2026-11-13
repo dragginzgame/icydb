@@ -321,7 +321,7 @@ fn typed_value_patch(
 }
 
 fn assert_query_diagnostic(
-    error: crate::db::QueryError,
+    error: &crate::db::QueryError,
     code: icydb_diagnostic_code::DiagnosticCode,
     origin: icydb_diagnostic_code::ErrorOrigin,
     detail: icydb_diagnostic_code::DiagnosticDetail,
@@ -706,7 +706,6 @@ fn same_entity_typed_mutation_batch_preserves_mixed_result_order() {
 
 // Keep the full rename, stale-binding, and old-name-reuse lifecycle in one
 // regression so each issued binding is checked against the next revision.
-#[expect(clippy::too_many_lines)]
 #[test]
 fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
     let entity_tag = EntityTag::new(91);
@@ -969,7 +968,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
         );
         assert_eq!(result.row_count, 1);
         assert_query_diagnostic(
-            session
+            &session
                 .execute_trusted_live_page(&query.cursor("00"), None)
                 .expect_err("scalar execution must reject grouped cursor state"),
             icydb_diagnostic_code::DiagnosticCode::QueryIntent,
@@ -979,7 +978,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
             },
         );
         assert_query_diagnostic(
-            session
+            &session
                 .execute_public_dynamic_grouped_query(
                     &crate::db::DynamicQuery::new("RenamedEntity").grouped_limits(1, 1024),
                 )
@@ -1044,7 +1043,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
         );
 
         assert_query_diagnostic(
-            session
+            &session
                 .execute_public_dynamic_grouped_query(&grouped_query.clone().select(["value"]))
                 .expect_err("grouped output must reject scalar selection"),
             icydb_diagnostic_code::DiagnosticCode::QueryIntent,
@@ -1054,7 +1053,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
             },
         );
         assert_query_diagnostic(
-            session
+            &session
                 .execute_public_dynamic_grouped_query(
                     &crate::db::DynamicQuery::new("RenamedEntity")
                         .group_by("value")
@@ -1068,7 +1067,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
             },
         );
         assert_query_diagnostic(
-            session
+            &session
                 .execute_trusted_dynamic_grouped_query(
                     &crate::db::DynamicQuery::new("RenamedEntity")
                         .group_by("value")
@@ -1083,7 +1082,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
             },
         );
         assert_query_diagnostic(
-            session
+            &session
                 .execute_public_dynamic_grouped_query(&grouped_query.grouped_limits(101, 1024))
                 .expect_err("public grouped execution must enforce its group budget"),
             icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
@@ -1099,7 +1098,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
             .grouped_limits(2, 16 * 1024)
             .limit(1);
         assert_query_diagnostic(
-            session
+            &session
                 .execute_public_dynamic_grouped_query(&paged_query)
                 .expect_err("public grouped execution must reject an unbounded full scan"),
             icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
@@ -1120,7 +1119,7 @@ fn typed_binding_uses_accepted_ids_and_slots_across_renames_and_name_reuse() {
             .next_cursor
             .expect("first grouped page should return a continuation cursor");
         assert_query_diagnostic(
-            session
+            &session
                 .execute_trusted_dynamic_grouped_query(
                     &paged_query.clone().cursor(format!("{cursor}0")),
                 )

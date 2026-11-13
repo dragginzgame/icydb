@@ -694,7 +694,7 @@ impl PreparedUserIndex {
             SchemaMutationRequest::AddExpressionIndex { target } => {
                 PreparedUserIndexTarget::Expression(target)
             }
-            SchemaMutationRequest::ExactMatch | SchemaMutationRequest::AppendOnlyFields(_) => {
+            SchemaMutationRequest::AppendOnlyFields(_) => {
                 return Err(StagedUserIndexDomainError::UnsupportedAcceptedIndex);
             }
         };
@@ -810,7 +810,6 @@ impl UniqueConstraintProjection {
 #[cfg(feature = "migration")]
 pub(in crate::db) struct MigrationIndexProjection {
     entity_tag: EntityTag,
-    index_id: crate::db::index::IndexId,
     prepared: PreparedUserIndex,
 }
 
@@ -830,18 +829,8 @@ impl MigrationIndexProjection {
                 .map_err(StagedUserIndexDomainError::into_internal_error)?;
         Ok(Self {
             entity_tag,
-            index_id: crate::db::index::IndexId::new_with_generation(
-                entity_tag,
-                index.ordinal(),
-                index.physical_generation(),
-            ),
             prepared,
         })
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn index_id(&self) -> crate::db::index::IndexId {
-        self.index_id
     }
 
     pub(in crate::db) fn derive_key(

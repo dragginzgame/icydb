@@ -74,7 +74,11 @@ fn plan(
         .map(|(_, reuse)| reuse)
 }
 
-fn assert_exhausted(error: QueryError, root: &RequestExecutionRoot, lane: DiagnosticExecutionLane) {
+fn assert_exhausted(
+    error: &QueryError,
+    root: &RequestExecutionRoot,
+    lane: DiagnosticExecutionLane,
+) {
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::InstructionUnits.raw()
@@ -199,7 +203,7 @@ fn cache_sizing_watermark_rejects_before_publication() {
                             .unwrap_err();
                     })
                     .unwrap_err();
-                assert_exhausted(error, &root, lane);
+                assert_exhausted(&error, &root, lane);
                 assert_eq!(
                     setup.shared_query_cache_usage_for_tests(),
                     if keep_existing { retained } else { (0, 0) },
@@ -230,7 +234,7 @@ fn cache_lookup_watermark_precedes_compilation_and_warm_reuse() {
         let session = new_request_session_with_root(&root);
         for _ in 0..2 {
             assert_exhausted(
-                plan(&session, &catalog, &query, lane).unwrap_err(),
+                &plan(&session, &catalog, &query, lane).unwrap_err(),
                 &root,
                 lane,
             );
@@ -253,7 +257,7 @@ fn cache_lookup_watermark_precedes_compilation_and_warm_reuse() {
         // a plan, replace its cache entry, or start compilation on a changed key.
         for current in [&query, &query.clone().limit(2), &query] {
             assert_exhausted(
-                plan(&session, &catalog, current, lane).unwrap_err(),
+                &plan(&session, &catalog, current, lane).unwrap_err(),
                 &root,
                 lane,
             );
@@ -295,7 +299,7 @@ fn filtered_preparation_watermark_keeps_the_previous_bound_memo() {
         let root = request(true, lane);
         let session = new_request_session_with_root(&root);
         assert_exhausted(
-            plan(&session, &catalog, &first, lane).unwrap_err(),
+            &plan(&session, &catalog, &first, lane).unwrap_err(),
             &root,
             lane,
         );
@@ -304,13 +308,13 @@ fn filtered_preparation_watermark_keeps_the_previous_bound_memo() {
         let before = setup.shared_query_cache_usage_for_tests();
         for _ in 0..2 {
             assert_exhausted(
-                plan(&session, &catalog, &second, lane).unwrap_err(),
+                &plan(&session, &catalog, &second, lane).unwrap_err(),
                 &root,
                 lane,
             );
             assert_eq!(setup.shared_query_cache_usage_for_tests(), before);
             assert_exhausted(
-                plan(&session, &catalog, &first, lane).unwrap_err(),
+                &plan(&session, &catalog, &first, lane).unwrap_err(),
                 &root,
                 lane,
             );
@@ -341,7 +345,7 @@ fn filtered_nonparameterized_hits_finish_preparation_before_cache_reuse() {
             let root = request(true, lane);
             let session = new_request_session_with_root(&root);
             assert_exhausted(
-                plan(&session, &catalog, &query, lane).unwrap_err(),
+                &plan(&session, &catalog, &query, lane).unwrap_err(),
                 &root,
                 lane,
             );
@@ -351,7 +355,7 @@ fn filtered_nonparameterized_hits_finish_preparation_before_cache_reuse() {
             let retained = setup.shared_query_cache_usage_for_tests();
             for _ in 0..2 {
                 assert_exhausted(
-                    plan(&session, &catalog, &query, lane).unwrap_err(),
+                    &plan(&session, &catalog, &query, lane).unwrap_err(),
                     &root,
                     lane,
                 );
@@ -389,7 +393,7 @@ fn pinned_route_unavailability_does_not_hide_watermark_exhaustion() {
                 pin,
             )
             .unwrap_err();
-        assert_exhausted(error, &root, lane);
+        assert_exhausted(&error, &root, lane);
         assert!(
             setup
                 .structural_projection_prepared_plan_for_accepted_authority_with_route_pin(

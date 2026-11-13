@@ -1023,12 +1023,12 @@ impl QuickIntegrityAccumulator {
 }
 
 pub(in crate::db) fn uninspectable_quick_integrity(
-    identity: crate::db::schema::AcceptedCatalogIdentity,
+    identity: &crate::db::schema::AcceptedCatalogIdentity,
     incarnation: DatabaseIncarnationId,
     diagnostic: IntegrityAuthorityDiagnostic,
 ) -> QuickIntegrityResult {
     QuickIntegrityResult {
-        entity: IntegrityEntityIdentity::from_accepted_identity(&identity),
+        entity: IntegrityEntityIdentity::from_accepted_identity(identity),
         database_incarnation_id: incarnation,
         accepted_schema_version: identity.accepted_schema_version().get(),
         accepted_schema_fingerprint: identity.accepted_schema_fingerprint(),
@@ -1054,7 +1054,7 @@ pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
                 return Err(error);
             };
             return Ok(uninspectable_quick_integrity(
-                plan.identity(),
+                &plan.identity(),
                 incarnation,
                 diagnostic,
             ));

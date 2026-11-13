@@ -458,10 +458,12 @@ fn accepted_with_check(
     let catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "score_policy".to_string(),
             ConstraintOrigin::Generated,
-            expression,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(expression),
+            },
         )
         .expect("test check constraint should allocate");
     let constraint_id = catalog
@@ -528,10 +530,6 @@ impl TargetedRuleFixture {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one accepted fixture keeps every structural edge and its stable identities together"
-)]
 fn targeted_rule_fixture() -> TargetedRuleFixture {
     let degree_type = CompositeTypeId::new(1).expect("degree type ID should be non-zero");
     let node_type = CompositeTypeId::new(2).expect("node type ID should be non-zero");
@@ -811,53 +809,61 @@ fn targeted_rule_fixture() -> TargetedRuleFixture {
     let mut catalog = snapshot.constraint_catalog().clone();
     for root_field_id in 2..=7 {
         catalog = catalog
-            .with_added_targeted_rule(
+            .with_added_row_constraint(
                 format!("degree_rule_{root_field_id}"),
                 ConstraintOrigin::Generated,
-                AcceptedRuleTarget::new(
-                    FieldId::new(root_field_id),
-                    AcceptedNamedTypeIdentity::Composite(degree_type),
-                ),
-                numeric_operation(),
+                AcceptedConstraintKind::TargetedRule {
+                    target: AcceptedRuleTarget::new(
+                        FieldId::new(root_field_id),
+                        AcceptedNamedTypeIdentity::Composite(degree_type),
+                    ),
+                    operation: Box::new(numeric_operation()),
+                },
             )
             .expect("numeric targeted rule should allocate");
     }
     catalog = catalog
-        .with_added_targeted_rule(
+        .with_added_row_constraint(
             "wrapped_degree_rule".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedRuleTarget::new(
-                FieldId::new(11),
-                AcceptedNamedTypeIdentity::Composite(degree_type),
-            ),
-            AcceptedRuleOperation::NumericMaximumInclusive {
-                value: numeric_literal(10),
+            AcceptedConstraintKind::TargetedRule {
+                target: AcceptedRuleTarget::new(
+                    FieldId::new(11),
+                    AcceptedNamedTypeIdentity::Composite(degree_type),
+                ),
+                operation: Box::new(AcceptedRuleOperation::NumericMaximumInclusive {
+                    value: numeric_literal(10),
+                }),
             },
         )
         .expect("wrapped numeric maximum should allocate");
     catalog = catalog
-        .with_added_targeted_rule(
+        .with_added_row_constraint(
             "wrapped_degree_minimum".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedRuleTarget::new(
-                FieldId::new(11),
-                AcceptedNamedTypeIdentity::Composite(degree_type),
-            ),
-            AcceptedRuleOperation::NumericMinimumInclusive {
-                value: numeric_literal(3),
+            AcceptedConstraintKind::TargetedRule {
+                target: AcceptedRuleTarget::new(
+                    FieldId::new(11),
+                    AcceptedNamedTypeIdentity::Composite(degree_type),
+                ),
+                operation: Box::new(AcceptedRuleOperation::NumericMinimumInclusive {
+                    value: numeric_literal(3),
+                }),
             },
         )
         .expect("wrapped numeric minimum should allocate");
     catalog = catalog
-        .with_added_targeted_rule(
+        .with_added_row_constraint(
             "wrapped_degree_multiple".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedRuleTarget::new(
-                FieldId::new(11),
-                AcceptedNamedTypeIdentity::Composite(degree_type),
-            ),
-            AcceptedRuleOperation::MultipleOf {
-                divisor: numeric_literal(5),
+            AcceptedConstraintKind::TargetedRule {
+                target: AcceptedRuleTarget::new(
+                    FieldId::new(11),
+                    AcceptedNamedTypeIdentity::Composite(degree_type),
+                ),
+                operation: Box::new(AcceptedRuleOperation::MultipleOf {
+                    divisor: numeric_literal(5),
+                }),
             },
         )
         .expect("wrapped exact multiple should allocate");
@@ -882,14 +888,16 @@ fn targeted_rule_fixture() -> TargetedRuleFixture {
         ),
     ] {
         catalog = catalog
-            .with_added_targeted_rule(
+            .with_added_row_constraint(
                 name.to_string(),
                 ConstraintOrigin::Generated,
-                AcceptedRuleTarget::new(
-                    FieldId::new(root_field_id),
-                    AcceptedNamedTypeIdentity::Composite(target_type),
-                ),
-                operation,
+                AcceptedConstraintKind::TargetedRule {
+                    target: AcceptedRuleTarget::new(
+                        FieldId::new(root_field_id),
+                        AcceptedNamedTypeIdentity::Composite(target_type),
+                    ),
+                    operation: Box::new(operation),
+                },
             )
             .expect("length targeted rule should allocate");
     }
@@ -1586,10 +1594,12 @@ fn targeted_rules_share_stable_constraint_id_order() {
         .persisted_snapshot()
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "late_false".to_string(),
             ConstraintOrigin::Generated,
-            AcceptedCheckExprV1::False,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(AcceptedCheckExprV1::False),
+            },
         )
         .expect("late check should allocate");
     let late_check_id = late_catalog
@@ -2112,16 +2122,20 @@ fn integrity_check_program_evaluates_each_validated_check_by_stable_ordinal() {
     let constraint_catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "score_policy".to_string(),
             ConstraintOrigin::Generated,
-            score,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(score),
+            },
         )
         .expect("score check should allocate")
-        .with_added_check(
+        .with_added_row_constraint(
             "nickname_policy".to_string(),
             ConstraintOrigin::Generated,
-            nickname,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(nickname),
+            },
         )
         .expect("nickname check should allocate");
     let accepted =
@@ -2552,10 +2566,6 @@ fn compiled_checks_reject_stale_fingerprint_and_missing_required_slot() {
 
 #[cfg(feature = "sql")]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one bounded matrix qualifies SQL binding and compiled checks for direct and nominal list/set/map fields"
-)]
 fn sql_cardinality_checks_round_trip_collections_and_nominal_wrappers() {
     let text = AcceptedFieldKind::Text { max_len: None };
     for (kind, two_items) in [
@@ -2708,7 +2718,13 @@ fn sql_cardinality_checks_round_trip_collections_and_nominal_wrappers() {
             let constraints = snapshot
                 .constraint_catalog()
                 .clone()
-                .with_added_check("tags_limit".into(), ConstraintOrigin::SqlDdl, expected)
+                .with_added_row_constraint(
+                    "tags_limit".into(),
+                    ConstraintOrigin::SqlDdl,
+                    AcceptedConstraintKind::Check {
+                        expression: Box::new(expected),
+                    },
+                )
                 .unwrap();
             let accepted =
                 AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints))
@@ -2882,10 +2898,6 @@ fn local_validation_defers_composite_meaning_but_exact_validation_rejects_non_ne
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one accepted newtype fixture qualifies SQL round-trips and compiled numeric, decimal, and length semantics"
-)]
 fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
     let type_id = CompositeTypeId::new(1).expect("test composite type ID should be non-zero");
     let label_type_id = CompositeTypeId::new(2).expect("test composite type ID should be non-zero");
@@ -3115,10 +3127,12 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
     let catalog = snapshot
         .constraint_catalog()
         .clone()
-        .with_added_check(
+        .with_added_row_constraint(
             "degrees_range".to_string(),
             ConstraintOrigin::Generated,
-            expression,
+            AcceptedConstraintKind::Check {
+                expression: Box::new(expression),
+            },
         )
         .expect("newtype check constraint should allocate");
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(catalog))

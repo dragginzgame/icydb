@@ -1923,10 +1923,6 @@ fn validate_provider_target(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one audit gate validates the complete finite obligation catalog before projection"
-)]
 fn validate_catalog() -> Result<(), String> {
     if MANIFEST.len() != EXPECTED_MANIFEST_FEATURE_COUNT {
         return Err(format!(

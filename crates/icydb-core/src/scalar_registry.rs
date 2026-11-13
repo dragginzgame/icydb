@@ -161,6 +161,7 @@ macro_rules! scalar_registry_entries {
 }
 
 #[macro_export]
+/// Invoke a consumer macro with the schema-owned scalar registry and optional arguments.
 macro_rules! scalar_registry {
     ($macro:ident) => {
         $crate::scalar_registry_entries!($macro)

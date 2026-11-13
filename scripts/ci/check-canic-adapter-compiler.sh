@@ -7,7 +7,7 @@ cd "$ROOT"
 make --no-print-directory check-adapter-tooling
 bash "$ROOT/scripts/ci/check-rust-compiler.sh"
 
-expected="$(bash "$ROOT/scripts/ci/read-cargo-workspace-rust-version.sh" "$ROOT/Cargo.toml")"
+expected="$(bash "$ROOT/vendor/toko-tooling/scripts/ci/read-cargo-workspace-rust-version.sh" "$ROOT/Cargo.toml")"
 
 # External expansion is a separate compiler boundary from the defining library.
 # Cargo derives each disposable consumer lock from the selected workspace lock;

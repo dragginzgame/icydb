@@ -74,7 +74,7 @@ pub(crate) fn sql_query_result_from_statement(
         } => SqlQueryResult::Grouped(sql_grouped_rows_output(
             entity_name,
             columns,
-            fixed_scales,
+            &fixed_scales,
             rows,
             row_count,
             next_cursor,
@@ -134,7 +134,7 @@ fn usize_to_u64_saturating(value: usize) -> u64 {
 fn sql_grouped_rows_output(
     entity_name: String,
     columns: Vec<String>,
-    fixed_scales: Vec<Option<u32>>,
+    fixed_scales: &[Option<u32>],
     rows: Vec<GroupedRow>,
     row_count: u32,
     next_cursor: Option<String>,

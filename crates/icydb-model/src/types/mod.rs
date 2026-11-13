@@ -1,3 +1,5 @@
+//! Authoring scalar vocabulary and field multiplicity.
+
 use crate::prelude::*;
 use icydb_schema::ScalarKind;
 use std::str::FromStr;
@@ -11,11 +13,15 @@ use std::str::FromStr;
 // `Many` means repeated values (for list/set-like shapes).
 //
 
+/// Multiplicity of a schema field.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Cardinality {
+    /// One required value.
     #[default]
     One,
+    /// An optional value; absence is valid.
     Opt,
+    /// Repeated values in a collection.
     Many,
 }
 
@@ -42,10 +48,14 @@ impl FromStr for Cardinality {
 
 macro_rules! define_primitive {
     ( @entries $( ($primitive:ident, $scalar:ident) ),* $(,)? ) => {
+        /// Width-preserving scalar vocabulary for application authoring.
         #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
         #[remain::sorted]
         pub enum Primitive {
-            $( $primitive, )*
+            $(
+                #[doc = concat!("Authoring `", stringify!($primitive), "` value, mapped to [`ScalarKind::", stringify!($scalar), "`].")]
+                $primitive,
+            )*
         }
 
         impl FromStr for Primitive {
@@ -70,6 +80,7 @@ macro_rules! define_primitive {
 icydb_schema::authoring_primitive_registry!(define_primitive);
 
 impl Primitive {
+    /// Whether this scalar can be encoded as a primary-key component.
     #[must_use]
     pub const fn is_primary_key_component_encodable(self) -> bool {
         primitive_scalar_kind(self).is_primary_key_component_encodable()

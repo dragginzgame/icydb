@@ -26,7 +26,7 @@ export FROZEN_TEST_RECORD="$fixture" FROZEN_TEST_NORMAL="$normal" FROZEN_TEST_CA
 FROZEN_TEST_CARGO="$(command -v cargo)"
 FROZEN_TEST_CURL="$(command -v curl)"
 FROZEN_TEST_SOURCE_CACHE="$(make --no-print-directory -s -C "$root" print-cargo-home)"
-bash "$root/scripts/ci/verify-toko-tooling-snapshot.sh" --consumer "$root"
+bash "$root/vendor/toko-tooling/scripts/ci/verify-toko-tooling-snapshot.sh" --consumer "$root"
 git -C "$root" ls-files --cached --others --exclude-standard -z > "$fixture/source-paths"
 while IFS= read -r -d '' path; do
     [[ -e "$root/$path" ]] || continue

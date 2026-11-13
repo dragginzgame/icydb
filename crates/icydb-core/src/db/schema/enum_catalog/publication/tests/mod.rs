@@ -125,18 +125,18 @@ fn root_selection_checks_checksum_before_reporting_unsupported_format() {
 }
 
 #[test]
-fn candidate_preparation_shares_admission_across_verification_and_identity() {
+fn candidate_preparation_shares_admission_across_encoding_and_hashing() {
     let candidate = empty_accepted_schema_candidate_for_tests(
         "test::Candidate",
         AcceptedSchemaRevision::INITIAL,
     );
     let path_visits = 1 + candidate.store_path().len() as u64;
     let bundle_visits = candidate.encoded_bundle().len() as u64;
-    let all_visits = path_visits + 2 * bundle_visits + candidate.encoded_root().len() as u64;
+    let all_visits = path_visits + bundle_visits;
 
-    // Admit the path and first wire pass, but not the next pass. A separate
-    // allowance for hashing/root creation would incorrectly admit this input.
-    for limit in [path_visits + bundle_visits, all_visits - 1] {
+    // Path copying and hashing share one allowance. Resetting the allowance
+    // between stages would incorrectly admit these limits.
+    for limit in [path_visits, all_visits - 1] {
         let work = MaintenanceConstructionBudget::with_limit_for_tests(
             Resource::PredicateExpressionSteps,
             limit,
@@ -192,10 +192,17 @@ fn candidate_preparation_preserves_resource_and_semantic_rejections() {
         DiagnosticFactTag::BudgetResource,
         Resource::TemporaryBytes.raw(),
     )));
-    let mut invalid = candidate.bundle().clone();
-    invalid.store_path.clear();
-    let error = CandidateSchemaRevision::prepare(invalid, &MaintenanceConstructionBudget::new())
-        .unwrap_err();
+    // Invalid unpublished input must fail at the immutable bundle's constructor.
+    let bundle = candidate.bundle();
+    let error = super::AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        bundle.revision(),
+        "",
+        bundle.enum_catalog().clone(),
+        bundle.composite_catalog().clone(),
+        bundle.source_bindings().clone(),
+        bundle.entity_snapshots().clone(),
+    )
+    .unwrap_err();
     assert_eq!(error.class(), ErrorClass::InvariantViolation);
     assert!(
         !error
@@ -211,10 +218,6 @@ fn candidate_constructors_reject_invalid_contents_before_publication() {
         "test::Candidate",
         AcceptedSchemaRevision::INITIAL,
     );
-    let mut invalid_bundle = candidate.bundle().clone();
-    invalid_bundle.store_path.clear();
-    assert!(CandidateSchemaRevision::new(invalid_bundle).is_err());
-
     let mut malformed_bundle = candidate.encoded_bundle().to_vec();
     malformed_bundle[0] ^= 1;
     let mut matching_hash_root = candidate.root();

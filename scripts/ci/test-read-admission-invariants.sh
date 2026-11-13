@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$ROOT/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 scratch="$(fixture_create "${TMPDIR:-/tmp}/icydb-read-admission.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$scratch" "Read-admission fixture retained"' EXIT

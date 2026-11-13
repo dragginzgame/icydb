@@ -33,7 +33,7 @@ use std::borrow::Cow;
 const VALUE_TAG_TEXT: u8 = 0x12;
 const VALUE_TAG_LIST: u8 = 0x20;
 const CANONICAL_ENUM_TAG: u8 = 0x84;
-fn assert_err<T, E>(label: &str, result: Result<T, E>) {
+fn assert_err<T, E>(label: &str, result: &Result<T, E>) {
     assert!(result.is_err(), "{label} should fail closed");
 }
 
@@ -149,7 +149,7 @@ fn database_boot_record_malformed_corpus_fails_closed() {
 
     assert!(
         validate_current_boot_record(&memory_with_prefix(&database_boot_record(
-            *b"ICYDBID\0",
+            *b"ICYDBU18",
             1,
             1,
         )))
@@ -157,9 +157,9 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         "current version-1 hard-cut identity should admit",
     );
 
-    let mut corrupt_magic = database_boot_record(*b"ICYDBID\0", 1, 1);
+    let mut corrupt_magic = database_boot_record(*b"ICYDBU18", 1, 1);
     corrupt_magic[0] = b'X';
-    let mut corrupt_checksum = database_boot_record(*b"ICYDBID\0", 1, 1);
+    let mut corrupt_checksum = database_boot_record(*b"ICYDBU18", 1, 1);
     corrupt_checksum[DATABASE_BOOT_RECORD_BYTES - 1] ^= 0xff;
     let cases = [
         (
@@ -179,7 +179,7 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         ),
         (
             "unsupported database version",
-            database_boot_record(*b"ICYDBID\0", 2, 1),
+            database_boot_record(*b"ICYDBU18", 2, 1),
             vec![
                 (DiagnosticFactTag::ExpectedVersion, 1),
                 (DiagnosticFactTag::ActualVersion, 2),
@@ -187,7 +187,7 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         ),
         (
             "unknown database boot state",
-            database_boot_record(*b"ICYDBID\0", 1, 0xff),
+            database_boot_record(*b"ICYDBU18", 1, 0xff),
             vec![(
                 DiagnosticFactTag::DecodeReason,
                 DiagnosticDecodeReason::RecoveryMarkerState.raw(),
@@ -253,7 +253,7 @@ fn persisted_row_envelope_malformed_corpus_fails_closed() {
     ];
 
     for (label, bytes) in cases {
-        assert_err(label, decode_row_payload_bytes(&bytes));
+        assert_err(label, &decode_row_payload_bytes(&bytes));
     }
 }
 
@@ -269,7 +269,7 @@ fn persisted_schema_snapshot_malformed_corpus_fails_closed() {
     ];
 
     for (label, bytes) in cases {
-        assert_err(label, decode_persisted_schema_snapshot(&bytes));
+        assert_err(label, &decode_persisted_schema_snapshot(&bytes));
     }
 }
 
@@ -293,7 +293,7 @@ fn accepted_enum_catalog_malformed_corpus_fails_closed() {
     for (label, bytes) in cases {
         assert_err(
             label,
-            validate_accepted_enum_catalog_format_for_tests(&bytes),
+            &validate_accepted_enum_catalog_format_for_tests(&bytes),
         );
     }
 }
@@ -318,7 +318,7 @@ fn accepted_schema_publication_malformed_corpus_fails_closed() {
     for (label, bytes) in bundle_cases {
         assert_err(
             label,
-            validate_accepted_schema_bundle_format_for_tests(&bytes),
+            &validate_accepted_schema_bundle_format_for_tests(&bytes),
         );
     }
 
@@ -339,7 +339,7 @@ fn accepted_schema_publication_malformed_corpus_fails_closed() {
     for (label, bytes) in root_cases {
         assert_err(
             label,
-            CandidateSchemaRevision::from_encoded(candidate.encoded_bundle().to_vec(), bytes),
+            &CandidateSchemaRevision::from_encoded(candidate.encoded_bundle().to_vec(), bytes),
         );
     }
 }
@@ -366,7 +366,7 @@ fn journal_batch_malformed_corpus_fails_closed() {
     ];
 
     for (label, bytes) in cases {
-        assert_err(label, decode_journal_batch(&bytes));
+        assert_err(label, &decode_journal_batch(&bytes));
     }
 }
 
@@ -395,7 +395,7 @@ fn commit_marker_envelope_malformed_corpus_fails_closed() {
     ];
 
     for (label, bytes) in cases {
-        assert_err(label, validate_commit_marker_envelope_for_tests(&bytes));
+        assert_err(label, &validate_commit_marker_envelope_for_tests(&bytes));
     }
 }
 
@@ -418,15 +418,15 @@ fn continuation_token_malformed_corpus_fails_closed() {
     truncated_grouped.pop();
     assert_err(
         "corrupt grouped token magic",
-        GroupedContinuationToken::decode(&corrupt_grouped_magic, &[0x55; 32]),
+        &GroupedContinuationToken::decode(&corrupt_grouped_magic, &[0x55; 32]),
     );
     assert_err(
         "future grouped token",
-        GroupedContinuationToken::decode(&future_grouped, &[0x55; 32]),
+        &GroupedContinuationToken::decode(&future_grouped, &[0x55; 32]),
     );
     assert_err(
         "truncated grouped token",
-        GroupedContinuationToken::decode(&truncated_grouped, &[0x55; 32]),
+        &GroupedContinuationToken::decode(&truncated_grouped, &[0x55; 32]),
     );
 }
 
@@ -448,7 +448,7 @@ fn persisted_index_envelope_malformed_corpus_fails_closed() {
     ];
     for (label, bytes) in key_cases {
         let raw = unchecked_raw_index_key(bytes);
-        assert_err(label, IndexKey::try_from_raw(&raw));
+        assert_err(label, &IndexKey::try_from_raw(&raw));
     }
 
     let entry_cases = [
@@ -459,7 +459,7 @@ fn persisted_index_envelope_malformed_corpus_fails_closed() {
     for (label, bytes) in entry_cases {
         let oversized = bytes.len() > 1;
         match IndexEntryValue::from_bytes(Cow::Owned(bytes)) {
-            Ok(entry) => assert_err(label, entry.validate()),
+            Ok(entry) => assert_err(label, &entry.validate()),
             Err(error) => {
                 assert!(oversized, "{label}");
                 std::assert_matches!(error, ic_storage::storable::CodecError::Bounds);
@@ -488,8 +488,8 @@ fn structural_value_storage_malformed_corpus_fails_closed() {
     ];
 
     for (label, bytes) in cases {
-        assert_err(label, validate_structural_value_storage_bytes(&bytes));
-        assert_err(label, decode_structural_value_storage_bytes(&bytes));
+        assert_err(label, &validate_structural_value_storage_bytes(&bytes));
+        assert_err(label, &decode_structural_value_storage_bytes(&bytes));
     }
 }
 
@@ -524,7 +524,7 @@ fn canonical_enum_value_malformed_corpus_fails_closed() {
     ];
 
     for (label, bytes) in cases {
-        assert_err(label, decode_canonical_value_storage_bytes(&bytes));
+        assert_err(label, &decode_canonical_value_storage_bytes(&bytes));
     }
 }
 
@@ -547,11 +547,11 @@ fn structural_field_by_accepted_kind_malformed_corpus_fails_closed() {
     for (label, kind, bytes) in cases {
         assert_err(
             label,
-            validate_structural_field_by_accepted_kind_bytes(&bytes, &kind),
+            &validate_structural_field_by_accepted_kind_bytes(&bytes, &kind),
         );
         assert_err(
             label,
-            decode_structural_field_by_accepted_kind_bytes(&bytes, &kind),
+            &decode_structural_field_by_accepted_kind_bytes(&bytes, &kind),
         );
     }
 }

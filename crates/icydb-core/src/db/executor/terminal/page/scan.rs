@@ -103,7 +103,6 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
     pub(in crate::db::executor) row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 
-#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn execute_kernel_row_scan(
     request: KernelRowScanRequest<'_, '_>,
 ) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {

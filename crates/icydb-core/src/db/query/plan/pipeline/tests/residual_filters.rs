@@ -16,7 +16,6 @@ use crate::{
     },
     value::Value,
 };
-use std::rc::Rc;
 
 fn expression() -> Expr {
     Expr::Binary {
@@ -40,7 +39,7 @@ fn assemble(
     super::super::assemble_query_model_plan(
         query,
         &[],
-        Rc::new(schema.clone()),
+        schema,
         predicate,
         None,
         None,

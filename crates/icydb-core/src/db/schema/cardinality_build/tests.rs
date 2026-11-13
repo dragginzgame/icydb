@@ -428,7 +428,7 @@ fn accepted_present_indexes_count_every_prefix_and_exclude_other_domains() {
         ),
     ] {
         index
-            .apply_canonical_entry(raw, Some(value))
+            .apply_canonical_entry(raw, Some(&value))
             .expect("canonical index entry should seed");
     }
 
@@ -502,7 +502,7 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
             value,
         );
         index
-            .apply_canonical_entry(raw, Some(IndexEntryValue::presence_only()))
+            .apply_canonical_entry(raw, Some(&IndexEntryValue::presence_only()))
             .expect("canonical maximum-fanout entry should seed");
     }
     let mut schema = SchemaStore::init_journaled(schema_memory.open())
@@ -615,7 +615,7 @@ fn malformed_row_and_index_keys_fail_without_advancing_the_durable_cursor() {
     ] {
         let (data, mut index, mut schema) = initialized_stores();
         index
-            .apply_canonical_entry(raw, Some(value))
+            .apply_canonical_entry(raw, Some(&value))
             .expect("raw corruption fixture should seed");
         advance_cardinality_build_page(&data, &index, &mut schema, &authority)
             .expect("isolated slot should initialize");
@@ -908,10 +908,6 @@ fn complete_candidate_publishes_once_and_removes_its_build_cursor() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one lifecycle scenario proves row, index, Ready, and two-slot drift closure"
-)]
 fn source_drift_discards_rows_indexes_and_ready_evidence_into_alternate_slots() {
     let entity = EntityTag::new(14);
     let accepted = IndexId::new_with_generation(entity, 1, 1);
@@ -924,7 +920,7 @@ fn source_drift_discards_rows_indexes_and_ready_evidence_into_alternate_slots() 
     index
         .apply_canonical_entry(
             index_key(accepted, IndexKeyKind::User, &[vec![1]], 1),
-            Some(IndexEntryValue::presence_only()),
+            Some(&IndexEntryValue::presence_only()),
         )
         .expect("canonical accepted index should seed");
     let first = authority([entity], [(accepted, 1)], 0);

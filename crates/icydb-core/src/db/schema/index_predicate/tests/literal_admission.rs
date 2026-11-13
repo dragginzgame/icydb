@@ -58,7 +58,7 @@ fn literal_payload_bytes_obey_exact_cumulative_projection_limits() {
                 vec![Some(literal.clone()), None, Some(literal.clone())],
                 2 * bytes,
             ),
-            (CompareOp::NotIn, vec![None, Some(literal.clone())], bytes),
+            (CompareOp::NotIn, vec![None, Some(literal)], bytes),
             (CompareOp::Eq, vec![None], 0),
             (CompareOp::In, vec![], 0),
         ] {

@@ -16,6 +16,7 @@ use crate::{prelude::*, visitor::Validator};
 #[validator]
 pub struct Iso3166_1A2;
 
+/// Accepted ISO 3166-1 alpha-2 country codes.
 pub const VALID_ENTRIES_3166_1A2: &[&str] = &[
     "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ",
     "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS",
@@ -53,6 +54,7 @@ impl Validator<str> for Iso3166_1A2 {
 #[validator]
 pub struct Iso639_1;
 
+/// Accepted ISO 639-1 language codes.
 pub const VALID_ENTRIES_639_1: &[&str] = &[
     "aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bh",
     "bi", "bm", "bn", "bo", "br", "bs", "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy", "da",

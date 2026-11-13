@@ -55,14 +55,14 @@ where
     assert_eq!(checkpoint.as_bytes(), raw.as_bytes());
 }
 
-fn assert_key_value_roundtrip<K>(key: K)
+fn assert_key_value_roundtrip<K>(key: &K)
 where
     K: Eq + KeyValueCodec + std::fmt::Debug,
 {
     let value = key.to_key_value();
     let decoded = K::from_key_value(&value).expect("runtime key value should decode");
 
-    assert_eq!(decoded, key);
+    assert_eq!(&decoded, key);
 }
 
 fn composite_value_list_fixture() -> Value {
@@ -279,26 +279,26 @@ fn primary_key_decode_roundtrips_supported_typed_keys() {
 
 #[test]
 fn key_value_codec_roundtrips_every_supported_scalar_key() {
-    assert_key_value_roundtrip(-42_i8);
-    assert_key_value_roundtrip(-43_i16);
-    assert_key_value_roundtrip(-44_i32);
-    assert_key_value_roundtrip(-45_i64);
-    assert_key_value_roundtrip(i128::MIN);
-    assert_key_value_roundtrip(42_u8);
-    assert_key_value_roundtrip(43_u16);
-    assert_key_value_roundtrip(44_u32);
-    assert_key_value_roundtrip(45_u64);
-    assert_key_value_roundtrip(u128::MAX);
-    assert_key_value_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
-    assert_key_value_roundtrip(Subaccount::from_array([7; 32]));
-    assert_key_value_roundtrip(Timestamp::from_millis(1_710_013_530_123));
-    assert_key_value_roundtrip(Ulid::from_u128(42));
-    assert_key_value_roundtrip(Account::from_owner_and_subaccount(
+    assert_key_value_roundtrip(&-42_i8);
+    assert_key_value_roundtrip(&-43_i16);
+    assert_key_value_roundtrip(&-44_i32);
+    assert_key_value_roundtrip(&-45_i64);
+    assert_key_value_roundtrip(&i128::MIN);
+    assert_key_value_roundtrip(&42_u8);
+    assert_key_value_roundtrip(&43_u16);
+    assert_key_value_roundtrip(&44_u32);
+    assert_key_value_roundtrip(&45_u64);
+    assert_key_value_roundtrip(&u128::MAX);
+    assert_key_value_roundtrip(&Principal::from_slice(&[1, 2, 3, 4]));
+    assert_key_value_roundtrip(&Subaccount::from_array([7; 32]));
+    assert_key_value_roundtrip(&Timestamp::from_millis(1_710_013_530_123));
+    assert_key_value_roundtrip(&Ulid::from_u128(42));
+    assert_key_value_roundtrip(&Account::from_owner_and_subaccount(
         Principal::from_slice(&[9, 8, 7]),
         Some(Subaccount::from_array([5; 32])),
     ));
-    assert_key_value_roundtrip(Unit);
-    assert_key_value_roundtrip(());
+    assert_key_value_roundtrip(&Unit);
+    assert_key_value_roundtrip(&());
 }
 
 #[test]

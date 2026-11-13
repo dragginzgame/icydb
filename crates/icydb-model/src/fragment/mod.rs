@@ -316,10 +316,6 @@ fn lower_nested_relations(
         .collect()
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one bounded recursive walk keeps every admitted structural node and exclusion adjacent"
-)]
 fn collect_nested_relation_candidates<'schema>(
     schema: &'schema Schema,
     item: &'schema Item,

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 // Unit
 //
 
+/// Explicit zero-sized key or value with one possible value.
 #[derive(
     Serialize, Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize,
 )]

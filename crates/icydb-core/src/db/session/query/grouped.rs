@@ -108,7 +108,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<StructuralGroupedProjectionResult, QueryError> {
         let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
-        execute_shared_grouped_plan_for_canister(&self.db, plan, cursor, execution_lane)
+        execute_shared_grouped_plan_for_canister(&self.db, plan, &cursor, execution_lane)
             .map_err(QueryError::execute)
     }
 }

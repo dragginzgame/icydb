@@ -34,7 +34,7 @@ fn complete_domain_observation_charges_only_the_selected_entity() {
             let own = key(7, ordinal, generation, 1, IndexKeyKind::User);
             if journaled {
                 store
-                    .apply_canonical_entry(own, Some(IndexEntryValue::presence()))
+                    .apply_canonical_entry(own, Some(&IndexEntryValue::presence()))
                     .unwrap();
             } else {
                 store.insert(own, IndexEntryValue::presence());
@@ -92,7 +92,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
             for neighbor in neighbors {
                 if backend >= 2 {
                     store
-                        .apply_canonical_entry(neighbor, Some(IndexEntryValue::presence()))
+                        .apply_canonical_entry(neighbor, Some(&IndexEntryValue::presence()))
                         .unwrap();
                 } else {
                     store.insert(neighbor, IndexEntryValue::presence());
@@ -106,7 +106,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
                             store
                                 .apply_canonical_entry(
                                     matching.clone(),
-                                    Some(IndexEntryValue::presence()),
+                                    Some(&IndexEntryValue::presence()),
                                 )
                                 .unwrap();
                             store.remove(&matching);
@@ -120,7 +120,7 @@ fn empty_user_domain_ignores_neighbors_and_observes_all_ordinals_and_generations
                             store
                                 .apply_canonical_entry(
                                     matching.clone(),
-                                    Some(IndexEntryValue::presence()),
+                                    Some(&IndexEntryValue::presence()),
                                 )
                                 .unwrap();
                         } else {

@@ -37,5 +37,5 @@ workspace = true
 [package.metadata.toko-tooling.loc]
 category = "tests"
 
-[dev-dependencies]
+[target.'cfg(any())'.dev-dependencies]
 toko-tooling.workspace = true

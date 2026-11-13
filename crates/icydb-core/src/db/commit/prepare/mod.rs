@@ -517,7 +517,7 @@ fn prepare_admitted_row_commit<C: CanisterKind>(
 
     finalize_row_commit_structural(
         db,
-        authority.clone(),
+        authority,
         structural.raw_key,
         forward_index_ops,
         reverse_index_ops,
@@ -875,7 +875,7 @@ fn validate_row_commit_identity<R>(
 // produced structural-ready outputs.
 fn finalize_row_commit_structural<C>(
     db: &Db<C>,
-    authority: CommitPrepareAuthority,
+    authority: &CommitPrepareAuthority,
     data_key: RawDataStoreKey,
     forward_index_ops: Vec<PreparedIndexMutation>,
     reverse_index_ops: Vec<PreparedIndexMutation>,

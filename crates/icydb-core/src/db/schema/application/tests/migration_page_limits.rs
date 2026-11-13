@@ -406,3 +406,36 @@ fn migration_page_limits_reject_candidate_growth_before_rewrite() {
 fn migration_page_limits_reject_oversized_before_row_without_decoding() {
     assert_capacity_rejection_is_abortable(1100 * 1024);
 }
+
+#[test]
+fn empty_migration_completes_rewrite_accounting_without_an_extra_phase() {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, root.scope());
+    drive_startup_recovery_to_completion(&db);
+    apply_schema(
+        &db,
+        &proposal(&schema_application_target(&db).unwrap(), false),
+    )
+    .unwrap();
+    let next = proposal(&schema_application_target(&db).unwrap(), true);
+    for phase in [
+        SchemaMigrationPhase::Prepared,
+        SchemaMigrationPhase::Validating,
+        SchemaMigrationPhase::ReadyToRewrite,
+        SchemaMigrationPhase::RewritingRows,
+        SchemaMigrationPhase::FinalValidation,
+        SchemaMigrationPhase::Publishing,
+        SchemaMigrationPhase::Applied,
+    ] {
+        let page = advance(&db, &next);
+        assert_eq!(page.phase(), phase);
+        assert_eq!(page.rows_validated(), 0);
+        assert_eq!(page.rows_rewritten(), 0);
+        assert_eq!(page.indexes_rebuilt(), 0);
+        if phase == SchemaMigrationPhase::FinalValidation {
+            forget_recovered_domain_for_tests(&db).unwrap();
+            drive_startup_recovery_to_completion(&db);
+        }
+    }
+    assert_eq!(advance(&db, &next).phase(), SchemaMigrationPhase::Applied);
+}

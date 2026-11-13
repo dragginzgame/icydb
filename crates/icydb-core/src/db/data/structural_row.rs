@@ -274,7 +274,7 @@ impl StructuralRowContract {
         match self.insert_omission_materialization(slot)? {
             FieldMaterialization::Null => {
                 let encoding = self.required_accepted_field_persistence_contract(slot)?;
-                encode_canonical_value_for_accepted_field_contract(encoding, &Value::Null)
+                encode_canonical_value_for_accepted_field_contract(&encoding, &Value::Null)
             }
             FieldMaterialization::DefaultPayload(payload) => Ok(payload.to_vec()),
         }

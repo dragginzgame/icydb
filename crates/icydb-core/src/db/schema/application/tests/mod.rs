@@ -569,10 +569,6 @@ enum ValidationMigrationShape {
 }
 
 #[cfg(feature = "migration")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the fixture keeps both predecessor and candidate source contracts adjacent"
-)]
 fn validation_migration_proposal(
     shape: ValidationMigrationShape,
     current: bool,
@@ -848,10 +844,6 @@ fn database_head_covers_store_path_revision_fingerprint_and_absence() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the end-to-end catalog assertion is clearer as one lifecycle test"
-)]
 fn generated_check_abort_retires_source_identity_and_allows_fresh_reproposal() {
     let database = TargetDatabaseIdentity::from_bytes([0x71; 32]);
     let store = TargetStoreIdentity::from_bytes([0x72; 32]);
@@ -887,7 +879,7 @@ fn generated_check_abort_retires_source_identity_and_allows_fresh_reproposal() {
         &[ExistingProposalStore {
             path: "abort::Store",
             identity: store,
-            bundle: initial_candidate.bundle(),
+            bundle: initial_candidate.bundle().catalog(),
         }],
     )
     .expect("generated check should lower")
@@ -945,7 +937,7 @@ fn generated_check_abort_retires_source_identity_and_allows_fresh_reproposal() {
         &[ExistingProposalStore {
             path: "abort::Store",
             identity: store,
-            bundle: aborted.bundle(),
+            bundle: aborted.bundle().catalog(),
         }],
     )
     .expect("aborted generated check should be independently reproposable")
@@ -1015,7 +1007,7 @@ fn targeted_rule_edit_abort_keeps_prior_accepted_semantics_and_source_identity()
         &[ExistingProposalStore {
             path: "abort::TargetedStore",
             identity: store,
-            bundle: initial_bundle,
+            bundle: initial_bundle.catalog(),
         }],
     )
     .expect("targeted semantic edit should stage")
@@ -1053,10 +1045,6 @@ fn targeted_rule_edit_abort_keeps_prior_accepted_semantics_and_source_identity()
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the staged publication, recovery, and promotion assertions form one lifecycle"
-)]
 fn generated_startup_driver_resumes_pending_activation_and_promotes_without_source_model() {
     let db = Db::<EvolutionCanister>::new(
         &EVOLUTION_REGISTRY,
@@ -1165,7 +1153,7 @@ fn generated_startup_driver_resumes_pending_activation_and_promotes_without_sour
         &[ExistingProposalStore {
             path: EVOLUTION_STORE_PATH,
             identity: store_identity,
-            bundle: &current,
+            bundle: current.catalog(),
         }],
     )
     .expect("targeted edit should stage")
@@ -1379,10 +1367,6 @@ fn generated_startup_driver_resumes_pending_activation_and_promotes_without_sour
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the durable pending job, startup failure, and retained finding assertions form one scenario"
-)]
 fn generated_startup_driver_persists_e223_for_a_retained_historical_finding() {
     let db = Db::<AbortCanister>::new(
         &ABORT_REGISTRY,
@@ -1492,10 +1476,6 @@ fn generated_startup_driver_persists_e223_for_a_retained_historical_finding() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the journaled abort, replay, and recovery assertions form one scenario"
-)]
 fn pending_generated_check_abort_is_atomic_terminal_and_replayable() {
     let db = Db::<AbortCanister>::new(
         &ABORT_REGISTRY,
@@ -1543,7 +1523,7 @@ fn pending_generated_check_abort_is_atomic_terminal_and_replayable() {
         &[ExistingProposalStore {
             path: ABORT_STORE_PATH,
             identity: store_identity,
-            bundle: &current,
+            bundle: current.catalog(),
         }],
     )
     .expect("pending generated check should lower")
@@ -1864,10 +1844,6 @@ fn physical_migration_abort_resumes_across_candidate_namespaces() {
 }
 
 #[cfg(feature = "migration")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the validation replay, staging, and unchanged-row assertions form one scenario"
-)]
 fn qualify_migration_abort_domains(extra_entries: u64) {
     use crate::error::InternalError;
 
@@ -1999,7 +1975,15 @@ fn qualify_migration_abort_domains(extra_entries: u64) {
         .expect("validating migration record should exist");
     let planned = super::recompile_active_physical_migration(&db, &proposal, &record)
         .expect("the exact active plan should recompile");
+    assert_eq!(
+        super::migration_derived_domain_count(&db, &planned).unwrap(),
+        1
+    );
     for _ in 0..2 {
+        assert_eq!(
+            super::migration_derived_domain_count(&db, &planned).unwrap(),
+            1
+        );
         let page =
             super::validate_migration_page(&db, &planned, record.progress(), record.plan_digest())
                 .expect("the same validation page should remain replayable");
@@ -2053,7 +2037,7 @@ fn qualify_migration_abort_domains(extra_entries: u64) {
             .to_raw()
             .unwrap();
             index
-                .apply_canonical_entry(key, Some(IndexEntryValue::presence()))
+                .apply_canonical_entry(key, Some(&IndexEntryValue::presence()))
                 .unwrap();
         }
         for ordinal in 0..513_u64 {
@@ -2102,10 +2086,6 @@ fn qualify_migration_abort_domains(extra_entries: u64) {
 
 #[cfg(feature = "migration")]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the interrupted rewrite, recovery, final proof, and publication form one scenario"
-)]
 fn physical_migration_rewrite_recovers_and_publishes_one_complete_candidate() {
     use super::{
         ensure_generated_schema_application_admitted, migrate_schema,
@@ -2205,20 +2185,18 @@ fn physical_migration_rewrite_recovers_and_publishes_one_complete_candidate() {
         drive_startup_recovery_to_completion(&db);
     }
 
-    let rebuilding = schema_migration_status_for_target(
+    let final_validation = schema_migration_status_for_target(
         &db,
         &proposal,
         &schema_application_target(&db).expect("recovered target should issue"),
     )
     .expect("recovered status should remain readable");
-    assert_eq!(rebuilding.phase(), SchemaMigrationPhase::RebuildingIndexes);
-    assert_eq!(rebuilding.rows_rewritten(), 3);
     assert_eq!(
-        migrate_schema(&db, &proposal, command())
-            .expect("derived generations should complete")
-            .phase(),
-        SchemaMigrationPhase::FinalValidation,
+        final_validation.phase(),
+        SchemaMigrationPhase::FinalValidation
     );
+    assert_eq!(final_validation.rows_rewritten(), 3);
+    assert_eq!(final_validation.indexes_rebuilt(), 1);
     assert_eq!(
         migrate_schema(&db, &proposal, command())
             .expect("final validation should complete")
@@ -2328,10 +2306,6 @@ fn physical_migration_rewrite_recovers_and_publishes_one_complete_candidate() {
 
 #[cfg(feature = "migration")]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "all four finding families share one ordered historical scan fixture"
-)]
 fn physical_migration_validation_reports_every_typed_finding_family_without_writes() {
     use crate::error::InternalError;
 

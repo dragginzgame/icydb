@@ -795,10 +795,6 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one corruption scenario checks all accepted query surfaces against the same store"
-)]
 fn accepted_index_missing_row_is_typed_store_corruption() {
     let session = initialize();
     seed_singleton(&session);

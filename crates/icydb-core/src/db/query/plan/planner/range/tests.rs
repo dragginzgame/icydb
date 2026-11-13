@@ -26,7 +26,7 @@ fn run<T>(
     })
 }
 
-fn assert_resource(error: QueryError, resource: Resource) {
+fn assert_resource(error: &QueryError, resource: Resource) {
     assert_budget_resource(&error.diagnostic_facts(), resource);
 }
 
@@ -62,7 +62,7 @@ fn range_comparisons_admit_payload_and_canonical_retry_cumulatively() {
                             assert_eq!(result.unwrap(), Some(Ordering::Equal));
                             assert_eq!(root.observed(resource), attempt * exact);
                         } else {
-                            assert_resource(result.unwrap_err(), resource);
+                            assert_resource(&result.unwrap_err(), resource);
                             break;
                         }
                     }
@@ -98,7 +98,7 @@ fn range_merge_exhaustion_stops_before_later_bounds() {
             budget,
         )
     });
-    assert_resource(result.unwrap_err(), Resource::PredicateExpressionSteps);
+    assert_resource(&result.unwrap_err(), Resource::PredicateExpressionSteps);
     assert_eq!(range, expected);
     assert_eq!(root.observed(Resource::NestedValueSteps), 2);
 }
@@ -154,12 +154,12 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
                     assert!(used > 0);
                     for limit in 0..used {
                         let short = request_with_limit(resource, limit);
-                        assert_resource(run(&short, lane, action).unwrap_err(), resource);
+                        assert_resource(&run(&short, lane, action).unwrap_err(), resource);
                     }
                     let exact = request_with_limit(resource, used * 2);
                     assert_eq!(run(&exact, lane, action).unwrap(), expected);
                     assert_eq!(run(&exact, lane, action).unwrap(), expected);
-                    assert_resource(run(&exact, lane, action).unwrap_err(), resource);
+                    assert_resource(&run(&exact, lane, action).unwrap_err(), resource);
                     assert_eq!(exact.observed(Resource::RowsVisited), 0);
                 }
             }
@@ -184,7 +184,7 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         let short = request_with_limit(Resource::NestedValueSteps, 1);
         assert_resource(
-            run(&short, lane, |budget| {
+            &run(&short, lane, |budget| {
                 primary_key_range_from_and(&schema, &children, budget)
             })
             .unwrap_err(),

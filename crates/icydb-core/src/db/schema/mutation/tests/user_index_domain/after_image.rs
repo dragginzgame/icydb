@@ -375,7 +375,7 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
             plan_name_update(&schema, &contract, &old, &new).unwrap_err(),
             AcceptedIndexInspectionPlan::compile(
                 &accepted,
-                contract.accepted_value_catalog_handle().clone(),
+                &contract.accepted_value_catalog_handle().clone(),
                 &contract,
                 &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
             )
@@ -419,7 +419,7 @@ fn index_inspection_construction_uses_cumulative_caller_admission() {
     let compile = |work: &PreparationWork<'_>| {
         AcceptedIndexInspectionPlan::compile(
             &accepted,
-            row_contract.accepted_value_catalog_handle().clone(),
+            &row_contract.accepted_value_catalog_handle().clone(),
             &row_contract,
             work,
         )
@@ -518,7 +518,7 @@ fn index_inspection_source_admission_precedes_parsing() {
     let compile = || {
         AcceptedIndexInspectionPlan::compile(
             &accepted,
-            contract.accepted_value_catalog_handle().clone(),
+            &contract.accepted_value_catalog_handle().clone(),
             &contract,
             &work,
         )

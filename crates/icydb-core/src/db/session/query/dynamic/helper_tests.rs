@@ -11,7 +11,9 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<LiveQueryPageOutput, QueryError> {
         let previous = SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE
             .with(|limit| limit.replace(Some(result_bytes_limit)));
-        let _guard = ScalarPageResultBytesLimitGuard(previous);
+        let _guard = core::mem::DropGuard::new(previous, |previous| {
+            SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE.with(|limit| limit.set(previous));
+        });
         self.execute_trusted_live_page(request, continuation)
     }
 }
@@ -22,12 +24,4 @@ pub(super) const SCALAR_PAGE_KEY_ENTRIES: u64 = 4;
 
 std::thread_local! {
     pub(super) static SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE: Cell<Option<u64>> = const { Cell::new(None) };
-}
-
-pub(super) struct ScalarPageResultBytesLimitGuard(pub(super) Option<u64>);
-
-impl Drop for ScalarPageResultBytesLimitGuard {
-    fn drop(&mut self) {
-        SCALAR_PAGE_RESULT_BYTES_LIMIT_OVERRIDE.with(|limit| limit.set(self.0));
-    }
 }

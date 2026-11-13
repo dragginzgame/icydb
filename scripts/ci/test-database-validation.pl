@@ -34,8 +34,13 @@ sub capture {
 delete @ENV{split /\n/, capture('git','rev-parse','--local-env-vars')};
 my $repo="$fixture/repo";
 make_path("$repo/scripts/ci");
-for my $name (qw(database-validation-plan.pl validation-evidence.pl ValidationPlan.pm validation-input-checkpoint.pl)) {
-    copy("$root/scripts/ci/$name", "$repo/scripts/ci/$name") or die "copy $name: $!";
+for my $path (qw(scripts/ci/database-validation-plan.pl
+    vendor/toko-tooling/scripts/ci/validation-evidence.pl
+    vendor/toko-tooling/scripts/ci/ValidationPlan.pm
+    vendor/toko-tooling/scripts/ci/validation-input-checkpoint.pl)) {
+    my $parent = $path; $parent =~ s{/[^/]+$}{};
+    make_path("$repo/$parent");
+    copy("$root/$path", "$repo/$path") or die "copy $path: $!";
 }
 chdir $repo or die "chdir fixture";
 run('git', 'init', '-q');
@@ -97,18 +102,19 @@ for my $path ('Cargo.lock','crates/icydb-core/src/db/index/store/mod.rs','unknow
 chdir $root or die 'restore root';
 my $dispatch_root="$fixture/dispatch";
 make_path($dispatch_root);
-run('bash', "$root/scripts/ci/prepare-script-fixture.sh", $root, $dispatch_root,
-    'Makefile', 'make/consumer.mk', 'make/cargo-dependencies.mk', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
+run('bash', "$root/vendor/toko-tooling/scripts/ci/prepare-script-fixture.sh", $root, $dispatch_root,
+    'Makefile', 'vendor/toko-tooling/make/release.mk', 'vendor/toko-tooling/make/consumer.mk', 'vendor/toko-tooling/make/cargo-dependencies.mk', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
     'qualification/Cargo.toml', 'qualification/Cargo.lock',
     'scripts/ci/actionlint-checksums.tsv', 'scripts/ci/run-icydb-validation-targets.sh',
-    'scripts/ci/run-validation-targets.sh', 'scripts/ci/check-rust-compiler.sh',
-    'scripts/ci/read-cargo-workspace-rust-version.sh', 'scripts/ci/run-nonempty-cargo-test.sh');
+    'vendor/toko-tooling/scripts/ci/run-validation-targets.sh', 'scripts/ci/check-rust-compiler.sh',
+    'vendor/toko-tooling/scripts/ci/read-cargo-workspace-rust-version.sh', 'vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh');
 make_path("$fixture/bin");
 my $cargo=capture('sh','-c','command -v cargo'); chomp $cargo;
 write_file("$fixture/bin/cargo", <<'CARGO');
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == -V || "$1" == --version ]]; then exec "$REAL_CARGO" "$@"; fi
+[[ "$1" != clippy || "${CARGO_BUILD_WARNINGS:-}" == deny ]]
 printf '%s\n' "$*" >> "$DATABASE_TEST_TRACE"
 printf '%s\n' "$PWD" >> "$DATABASE_TEST_ROOT_TRACE"
 if [[ -n "${DATABASE_FAIL_FILTER:-}" && "$*" == *"$DATABASE_FAIL_FILTER"* ]]; then exit 17; fi
@@ -149,7 +155,7 @@ for my $scope (qw(parser planner query)) {
     my $trace=capture('cat',$ENV{DATABASE_TEST_TRACE});
     my %roots=map {$_=>1} split /\n/,capture('cat',$ENV{DATABASE_TEST_ROOT_TRACE});
     is_deeply([sort keys %roots],[$dispatch_root],'substitute Cargo stays in its bounded physical root');
-    like($trace,qr/\Aclippy .* -D warnings\n/,'Clippy precedes tests');
+    like($trace,qr/\Aclippy [^\n]+\n/,'Clippy precedes tests');
     for my $filter (@acceptance) {
         is(scalar(grep { index($_,$filter)>=0 } split /\n/,$trace),1,"acceptance runs once: $filter");
     }

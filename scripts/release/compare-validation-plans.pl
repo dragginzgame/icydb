@@ -6,7 +6,7 @@ use JSON::PP;
 use Digest::SHA qw(sha256_hex);
 use FindBin;
 use lib $FindBin::Bin;
-use lib "$FindBin::Bin/../ci";
+use lib "$FindBin::Bin/../../vendor/toko-tooling/scripts/ci";
 use ValidationPlan ();
 use ValidationScope qw(exclusions);
 my $json = JSON::PP->new->canonical->utf8;

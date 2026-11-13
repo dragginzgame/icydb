@@ -51,7 +51,7 @@ impl<C: CanisterKind> DbSession<C> {
         match command {
             CompiledSqlCommand::Select { query } if !query.has_grouping() => {
                 let (page, fixed_scales) =
-                    self.execute_public_structural_live_page(query, catalog, continuation)?;
+                    self.execute_public_structural_live_page(query, &catalog, continuation)?;
                 Ok(SqlStatementPageResult::Scalar { page, fixed_scales })
             }
             CompiledSqlCommand::Select { query } => {

@@ -25,7 +25,7 @@ fn row_bytes(session: &DbSession<JournaledTestCanister>, id: u64) -> Vec<u8> {
         .with_data(|data| data.get(&key).unwrap().as_bytes().to_vec())
 }
 
-fn historical_backfill(default: &str, target: &str, expected: Value, changed: bool) {
+fn historical_backfill(default: &str, target: &str, expected: OutputValue, changed: bool) {
     let session = initialize_journaled();
     for payload in [10, 20, 30] {
         insert_exact_key_fixture(&session, payload);
@@ -97,30 +97,25 @@ fn historical_backfill(default: &str, target: &str, expected: Value, changed: bo
     else {
         panic!("projection expected");
     };
-    let expected = match expected {
-        Value::Null => OutputValue::null(),
-        Value::Nat64(value) => OutputValue::nat64(value),
-        _ => panic!("numeric fixture"),
-    };
     assert_eq!(rows, vec![vec![expected.clone()], vec![expected]]);
 }
 
 #[test]
 fn historical_update_backfills_null_fields() {
-    historical_backfill("", "7", Value::Nat64(7), true);
+    historical_backfill("", "7", OutputValue::nat64(7), true);
 }
 
 #[test]
 fn historical_update_backfills_frozen_defaults() {
-    historical_backfill("DEFAULT 7", "9", Value::Nat64(9), true);
+    historical_backfill("DEFAULT 7", "9", OutputValue::nat64(9), true);
 }
 
 #[test]
 fn historical_update_verifies_matching_defaults_without_rewriting() {
-    historical_backfill("DEFAULT 7", "7", Value::Nat64(7), false);
+    historical_backfill("DEFAULT 7", "7", OutputValue::nat64(7), false);
 }
 
 #[test]
 fn historical_update_verifies_matching_nulls_without_rewriting() {
-    historical_backfill("", "NULL", Value::Null, false);
+    historical_backfill("", "NULL", OutputValue::null(), false);
 }

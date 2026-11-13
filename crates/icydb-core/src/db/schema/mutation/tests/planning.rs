@@ -2,8 +2,6 @@ use super::*;
 use crate::db::schema::{
     AcceptedConstraintCatalog, AcceptedConstraintKind, ConstraintIdAllocator, ConstraintOrigin,
     PersistedRelationEdgeSnapshot, RelationId, RelationIdAllocator,
-    mutation::delta::{SchemaMutationDelta, classify_schema_mutation_delta},
-    transition::{SchemaTransitionPlan, plan_sql_ddl_addition},
 };
 
 #[test]
@@ -31,7 +29,7 @@ fn ddl_field_addition_rejects_dotted_root_names() {
         assert_eq!(
             derive_sql_ddl_field_addition_accepted_after(
                 &accepted,
-                nullable_text_field(name, 3, 2)
+                &nullable_text_field(name, 3, 2)
             ),
             Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)
         );
@@ -51,7 +49,7 @@ fn ddl_field_rename_rejects_dotted_targets_and_preserves_retained_name_repair() 
         LeafCodec::Scalar(ScalarCodec::Text),
     )
     .unwrap();
-    let addition = derive_sql_ddl_field_addition_accepted_after(&base, field.clone()).unwrap();
+    let addition = derive_sql_ddl_field_addition_accepted_after(&base, &field).unwrap();
     let accepted = addition.accepted_after();
     for name in ["profile.rank", "profile.rank.value", ".rank", "rank."] {
         assert_eq!(
@@ -86,10 +84,10 @@ fn field_addition_plan_has_no_physical_index_target() {
     let stored = base_snapshot();
     let field = nullable_text_field("nickname", 3, 2);
     let added = append_fields_snapshot(&stored, &[field]);
-    assert_eq!(
-        plan_sql_ddl_addition(&stored, &added),
-        Some(SchemaTransitionPlan::AppendOnlyFields)
-    );
+    assert!(matches!(
+        schema_mutation_request_for_snapshots(&stored, &added),
+        Some(SchemaMutationRequest::AppendOnlyFields(_))
+    ));
 }
 
 #[test]
@@ -97,15 +95,15 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
     let stored = base_snapshot();
     let with_field_index = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);
     let with_expression_index = snapshot_with_indexes(&stored, vec![expression_name_index()]);
-    let Some(SchemaTransitionPlan::AddFieldPathIndex {
+    let Some(SchemaMutationRequest::AddFieldPathIndex {
         target: field_path_target,
-    }) = plan_sql_ddl_addition(&stored, &with_field_index)
+    }) = schema_mutation_request_for_snapshots(&stored, &with_field_index)
     else {
         panic!("field-path addition must retain its physical target");
     };
-    let Some(SchemaTransitionPlan::AddExpressionIndex {
+    let Some(SchemaMutationRequest::AddExpressionIndex {
         target: expression_target,
-    }) = plan_sql_ddl_addition(&stored, &with_expression_index)
+    }) = schema_mutation_request_for_snapshots(&stored, &with_expression_index)
     else {
         panic!("expression addition must retain its physical target");
     };
@@ -240,10 +238,10 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
         panic!("append-only delta should lower into a request");
     };
     assert_eq!(added_fields, std::slice::from_ref(&added));
-    assert_eq!(
-        plan_sql_ddl_addition(&stored, &generated),
-        Some(SchemaTransitionPlan::AppendOnlyFields)
-    );
+    assert!(matches!(
+        schema_mutation_request_for_snapshots(&stored, &generated),
+        Some(SchemaMutationRequest::AppendOnlyFields(_))
+    ));
 
     let with_index = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);
     let Some(SchemaMutationRequest::AddFieldPathIndex { target }) =
@@ -256,10 +254,6 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
     let multiple = snapshot_with_indexes(
         &stored,
         vec![non_unique_name_index(), expression_name_index()],
-    );
-    assert_eq!(
-        classify_schema_mutation_delta(&stored, &multiple),
-        SchemaMutationDelta::Incompatible,
     );
     assert_eq!(
         schema_mutation_request_for_snapshots(&stored, &multiple),
@@ -280,8 +274,8 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
     .with_constraint_catalog(preserved_append.constraint_catalog().clone())
     .with_relations(preserved_append.relations().to_vec());
     assert_eq!(
-        classify_schema_mutation_delta(&indexed_stored, &append_that_drops_index),
-        SchemaMutationDelta::Incompatible,
+        schema_mutation_request_for_snapshots(&indexed_stored, &append_that_drops_index),
+        None,
         "append-only classification must keep unrelated accepted indexes exact",
     );
 
@@ -301,8 +295,8 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
         vec![non_unique_name_index()],
     );
     assert_eq!(
-        classify_schema_mutation_delta(&stored, &allocator_drift),
-        SchemaMutationDelta::Incompatible,
+        schema_mutation_request_for_snapshots(&stored, &allocator_drift),
+        None,
         "index-addition classification must keep constraint allocator state exact",
     );
 }
@@ -321,10 +315,6 @@ fn snapshot_delta_classifier_rejects_non_prefix_field_changes() {
         generated_fields,
     );
 
-    assert_eq!(
-        classify_schema_mutation_delta(&stored, &generated),
-        SchemaMutationDelta::Incompatible,
-    );
     assert_eq!(
         schema_mutation_request_for_snapshots(&stored, &generated),
         None
@@ -399,7 +389,7 @@ fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
     let set_default = derive_sql_ddl_field_default_accepted_after(
         &accepted,
         "nickname",
-        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
+        &SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
     )
     .expect("metadata-only SET DEFAULT must not allocate a row layout version");
     assert_eq!(
@@ -414,7 +404,7 @@ fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
     let drop_default = derive_sql_ddl_field_default_accepted_after(
         set_default.accepted_after(),
         "nickname",
-        SchemaInsertDefault::None,
+        &SchemaInsertDefault::None,
     )
     .expect("metadata-only DROP DEFAULT must not allocate a row layout version");
     assert_eq!(
@@ -744,7 +734,7 @@ fn field_metadata_derivations_reject_live_constraint_activations() {
         SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A']),
     ] {
         assert!(
-            derive_sql_ddl_field_default_accepted_after(&accepted, "nickname", default).is_ok()
+            derive_sql_ddl_field_default_accepted_after(&accepted, "nickname", &default).is_ok()
         );
     }
 
@@ -813,7 +803,7 @@ fn assert_live_activation_metadata_rejection(accepted: &crate::db::schema::Accep
         SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A']),
     ] {
         assert_eq!(
-            derive_sql_ddl_field_default_accepted_after(accepted, "nickname", default),
+            derive_sql_ddl_field_default_accepted_after(accepted, "nickname", &default),
             expected,
         );
     }
@@ -988,5 +978,41 @@ fn ddl_field_candidates_preserve_unknown_errors_and_name_precedence() {
     assert_eq!(
         resolve_sql_ddl_field_rename_candidate(&accepted, "name", "name"),
         Ok(expected)
+    );
+}
+
+#[test]
+fn ddl_admission_proof_is_bound_to_source_shape_and_version() {
+    let before = AcceptedSchemaSnapshot::try_new(base_snapshot()).unwrap();
+    let identity = |snapshot: &AcceptedSchemaSnapshot| {
+        crate::db::schema::AcceptedCatalogIdentity::new(
+            EntityTag::new(7),
+            snapshot.entity_path(),
+            "test::Store",
+            AcceptedSchemaRevision::INITIAL,
+            snapshot.persisted_snapshot().version(),
+            crate::db::schema::accepted_schema_cache_fingerprint(snapshot).unwrap(),
+        )
+    };
+    let derived =
+        derive_sql_ddl_field_path_index_accepted_after(&before, non_unique_name_index()).unwrap();
+    assert!(derived.matches_before(&before, &identity(&before)).unwrap());
+    let changed =
+        derive_sql_ddl_field_rename_accepted_after(&before, "name", "display_name").unwrap();
+    let changed = changed.accepted_after();
+    assert!(!derived.matches_before(changed, &identity(&before)).unwrap());
+    assert!(!derived.matches_before(&before, &identity(changed)).unwrap());
+    assert!(!derived.matches_before(changed, &identity(changed)).unwrap());
+    let advanced = AcceptedSchemaSnapshot::try_new(
+        before
+            .persisted_snapshot()
+            .clone()
+            .with_schema_version(SchemaVersion::new(2)),
+    )
+    .unwrap();
+    assert!(
+        !derived
+            .matches_before(&advanced, &identity(&advanced))
+            .unwrap()
     );
 }

@@ -78,39 +78,39 @@ pub(super) fn initialize_component_schema(kind: AcceptedFieldKind, enums: Accept
         bindings,
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
     );
-    initialize_schema_candidate(candidate);
+    initialize_schema_candidate(&candidate);
 }
 
 fn assert_component_projection(
     kind: AcceptedFieldKind,
-    input: InputValue,
-    expected: OutputValue,
+    input: &InputValue,
+    expected: &OutputValue,
     enums: AcceptedEnumCatalog,
     component_decodable: bool,
 ) {
     let ordered = !matches!(kind, AcceptedFieldKind::Enum { .. });
     initialize_component_schema(kind, enums);
     let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
-    seed_component_rows(&session, &input);
+    seed_component_rows(&session, input);
     assert_covering_admission(
         &session,
-        strict_filter("category", Value::Nat64(3), false),
+        &strict_filter("category", Value::Nat64(3), false),
         false,
         component_decodable
-            .then_some(CoveringReadFieldSource::IndexComponent { component_index: 1 }),
+            .then_some(&CoveringReadFieldSource::IndexComponent { component_index: 1 }),
     );
     if ordered {
         assert_covering_admission(
             &session,
-            strict_filter("category", Value::Nat64(3), true),
+            &strict_filter("category", Value::Nat64(3), true),
             true,
             component_decodable
-                .then_some(CoveringReadFieldSource::IndexComponent { component_index: 1 }),
+                .then_some(&CoveringReadFieldSource::IndexComponent { component_index: 1 }),
         );
     }
 
     for _ in 0..2 {
-        assert_component_routes(&session, component_decodable, &expected);
+        assert_component_routes(&session, component_decodable, expected);
         for (suffix, ids) in [
             ("", vec![1, 2]),
             ("ORDER BY id ASC", vec![1, 2]),
@@ -174,7 +174,7 @@ fn assert_component_projection(
         )
         .unwrap();
             let (SqlStatementResult::Projection { rows, .. }, _) = session
-                .execute_trusted_sql_query_with_entity_name(&dispatch, std::slice::from_ref(&input))
+                .execute_trusted_sql_query_with_entity_name(&dispatch, std::slice::from_ref(input))
                 .unwrap()
             else {
                 panic!("bound component query must return a projection");
@@ -188,9 +188,9 @@ fn assert_component_projection(
             let value = input.clone().try_into_runtime_non_enum().unwrap();
             assert_covering_admission(
                 &session,
-                strict_operand_filter(value.clone()),
+                &strict_operand_filter(value.clone()),
                 false,
-                Some(CoveringReadFieldSource::Constant(value)),
+                Some(&CoveringReadFieldSource::Constant(value)),
             );
         }
     }
@@ -249,9 +249,9 @@ fn strict_operand_filter(value: Value) -> (Expr, Predicate) {
 
 fn assert_covering_admission<C: CanisterKind>(
     session: &DbSession<C>,
-    filter: (Expr, Predicate),
+    filter: &(Expr, Predicate),
     range: bool,
-    expected_source: Option<CoveringReadFieldSource>,
+    expected_source: Option<&CoveringReadFieldSource>,
 ) {
     let component_decodable = expected_source.is_some();
     let catalog = session
@@ -261,7 +261,7 @@ fn assert_covering_admission<C: CanisterKind>(
         let mixed = projection.len() > 1;
         let plan = crate::db::query::preparation::with_preparation_work(|work| {
             crate::db::query::plan::strict_covering_plan(
-                catalog
+                &catalog
                     .accepted_entity_authority()
                     .accepted_schema_info_handle(),
                 normalize_bool_expr(filter.0.clone(), work)?,
@@ -289,10 +289,10 @@ fn assert_covering_admission<C: CanisterKind>(
             assert_eq!(pure.is_some(), component_decodable && !mixed);
             assert_eq!(hybrid.is_some(), component_decodable && mixed);
             if let Some(pure) = pure {
-                assert_eq!(Some(&pure.fields[0].source), expected_source.as_ref());
+                assert_eq!(Some(&pure.fields[0].source), expected_source);
             }
             if let Some(hybrid) = hybrid {
-                assert_eq!(Some(&hybrid.fields[0].source), expected_source.as_ref());
+                assert_eq!(Some(&hybrid.fields[0].source), expected_source);
                 assert!(matches!(
                     hybrid.fields[1].source,
                     CoveringReadFieldSource::RowField
@@ -366,8 +366,8 @@ macro_rules! component_case {
             let value = $value;
             assert_component_projection(
                 $kind,
-                InputValue::from(value.clone()),
-                OutputValue::from(value),
+                &InputValue::from(value.clone()),
+                &OutputValue::from(value),
                 empty_accepted_enum_catalog_for_tests(),
                 $decodable,
             );
@@ -499,8 +499,8 @@ fn hybrid_unit_enum() {
     };
     assert_component_projection(
         kind,
-        InputValue::enum_value("First", Some(ENUM_PATH)),
-        OutputValue::from_public(PublicValue::Enum(PublicEnumValue::new(
+        &InputValue::enum_value("First", Some(ENUM_PATH)),
+        &OutputValue::from_public(PublicValue::Enum(PublicEnumValue::new(
             "First",
             Some(ENUM_PATH),
         ))),

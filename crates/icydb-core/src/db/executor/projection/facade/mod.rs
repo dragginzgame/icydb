@@ -198,10 +198,6 @@ where
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one coordinator keeps covering, retained-slot, cursor-boundary, and projection ownership explicit"
-)]
 fn execute_structural_projection_rows_inner<C>(
     db: &Db<C>,
     request: StructuralProjectionRequest,
@@ -236,7 +232,7 @@ where
         if let Some(covering) = covering {
             try_execute_ordered_distinct_group_seek_for_canister(
                 db,
-                prepared_plan.authority(),
+                &prepared_plan.authority(),
                 prepared_plan.single_index_range_specs(),
                 &covering,
             )?
@@ -282,7 +278,7 @@ where
 
         if let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
             db,
-            prepared_plan.authority(),
+            &prepared_plan.authority(),
             PreparedCoveringProjectionRuntime::new(
                 prepared_plan.logical_plan(),
                 index_predicate_execution.as_ref(),
@@ -490,7 +486,7 @@ where
         .transpose()?;
     let (rows, last_emitted_logical, has_more) = if let Some(strategy) = distinct_strategy {
         let projected = project_distinct(
-            row_layout,
+            &row_layout,
             prepared_projection,
             strategy,
             distinct_window.ok_or_else(InternalError::query_executor_invariant)?,
@@ -503,7 +499,7 @@ where
         projected.into_parts()
     } else if let Some(output_work) = output_work.as_mut() {
         let projected = project_admitted_page(
-            row_layout,
+            &row_layout,
             prepared_projection,
             page,
             resolved_order.as_ref(),
@@ -535,7 +531,7 @@ where
         if let Some(limit) = cursor_page_row_limit {
             page.truncate(limit);
         }
-        let rows = project(row_layout, prepared_projection, page)?;
+        let rows = project(&row_layout, prepared_projection, page)?;
         (rows, last_emitted_logical, has_more)
     };
 

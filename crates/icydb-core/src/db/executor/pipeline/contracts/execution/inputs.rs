@@ -49,7 +49,7 @@ impl PreparedExecutionProjection {
     /// Build one executor-owned prepared projection bundle from one validated
     /// plan, compiled predicate, and optional route-owned covering contract.
     pub(in crate::db::executor) fn compile(
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
         plan: &AccessPlannedQuery,
         prepared_retained_slot_layout: Option<RetainedSlotLayout>,
         projection_materialization: ProjectionMaterializationMode,
@@ -59,7 +59,7 @@ impl PreparedExecutionProjection {
         let retained_slot_layout = match prepared_retained_slot_layout {
             Some(layout) => Some(layout),
             None => compile_retained_slot_layout_for_mode(
-                &authority,
+                authority,
                 plan,
                 projection_materialization,
                 cursor_emission,

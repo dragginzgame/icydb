@@ -18,7 +18,9 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RowOrder {
+    /// Row positions participate in result comparison.
     Ordered,
+    /// Rows are compared independently of their observed order.
     Unordered,
 }
 
@@ -31,9 +33,13 @@ pub enum RowOrder {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExpectedAcceptance {
+    /// The scenario is expected to be admitted.
     Accepted,
+    /// The provider rejected the statement with a typed diagnostic.
     Rejected {
+        /// Expected public error code.
         error_code: u16,
+        /// Expected diagnostic cause code.
         diagnostic_code: u16,
     },
 }
@@ -123,12 +129,19 @@ impl WindowSpec {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RouteOutcome {
+    /// The route is eligible but execution did not push the window into it.
     EligibleButNotPushed,
+    /// Execution materialized results before applying the window.
     Materialized,
+    /// The requested ordering lacks its required deterministic tie-breaker.
     MissingTieBreaker,
+    /// Execution pushed the requested window into the access path.
     Pushed,
+    /// A residual filter prevents a bounded candidate read.
     ResidualUnbounded,
+    /// The route is unchanged or irrelevant to this scenario.
     UnchangedOrNotApplicable,
+    /// The route is unsupported for this scenario.
     Unsupported,
 }
 
@@ -157,21 +170,37 @@ impl RouteOutcome {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RouteReason {
+    /// An equality-prefix index may supply the requested ordered suffix.
     EqualityPrefixOrderedSuffixCandidate,
+    /// Observed reads prove early stopping on the equality-prefix ordered suffix.
     EqualityPrefixOrderedSuffixLimitStopProven,
+    /// Filtering and requested ordering do not share the required index shape.
     FilterOrderMismatch,
+    /// Grouped aggregate execution owns this route decision.
     GroupedAggregateOwnsExecution,
+    /// The requested index ordering skips a required suffix component.
     IndexOrderSuffixGap,
+    /// The statement declares no ORDER BY contract.
     NoOrderBy,
+    /// The statement is not a paginated SELECT.
     NotAPaginatedSelect,
+    /// The declared ordering expression has no recognized route classification.
     OrderExpressionNotClassified,
+    /// Primary-key traversal may satisfy the requested order.
     PrimaryOrderCandidate,
+    /// Observed reads prove early stopping on primary-key traversal.
     PrimaryOrderLimitStopProven,
+    /// The requested order requires a materialized sort.
     RequiresMaterializedSort,
+    /// A residual filter requires scanning additional candidates.
     ResidualFilterRequiresCandidateScan,
+    /// Secondary-index traversal may satisfy the requested order.
     SecondaryOrderCandidate,
+    /// Observed reads prove early stopping on secondary-index traversal.
     SecondaryOrderLimitStopProven,
+    /// The storage mirror exposes only a primary index.
     StorageMirrorHasPrimaryIndexOnly,
+    /// The storage mirror may satisfy the order through its primary index.
     StorageMirrorPrimaryOrderCandidate,
 }
 
@@ -263,14 +292,22 @@ pub struct RouteObservation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouteExpectation {
+    /// Use the supplied route fact without deriving it from counters.
     Fixed(RouteFact),
+    /// Derive index-order pushdown from declared reasons and observed counters.
     IndexOrder {
+        /// Declared access-path family.
         family: RouteFamily,
+        /// Reason the route is eligible before observing execution.
         candidate_reason: RouteReason,
+        /// Reason reported when counters prove window pushdown.
         pushed_reason: RouteReason,
     },
+    /// Derive primary-order behavior with an explicit residual-filter policy.
     PrimaryOrder {
+        /// Reason the route is eligible before observing execution.
         candidate_reason: RouteReason,
+        /// Whether filtering may require additional candidate reads.
         residual_filter: bool,
     },
 }

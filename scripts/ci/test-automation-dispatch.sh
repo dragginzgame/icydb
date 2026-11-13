@@ -2,15 +2,15 @@
 # Exercise the real ordered Make dispatch with harmless fixture bodies.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-# shellcheck source=scripts/ci/fixture-lifecycle.sh
-source "$root/scripts/ci/fixture-lifecycle.sh"
+# shellcheck source=vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh
+source "$root/vendor/toko-tooling/scripts/ci/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/icydb-automation-dispatch.XXXXXX")"
 fixture_complete=false
 trap 'fixture_finish "$?" "$fixture" "Automation dispatch retained"' EXIT
-mkdir -p "$fixture/scripts/ci"
+mkdir -p "$fixture/vendor/toko-tooling/scripts/ci"
 for name in run-validation-targets.sh check-make-execution.sh verify-file-checksum.sh \
   validation-input-checkpoint.pl release-validation-plan.pl ValidationPlan.pm; do
-  cp "$root/scripts/ci/$name" "$fixture/scripts/ci/"
+  cp "$root/vendor/toko-tooling/scripts/ci/$name" "$fixture/vendor/toko-tooling/scripts/ci/"
 done
 # Only replace leaf fixture bodies. Keep the actual roster and caller recipe.
 awk '
@@ -23,7 +23,7 @@ awk '
   copying { print }
 ' "$root/Makefile" > "$fixture/Makefile"
 cat >> "$fixture/Makefile" <<'MAKE'
-VALIDATION_RUNNER := bash scripts/ci/run-validation-targets.sh --input watched
+VALIDATION_RUNNER := VALIDATION_REPOSITORY_ROOT="$(CURDIR)" bash vendor/toko-tooling/scripts/ci/run-validation-targets.sh --input watched
 roster:
 	@printf '%s\n' $(AUTOMATION_TARGETS)
 MAKE

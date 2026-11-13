@@ -12,7 +12,10 @@ use Test::More;
 my $directory = tempdir('icydb-documentation-XXXXXX', TMPDIR => 1, CLEANUP => 1);
 make_path("$directory/scripts/ci");
 for my $script ('check-documentation.pl', 'check-documentation-links.pl', 'StableVersion.pm') {
-    copy("$FindBin::Bin/$script", "$directory/scripts/ci/$script") or die "copy $script: $!";
+    my $relative = $script eq 'check-documentation.pl'
+        ? "scripts/ci/$script" : "vendor/toko-tooling/scripts/ci/$script";
+    make_path(dirname("$directory/$relative"));
+    copy("$FindBin::Bin/../../$relative", "$directory/$relative") or die "copy $script: $!";
 }
 my $checker = "$directory/scripts/ci/check-documentation.pl";
 

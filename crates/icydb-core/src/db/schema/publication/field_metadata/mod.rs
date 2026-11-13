@@ -40,15 +40,15 @@ pub(in crate::db) fn execute_schema_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<usize, InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
+    )?;
     let Some(target) = derivation.admission().field_drop_target() else {
         return Err(InternalError::store_unsupported());
     };
@@ -94,17 +94,17 @@ fn validate_sql_ddl_field_drop_metadata_change(
 pub(in crate::db) fn execute_schema_field_default_change(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
+    )?;
     execute_schema_checked_field_metadata_publication(
-        envelope,
+        &envelope,
         derivation.admission().field_default_target(),
         validate_sql_ddl_field_default_metadata_change,
     )
@@ -134,7 +134,7 @@ fn validate_sql_ddl_field_default_metadata_change(
     let expected = derive_sql_ddl_field_default_persisted_after(
         before,
         target.field_id(),
-        after_field.insert_default().clone(),
+        after_field.insert_default(),
     )
     .with_schema_version(after.version());
     if &expected != after {
@@ -158,15 +158,15 @@ pub(in crate::db) fn execute_schema_field_nullability_change(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<SchemaFieldNullabilityOutcome, InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
+    )?;
     let Some(target) = derivation.admission().field_nullability_target() else {
         return Err(InternalError::store_unsupported());
     };
@@ -198,7 +198,7 @@ fn publish_sql_ddl_not_null_activation(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     next_schema_version: crate::db::schema::SchemaVersion,
     target: &SchemaFieldNullabilityTarget,
 ) -> Result<SchemaFieldNullabilityOutcome, InternalError> {
@@ -207,7 +207,7 @@ fn publish_sql_ddl_not_null_activation(
         entity_tag,
         entity_path,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
     )?;
     let activation_epoch = current_revision
         .checked_next()
@@ -262,7 +262,7 @@ pub(in crate::db) fn execute_schema_not_null_activation_abort(
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     next_schema_version: crate::db::schema::SchemaVersion,
     field_id: FieldId,
     constraint_id: ConstraintId,
@@ -272,7 +272,7 @@ pub(in crate::db) fn execute_schema_not_null_activation_abort(
         entity_tag,
         entity_path,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
     )?;
     let before = current
         .entity_snapshots()
@@ -304,7 +304,7 @@ pub(in crate::db) fn execute_schema_not_null_activation_abort(
     let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_sql_ddl_constraint_removal(
         store,
-        &accepted_before_identity,
+        accepted_before_identity,
         current_revision,
         &candidate,
         entity_tag,
@@ -345,17 +345,17 @@ fn validate_sql_ddl_field_nullability_metadata_change(
 pub(in crate::db) fn execute_schema_field_rename(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
-    accepted_before_identity: AcceptedCatalogIdentity,
+    accepted_before_identity: &AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
-        &accepted_before_identity,
+        accepted_before_identity,
         derivation,
-    );
+    )?;
     execute_schema_checked_field_metadata_publication(
-        envelope,
+        &envelope,
         derivation.admission().field_rename_target(),
         validate_sql_ddl_field_rename_metadata_change,
     )
@@ -385,7 +385,7 @@ fn validate_sql_ddl_field_rename_metadata_change(
 }
 
 fn execute_schema_checked_field_metadata_publication<T>(
-    envelope: SqlDdlPublicationEnvelope<'_>,
+    envelope: &SqlDdlPublicationEnvelope<'_>,
     target: Option<&T>,
     validate: impl FnOnce(
         &PersistedSchemaSnapshot,

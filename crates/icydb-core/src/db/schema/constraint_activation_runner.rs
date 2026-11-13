@@ -394,7 +394,7 @@ fn validate_unpublished_row_local_candidate_bounded_for_kind(
         &constraints,
         fingerprint,
         constraint_id,
-        activation_dependency_fields(&accepted, constraint_id)?,
+        &activation_dependency_fields(&accepted, constraint_id)?,
     )?;
     if !scan.findings.is_empty() {
         let activation = accepted
@@ -717,7 +717,7 @@ fn resume_journaled_row_local_validation(
                 &constraints,
                 fingerprint,
                 constraint_id,
-                activation_dependency_fields(accepted, constraint_id)?,
+                &activation_dependency_fields(accepted, constraint_id)?,
             )?;
             Ok((page, ()))
         },
@@ -791,7 +791,7 @@ fn validate_exact_heap_row_local_activation(
         &constraints,
         selection.identity().accepted_schema_fingerprint(),
         constraint_id,
-        activation_dependency_fields(accepted, constraint_id)?,
+        &activation_dependency_fields(accepted, constraint_id)?,
     )?;
     if !scan.exhausted {
         return Err(InternalError::store_unsupported());
@@ -1130,7 +1130,7 @@ fn scan_row_local_validation_page(
     constraints: &CompiledAcceptedRowConstraints,
     schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     constraint_id: ConstraintId,
-    dependency_fields: Vec<crate::db::schema::FieldId>,
+    dependency_fields: &[crate::db::schema::FieldId],
 ) -> Result<ValidationPageScan, InternalError> {
     let (lower, upper) = validation_scan_bounds(entity_tag, checkpoint);
     let mut last_key = None;
@@ -1177,7 +1177,7 @@ fn scan_row_local_validation_page(
                 }) if violated == constraint_id => {
                     findings.push(ConstraintValidationFinding::new(
                         raw_key.clone(),
-                        dependency_fields.clone(),
+                        dependency_fields.to_vec(),
                         icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
                             .raw(),
                     ));
@@ -1188,7 +1188,7 @@ fn scan_row_local_validation_page(
                 }) if violated == constraint_id => {
                     findings.push(ConstraintValidationFinding::new_targeted(
                         raw_key.clone(),
-                        dependency_fields.clone(),
+                        dependency_fields.to_vec(),
                         path,
                         icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION
                             .raw(),

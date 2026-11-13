@@ -311,7 +311,7 @@ fn residual_filter_preservation_structural_count_keeps_partial_and_empty_scopes(
                     catalog.accepted_schema_info().clone(),
                 );
                 assert_eq!(
-                    execute_structural_aggregate_rows_for_canister(&reader.db, plan, request)
+                    execute_structural_aggregate_rows_for_canister(&reader.db, plan, &request)
                         .unwrap(),
                     vec![vec![Value::Nat64(expected)]]
                 );
@@ -429,7 +429,7 @@ fn count_rows(session: &DbSession<TestCanister>, query: &StructuralQuery) -> Vec
         None,
         catalog.accepted_schema_info().clone(),
     );
-    execute_structural_aggregate_rows_for_canister(&session.db, plan, request).unwrap()
+    execute_structural_aggregate_rows_for_canister(&session.db, plan, &request).unwrap()
 }
 
 #[test]
@@ -576,7 +576,7 @@ fn complete_residual_runtime_scan_enforces_both_filters_and_windows() {
                         );
                     }
                     for (limit, offset, window) in
-                        [(0, 0, vec![]), (1, 0, expected.clone()), (1, 1, vec![])]
+                        [(0, 0, vec![]), (1, 0, expected), (1, 1, vec![])]
                     {
                         let reader =
                             new_request_session(&RequestExecutionRoot::__new_runtime_root());

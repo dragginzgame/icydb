@@ -455,7 +455,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_rename_candidate<'a>(
 /// additive field candidate.
 pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
-    field: PersistedFieldSnapshot,
+    field: &PersistedFieldSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     if !sql_ddl_field_name_is_root(field.name()) {
         return Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected);
@@ -468,7 +468,7 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
     let constraint_catalog = before
         .constraint_catalog()
         .clone()
-        .with_added_not_null(&field)
+        .with_added_not_null(field)
         .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let persisted_after = before
         .clone()
@@ -488,12 +488,31 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
         .with_constraint_catalog(constraint_catalog);
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
-    let admission = admit_sql_ddl_field_addition_candidate(&field);
+    // Prove the complete additive shape once, before carrying it to publication.
+    let supported = if matches!(
+        field.historical_fill(),
+        crate::db::schema::SchemaHistoricalFill::Reject
+    ) {
+        crate::db::schema::mutation::delta::required_empty_entity_field_addition_matches(
+            before,
+            accepted_after.persisted_snapshot(),
+            field,
+        )
+    } else {
+        matches!(
+            crate::db::schema::mutation::schema_mutation_request_for_snapshots(
+                before,
+                accepted_after.persisted_snapshot()
+            ),
+            Some(crate::db::schema::mutation::SchemaMutationRequest::AppendOnlyFields(_))
+        )
+    };
+    if !supported {
+        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
+    }
+    let admission = admit_sql_ddl_field_addition_candidate(field);
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL field
@@ -522,10 +541,7 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_field_drop_candidate(before_field);
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -533,7 +549,7 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
 pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     field_name: &str,
-    default: SchemaInsertDefault,
+    default: &SchemaInsertDefault,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
     before
@@ -545,7 +561,7 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    validate_sql_ddl_field_default_change_candidate(before_field, &default)
+    validate_sql_ddl_field_default_change_candidate(before_field, default)
         .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let persisted_after =
         derive_sql_ddl_field_default_persisted_after(before, before_field.id(), default);
@@ -559,17 +575,14 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_default_candidate(after_field);
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 /// Derive the persisted shape shared by default admission and publication checks.
 pub(in crate::db) fn derive_sql_ddl_field_default_persisted_after(
     before: &PersistedSchemaSnapshot,
     field_id: FieldId,
-    default: SchemaInsertDefault,
+    default: &SchemaInsertDefault,
 ) -> PersistedSchemaSnapshot {
     let fields = before
         .fields()
@@ -614,10 +627,7 @@ pub(in crate::db) fn derive_sql_ddl_field_nullability_accepted_after(
         .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_nullability_candidate(after_field);
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 /// Derive the one accepted snapshot shape for a SQL nullability change.
@@ -780,10 +790,7 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_field_rename_candidate(before_field, new_name);
 
-    Ok(SchemaDdlAcceptedSnapshotDerivation {
-        accepted_after,
-        admission,
-    })
+    SchemaDdlAcceptedSnapshotDerivation::new(accepted_before, accepted_after, admission)
 }
 
 /// Derive the persisted shape shared by rename admission and publication checks.

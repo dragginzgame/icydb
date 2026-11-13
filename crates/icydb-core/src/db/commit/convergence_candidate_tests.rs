@@ -151,7 +151,7 @@ impl DormantConvergenceCandidate {
 
     fn admit_and_publish(
         &mut self,
-        proposal: PreparedBacklogProposal,
+        proposal: &PreparedBacklogProposal,
         routes: &[(usize, Vec<u64>)],
     ) -> Result<BacklogAdmission, InternalError> {
         let proposal_batch_count = usize::try_from(proposal.contribution().batch_count())
@@ -462,19 +462,19 @@ fn integrated_candidate_is_oldest_first_and_preserves_newer_overlay_authority() 
     let newer_hot = batch(3, 2, 3, vec![row_record(7, vec![3])]);
     assert!(matches!(
         candidate
-            .admit_and_publish(proposal(vec![cold]), &[(1, vec![11])])
+            .admit_and_publish(&proposal(vec![cold]), &[(1, vec![11])])
             .unwrap(),
         BacklogAdmission::Admitted { .. },
     ));
     assert!(matches!(
         candidate
-            .admit_and_publish(proposal(vec![older_hot]), &[(0, vec![7])])
+            .admit_and_publish(&proposal(vec![older_hot]), &[(0, vec![7])])
             .unwrap(),
         BacklogAdmission::Admitted { .. },
     ));
     assert!(matches!(
         candidate
-            .admit_and_publish(proposal(vec![newer_hot]), &[(0, vec![7])])
+            .admit_and_publish(&proposal(vec![newer_hot]), &[(0, vec![7])])
             .unwrap(),
         BacklogAdmission::Admitted { .. },
     ));
@@ -502,13 +502,13 @@ fn continuously_hot_early_allocation_cannot_pass_an_older_cold_head() {
     let mut candidate = DormantConvergenceCandidate::new(isolated_memories(2));
     candidate
         .admit_and_publish(
-            proposal(vec![batch(11, 1, 1, vec![row_record(11, Vec::new())])]),
+            &proposal(vec![batch(11, 1, 1, vec![row_record(11, Vec::new())])]),
             &[(1, vec![11])],
         )
         .unwrap();
     candidate
         .admit_and_publish(
-            proposal(vec![batch(12, 1, 2, vec![row_record(12, Vec::new())])]),
+            &proposal(vec![batch(12, 1, 2, vec![row_record(12, Vec::new())])]),
             &[(0, vec![12])],
         )
         .unwrap();
@@ -521,7 +521,7 @@ fn continuously_hot_early_allocation_cannot_pass_an_older_cold_head() {
         let database_sequence = sequence + 1;
         candidate
             .admit_and_publish(
-                proposal(vec![batch(
+                &proposal(vec![batch(
                     20 + sequence,
                     sequence,
                     database_sequence,
@@ -585,7 +585,7 @@ fn maximum_store_scan_and_accepted_index_retirement_use_the_canonical_owners() {
         .map(|ordinal| (ordinal, vec![ordinal as u64]))
         .collect::<Vec<_>>();
     candidate
-        .admit_and_publish(proposal(batches), &routes)
+        .admit_and_publish(&proposal(batches), &routes)
         .unwrap();
     let selected = candidate.select_oldest_head().unwrap().unwrap();
     assert_eq!(selected.0, 0);
@@ -727,7 +727,7 @@ fn pressure_and_corruption_fail_before_candidate_publication() {
     assert!(decode_journal_batch(&[0xFF]).is_err());
     candidate
         .admit_and_publish(
-            proposal(vec![batch(1, 1, 1, vec![row_record(1, Vec::new())])]),
+            &proposal(vec![batch(1, 1, 1, vec![row_record(1, Vec::new())])]),
             &[(0, vec![1])],
         )
         .unwrap();

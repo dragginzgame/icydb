@@ -161,7 +161,7 @@ fn key_item_classification_preserves_scalar_and_grouped_label_semantics() {
             ],
             vec![field(&label), field("tenant"), field("id")],
             vec![
-                SemanticIndexKeyItem::Expression(expression.clone()),
+                SemanticIndexKeyItem::Expression(expression),
                 field("id"),
                 field("tenant"),
             ],

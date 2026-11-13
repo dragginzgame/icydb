@@ -62,7 +62,7 @@ fn fixture() -> (StructuralRowContract, AcceptedRelationInfo) {
         "Source",
         descriptor.row_decode_contract(catalog.clone()),
     );
-    let mut edge = relation(1, AcceptedFieldKind::Nat64);
+    let mut edge = relation(1, &AcceptedFieldKind::Nat64);
     edge.source = AcceptedRelationSource::Nested(AcceptedNestedRelationSource {
         root_slot: 1,
         steps: vec![

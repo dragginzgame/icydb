@@ -1,3 +1,5 @@
+//! Compile-time example of enrollment through generated typed writes.
+
 use icydb::model::prelude::*;
 use icydb::{
     db::{DbSession, StructuralMutation, StructuralPatch, TypedOperationError, WriteCell},
@@ -6,15 +8,18 @@ use icydb::{
 };
 
 #[canister(memory_namespace = "typed_enrollment_example")]
+/// Canister identity for the enrollment example.
 pub struct EnrollmentCanister {}
 
 #[store(canister = "EnrollmentCanister", storage(heap()))]
+/// Heap-backed enrollment store.
 pub struct EnrollmentStore {}
 
 #[enum_(
     variant(name = "Ready"),
     variant(name = "Weighted", value(item(prim = "Nat64")))
 )]
+/// Profile state with an optional numeric weight.
 pub struct EnrollmentState {}
 
 #[record(fields(
@@ -22,9 +27,11 @@ pub struct EnrollmentState {}
     field(name = "state", value(item(is = "EnrollmentState"))),
     field(name = "note", value(opt, item(prim = "Text", max_len = 64)))
 ))]
+/// Nested enrollment profile with a label and optional note.
 pub struct EnrollmentProfile {}
 
 #[list(item(is = "EnrollmentProfile"))]
+/// Collection of nested enrollment profiles.
 pub struct EnrollmentProfiles {}
 
 #[entity(
@@ -36,6 +43,7 @@ pub struct EnrollmentProfiles {}
         field(name = "display_name", value(item(prim = "Text", max_len = 64)))
     )
 )]
+/// User row with an authored identity and display name.
 pub struct User {}
 
 #[entity(
@@ -49,6 +57,7 @@ pub struct User {}
         field(name = "user_id", value(item(rel = "User", prim = "Ulid")))
     )
 )]
+/// Authentication principal linked to a user identity.
 pub struct UserPrincipal {}
 
 #[entity(
@@ -66,6 +75,7 @@ pub struct UserPrincipal {}
         field(name = "label", value(item(prim = "Text", max_len = 64)))
     )
 )]
+/// Related robot row with a generated identity.
 pub struct Robot {}
 
 #[entity(
@@ -77,6 +87,7 @@ pub struct Robot {}
         field(name = "profiles", value(item(is = "EnrollmentProfiles")))
     )
 )]
+/// Row containing nested enrollment profiles.
 pub struct ProfileOwner {}
 
 #[expect(dead_code)]

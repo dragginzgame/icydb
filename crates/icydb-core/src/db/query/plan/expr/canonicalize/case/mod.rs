@@ -43,7 +43,7 @@ pub(super) fn normalize_bool_case_expr(
     lower_searched_case_to_boolean(
         std::mem::take(when_then_arms),
         else_expr.take(),
-        admitted,
+        &admitted,
         top_level_where_null_collapse,
         work,
     )
@@ -226,7 +226,7 @@ fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
 fn lower_searched_case_to_boolean(
     arms: Vec<CaseWhenArm>,
     else_expr: Expr,
-    admitted: budget::AdmittedExpansion,
+    admitted: &budget::AdmittedExpansion,
     top_level_where_null_collapse: bool,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, QueryError> {

@@ -20,7 +20,7 @@ fn equality(value: Value, coercion: CoercionId) -> Predicate {
     ))
 }
 
-fn assert_normalized_identity(input: Predicate, expected: &Predicate) {
+fn assert_normalized_identity(input: &Predicate, expected: &Predicate) {
     let normalized = normalize(input.clone());
     assert_eq!(&normalized, expected);
     assert_eq!(normalize(normalized.clone()), normalized);
@@ -30,7 +30,7 @@ fn assert_normalized_identity(input: Predicate, expected: &Predicate) {
     write_predicate_sort_key(&mut expected_bytes, expected);
     assert_eq!(actual_bytes, expected_bytes);
     assert_eq!(
-        predicate_fingerprint(&input),
+        predicate_fingerprint(input),
         predicate_fingerprint(expected)
     );
 }
@@ -46,7 +46,7 @@ fn duplicate_only_or_preserves_equality_and_coercion() {
             Value::Enum(ValueEnum::test_payload(1, 1, Value::Null)),
         ] {
             let expected = equality(value, coercion);
-            assert_normalized_identity(Predicate::Or(vec![expected.clone(); 3]), &expected);
+            assert_normalized_identity(&Predicate::Or(vec![expected.clone(); 3]), &expected);
         }
     }
 }
@@ -119,7 +119,7 @@ fn eligible_or_membership_preserves_canonical_identity_across_input_orders() {
                     if reversed {
                         children.reverse();
                     }
-                    assert_normalized_identity(Predicate::Or(children), &expected);
+                    assert_normalized_identity(&Predicate::Or(children), &expected);
                 }
             }
         }
@@ -144,7 +144,7 @@ fn nested_and_large_or_membership_preserve_compact_identity() {
             ])
         })
         .collect();
-    assert_normalized_identity(Predicate::Or(children), &expected);
+    assert_normalized_identity(&Predicate::Or(children), &expected);
 }
 
 // Compare allocation identities without dereferencing retained raw pointers.

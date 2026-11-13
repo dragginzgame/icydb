@@ -68,9 +68,11 @@ pub use value::*;
 #[derive(Debug, ThisError)]
 pub enum NodeError {
     #[error("{0} is an incorrect node type")]
+    /// The requested path exists but has a different node type.
     IncorrectNodeType(String),
 
     #[error("path not found: {0}")]
+    /// No declaration exists at the requested Rust path.
     PathNotFound(String),
 }
 
@@ -160,6 +162,7 @@ pub(crate) fn validate_stable_key(errs: &mut ErrorTree, label: &str, value: &str
 }
 
 #[must_use]
+/// Whether a segment starts with a lowercase ASCII letter and contains only lowercase letters, digits and underscores.
 pub fn stable_key_segment_is_canonical(value: &str) -> bool {
     let mut bytes = value.bytes();
     bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())

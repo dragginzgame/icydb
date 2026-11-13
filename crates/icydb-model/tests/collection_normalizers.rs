@@ -4,6 +4,7 @@ use icydb_model::{normalize, prelude::*};
 use std::collections::BTreeMap;
 
 #[normalizer]
+/// Append a marker to prove that a field normalizer ran.
 pub struct Suffix;
 
 impl icydb_model::visitor::Normalizer<String> for Suffix {
@@ -19,6 +20,7 @@ impl icydb_model::visitor::Normalizer<String> for Suffix {
     normalizer(path = "base::normalizer::text::Trim"),
     normalizer(path = "Suffix")
 ))]
+/// List applying text normalizers to each element.
 pub struct NormalizedList;
 
 #[map(
@@ -30,18 +32,21 @@ pub struct NormalizedList;
         normalizer(path = "Suffix")
     ))
 )]
+/// Map applying text normalizers to each value.
 pub struct NormalizedMap;
 
 #[map(
     key(prim = "Text", unbounded),
     value(opt, item(prim = "Text", unbounded, normalizer(path = "Suffix")))
 )]
+/// Map exercising normalization of optional values.
 pub struct OptionalMap;
 
 #[map(
     key(prim = "Text", unbounded),
     value(many, item(prim = "Text", unbounded, normalizer(path = "Suffix")))
 )]
+/// Map exercising normalization of repeated values.
 pub struct RepeatedMap;
 
 #[test]
@@ -79,6 +84,7 @@ fn map_value_directives_preserve_keys_and_cardinality() {
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Lower"))
 )]
+/// Text wrapper with its own lowercase normalization hook.
 pub struct NestedText;
 
 impl icydb_model::visitor::Normalizer<NestedText> for Suffix {
@@ -89,9 +95,11 @@ impl icydb_model::visitor::Normalizer<NestedText> for Suffix {
 }
 
 #[list(item(is = "NestedText", normalizer(path = "Suffix")))]
+/// List combining nested-value normalization with an element attachment.
 pub struct NestedList;
 
 #[normalizer]
+/// Report a diagnostic without accepting the visited value.
 pub struct Reject;
 
 impl icydb_model::visitor::Normalizer<String> for Reject {
@@ -101,12 +109,14 @@ impl icydb_model::visitor::Normalizer<String> for Reject {
 }
 
 #[list(item(prim = "Text", unbounded, normalizer(path = "Reject")))]
+/// List whose element normalizer reports failures.
 pub struct RejectedList;
 
 #[map(
     key(prim = "Text", unbounded),
     value(opt, item(prim = "Text", unbounded, normalizer(path = "Reject")))
 )]
+/// Map whose optional-value normalizer reports failures.
 pub struct RejectedMap;
 
 #[test]
@@ -142,6 +152,7 @@ fn collection_callback_failures_retain_index_paths_and_identity() {
 }
 
 #[normalizer]
+/// Remove collection contents to test normalization before child traversal.
 pub struct Clear;
 
 impl icydb_model::visitor::Normalizer<std::collections::BTreeSet<String>> for Clear {
@@ -159,6 +170,7 @@ impl icydb_model::visitor::Normalizer<BTreeMap<String, String>> for Clear {
 }
 
 #[validator]
+/// Reject blank text while validating collection contents.
 pub struct NotBlank;
 
 impl icydb_model::visitor::Validator<String> for NotBlank {
@@ -173,6 +185,7 @@ impl icydb_model::visitor::Validator<String> for NotBlank {
     item(prim = "Text", unbounded, validator(path = "NotBlank")),
     ty(normalizer(path = "Clear"))
 )]
+/// Set testing whether clearing happens before element validation.
 pub struct CheckedSet;
 
 #[map(
@@ -180,6 +193,7 @@ pub struct CheckedSet;
     value(item(prim = "Text", unbounded)),
     ty(normalizer(path = "Clear"))
 )]
+/// Map testing whether clearing happens before key validation.
 pub struct CheckedMap;
 
 #[test]

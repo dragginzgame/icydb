@@ -1,3 +1,5 @@
+//! Compile-time contracts for typed writes and request execution.
+
 #[test]
 fn typed_write_identity_compile_contract() {
     let t = trybuild::TestCases::new();

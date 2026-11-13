@@ -42,7 +42,7 @@ use crate::error::InternalError;
 /// Derive the complete feasibility stage for one validated model plan.
 pub(super) fn derive_execution_feasibility_stage_for_model(
     plan: &AccessPlannedQuery,
-    continuation: ScalarContinuationContext,
+    continuation: &ScalarContinuationContext,
     planner_route_profile: &PlannerRouteProfile,
     intent_stage: &RouteIntentStage<'_>,
 ) -> Result<RouteFeasibilityStage, InternalError> {
@@ -161,7 +161,7 @@ pub(super) fn derive_route_derivation_context_for_model(
     let load_scan_hints_enabled = load_scan_hints_allowed_for_intent(kind, grouped);
     let access_window = *continuation.keep_access_window();
     let (scan_hints, aggregate_physical_fetch_hint, aggregate_seek_spec, top_n_seek_spec) =
-        derive_route_scan_hints_for_model(RouteScanHintInputs {
+        derive_route_scan_hints_for_model(&RouteScanHintInputs {
             plan,
             planner_route_profile,
             continuation,
@@ -259,7 +259,7 @@ fn derive_route_capability_state_for_model(
 // Route scan hints and seek specs are derived together because they share the
 // same access-window and capability inputs.
 fn derive_route_scan_hints_for_model(
-    inputs: RouteScanHintInputs<'_>,
+    inputs: &RouteScanHintInputs<'_>,
 ) -> (
     ScanHintPlan,
     Option<usize>,

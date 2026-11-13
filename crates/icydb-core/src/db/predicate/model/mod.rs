@@ -9,23 +9,62 @@ use crate::{
 };
 use std::ops::{BitAnd, BitOr};
 
-#[cfg_attr(doc, doc = "Predicate")]
+/// User-authored predicate tree, before schema admission and runtime field binding.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Predicate {
+    /// Always matches a row.
     True,
+    /// Never matches a row.
     False,
+    /// Requires every child predicate to match.
     And(Vec<Self>),
+    /// Requires at least one child predicate to match.
     Or(Vec<Self>),
+    /// Negates the child predicate.
     Not(Box<Self>),
+    /// Compares a field with a literal operand.
     Compare(ComparePredicate),
+    /// Compares the values of two fields.
     CompareFields(CompareFieldsPredicate),
-    IsNull { field: String },
-    IsNotNull { field: String },
-    IsMissing { field: String },
-    IsEmpty { field: String },
-    IsNotEmpty { field: String },
-    TextContains { field: String, value: Value },
-    TextContainsCi { field: String, value: Value },
+    /// Matches an explicitly absent optional value.
+    IsNull {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
+    /// Matches a present optional value.
+    IsNotNull {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
+    /// Matches a field that is absent from the evaluated row.
+    IsMissing {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
+    /// Matches an empty supported collection or text value.
+    IsEmpty {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
+    /// Matches a nonempty supported collection or text value.
+    IsNotEmpty {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+    },
+    /// Matches a case-sensitive text substring.
+    TextContains {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+        /// Operand value carried by this operation.
+        value: Value,
+    },
+    /// Matches a substring after the canonical case-insensitive fold.
+    TextContainsCi {
+        /// Name of the field being evaluated or rejected.
+        field: String,
+        /// Operand value carried by this operation.
+        value: Value,
+    },
 }
 
 impl Predicate {
@@ -182,20 +221,31 @@ impl BitOr for &Predicate {
     }
 }
 
-#[cfg_attr(doc, doc = "CompareOp")]
+/// Comparison operator with a stable canonical discriminant.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum CompareOp {
+    /// The operands compare equal.
     Eq = 0x01,
+    /// The operands compare unequal.
     Ne = 0x02,
+    /// The left operand sorts before the right operand.
     Lt = 0x03,
+    /// The left operand sorts before or equal to the right operand.
     Lte = 0x04,
+    /// The left operand sorts after the right operand.
     Gt = 0x05,
+    /// The left operand sorts after or equal to the right operand.
     Gte = 0x06,
+    /// The left operand belongs to the right-hand list.
     In = 0x07,
+    /// The left operand does not belong to the right-hand list.
     NotIn = 0x08,
+    /// The left operand contains the right operand.
     Contains = 0x09,
+    /// The text starts with the supplied prefix.
     StartsWith = 0x0a,
+    /// The text ends with the supplied suffix.
     EndsWith = 0x0b,
 }
 
@@ -299,7 +349,7 @@ impl CompareOp {
     }
 }
 
-#[cfg_attr(doc, doc = "ComparePredicate")]
+/// Field-to-literal comparison with an explicit coercion strategy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComparePredicate {
     pub(crate) field: String,

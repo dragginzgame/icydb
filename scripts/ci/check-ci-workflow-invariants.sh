@@ -127,7 +127,7 @@ for workflow in "${workflow_files[@]}"; do
   jq -se 'length == 1 and (.[0] | type == "object")' <<< "$parsed" >/dev/null || {
     echo "[ERROR] expected one workflow mapping: $workflow" >&2; exit 1;
   }
-  findings="$(jq -r -L "$ROOT/scripts/ci" --arg file "$workflow" \
+  findings="$(jq -r -L "$ROOT/vendor/toko-tooling/scripts/ci" --arg file "$workflow" \
     -f "$ROOT/scripts/ci/ci-workflow-invariants.jq" <<< "$parsed")" || {
     echo "[ERROR] cannot validate workflow: $workflow" >&2; exit 1;
   }
@@ -263,7 +263,7 @@ fi
 # Native oracle samples must reject an empty libtest match rather than making
 # their compile step stand in for a comparison. Reuse the common executed-test guard.
 for target in _ci-tier-a-sqlite _ci-tier-a-mutation; do
-  if ! make_target_recipe "$target" | rg -q --fixed-strings 'bash scripts/ci/run-nonempty-cargo-test.sh'; then
+  if ! make_target_recipe "$target" | rg -q --fixed-strings 'bash vendor/toko-tooling/scripts/ci/run-nonempty-cargo-test.sh'; then
     fail "$target must require a nonempty native oracle execution"
   fi
 done
@@ -312,6 +312,7 @@ for owned_path in \
   '/.github/actions/' \
   '/.github/dependabot.yml' \
   '/scripts/ci/' \
+  '/vendor/toko-tooling/' \
   '/Makefile' \
   '/rust-toolchain.toml'
 do

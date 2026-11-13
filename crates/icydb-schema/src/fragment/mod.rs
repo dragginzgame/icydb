@@ -509,7 +509,10 @@ pub enum RelationDeleteAction {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RelationPathStepFragment {
     /// Enter one accepted named record, enum, or transparent newtype.
-    EnterNamed { r#type: TypeSourceKey },
+    EnterNamed {
+        /// Source identity of the named type to enter.
+        r#type: TypeSourceKey,
+    },
     /// Continue through a present optional value; `NULL` means no target.
     OptionalSome,
     /// Select one accepted member of an accepted record.
@@ -548,6 +551,7 @@ pub enum RelationPathStepFragment {
 pub enum RelationSourceFragment {
     /// Ordered entity-root fields for the direct relation fast path.
     Direct {
+        /// Ordered source fields forming the relation key.
         #[serde(
             deserialize_with = "crate::codec::deserialize_keys::<_, _, { crate::MAX_FRAGMENT_FIELDS }>"
         )]
@@ -748,6 +752,10 @@ pub struct TargetedRuleFragment {
 impl TargetedRuleFragment {
     /// Construct one targeted rule below a persisted root field.
     #[must_use]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the public fragment constructor consumes its authoring inputs"
+    )]
     pub fn new(
         root: FieldSourceKey,
         target_type: TypeSourceKey,

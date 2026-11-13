@@ -1,3 +1,5 @@
+//! Compile-time contract for dynamic queries and typed row decoding.
+
 use icydb::{
     db::{
         DbSession, DynamicQuery, LiveQueryPageOutput, PrimaryKeyValue, TypedEntityAdapter,
@@ -159,7 +161,7 @@ where
         continuation,
         work,
     } = result;
-    let Ok(rows) = db.prepare_typed_output_rows(&binding, entity, columns, rows) else {
+    let Ok(rows) = db.prepare_typed_output_rows(&binding, entity, &columns, rows) else {
         return;
     };
     std::hint::black_box((rows, continuation, work));

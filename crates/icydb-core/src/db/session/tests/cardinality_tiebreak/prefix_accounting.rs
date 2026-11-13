@@ -23,10 +23,6 @@ use icydb_diagnostic_code::{
 use std::ops::Bound;
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the component matrix keeps refusal precedence and physical-visit evidence together"
-)]
 fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
     let setup = initialize();
     let catalog = setup
@@ -135,10 +131,6 @@ fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "Keep exact limits, repeated calls and all read lanes in one boundary matrix."
-)]
 fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
     let setup = initialize();
     let catalog = setup
